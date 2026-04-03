@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: ${{ runner.os }}-platformio-${{ hashFiles('**/platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-platformio-
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Build firmware
+        run: pio run
+      - name: Prepare binary
+        run: |
+          cp .pio/build/esp32s3/firmware.bin stickminer.bin
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: stickminer.bin
+          body: |
+            ## Flash Instructions
+
+            ### With PlatformIO
+            ```bash
+            pio run -t upload
+            ```
+
+            ### With esptool.py
+            ```bash
+            pip install esptool
+            esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash 0x0 stickminer.bin
+            ```
+
+            ### OTA (if already running StickMiner)
+            ```bash
+            curl -X POST -H "X-OTA-Token: <token>" --data-binary @stickminer.bin http://stickminer-XXXX.local/ota/upload
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

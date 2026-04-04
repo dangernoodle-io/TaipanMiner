@@ -34,6 +34,9 @@ void app_main(void)
     work_queue = xQueueCreate(1, sizeof(mining_work_t));
     result_queue = xQueueCreate(2, sizeof(mining_result_t));
 
+    // Initialize mining stats
+    mining_stats_init();
+
     // Start stratum task on Core 0
     xTaskCreatePinnedToCore(stratum_task, "stratum", 8192, NULL, 5, NULL, 0);
 

@@ -1,4 +1,4 @@
-#ifdef BOARD_BITAXE_601
+#ifdef ASIC_BM1370
 
 #include "asic.h"
 #include "esp_log.h"
@@ -21,4 +21,4 @@ void asic_mining_task(void *arg)
     }
 }
 
-#endif // BOARD_BITAXE_601
+#endif // ASIC_BM1370

@@ -1,6 +1,6 @@
 #pragma once
 
-#ifdef BOARD_BITAXE_601
+#ifdef ASIC_BM1370
 
 #include "esp_err.h"
 
@@ -11,4 +11,4 @@ esp_err_t asic_init(void);
 // ASIC mining task — dispatches work to BM1370, collects nonces.
 void asic_mining_task(void *arg);
 
-#endif // BOARD_BITAXE_601
+#endif // ASIC_BM1370

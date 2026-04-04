@@ -10,14 +10,14 @@
 #include "nv_config.h"
 #include "http_server.h"
 #include "esp_ota_ops.h"
-#ifdef BOARD_BITAXE_601
+#ifdef ASIC_BM1370
 #include "asic.h"
 #endif
 
 static const char *TAG = "taipanminer";
 
 // Mining task handles (for suspend/resume during OTA verification)
-#ifdef BOARD_BITAXE_601
+#ifdef ASIC_BM1370
 TaskHandle_t asic_task_handle = NULL;
 #else
 TaskHandle_t mining_hw_task_handle = NULL;
@@ -53,7 +53,7 @@ static void start_mining(void)
     // Start stratum task on Core 0
     xTaskCreatePinnedToCore(stratum_task, "stratum", 8192, NULL, 5, NULL, 0);
 
-#ifdef BOARD_BITAXE_601
+#ifdef ASIC_BM1370
     // Initialize and start ASIC mining task on Core 1
     ESP_ERROR_CHECK(asic_init());
     xTaskCreatePinnedToCore(asic_mining_task, "asic", 8192, NULL, 20, &asic_task_handle, 1);

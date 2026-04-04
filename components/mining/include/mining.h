@@ -22,7 +22,7 @@ extern QueueHandle_t result_queue;
 #include "freertos/semphr.h"
 
 // Mining task handles (for suspend/resume during OTA verification)
-#ifdef BOARD_BITAXE_601
+#ifdef ASIC_BM1370
 extern TaskHandle_t asic_task_handle;
 #else
 extern TaskHandle_t mining_hw_task_handle;
@@ -35,7 +35,7 @@ typedef struct {
     double sw_hashrate;    // latest SW hashrate (H/s)
     uint32_t hw_shares;    // hardware shares found
     uint32_t sw_shares;    // software shares found
-#ifdef BOARD_BITAXE_601
+#ifdef ASIC_BM1370
     double asic_hashrate;  // ASIC hashrate (H/s)
     uint32_t asic_shares;  // ASIC shares found
     float asic_temp_c;     // ASIC die temperature

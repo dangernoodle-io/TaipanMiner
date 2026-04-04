@@ -500,7 +500,7 @@ void stratum_task(void *arg)
         }
 
         // Subscribe
-        s_subscribe_id = stratum_request("mining.subscribe", "[\"StickMiner/0.1\"]");
+        s_subscribe_id = stratum_request("mining.subscribe", "[\"TaipanMiner/0.1\"]");
         if (s_subscribe_id < 0) {
             goto reconnect;
         }

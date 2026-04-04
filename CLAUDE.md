@@ -1,4 +1,4 @@
-# StickMiner
+# TaipanMiner
 
 Bitcoin mining firmware for LilyGo T-Dongle S3 (ESP32-S3).
 
@@ -10,7 +10,7 @@ Bitcoin mining firmware for LilyGo T-Dongle S3 (ESP32-S3).
 - Monitor: `pio device monitor`
 - Monitor (non-TTY): `stty -f /dev/cu.usbmodem101 115200 raw -echo -echoe -echok -echoctl -echoke && cat /dev/cu.usbmodem101`
 - Host tests: `pio test -e native`
-- Debug build: `pio run -e debug` (adds `STICKMINER_DEBUG=1` — enables SW mining task, SHA verification, benchmarks)
+- Debug build: `pio run -e debug` (adds `TAIPANMINER_DEBUG=1` — enables SW mining task, SHA verification, benchmarks)
 - Static analysis: `pio check --skip-packages`
 
 ### Python compatibility

@@ -7,11 +7,11 @@
 #include "work.h"
 #include "stratum.h"
 
-static const char *TAG = "stickminer";
+static const char *TAG = "taipanminer";
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "StickMiner %s starting...", STICKMINER_VERSION);
+    ESP_LOGI(TAG, "TaipanMiner %s starting...", TAIPANMINER_VERSION);
 
     // Suppress noisy wifi debug logs (before wifi_init)
     esp_log_level_set("wifi", ESP_LOG_WARN);

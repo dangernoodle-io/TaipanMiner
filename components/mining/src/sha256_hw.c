@@ -31,7 +31,7 @@ void sha256_hw_init(void)
     periph_module_enable(PERIPH_SHA_MODULE);
     REG_WRITE(SHA_MODE_REG, 2);  // SHA-256
 
-#ifdef STICKMINER_DEBUG
+#ifdef TAIPANMINER_DEBUG
     sha256_hw_verify_text_preserved();
     sha256_hw_bench_pass2(100000);
 #endif
@@ -213,7 +213,7 @@ IRAM_ATTR void sha256_hw_midstate(const uint8_t header_block1[64],
 
 // --- Debug utilities ---
 
-#ifdef STICKMINER_DEBUG
+#ifdef TAIPANMINER_DEBUG
 #include "esp_log.h"
 #include "esp_timer.h"
 #include <inttypes.h>

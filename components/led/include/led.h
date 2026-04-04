@@ -1,3 +1,3 @@
 #pragma once
 
-// StickMiner led component
+// TaipanMiner led component

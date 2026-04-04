@@ -154,7 +154,7 @@ void mining_task(void *arg)
                         mining_stats.hw_shares++;
                         xSemaphoreGive(mining_stats.mutex);
                     }
-#ifdef STICKMINER_DEBUG
+#ifdef TAIPANMINER_DEBUG
                     // Cross-check with software SHA using standard midstate
                     uint32_t sw_midstate[8];
                     memcpy(sw_midstate, sha256_H0, sizeof(sha256_H0));

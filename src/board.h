@@ -1,7 +1,7 @@
 #pragma once
 
 // Firmware version (updated by build/release process)
-#define STICKMINER_VERSION "0.1.0"
+#define TAIPANMINER_VERSION "0.1.0"
 
 // ST7735 LCD (SPI)
 #define PIN_LCD_CLK   5

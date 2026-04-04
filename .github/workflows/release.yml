@@ -26,11 +26,11 @@ jobs:
         run: pio run
       - name: Prepare binary
         run: |
-          cp .pio/build/esp32s3/firmware.bin stickminer.bin
+          cp .pio/build/esp32s3/firmware.bin taipanminer.bin
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: stickminer.bin
+          files: taipanminer.bin
           body: |
             ## Flash Instructions
 
@@ -42,12 +42,12 @@ jobs:
             ### With esptool.py
             ```bash
             pip install esptool
-            esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash 0x0 stickminer.bin
+            esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash 0x0 taipanminer.bin
             ```
 
-            ### OTA (if already running StickMiner)
+            ### OTA (if already running TaipanMiner)
             ```bash
-            curl -X POST -H "X-OTA-Token: <token>" --data-binary @stickminer.bin http://stickminer-XXXX.local/ota/upload
+            curl -X POST -H "X-OTA-Token: <token>" --data-binary @taipanminer.bin http://taipanminer-XXXX.local/ota/upload
             ```
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

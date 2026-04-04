@@ -125,7 +125,7 @@ sha256_hw_mine_nonce(const uint32_t midstate_hw[8],
 
 // --- Debug utilities ---
 
-#ifdef STICKMINER_DEBUG
+#ifdef TAIPANMINER_DEBUG
 #include <stdbool.h>
 
 // Verify that SHA_TEXT registers preserve their contents after SHA_START.

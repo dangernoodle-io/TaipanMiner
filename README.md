@@ -1,1 +1,1 @@
-# StickMiner
+# TaipanMiner

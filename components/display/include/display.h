@@ -1,3 +1,3 @@
 #pragma once
 
-// StickMiner display component
+// TaipanMiner display component

@@ -36,3 +36,6 @@ void sha256_clone(sha256_ctx_t *dst, const sha256_ctx_t *src);
 
 // Raw compression function (exposed for optimized mining loop)
 void sha256_transform(uint32_t state[8], const uint8_t block[64]);
+
+// Variant that takes pre-built word array (skips load_be32 for W[0-15])
+void sha256_transform_words(uint32_t state[8], const uint32_t words[16]);

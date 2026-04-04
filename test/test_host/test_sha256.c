@@ -135,3 +135,36 @@ void test_sha256_genesis_header(void)
     sha256d(genesis_header, 80, hash);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(expected, hash, 32);
 }
+
+// Test: sha256_transform_words produces identical output to sha256_transform
+// This validates the word-based variant (used in SW mining optimization)
+void test_sha256_transform_words(void)
+{
+    // Use a simple test block (known pattern)
+    uint8_t block[64];
+    memset(block, 0, 64);
+    block[0] = 0x01;
+    block[1] = 0x00;
+    block[2] = 0x00;
+    block[3] = 0x00;
+
+    // Convert block to words (big-endian)
+    uint32_t words[16];
+    for (int i = 0; i < 16; i++) {
+        words[i] = ((uint32_t)block[i*4] << 24) |
+                   ((uint32_t)block[i*4+1] << 16) |
+                   ((uint32_t)block[i*4+2] << 8) |
+                   (uint32_t)block[i*4+3];
+    }
+
+    // Run both transforms from same initial state
+    uint32_t state1[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+                           0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+    uint32_t state2[8];
+    memcpy(state2, state1, 32);
+
+    sha256_transform(state1, block);
+    sha256_transform_words(state2, words);
+
+    TEST_ASSERT_EQUAL_UINT32_ARRAY(state1, state2, 8);
+}

@@ -7,6 +7,7 @@ void test_sha256_two_blocks(void);
 void test_sha256d_known(void);
 void test_sha256_midstate(void);
 void test_sha256_genesis_header(void);
+void test_sha256_transform_words(void);
 
 // Forward declarations from test_work.c
 void test_hex_to_bytes(void);
@@ -48,6 +49,7 @@ int main(void) {
     RUN_TEST(test_sha256d_known);
     RUN_TEST(test_sha256_midstate);
     RUN_TEST(test_sha256_genesis_header);
+    RUN_TEST(test_sha256_transform_words);
 
     // Work module tests
     RUN_TEST(test_hex_to_bytes);

@@ -181,6 +181,58 @@ IRAM_ATTR void sha256_transform(uint32_t state[8], const uint8_t block[64]) {
     state[7] += h;
 }
 
+// Variant that takes pre-built word array (skips load_be32 for W[0-15])
+IRAM_ATTR void sha256_transform_words(uint32_t state[8], const uint32_t words[16]) {
+    uint32_t W[64];
+    uint32_t a, b, c, d, e, f, g, h;
+    uint32_t T1, T2;
+    int i;
+
+    // Words already in SHA-256 big-endian format
+    for (i = 0; i < 16; i++) {
+        W[i] = words[i];
+    }
+
+    // Expand message schedule (words 16-63)
+    for (i = 16; i < 64; i++) {
+        W[i] = sigma1(W[i - 2]) + W[i - 7] + sigma0(W[i - 15]) + W[i - 16];
+    }
+
+    // Initialize working variables
+    a = state[0];
+    b = state[1];
+    c = state[2];
+    d = state[3];
+    e = state[4];
+    f = state[5];
+    g = state[6];
+    h = state[7];
+
+    // Main loop
+    for (i = 0; i < 64; i++) {
+        T1 = h + Sigma1(e) + Ch(e, f, g) + K[i] + W[i];
+        T2 = Sigma0(a) + Maj(a, b, c);
+        h = g;
+        g = f;
+        f = e;
+        e = d + T1;
+        d = c;
+        c = b;
+        b = a;
+        a = T1 + T2;
+    }
+
+    // Add compressed chunk to current hash value
+    state[0] += a;
+    state[1] += b;
+    state[2] += c;
+    state[3] += d;
+    state[4] += e;
+    state[5] += f;
+    state[6] += g;
+    state[7] += h;
+}
+
 void sha256_init(sha256_ctx_t *ctx) {
     memcpy(ctx->state, H0, sizeof(H0));
     ctx->count = 0;

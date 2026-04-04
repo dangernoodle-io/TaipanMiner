@@ -227,19 +227,19 @@ void mining_task(void *arg)
             memcpy(state, midstate, 32);
             sha256_transform(state, block2);
 
-            // Write first hash into block3 (big-endian)
-            store_be32(block3,      state[0]);
-            store_be32(block3 + 4,  state[1]);
-            store_be32(block3 + 8,  state[2]);
-            store_be32(block3 + 12, state[3]);
-            store_be32(block3 + 16, state[4]);
-            store_be32(block3 + 20, state[5]);
-            store_be32(block3 + 24, state[6]);
-            store_be32(block3 + 28, state[7]);
+            // Write first hash into block3_words (big-endian)
+            block3_words[0] = state[0];
+            block3_words[1] = state[1];
+            block3_words[2] = state[2];
+            block3_words[3] = state[3];
+            block3_words[4] = state[4];
+            block3_words[5] = state[5];
+            block3_words[6] = state[6];
+            block3_words[7] = state[7];
 
-            // Second SHA-256: H0 + transform block3
+            // Second SHA-256: H0 + transform block3_words
             memcpy(state, H0, 32);
-            sha256_transform(state, block3);
+            sha256_transform_words(state, block3_words);
 
             // Quick reject: check MSB word (LE convention: state[7])
             if (state[7] <= target_word0) {
@@ -333,12 +333,11 @@ void mining_task_sw(void *arg)
     mining_work_t work;
     uint32_t midstate[8];
     uint8_t block2[64];
-    uint8_t block3[64];
+    uint32_t block3_words[16];
 
-    memset(block3, 0, 64);
-    block3[32] = 0x80;
-    block3[62] = 0x01;
-    block3[63] = 0x00;
+    memset(block3_words, 0, sizeof(block3_words));
+    block3_words[8]  = 0x80000000U;  // 0x80 padding byte in BE word
+    block3_words[15] = 0x00000100U;  // bit length 256 in BE word
 
     ESP_LOGI(TAG, "software mining task started (core %d)", xPortGetCoreID());
 
@@ -401,19 +400,19 @@ void mining_task_sw(void *arg)
             memcpy(state, midstate, 32);
             sha256_transform(state, block2);
 
-            // Write first hash into block3
-            store_be32(block3,      state[0]);
-            store_be32(block3 + 4,  state[1]);
-            store_be32(block3 + 8,  state[2]);
-            store_be32(block3 + 12, state[3]);
-            store_be32(block3 + 16, state[4]);
-            store_be32(block3 + 20, state[5]);
-            store_be32(block3 + 24, state[6]);
-            store_be32(block3 + 28, state[7]);
+            // Write first hash into block3_words
+            block3_words[0] = state[0];
+            block3_words[1] = state[1];
+            block3_words[2] = state[2];
+            block3_words[3] = state[3];
+            block3_words[4] = state[4];
+            block3_words[5] = state[5];
+            block3_words[6] = state[6];
+            block3_words[7] = state[7];
 
             // Second SHA-256
             memcpy(state, H0, 32);
-            sha256_transform(state, block3);
+            sha256_transform_words(state, block3_words);
 
             // Quick reject
             if (state[7] <= target_word0) {

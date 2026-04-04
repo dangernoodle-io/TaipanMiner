@@ -21,4 +21,6 @@ extern QueueHandle_t result_queue;
 void mining_task(void *arg);
 
 // Software SHA mining task — runs on Core 0, priority 3
+#ifdef STICKMINER_DEBUG
 void mining_task_sw(void *arg);
+#endif

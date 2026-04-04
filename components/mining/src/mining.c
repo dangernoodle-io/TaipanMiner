@@ -13,7 +13,7 @@
 static const char *TAG = "mining";
 
 // SHA-256 initial hash values
-static const uint32_t H0[8] = {
+static const uint32_t H0[8] __attribute__((unused)) = {
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
     0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
 };
@@ -117,7 +117,11 @@ void mining_task(void *arg)
             uint32_t nonce = 0;
             uint32_t hashes = 0;
 
+#ifdef STICKMINER_DEBUG
             for (nonce = 0; nonce <= 0x7FFFFFFFU; nonce++) {
+#else
+            for (nonce = 0; ; nonce++) {
+#endif
 #ifdef ESP_PLATFORM
             // Hardware SHA path (Phase 3 optimized: zero-bswap HW-format pipeline)
             uint32_t digest_hw[8];
@@ -308,6 +312,9 @@ void mining_task(void *arg)
 
                 vTaskDelay(1);
             }
+#ifndef STICKMINER_DEBUG
+            if (nonce == 0xFFFFFFFFU) break;
+#endif
             }  // end nonce loop
 
             // Nonce range exhausted — try rolling version
@@ -321,6 +328,7 @@ void mining_task(void *arg)
     }
 }
 
+#ifdef STICKMINER_DEBUG
 void mining_task_sw(void *arg)
 {
     mining_work_t work;
@@ -489,3 +497,4 @@ void mining_task_sw(void *arg)
         ESP_LOGW(TAG, "exhausted sw nonce range for job %s", work.job_id);
     }
 }
+#endif

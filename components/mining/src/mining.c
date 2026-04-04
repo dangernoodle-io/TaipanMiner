@@ -54,7 +54,7 @@ void mining_task(void *arg)
     block3_words[15] = 0x00000100U;  // bit length 256 in BE word
 #endif
 
-    ESP_LOGI(TAG, "mining task started");
+    ESP_LOGI(TAG, "hw: task started");
 
 #ifdef ESP_PLATFORM
     sha256_hw_init();
@@ -65,7 +65,7 @@ void mining_task(void *arg)
             continue;
         }
 
-        ESP_LOGI(TAG, "new job: %s", work.job_id);
+        ESP_LOGI(TAG, "hw: new job (%s)", work.job_id);
 
         // Precompute MSB target word for early reject (needed only for software path).
         // state[7] is in SHA-256 BE word order: (hash[28]<<24 | hash[29]<<16 | hash[30]<<8 | hash[31])
@@ -149,7 +149,7 @@ void mining_task(void *arg)
                         result.version_hex[0] = '\0';
                     }
 
-                    ESP_LOGI(TAG, "HW SHARE FOUND! nonce=%08" PRIx32, nonce);
+                    ESP_LOGI(TAG, "hw: share found! (nonce=%08" PRIx32 ")", nonce);
                     if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
                         mining_stats.hw_shares++;
                         xSemaphoreGive(mining_stats.mutex);
@@ -265,7 +265,7 @@ void mining_task(void *arg)
                     sprintf(result.ntime_hex, "%08" PRIx32, work.ntime);
                     sprintf(result.nonce_hex, "%08" PRIx32, nonce);
 
-                    ESP_LOGI(TAG, "HW SHARE FOUND! nonce=%08" PRIx32, nonce);
+                    ESP_LOGI(TAG, "hw: share found! (nonce=%08" PRIx32 ")", nonce);
                     if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
                         mining_stats.hw_shares++;
                         xSemaphoreGive(mining_stats.mutex);
@@ -309,7 +309,7 @@ void mining_task(void *arg)
                 if (xQueuePeek(work_queue, &new_work, 0) == pdTRUE &&
                     strcmp(new_work.job_id, work.job_id) != 0) {
                     memcpy(&work, &new_work, sizeof(work));
-                    ESP_LOGI(TAG, "new job: %s", work.job_id);
+                    ESP_LOGI(TAG, "hw: new job (%s)", work.job_id);
                     target_word0 = ((uint32_t)work.target[28] << 24) |
                                    ((uint32_t)work.target[29] << 16) |
                                    ((uint32_t)work.target[30] << 8)  |
@@ -343,10 +343,10 @@ void mining_task(void *arg)
             if (work.version_mask == 0) break;  // no rolling, done
             ver_bits = next_version_roll(ver_bits, work.version_mask);
             if (ver_bits == 0) break;  // wrapped around, all versions exhausted
-            ESP_LOGI(TAG, "rolling version: mask=%08" PRIx32 " bits=%08" PRIx32, work.version_mask, ver_bits);
+            ESP_LOGI(TAG, "hw: rolling version: mask=%08" PRIx32 " bits=%08" PRIx32, work.version_mask, ver_bits);
         }  // end version rolling outer loop
 
-        ESP_LOGW(TAG, "exhausted hw nonce range for job %s", work.job_id);
+        ESP_LOGW(TAG, "hw: exhausted nonce range for job %s", work.job_id);
     }
 }
 
@@ -361,7 +361,7 @@ void mining_task_sw(void *arg)
     block3_words[8]  = 0x80000000U;  // 0x80 padding byte in BE word
     block3_words[15] = 0x00000100U;  // bit length 256 in BE word
 
-    ESP_LOGI(TAG, "software mining task started (core %d)", xPortGetCoreID());
+    ESP_LOGI(TAG, "sw: task started (core %d)", xPortGetCoreID());
 
     for (;;) {
         // Peek for work (non-destructive — HW task also reads from same queue)
@@ -369,7 +369,7 @@ void mining_task_sw(void *arg)
             continue;
         }
 
-        ESP_LOGI(TAG, "sw new job: %s", work.job_id);
+        ESP_LOGI(TAG, "sw: new job (%s)", work.job_id);
 
         // Precompute target word for early reject
         uint32_t target_word0 = ((uint32_t)work.target[28] << 24) |
@@ -463,7 +463,7 @@ void mining_task_sw(void *arg)
                         result.version_hex[0] = '\0';
                     }
 
-                    ESP_LOGI(TAG, "SW SHARE FOUND! nonce=%08" PRIx32, nonce);
+                    ESP_LOGI(TAG, "sw: share found! (nonce=%08" PRIx32 ")", nonce);
                     if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
                         mining_stats.sw_shares++;
                         xSemaphoreGive(mining_stats.mutex);
@@ -492,7 +492,7 @@ void mining_task_sw(void *arg)
                 if (xQueuePeek(work_queue, &new_work, 0) == pdTRUE &&
                     strcmp(new_work.job_id, work.job_id) != 0) {
                     memcpy(&work, &new_work, sizeof(work));
-                    ESP_LOGI(TAG, "sw new job: %s", work.job_id);
+                    ESP_LOGI(TAG, "sw: new job (%s)", work.job_id);
                     target_word0 = ((uint32_t)work.target[28] << 24) |
                                    ((uint32_t)work.target[29] << 16) |
                                    ((uint32_t)work.target[30] << 8)  |
@@ -518,9 +518,9 @@ void mining_task_sw(void *arg)
             if (work.version_mask == 0) break;  // no rolling, done
             ver_bits = next_version_roll(ver_bits, work.version_mask);
             if (ver_bits == 0) break;  // wrapped around, all versions exhausted
-            ESP_LOGI(TAG, "sw rolling version: mask=%08" PRIx32 " bits=%08" PRIx32, work.version_mask, ver_bits);
+            ESP_LOGI(TAG, "sw: rolling version: mask=%08" PRIx32 " bits=%08" PRIx32, work.version_mask, ver_bits);
         }  // end version rolling outer loop
 
-        ESP_LOGW(TAG, "exhausted sw nonce range for job %s", work.job_id);
+        ESP_LOGW(TAG, "sw: exhausted nonce range for job %s", work.job_id);
     }
 }

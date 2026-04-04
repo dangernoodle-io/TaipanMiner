@@ -12,7 +12,7 @@
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
 
-static const char *TAG = "wifi";
+static const char *TAG = "wifi_prov";
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_MAX_RETRY 10
 

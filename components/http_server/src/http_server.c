@@ -163,10 +163,11 @@ static esp_err_t status_handler(httpd_req_t *req)
     const esp_app_desc_t *app = esp_app_get_description();
     int64_t uptime_s = (esp_timer_get_time() - s_start_time) / 1000000;
 
-    char buf[512];
+    char buf[640];
     int len = snprintf(buf, sizeof(buf),
         "<html><body>"
-        "<h2>StickMiner %s</h2>"
+        "<h2>TaipanMiner %s</h2>"
+        "<p>Build: %s %s</p>"
         "<p>Pool: %s:%u</p>"
         "<p>Worker: %s.%s</p>"
         "<p>Hashrate: %.1f kH/s (hw: %.1f / sw: %.1f)</p>"
@@ -175,6 +176,7 @@ static esp_err_t status_handler(httpd_req_t *req)
         "<p><a href=\"/ota\">OTA Update</a></p>"
         "</body></html>",
         app->version,
+        app->date, app->time,
         nv_config_pool_host(), nv_config_pool_port(),
         nv_config_wallet_addr(), nv_config_worker_name(),
         (hw_rate + sw_rate) / 1000.0, hw_rate / 1000.0, sw_rate / 1000.0,
@@ -214,6 +216,8 @@ static esp_err_t stats_handler(httpd_req_t *req)
     cJSON_AddStringToObject(root, "worker", nv_config_worker_name());
     cJSON_AddNumberToObject(root, "uptime_s", (double)uptime_s);
     cJSON_AddStringToObject(root, "version", app->version);
+    cJSON_AddStringToObject(root, "build_date", app->date);
+    cJSON_AddStringToObject(root, "build_time", app->time);
 
     char *json = cJSON_PrintUnformatted(root);
     httpd_resp_set_type(req, "application/json");

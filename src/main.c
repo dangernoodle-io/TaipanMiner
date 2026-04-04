@@ -58,7 +58,8 @@ static void start_mining(void)
 // cppcheck-suppress unusedFunction
 void app_main(void)
 {
-    ESP_LOGI(TAG, "TaipanMiner %s starting...", TAIPANMINER_VERSION);
+    const esp_app_desc_t *app = esp_app_get_description();
+    ESP_LOGI(TAG, "TaipanMiner (%s) starting...", app->version);
 
     // Suppress noisy wifi debug logs (before wifi_init)
     esp_log_level_set("wifi", ESP_LOG_WARN);

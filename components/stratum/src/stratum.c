@@ -542,9 +542,6 @@ void stratum_task(void *arg)
             }
         }
 
-        // Suggest low difficulty after authorize
-        stratum_request("mining.suggest_difficulty", "[0.0002]");
-
         // Wait for authorize response, set_difficulty, and initial notify
         for (int i = 0; i < 50; i++) {  // 5s timeout
             int n = stratum_readline(line, sizeof(line), 100);

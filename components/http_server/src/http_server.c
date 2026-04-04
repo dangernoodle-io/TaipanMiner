@@ -312,15 +312,23 @@ static esp_err_t ota_upload_handler(httpd_req_t *req)
     ESP_LOGI(TAG, "OTA receive complete (%d bytes), validating", received);
 
     // Suspend mining tasks — HW SHA mining conflicts with image verification
+#ifdef BOARD_BITAXE_601
+    if (asic_task_handle) vTaskSuspend(asic_task_handle);
+#else
     if (mining_hw_task_handle) vTaskSuspend(mining_hw_task_handle);
     if (mining_sw_task_handle) vTaskSuspend(mining_sw_task_handle);
+#endif
 
     err = esp_ota_end(ota_handle);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_ota_end failed: %s (0x%x)", esp_err_to_name(err), err);
         // Resume mining tasks on OTA failure
+#ifdef BOARD_BITAXE_601
+        if (asic_task_handle) vTaskResume(asic_task_handle);
+#else
         if (mining_hw_task_handle) vTaskResume(mining_hw_task_handle);
         if (mining_sw_task_handle) vTaskResume(mining_sw_task_handle);
+#endif
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA end failed");
         return ESP_FAIL;
     }

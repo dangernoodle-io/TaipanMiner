@@ -18,3 +18,6 @@ extern QueueHandle_t result_queue;
 
 // Mining task — runs on Core 1, priority 20
 void mining_task(void *arg);
+
+// Software SHA mining task — runs on Core 0, priority 3
+void mining_task_sw(void *arg);

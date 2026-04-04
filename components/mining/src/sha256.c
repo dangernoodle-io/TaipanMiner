@@ -9,7 +9,7 @@
 #endif
 
 // Initial hash values (H0 - H7)
-static const uint32_t H0[8] = {
+const uint32_t sha256_H0[8] = {
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
     0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
 };
@@ -271,7 +271,7 @@ IRAM_ATTR void sha256_transform_words(uint32_t state[8], const uint32_t words[16
 }
 
 void sha256_init(sha256_ctx_t *ctx) {
-    memcpy(ctx->state, H0, sizeof(H0));
+    memcpy(ctx->state, sha256_H0, sizeof(sha256_H0));
     ctx->count = 0;
 }
 

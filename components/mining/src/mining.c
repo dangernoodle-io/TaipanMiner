@@ -284,17 +284,21 @@ void mining_task(void *arg)
                     if (elapsed_us > 0) {
                         double hashrate = (double)hashes / ((double)elapsed_us / 1000000.0);
                         double sw_rate = 0;
+                        uint32_t hw_shares = 0;
+                        uint32_t sw_shares = 0;
                         uint32_t total_shares = 0;
 #ifdef ESP_PLATFORM
                         if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
                             mining_stats.hw_hashrate = hashrate;
                             sw_rate = mining_stats.sw_hashrate;
-                            total_shares = mining_stats.hw_shares + mining_stats.sw_shares;
+                            hw_shares = mining_stats.hw_shares;
+                            sw_shares = mining_stats.sw_shares;
+                            total_shares = hw_shares + sw_shares;
                             xSemaphoreGive(mining_stats.mutex);
                         }
-                        ESP_LOGI(TAG, "hw: %.1f kH/s | sw: %.1f kH/s | total: %.1f kH/s | shares: %"PRIu32,
+                        ESP_LOGI(TAG, "hw: %.1f kH/s | sw: %.1f kH/s | total: %.1f kH/s | shares: %"PRIu32" hw / %"PRIu32" sw / %"PRIu32" total",
                                  hashrate / 1000.0, sw_rate / 1000.0,
-                                 (hashrate + sw_rate) / 1000.0, total_shares);
+                                 (hashrate + sw_rate) / 1000.0, hw_shares, sw_shares, total_shares);
 #else
                         ESP_LOGI(TAG, "%.1f H/s (nonce=%08" PRIx32 ")", hashrate, nonce + 1);
 #endif

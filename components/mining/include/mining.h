@@ -10,6 +10,7 @@ typedef struct {
     char     extranonce2_hex[17];
     char     ntime_hex[9];
     char     nonce_hex[9];
+    char     version_hex[9];   // BIP 320: rolled version as hex; empty if no rolling
 } mining_result_t;
 
 // Queues (created by main, used by stratum + mining tasks)

@@ -96,11 +96,28 @@ void mining_task(void *arg)
         uint32_t *block2_words = (uint32_t *)block2;
 #endif
 
-        int64_t start_us = esp_timer_get_time();
-        uint32_t nonce = 0;
-        uint32_t hashes = 0;
+        // Version rolling outer loop (BIP 320)
+        uint32_t base_version = work.version;
+        uint32_t ver_bits = 0;  // current version roll offset
 
-        for (nonce = 0; nonce <= 0x7FFFFFFFU; nonce++) {
+        for (;;) {  // version rolling outer loop
+            // Apply version roll
+            if (work.version_mask != 0 && ver_bits != 0) {
+                uint32_t rolled = (base_version & ~work.version_mask) | (ver_bits & work.version_mask);
+                // Update version in header (bytes 0-3, little-endian)
+                work.header[0] = rolled & 0xFF;
+                work.header[1] = (rolled >> 8) & 0xFF;
+                work.header[2] = (rolled >> 16) & 0xFF;
+                work.header[3] = (rolled >> 24) & 0xFF;
+                // Recompute midstate (version is in first 64 bytes)
+                sha256_hw_midstate(work.header, midstate_hw);
+            }
+
+            int64_t start_us = esp_timer_get_time();
+            uint32_t nonce = 0;
+            uint32_t hashes = 0;
+
+            for (nonce = 0; nonce <= 0x7FFFFFFFU; nonce++) {
 #ifdef ESP_PLATFORM
             // Hardware SHA path (Phase 3 optimized: zero-bswap HW-format pipeline)
             uint32_t digest_hw[8];
@@ -123,6 +140,12 @@ void mining_task(void *arg)
                     result.extranonce2_hex[sizeof(result.extranonce2_hex) - 1] = '\0';
                     sprintf(result.ntime_hex, "%08" PRIx32, work.ntime);
                     sprintf(result.nonce_hex, "%08" PRIx32, nonce);
+                    if (work.version_mask != 0 && ver_bits != 0) {
+                        uint32_t rolled = (base_version & ~work.version_mask) | (ver_bits & work.version_mask);
+                        sprintf(result.version_hex, "%08" PRIx32, rolled);
+                    } else {
+                        result.version_hex[0] = '\0';
+                    }
 
                     ESP_LOGI(TAG, "SHARE FOUND! nonce=%08" PRIx32, nonce);
 #ifdef STICKMINER_DEBUG
@@ -285,7 +308,14 @@ void mining_task(void *arg)
 
                 vTaskDelay(1);
             }
-        }
+            }  // end nonce loop
+
+            // Nonce range exhausted — try rolling version
+            if (work.version_mask == 0) break;  // no rolling, done
+            ver_bits = next_version_roll(ver_bits, work.version_mask);
+            if (ver_bits == 0) break;  // wrapped around, all versions exhausted
+            ESP_LOGI(TAG, "rolling version: mask=%08" PRIx32 " bits=%08" PRIx32, work.version_mask, ver_bits);
+        }  // end version rolling outer loop
 
         ESP_LOGW(TAG, "exhausted hw nonce range for job %s", work.job_id);
     }
@@ -330,11 +360,29 @@ void mining_task_sw(void *arg)
         block2[62] = 0x02;
         block2[63] = 0x80;
 
-        int64_t start_us = esp_timer_get_time();
-        uint32_t hashes = 0;
+        // Version rolling outer loop (BIP 320)
+        uint32_t base_version = work.version;
+        uint32_t ver_bits = 0;  // current version roll offset
 
-        // SW task mines nonces 0x80000000 - 0xFFFFFFFF
-        for (uint32_t nonce = 0x80000000U; nonce != 0; nonce++) {
+        for (;;) {  // version rolling outer loop
+            // Apply version roll
+            if (work.version_mask != 0 && ver_bits != 0) {
+                uint32_t rolled = (base_version & ~work.version_mask) | (ver_bits & work.version_mask);
+                // Update version in header (bytes 0-3, little-endian)
+                work.header[0] = rolled & 0xFF;
+                work.header[1] = (rolled >> 8) & 0xFF;
+                work.header[2] = (rolled >> 16) & 0xFF;
+                work.header[3] = (rolled >> 24) & 0xFF;
+                // Recompute midstate (version is in first 64 bytes)
+                memcpy(midstate, H0, sizeof(H0));
+                sha256_transform(midstate, work.header);
+            }
+
+            int64_t start_us = esp_timer_get_time();
+            uint32_t hashes = 0;
+
+            // SW task mines nonces 0x80000000 - 0xFFFFFFFF
+            for (uint32_t nonce = 0x80000000U; nonce != 0; nonce++) {
             // Set nonce in block2
             block2[12] = (uint8_t)(nonce & 0xff);
             block2[13] = (uint8_t)((nonce >> 8) & 0xff);
@@ -380,6 +428,12 @@ void mining_task_sw(void *arg)
                     result.extranonce2_hex[sizeof(result.extranonce2_hex) - 1] = '\0';
                     sprintf(result.ntime_hex, "%08" PRIx32, work.ntime);
                     sprintf(result.nonce_hex, "%08" PRIx32, nonce);
+                    if (work.version_mask != 0 && ver_bits != 0) {
+                        uint32_t rolled = (base_version & ~work.version_mask) | (ver_bits & work.version_mask);
+                        sprintf(result.version_hex, "%08" PRIx32, rolled);
+                    } else {
+                        result.version_hex[0] = '\0';
+                    }
 
                     ESP_LOGI(TAG, "SW SHARE FOUND! nonce=%08" PRIx32, nonce);
                     xQueueSend(result_queue, &result, 0);
@@ -423,7 +477,14 @@ void mining_task_sw(void *arg)
 
                 vTaskDelay(1);
             }
-        }
+            }  // end sw nonce loop
+
+            // Nonce range exhausted — try rolling version
+            if (work.version_mask == 0) break;  // no rolling, done
+            ver_bits = next_version_roll(ver_bits, work.version_mask);
+            if (ver_bits == 0) break;  // wrapped around, all versions exhausted
+            ESP_LOGI(TAG, "sw rolling version: mask=%08" PRIx32 " bits=%08" PRIx32, work.version_mask, ver_bits);
+        }  // end version rolling outer loop
 
         ESP_LOGW(TAG, "exhausted sw nonce range for job %s", work.job_id);
     }

@@ -603,3 +603,30 @@ void test_difficulty_target_meets_target_integration(void)
     hash2[26] = 0x7F;  // Less than target[26]=0xFF
     TEST_ASSERT_TRUE(meets_target(hash2, target2));
 }
+
+// Test BIP 320 version rolling mask iteration
+void test_version_rolling_mask_increment(void)
+{
+    uint32_t mask = 0x00006000;  // 2 bits set → 4 values (including 0)
+    uint32_t v;
+
+    // First call: 0 → mask (all bits set)
+    v = next_version_roll(0, mask);
+    TEST_ASSERT_EQUAL_HEX32(0x00006000, v);
+
+    // Second: 0x6000 → 0x4000
+    v = next_version_roll(v, mask);
+    TEST_ASSERT_EQUAL_HEX32(0x00004000, v);
+
+    // Third: 0x4000 → 0x2000
+    v = next_version_roll(v, mask);
+    TEST_ASSERT_EQUAL_HEX32(0x00002000, v);
+
+    // Fourth: 0x2000 → 0 (exhausted)
+    v = next_version_roll(v, mask);
+    TEST_ASSERT_EQUAL_HEX32(0x00000000, v);
+
+    // No mask: always returns 0
+    TEST_ASSERT_EQUAL_HEX32(0, next_version_roll(0, 0));
+    TEST_ASSERT_EQUAL_HEX32(0, next_version_roll(0x1234, 0));
+}

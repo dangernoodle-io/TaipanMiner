@@ -31,6 +31,8 @@ static double s_difficulty = 1.0;
 static stratum_job_t s_job;
 static int s_subscribe_id = 0;
 static int s_authorize_id = 0;
+static uint32_t s_version_mask = 0;
+static int s_configure_id = 0;
 
 // Line buffer for reading from socket
 static char s_linebuf[4096];
@@ -172,6 +174,19 @@ static int stratum_connect(void)
     return 0;
 }
 
+// Handle mining.configure response
+static void handle_configure_result(cJSON *result)
+{
+    cJSON *vr = cJSON_GetObjectItem(result, "version-rolling");
+    if (cJSON_IsTrue(vr)) {
+        cJSON *mask_j = cJSON_GetObjectItem(result, "version-rolling.mask");
+        if (mask_j && mask_j->valuestring) {
+            s_version_mask = (uint32_t)strtoul(mask_j->valuestring, NULL, 16);
+            ESP_LOGI(TAG, "version rolling enabled, mask=0x%08" PRIx32, s_version_mask);
+        }
+    }
+}
+
 // Build mining work from current job
 static void build_work(mining_work_t *work)
 {
@@ -218,6 +233,7 @@ static void build_work(mining_work_t *work)
              work->target[27], work->target[26], work->target[25], work->target[24]);
 
     work->version = s_job.version;
+    work->version_mask = s_version_mask;
     work->ntime = s_job.ntime;
     strncpy(work->job_id, s_job.job_id, sizeof(work->job_id) - 1);
     work->job_id[sizeof(work->job_id) - 1] = '\0';
@@ -351,13 +367,19 @@ static int handle_subscribe_result(cJSON *result)
 static int submit_share(mining_result_t *result)
 {
     char params[256];
-    snprintf(params, sizeof(params),
-             "[\"%s.%s\",\"%s\",\"%s\",\"%s\",\"%s\"]",
-             CONFIG_WALLET_ADDR, CONFIG_WORKER_NAME,
-             result->job_id,
-             result->extranonce2_hex,
-             result->ntime_hex,
-             result->nonce_hex);
+    if (result->version_hex[0] != '\0') {
+        snprintf(params, sizeof(params),
+                 "[\"%s.%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"]",
+                 CONFIG_WALLET_ADDR, CONFIG_WORKER_NAME,
+                 result->job_id, result->extranonce2_hex,
+                 result->ntime_hex, result->nonce_hex, result->version_hex);
+    } else {
+        snprintf(params, sizeof(params),
+                 "[\"%s.%s\",\"%s\",\"%s\",\"%s\",\"%s\"]",
+                 CONFIG_WALLET_ADDR, CONFIG_WORKER_NAME,
+                 result->job_id, result->extranonce2_hex,
+                 result->ntime_hex, result->nonce_hex);
+    }
 
     ESP_LOGD(TAG, "submit: %s", params);
     return stratum_request("mining.submit", params) < 0 ? -1 : 0;
@@ -411,6 +433,13 @@ static void process_message(const char *line)
                     }
                 }
             }
+        } else if (id == s_configure_id) {
+            // Configure response (BIP 320 version rolling) — non-fatal
+            if (result_item && cJSON_IsObject(result_item)) {
+                handle_configure_result(result_item);
+            } else {
+                ESP_LOGW(TAG, "pool does not support mining.configure, version rolling disabled");
+            }
         } else {
             // Submit response or other
             if (error_item && !cJSON_IsNull(error_item)) {
@@ -441,6 +470,16 @@ void stratum_task(void *arg)
             ESP_LOGW(TAG, "reconnecting in 5s");
             vTaskDelay(pdMS_TO_TICKS(5000));
             continue;
+        }
+
+        // Configure (version rolling) — non-fatal if pool doesn't support it
+        s_configure_id = stratum_request("mining.configure",
+            "[[\"version-rolling\"],"
+            "{\"version-rolling.mask\":\"1fffe000\","
+            "\"version-rolling.min-bit-count\":13}]");
+        if (s_configure_id < 0) {
+            ESP_LOGW(TAG, "configure send failed, skipping version rolling");
+            s_configure_id = 0;
         }
 
         // Subscribe
@@ -518,6 +557,8 @@ reconnect:
         s_extranonce1_len = 0;
         s_subscribe_id = 0;
         s_authorize_id = 0;
+        s_configure_id = 0;
+        s_version_mask = 0;
         ESP_LOGW(TAG, "reconnecting in 5s");
         vTaskDelay(pdMS_TO_TICKS(5000));
     }

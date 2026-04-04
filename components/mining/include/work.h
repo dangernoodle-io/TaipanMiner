@@ -32,6 +32,7 @@ typedef struct {
     uint8_t  header[80];         // serialized block header
     uint8_t  target[32];         // 256-bit target (big-endian for comparison)
     uint32_t version;            // for version rolling
+    uint32_t version_mask;       // BIP 320: 0 if version rolling not active
     uint32_t ntime;              // for ntime rolling
     char     job_id[64];
     char     extranonce2_hex[17]; // extranonce2 as hex string (8 bytes = 16 hex chars + null)
@@ -77,3 +78,12 @@ size_t hex_to_bytes(const char *hex, uint8_t *out, size_t max_out);
 
 // Bytes to hex string utility (null-terminated output expected to be at least 2*len+1)
 void bytes_to_hex(const uint8_t *data, size_t len, char *hex);
+
+// Iterate through BIP 320 version-rolling submask values.
+// Start with ver_bits=0. Returns next ver_bits; 0 when exhausted.
+static inline uint32_t next_version_roll(uint32_t ver_bits, uint32_t mask) {
+    if (mask == 0) return 0;
+    if (ver_bits == 0) return mask;
+    uint32_t next = (ver_bits - 1) & mask;
+    return next;  // 0 means exhausted
+}

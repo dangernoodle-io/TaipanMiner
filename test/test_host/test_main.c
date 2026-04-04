@@ -33,6 +33,7 @@ void test_difficulty_to_target_hard(void);
 void test_mining_round_trip_block1(void);
 void test_mining_early_reject_byte_order(void);
 void test_difficulty_target_meets_target_integration(void);
+void test_version_rolling_mask_increment(void);
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -75,6 +76,7 @@ int main(void) {
     RUN_TEST(test_mining_round_trip_block1);
     RUN_TEST(test_mining_early_reject_byte_order);
     RUN_TEST(test_difficulty_target_meets_target_integration);
+    RUN_TEST(test_version_rolling_mask_increment);
 
     return UNITY_END();
 }

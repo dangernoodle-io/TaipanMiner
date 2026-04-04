@@ -39,3 +39,6 @@ void sha256_transform(uint32_t state[8], const uint8_t block[64]);
 
 // Variant that takes pre-built word array (skips load_be32 for W[0-15])
 void sha256_transform_words(uint32_t state[8], const uint32_t words[16]);
+
+// Initial hash values (exposed for mining optimization)
+extern const uint32_t sha256_H0[8];

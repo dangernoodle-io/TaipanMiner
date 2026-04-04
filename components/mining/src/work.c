@@ -21,7 +21,7 @@ void build_coinbase_hash(const uint8_t *coinb1, size_t coinb1_len,
     size_t total = coinb1_len + en1_len + en2_len + coinb2_len;
 
     // Create buffer for the full coinbase
-    uint8_t coinbase[4096];  // Reasonable max for coinbase
+    static uint8_t coinbase[1024];  // Reasonable max for coinbase
     if (total > sizeof(coinbase)) {
         // Error: coinbase too large. For now, just truncate or zero out hash.
         memset(hash, 0, 32);

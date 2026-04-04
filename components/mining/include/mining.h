@@ -17,6 +17,22 @@ typedef struct {
 extern QueueHandle_t work_queue;
 extern QueueHandle_t result_queue;
 
+#ifdef ESP_PLATFORM
+#include "freertos/semphr.h"
+
+// Shared hashrate stats (updated by both mining tasks, read for logging)
+typedef struct {
+    double hw_hashrate;    // latest HW hashrate (H/s)
+    double sw_hashrate;    // latest SW hashrate (H/s)
+    SemaphoreHandle_t mutex;
+} mining_stats_t;
+
+extern mining_stats_t mining_stats;
+
+// Initialize mining stats mutex. Call once from main before starting tasks.
+void mining_stats_init(void);
+#endif
+
 // Mining task — runs on Core 1, priority 20
 void mining_task(void *arg);
 

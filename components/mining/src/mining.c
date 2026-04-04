@@ -12,14 +12,17 @@
 
 static const char *TAG = "mining";
 
-// SHA-256 initial hash values
-static const uint32_t H0[8] __attribute__((unused)) = {
-    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
-};
-
 QueueHandle_t work_queue = NULL;
 QueueHandle_t result_queue = NULL;
+
+#ifdef ESP_PLATFORM
+mining_stats_t mining_stats = {0};
+
+void mining_stats_init(void)
+{
+    mining_stats.mutex = xSemaphoreCreateMutex();
+}
+#endif
 
 // Store 32-bit big-endian value
 static inline void store_be32(uint8_t *p, uint32_t v) {
@@ -80,7 +83,7 @@ void mining_task(void *arg)
 #ifdef ESP_PLATFORM
         sha256_hw_midstate(work.header, midstate_hw);
 #else
-        memcpy(midstate, H0, sizeof(H0));
+        memcpy(midstate, sha256_H0, sizeof(sha256_H0));
         sha256_transform(midstate, work.header);
 #endif
 
@@ -146,11 +149,11 @@ void mining_task(void *arg)
                         result.version_hex[0] = '\0';
                     }
 
-                    ESP_LOGI(TAG, "SHARE FOUND! nonce=%08" PRIx32, nonce);
+                    ESP_LOGI(TAG, "HW SHARE FOUND! nonce=%08" PRIx32, nonce);
 #ifdef STICKMINER_DEBUG
                     // Cross-check with software SHA using standard midstate
                     uint32_t sw_midstate[8];
-                    memcpy(sw_midstate, H0, sizeof(H0));
+                    memcpy(sw_midstate, sha256_H0, sizeof(sha256_H0));
                     sha256_transform(sw_midstate, work.header);
 
                     uint8_t sw_block2[64];
@@ -175,7 +178,7 @@ void mining_task(void *arg)
                     sw_block3[32] = 0x80;
                     sw_block3[62] = 0x01;
                     sw_block3[63] = 0x00;
-                    memcpy(sw_state, H0, 32);
+                    memcpy(sw_state, sha256_H0, 32);
                     sha256_transform(sw_state, sw_block3);
                     uint8_t sw_hash[32];
                     store_be32(sw_hash,      sw_state[0]);
@@ -234,7 +237,7 @@ void mining_task(void *arg)
             block3_words[7] = state[7];
 
             // Second SHA-256: H0 + transform block3_words
-            memcpy(state, H0, 32);
+            memcpy(state, sha256_H0, 32);
             sha256_transform_words(state, block3_words);
 
             // Quick reject: check MSB word (LE convention: state[7])
@@ -258,7 +261,7 @@ void mining_task(void *arg)
                     sprintf(result.ntime_hex, "%08" PRIx32, work.ntime);
                     sprintf(result.nonce_hex, "%08" PRIx32, nonce);
 
-                    ESP_LOGI(TAG, "SHARE FOUND! nonce=%08" PRIx32, nonce);
+                    ESP_LOGI(TAG, "HW SHARE FOUND! nonce=%08" PRIx32, nonce);
                     xQueueSend(result_queue, &result, 0);
                 }
             }
@@ -267,12 +270,24 @@ void mining_task(void *arg)
             hashes++;
 
             // Every 65536 hashes: check for new work and yield for WDT
-            if (((nonce + 1) & 0x7FFFF) == 0) {
-                if (((nonce + 1) & 0x1FFFFF) == 0) {
+            if (((nonce + 1) & 0x3FFFF) == 0) {
+                if (((nonce + 1) & 0xFFFFF) == 0) {
                     int64_t elapsed_us = esp_timer_get_time() - start_us;
                     if (elapsed_us > 0) {
                         double hashrate = (double)hashes / ((double)elapsed_us / 1000000.0);
+                        double sw_rate = 0;
+#ifdef ESP_PLATFORM
+                        if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
+                            mining_stats.hw_hashrate = hashrate;
+                            sw_rate = mining_stats.sw_hashrate;
+                            xSemaphoreGive(mining_stats.mutex);
+                        }
+                        ESP_LOGI(TAG, "hw: %.1f kH/s | sw: %.1f kH/s | total: %.1f kH/s",
+                                 hashrate / 1000.0, sw_rate / 1000.0,
+                                 (hashrate + sw_rate) / 1000.0);
+#else
                         ESP_LOGI(TAG, "%.1f H/s (nonce=%08" PRIx32 ")", hashrate, nonce + 1);
+#endif
                     }
                 }
 
@@ -288,7 +303,7 @@ void mining_task(void *arg)
 #ifdef ESP_PLATFORM
                     sha256_hw_midstate(work.header, midstate_hw);
 #else
-                    memcpy(midstate, H0, sizeof(H0));
+                    memcpy(midstate, sha256_H0, sizeof(sha256_H0));
                     sha256_transform(midstate, work.header);
 #endif
                     memset(block2, 0, 64);
@@ -305,7 +320,7 @@ void mining_task(void *arg)
                     continue;
                 }
 
-                vTaskDelay(1);
+                vTaskDelay(pdMS_TO_TICKS(1));
             }
 
             }  // end nonce loop
@@ -349,7 +364,7 @@ void mining_task_sw(void *arg)
                                 (uint32_t)work.target[31];
 
         // Compute midstate (software SHA)
-        memcpy(midstate, H0, sizeof(H0));
+        memcpy(midstate, sha256_H0, sizeof(sha256_H0));
         sha256_transform(midstate, work.header);
 
         // Build block2
@@ -373,7 +388,7 @@ void mining_task_sw(void *arg)
                 work.header[2] = (rolled >> 16) & 0xFF;
                 work.header[3] = (rolled >> 24) & 0xFF;
                 // Recompute midstate (version is in first 64 bytes)
-                memcpy(midstate, H0, sizeof(H0));
+                memcpy(midstate, sha256_H0, sizeof(sha256_H0));
                 sha256_transform(midstate, work.header);
             }
 
@@ -404,7 +419,7 @@ void mining_task_sw(void *arg)
             block3_words[7] = state[7];
 
             // Second SHA-256
-            memcpy(state, H0, 32);
+            memcpy(state, sha256_H0, 32);
             sha256_transform_words(state, block3_words);
 
             // Quick reject
@@ -442,12 +457,15 @@ void mining_task_sw(void *arg)
             hashes++;
 
             // Every 65536 hashes: check for new work and yield
-            if (((nonce + 1) & 0x7FFFF) == 0) {
-                if (((nonce + 1) & 0x1FFFFF) == 0) {
+            if (((nonce + 1) & 0x3FFFF) == 0) {
+                if (((nonce + 1) & 0xFFFFF) == 0) {
                     int64_t elapsed_us = esp_timer_get_time() - start_us;
                     if (elapsed_us > 0) {
                         double hashrate = (double)hashes / ((double)elapsed_us / 1000000.0);
-                        ESP_LOGI(TAG, "sw: %.1f H/s (nonce=%08" PRIx32 ")", hashrate, nonce + 1);
+                        if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
+                            mining_stats.sw_hashrate = hashrate;
+                            xSemaphoreGive(mining_stats.mutex);
+                        }
                     }
                 }
 
@@ -461,7 +479,7 @@ void mining_task_sw(void *arg)
                                    ((uint32_t)work.target[29] << 16) |
                                    ((uint32_t)work.target[30] << 8)  |
                                    (uint32_t)work.target[31];
-                    memcpy(midstate, H0, sizeof(H0));
+                    memcpy(midstate, sha256_H0, sizeof(sha256_H0));
                     sha256_transform(midstate, work.header);
                     memset(block2, 0, 64);
                     memcpy(block2, work.header + 64, 16);
@@ -474,7 +492,7 @@ void mining_task_sw(void *arg)
                     continue;
                 }
 
-                vTaskDelay(1);
+                vTaskDelay(pdMS_TO_TICKS(1));
             }
             }  // end sw nonce loop
 

@@ -22,11 +22,22 @@
 // (H0 = 0x6a09e667, etc.).  To convert between standard and HW format
 // we bswap32 on every SHA_H read/write.  SHA_TEXT needs no swapping —
 // we cast byte buffers to uint32_t* and write directly, matching ESP-IDF.
+//
+// NOTE: The ESP32-S3 SHA peripheral overwrites SHA_TEXT registers during
+// message schedule expansion (W[] computation). SHA_TEXT contents are NOT
+// preserved after SHA_START or SHA_CONTINUE. This was verified empirically
+// via sha256_hw_verify_text_preserved(). As a result, all 16 SHA_TEXT words
+// must be written before each SHA operation — no per-nonce write reduction
+// is possible.
 
 void sha256_hw_init(void)
 {
     periph_module_enable(PERIPH_SHA_MODULE);
     REG_WRITE(SHA_MODE_REG, 2);  // SHA-256
+
+#ifdef STICKMINER_DEBUG
+    sha256_hw_verify_text_preserved();
+#endif
 }
 
 IRAM_ATTR void sha256_hw_transform(uint32_t state[8], const uint8_t block[64])
@@ -272,5 +283,47 @@ IRAM_ATTR uint32_t sha256_hw_mine_nonce(const uint32_t midstate_hw[8],
     digest_hw[7] = h7_raw;
     return h7_raw;
 }
+
+// --- Debug: Verify SHA_TEXT preservation ---
+
+#ifdef STICKMINER_DEBUG
+#include "esp_log.h"
+#include <inttypes.h>
+
+bool sha256_hw_verify_text_preserved(void)
+{
+    static const char *TAG = "sha256_hw";
+    uint32_t original[16];
+    bool preserved = true;
+
+    // Write known pattern
+    for (int i = 0; i < 16; i++) {
+        original[i] = 0xDEAD0000 | i;
+        SHA_TEXT_REG[i] = original[i];
+    }
+
+    // Trigger SHA operation
+    REG_WRITE(SHA_START_REG, 1);
+    while (REG_READ(SHA_BUSY_REG)) {}
+
+    // Check preservation
+    for (int i = 0; i < 16; i++) {
+        uint32_t actual = SHA_TEXT_REG[i];
+        if (actual != original[i]) {
+            ESP_LOGW(TAG, "SHA_TEXT[%d] modified: wrote 0x%08" PRIx32 ", read 0x%08" PRIx32,
+                     i, original[i], actual);
+            preserved = false;
+        }
+    }
+
+    if (preserved) {
+        ESP_LOGI(TAG, "SHA_TEXT registers preserved after SHA_START");
+    } else {
+        ESP_LOGW(TAG, "SHA_TEXT registers NOT preserved — per-nonce write reduction not possible");
+    }
+
+    return preserved;
+}
+#endif
 
 #endif // ESP_PLATFORM

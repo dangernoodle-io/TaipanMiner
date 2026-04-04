@@ -272,7 +272,7 @@ void mining_task(void *arg)
             hashes++;
 
             // Every 65536 hashes: check for new work and yield for WDT
-            if (((nonce + 1) & 0xFFFF) == 0) {
+            if (((nonce + 1) & 0x7FFFF) == 0) {
                 if (((nonce + 1) & 0x1FFFFF) == 0) {
                     int64_t elapsed_us = esp_timer_get_time() - start_us;
                     if (elapsed_us > 0) {
@@ -451,7 +451,7 @@ void mining_task_sw(void *arg)
             hashes++;
 
             // Every 65536 hashes: check for new work and yield
-            if (((nonce + 1) & 0xFFFF) == 0) {
+            if (((nonce + 1) & 0x7FFFF) == 0) {
                 if (((nonce + 1) & 0x1FFFFF) == 0) {
                     int64_t elapsed_us = esp_timer_get_time() - start_us;
                     if (elapsed_us > 0) {

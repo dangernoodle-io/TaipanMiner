@@ -8,10 +8,12 @@
 #include <stdio.h>
 #include <math.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <errno.h>
 #include <unistd.h>
+#include <netinet/tcp.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -37,6 +39,7 @@ static int s_configure_id = 0;
 // Line buffer for reading from socket
 static char s_linebuf[4096];
 static int s_linebuf_len = 0;
+static int s_rcvtimeo_ms = -1;
 
 // Send a string to the socket
 static int stratum_send(const char *msg)
@@ -86,10 +89,13 @@ static int stratum_readline(char *out, int max_len, int timeout_ms)
     }
 
     // Read more data from socket
-    struct timeval tv;
-    tv.tv_sec = timeout_ms / 1000;
-    tv.tv_usec = (timeout_ms % 1000) * 1000;
-    setsockopt(s_sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    if (timeout_ms != s_rcvtimeo_ms) {
+        struct timeval tv;
+        tv.tv_sec = timeout_ms / 1000;
+        tv.tv_usec = (timeout_ms % 1000) * 1000;
+        setsockopt(s_sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        s_rcvtimeo_ms = timeout_ms;
+    }
 
     int space = sizeof(s_linebuf) - s_linebuf_len - 1;
     if (space <= 0) {
@@ -166,9 +172,21 @@ static int stratum_connect(void)
         return -1;
     }
 
+    // TCP keepalive — detect dead pool connections
+    int ka = 1, idle = 60, intvl = 10, cnt = 3;
+    setsockopt(s_sock, SOL_SOCKET, SO_KEEPALIVE, &ka, sizeof(ka));
+    setsockopt(s_sock, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+    setsockopt(s_sock, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
+    setsockopt(s_sock, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
+
+    // Disable Nagle — send shares immediately
+    int nodelay = 1;
+    setsockopt(s_sock, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+
     freeaddrinfo(res);
     s_linebuf_len = 0;
     s_msg_id = 1;
+    s_rcvtimeo_ms = -1;
 
     ESP_LOGI(TAG, "connected to %s:%d", CONFIG_POOL_HOST, CONFIG_POOL_PORT);
     return 0;
@@ -462,7 +480,6 @@ void stratum_task(void *arg)
     static char line[2048];
 
     ESP_LOGI(TAG, "stratum task started");
-    esp_log_level_set(TAG, ESP_LOG_DEBUG);
 
     for (;;) {
         // Connect

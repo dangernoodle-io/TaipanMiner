@@ -168,3 +168,36 @@ void test_sha256_transform_words(void)
 
     TEST_ASSERT_EQUAL_UINT32_ARRAY(state1, state2, 8);
 }
+
+// Test: SHA-256 transform performance benchmark
+// Validates consistency of sha256_transform and sha256_transform_words over high iteration count
+void test_sha256_transform_performance(void)
+{
+    // Initial state (H0)
+    uint32_t state1[8], state2[8];
+    const uint32_t H0[8] = {
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+    };
+
+    // Test block (arbitrary but deterministic)
+    uint8_t block[64];
+    uint32_t words[16];
+    for (int i = 0; i < 64; i++) block[i] = (uint8_t)(i * 7 + 13);
+    for (int i = 0; i < 16; i++) words[i] = ((uint32_t)block[i*4] << 24) |
+                                              ((uint32_t)block[i*4+1] << 16) |
+                                              ((uint32_t)block[i*4+2] << 8) |
+                                              (uint32_t)block[i*4+3];
+
+    // Run 100K iterations of each to verify consistency
+    uint32_t iterations = 100000;
+    for (uint32_t i = 0; i < iterations; i++) {
+        memcpy(state1, H0, 32);
+        sha256_transform(state1, block);
+        memcpy(state2, H0, 32);
+        sha256_transform_words(state2, words);
+    }
+
+    // Final states must match
+    TEST_ASSERT_EQUAL_HEX32_ARRAY(state1, state2, 8);
+}

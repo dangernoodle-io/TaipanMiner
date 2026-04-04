@@ -8,8 +8,9 @@ Bitcoin mining firmware for LilyGo T-Dongle S3 (ESP32-S3).
 - Build: `pio run`
 - Flash: `pio run -t upload` (hold BOOT button to enter download mode)
 - Monitor: `pio device monitor`
-- Monitor (non-TTY): `stty -f /dev/cu.usbmodem2101 115200 raw -echo -echoe -echok -echoctl -echoke && cat /dev/cu.usbmodem2101`
+- Monitor (non-TTY): `stty -f /dev/cu.usbmodem101 115200 raw -echo -echoe -echok -echoctl -echoke && cat /dev/cu.usbmodem101`
 - Host tests: `pio test -e native`
+- Debug build: `pio run -e debug` (adds `STICKMINER_DEBUG=1` — enables SW mining task, SHA verification, benchmarks)
 - Static analysis: `pio check --skip-packages`
 
 ### Python compatibility
@@ -39,11 +40,21 @@ Then create `~/.platformio/penv/.espidf-5.5.3/pio-idf-venv.json` with the correc
 ## Architecture
 
 - Core 0: WiFi, Stratum, HTTP server, display, LED
-- Core 1: dedicated mining (high priority)
+- Core 1: dedicated HW SHA mining (priority 20, full 32-bit nonce range)
 - Inter-core: FreeRTOS queues (work_queue, result_queue) + mutex (MiningStats)
+- SW mining task runs on Core 0 only in debug builds (`STICKMINER_DEBUG`)
+
+### Mining pipeline
+
+- Phase 3 zero-bswap HW-format pipeline: midstate stored in HW-native word order
+- `sha256_hw_mine_nonce`: midstate→SHA_H, block2+nonce→SHA_TEXT, SHA_CONTINUE, direct SHA_H→SHA_TEXT copy for pass 2, SHA_START
+- SHA_TEXT registers are NOT preserved after SHA operations (verified empirically)
+- SHA_START is 21% faster than SHA_CONTINUE+H0 for pass 2
+- BIP 320 version rolling when nonce space exhausted
+- Yield every 512K nonces (0x7FFFF mask), hashrate log every 2M (0x1FFFFF)
 
 ## Testing
 
-- Host tests cover SHA-256, Stratum message parsing, coinbase/merkle, header serialization, target conversion
-- Device tests cover mining task integration, NVS persistence, live pool handshake
+- Host tests cover SHA-256, Stratum parsing, coinbase/merkle, header serialization, target conversion
+- Device tests cover mining integration, NVS persistence, live pool handshake
 - Anonymize test data per workspace rules

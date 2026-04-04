@@ -37,6 +37,7 @@ void sha256_hw_init(void)
 
 #ifdef STICKMINER_DEBUG
     sha256_hw_verify_text_preserved();
+    sha256_hw_bench_pass2(100000);
 #endif
 }
 
@@ -284,15 +285,17 @@ IRAM_ATTR uint32_t sha256_hw_mine_nonce(const uint32_t midstate_hw[8],
     return h7_raw;
 }
 
-// --- Debug: Verify SHA_TEXT preservation ---
+// --- Debug utilities ---
 
 #ifdef STICKMINER_DEBUG
 #include "esp_log.h"
+#include "esp_timer.h"
 #include <inttypes.h>
+
+static const char *TAG = "sha256_hw";
 
 bool sha256_hw_verify_text_preserved(void)
 {
-    static const char *TAG = "sha256_hw";
     uint32_t original[16];
     bool preserved = true;
 
@@ -323,6 +326,55 @@ bool sha256_hw_verify_text_preserved(void)
     }
 
     return preserved;
+}
+
+void sha256_hw_bench_pass2(uint32_t iterations)
+{
+    // Prepare a fixed test block (32-byte hash + padding for second pass)
+    uint32_t test_msg[16] = {
+        0x12345678, 0x9abcdef0, 0x12345678, 0x9abcdef0,
+        0x12345678, 0x9abcdef0, 0x12345678, 0x9abcdef0,
+        0x00000080, 0, 0, 0, 0, 0, 0, 0x00010000
+    };
+
+    // Benchmark SHA_START (current approach)
+    int64_t start = esp_timer_get_time();
+    for (uint32_t i = 0; i < iterations; i++) {
+        for (int j = 0; j < 16; j++) {
+            SHA_TEXT_REG[j] = test_msg[j];
+        }
+        REG_WRITE(SHA_START_REG, 1);
+        while (REG_READ(SHA_BUSY_REG)) {}
+    }
+    int64_t elapsed_start = esp_timer_get_time() - start;
+
+    // Benchmark SHA_CONTINUE with pre-loaded H0
+    start = esp_timer_get_time();
+    for (uint32_t i = 0; i < iterations; i++) {
+        for (int j = 0; j < 8; j++) {
+            SHA_H_REG[j] = H0_hw[j];
+        }
+        for (int j = 0; j < 16; j++) {
+            SHA_TEXT_REG[j] = test_msg[j];
+        }
+        REG_WRITE(SHA_CONTINUE_REG, 1);
+        while (REG_READ(SHA_BUSY_REG)) {}
+    }
+    int64_t elapsed_continue = esp_timer_get_time() - start;
+
+    ESP_LOGI(TAG, "pass2 bench (%"PRIu32" iterations):", iterations);
+    ESP_LOGI(TAG, "  SHA_START:       %"PRId64" us (%.2f us/op)",
+             elapsed_start, (double)elapsed_start / iterations);
+    ESP_LOGI(TAG, "  SHA_CONTINUE+H0: %"PRId64" us (%.2f us/op)",
+             elapsed_continue, (double)elapsed_continue / iterations);
+
+    if (elapsed_continue < elapsed_start) {
+        ESP_LOGI(TAG, "  CONTINUE is %.1f%% faster",
+                 (1.0 - (double)elapsed_continue / elapsed_start) * 100.0);
+    } else {
+        ESP_LOGI(TAG, "  START is %.1f%% faster (or equal) — keep current approach",
+                 (1.0 - (double)elapsed_start / elapsed_continue) * 100.0);
+    }
 }
 #endif
 

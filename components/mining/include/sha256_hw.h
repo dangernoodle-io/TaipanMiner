@@ -51,7 +51,7 @@ IRAM_ATTR uint32_t sha256_hw_mine_nonce(const uint32_t midstate_hw[8],
                                          uint32_t nonce,
                                          uint32_t digest_hw[8]);
 
-// --- Debug: Verify SHA_TEXT preservation ---
+// --- Debug utilities ---
 
 #ifdef STICKMINER_DEBUG
 #include <stdbool.h>
@@ -60,6 +60,10 @@ IRAM_ATTR uint32_t sha256_hw_mine_nonce(const uint32_t midstate_hw[8],
 // Returns true if all 16 words are preserved, false if any are modified.
 // (Empirical testing shows they are NOT preserved on ESP32-S3.)
 bool sha256_hw_verify_text_preserved(void);
+
+// Debug benchmark comparing SHA_START vs SHA_CONTINUE+H0 for second hash pass.
+// Runs iterations times for each approach and logs timing results.
+void sha256_hw_bench_pass2(uint32_t iterations);
 #endif
 
 #endif // ESP_PLATFORM

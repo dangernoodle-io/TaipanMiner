@@ -1,0 +1,20 @@
+:root{--bg:#1a1a2e;--surface:#16213e;--input:#0f3460;--border:#1a3a52;--text:#e0e0e0;--label:#b0b0b0;--accent:#e5ad30;--accent-hover:#f0c050;--muted:#666;--footer:#505050}
+body{margin:0;padding:20px;background:var(--bg);font-family:sans-serif;color:var(--text)}
+.container{max-width:400px;margin:0 auto}
+.header{display:flex;align-items:center;margin-bottom:0;padding-left:40px}
+.logo{width:140px;height:140px;flex-shrink:0;color:var(--accent)}
+h1{color:var(--accent);font-size:22px;margin:0;margin-left:10px}
+h2{color:var(--accent);margin-top:0}
+.section{background:var(--surface);border-radius:8px;padding:20px;margin-bottom:20px;border:1px solid var(--input)}
+.section h2{font-size:14px;text-transform:uppercase;margin-bottom:15px;letter-spacing:1px}
+.card{background:var(--surface);border-radius:8px;padding:30px;border:1px solid var(--input)}
+.form-group{margin-bottom:15px}
+.form-group label{display:block;font-size:12px;color:var(--label);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px}
+input[type='text'],input[type='password'],select{width:100%;padding:12px;background:var(--input);color:var(--text);border:1px solid var(--border);border-radius:4px;font-size:14px;box-sizing:border-box;transition:border-color 0.2s}
+::placeholder{color:var(--muted)}
+input[type='text']:focus,input[type='password']:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 4px rgba(229,173,48,0.3)}
+input[type='submit']{width:100%;padding:14px;background:var(--accent);color:var(--bg);border:none;border-radius:4px;font-weight:bold;font-size:14px;cursor:pointer;text-transform:uppercase;letter-spacing:1px;min-height:44px;margin-top:10px}
+input[type='submit']:hover{background:var(--accent-hover)}
+.spinner{display:inline-block;width:30px;height:30px;border:3px solid var(--input);border-top:3px solid var(--accent);border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+.footer{text-align:center;margin-top:30px;font-size:11px;color:var(--footer)}

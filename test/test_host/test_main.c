@@ -37,6 +37,11 @@ void test_mining_early_reject_byte_order(void);
 void test_difficulty_target_meets_target_integration(void);
 void test_version_rolling_mask_increment(void);
 
+// Forward declarations from test_nv_config.c
+void test_nv_config_init(void);
+void test_nv_config_all_empty_before_provisioning(void);
+void test_nv_config_not_provisioned_by_default(void);
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -81,6 +86,11 @@ int main(void) {
     RUN_TEST(test_mining_early_reject_byte_order);
     RUN_TEST(test_difficulty_target_meets_target_integration);
     RUN_TEST(test_version_rolling_mask_increment);
+
+    // nv_config tests
+    RUN_TEST(test_nv_config_init);
+    RUN_TEST(test_nv_config_all_empty_before_provisioning);
+    RUN_TEST(test_nv_config_not_provisioned_by_default);
 
     return UNITY_END();
 }

@@ -1,5 +1,5 @@
 #include "stratum.h"
-#include "config.h"
+#include "nv_config.h"
 #include "mining.h"
 #include "work.h"
 #include "sha256.h"
@@ -35,6 +35,8 @@ static int s_subscribe_id = 0;
 static int s_authorize_id = 0;
 static uint32_t s_version_mask = 0;
 static int s_configure_id = 0;
+static const char *s_wallet_addr;
+static const char *s_worker_name;
 
 // Line buffer for reading from socket
 static char s_linebuf[2048];
@@ -139,10 +141,10 @@ static int stratum_readline(char *out, int max_len, int timeout_ms)
 }
 
 // Connect TCP socket to pool
-static int stratum_connect(void)
+static int stratum_connect(const char *host, uint16_t port)
 {
     char port_str[8];
-    snprintf(port_str, sizeof(port_str), "%d", CONFIG_POOL_PORT);
+    snprintf(port_str, sizeof(port_str), "%d", port);
 
     struct addrinfo hints = {
         .ai_family = AF_INET,
@@ -150,7 +152,7 @@ static int stratum_connect(void)
     };
     struct addrinfo *res = NULL;
 
-    int err = getaddrinfo(CONFIG_POOL_HOST, port_str, &hints, &res);
+    int err = getaddrinfo(host, port_str, &hints, &res);
     if (err != 0 || res == NULL) {
         ESP_LOGE(TAG, "DNS lookup failed: %d", err);
         if (res) freeaddrinfo(res);
@@ -188,7 +190,7 @@ static int stratum_connect(void)
     s_msg_id = 1;
     s_rcvtimeo_ms = -1;
 
-    ESP_LOGI(TAG, "connected to %s:%d", CONFIG_POOL_HOST, CONFIG_POOL_PORT);
+    ESP_LOGI(TAG, "connected to %s:%d", host, port);
     return 0;
 }
 
@@ -388,13 +390,13 @@ static int submit_share(mining_result_t *result)
     if (result->version_hex[0] != '\0') {
         snprintf(params, sizeof(params),
                  "[\"%s.%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"]",
-                 CONFIG_WALLET_ADDR, CONFIG_WORKER_NAME,
+                 s_wallet_addr, s_worker_name,
                  result->job_id, result->extranonce2_hex,
                  result->ntime_hex, result->nonce_hex, result->version_hex);
     } else {
         snprintf(params, sizeof(params),
                  "[\"%s.%s\",\"%s\",\"%s\",\"%s\",\"%s\"]",
-                 CONFIG_WALLET_ADDR, CONFIG_WORKER_NAME,
+                 s_wallet_addr, s_worker_name,
                  result->job_id, result->extranonce2_hex,
                  result->ntime_hex, result->nonce_hex);
     }
@@ -482,8 +484,14 @@ void stratum_task(void *arg)
     ESP_LOGI(TAG, "stratum task started");
 
     for (;;) {
+        // Read config
+        const char *pool_host = nv_config_pool_host();
+        uint16_t pool_port = nv_config_pool_port();
+        s_wallet_addr = nv_config_wallet_addr();
+        s_worker_name = nv_config_worker_name();
+
         // Connect
-        if (stratum_connect() != 0) {
+        if (stratum_connect(pool_host, pool_port) != 0) {
             ESP_LOGW(TAG, "reconnecting in 5s");
             vTaskDelay(pdMS_TO_TICKS(5000));
             continue;
@@ -527,7 +535,7 @@ void stratum_task(void *arg)
             char auth_params[128];
             snprintf(auth_params, sizeof(auth_params),
                      "[\"%s.%s\",\"x\"]",
-                     CONFIG_WALLET_ADDR, CONFIG_WORKER_NAME);
+                     s_wallet_addr, s_worker_name);
             s_authorize_id = stratum_request("mining.authorize", auth_params);
             if (s_authorize_id < 0) {
                 goto reconnect;

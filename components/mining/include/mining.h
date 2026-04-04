@@ -18,7 +18,12 @@ extern QueueHandle_t work_queue;
 extern QueueHandle_t result_queue;
 
 #ifdef ESP_PLATFORM
+#include "freertos/task.h"
 #include "freertos/semphr.h"
+
+// Mining task handles (for suspend/resume during OTA verification)
+extern TaskHandle_t mining_hw_task_handle;
+extern TaskHandle_t mining_sw_task_handle;
 
 // Shared hashrate stats (updated by both mining tasks, read for logging)
 typedef struct {

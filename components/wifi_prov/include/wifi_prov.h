@@ -1,7 +1,33 @@
 #pragma once
 
-// Initialize WiFi in station mode and connect.
-// Blocks until connected or max retries exhausted.
-// Returns ESP_OK on success.
 #include "esp_err.h"
-esp_err_t wifi_init(void);
+#include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
+
+#ifdef ESP_PLATFORM
+#include <stdint.h>
+#include <stdbool.h>
+
+// WiFi scan results
+#define WIFI_SCAN_MAX 20
+typedef struct {
+    char ssid[33];
+    int8_t rssi;
+    bool secure;   // true if not WIFI_AUTH_OPEN
+} wifi_scan_ap_t;
+
+// Performs a blocking WiFi scan. Returns number of APs found (up to max_results).
+int wifi_scan_networks(wifi_scan_ap_t *results, int max_results);
+#endif
+
+// STA mode — blocks until connected or timeout
+esp_err_t wifi_init(void);           // restarts on timeout (normal boot)
+esp_err_t wifi_init_sta(void);       // returns ESP_ERR_TIMEOUT on failure (provisioning retry)
+
+// AP mode — for provisioning
+esp_err_t wifi_init_ap(void);        // starts AP + captive DNS
+void wifi_stop_ap(void);             // stops AP + DNS, deinits wifi
+
+// Provisioning event
+#define PROV_DONE_BIT BIT0
+extern EventGroupHandle_t g_prov_event_group;

@@ -1,1 +1,1 @@
-# StickMiner
+# stickminer-cli

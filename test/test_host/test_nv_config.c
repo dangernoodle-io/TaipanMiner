@@ -16,6 +16,7 @@ void test_nv_config_all_empty_before_provisioning(void)
     TEST_ASSERT_EQUAL_UINT16(0, nv_config_pool_port());
     TEST_ASSERT_EQUAL_STRING("", nv_config_wallet_addr());
     TEST_ASSERT_EQUAL_STRING("", nv_config_worker_name());
+    TEST_ASSERT_EQUAL_STRING("", nv_config_pool_pass());
 }
 
 void test_nv_config_not_provisioned_by_default(void)

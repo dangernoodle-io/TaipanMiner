@@ -2,8 +2,12 @@
 #include "esp_http_server.h"
 #include "esp_ota_ops.h"
 #include "esp_app_desc.h"
+#include "esp_app_format.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "esp_chip_info.h"
+#include "esp_mac.h"
+#include "board.h"
 #include "mining.h"
 #include "nv_config.h"
 #include "wifi_prov.h"
@@ -87,6 +91,7 @@ static esp_err_t prov_save_handler(httpd_req_t *req)
     // Parse URL-encoded fields
     char ssid[32] = "", pass[64] = "";
     char pool_host[64] = "", wallet[64] = "", worker[32] = "";
+    char pool_pass[64] = "";
     char port_str[8] = "";
 
     url_decode_field(body, "ssid", ssid, sizeof(ssid));
@@ -95,6 +100,7 @@ static esp_err_t prov_save_handler(httpd_req_t *req)
     url_decode_field(body, "pool_port", port_str, sizeof(port_str));
     url_decode_field(body, "wallet", wallet, sizeof(wallet));
     url_decode_field(body, "worker", worker, sizeof(worker));
+    url_decode_field(body, "pool_pass", pool_pass, sizeof(pool_pass));
 
     if (ssid[0] == '\0' || pool_host[0] == '\0' || wallet[0] == '\0' || worker[0] == '\0') {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "All fields required");
@@ -113,7 +119,7 @@ static esp_err_t prov_save_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    nv_config_set_config(pool_host, port, wallet, worker);
+    nv_config_set_config(pool_host, port, wallet, worker, pool_pass);
 
     const char *response =
         "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -235,6 +241,36 @@ static esp_err_t version_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t info_handler(httpd_req_t *req)
+{
+    const esp_app_desc_t *app = esp_app_get_description();
+    esp_chip_info_t chip;
+    esp_chip_info(&chip);
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "board", BOARD_NAME);
+    cJSON_AddStringToObject(root, "project_name", app->project_name);
+    cJSON_AddStringToObject(root, "version", app->version);
+    cJSON_AddStringToObject(root, "idf_version", app->idf_ver);
+    cJSON_AddStringToObject(root, "build_date", app->date);
+    cJSON_AddStringToObject(root, "build_time", app->time);
+    cJSON_AddNumberToObject(root, "chip_cores", chip.cores);
+
+    char mac_str[18];
+    snprintf(mac_str, sizeof(mac_str), "%02x:%02x:%02x:%02x:%02x:%02x",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    cJSON_AddStringToObject(root, "mac", mac_str);
+
+    char *json = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, strlen(json));
+    free(json);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
 static esp_err_t logo_handler(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "image/svg+xml");
@@ -296,6 +332,23 @@ static esp_err_t ota_upload_handler(httpd_req_t *req)
             esp_ota_abort(ota_handle);
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Receive failed");
             return ESP_FAIL;
+        }
+
+        if (received == 0 && ret >= (int)(sizeof(esp_image_header_t) +
+            sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t))) {
+            const esp_app_desc_t *incoming = (const esp_app_desc_t *)
+                (buf + sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t));
+            const esp_app_desc_t *running = esp_app_get_description();
+
+            if (strncmp(incoming->project_name, running->project_name,
+                        sizeof(incoming->project_name)) != 0) {
+                ESP_LOGE(TAG, "OTA rejected: firmware is for '%s', this device is '%s'",
+                         incoming->project_name, running->project_name);
+                esp_ota_abort(ota_handle);
+                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Firmware board mismatch");
+                return ESP_FAIL;
+            }
+            ESP_LOGI(TAG, "OTA board check passed: %s", incoming->project_name);
         }
 
         err = esp_ota_write(ota_handle, buf, ret);
@@ -380,6 +433,7 @@ esp_err_t http_server_start_prov(void)
     httpd_uri_t prov_save = { .uri = "/save", .method = HTTP_POST, .handler = prov_save_handler };
     httpd_uri_t scan_uri = { .uri = "/api/scan", .method = HTTP_GET, .handler = scan_handler };
     httpd_uri_t version_uri = { .uri = "/api/version", .method = HTTP_GET, .handler = version_handler };
+    httpd_uri_t info_uri = { .uri = "/api/info", .method = HTTP_GET, .handler = info_handler };
     httpd_uri_t theme_uri = { .uri = "/theme.css", .method = HTTP_GET, .handler = theme_handler };
     httpd_uri_t logo_uri = { .uri = "/logo.svg", .method = HTTP_GET, .handler = logo_handler };
     httpd_uri_t prov_redirect = { .uri = "/*", .method = HTTP_GET, .handler = prov_redirect_handler };
@@ -388,6 +442,7 @@ esp_err_t http_server_start_prov(void)
     httpd_register_uri_handler(s_server, &prov_save);
     httpd_register_uri_handler(s_server, &scan_uri);
     httpd_register_uri_handler(s_server, &version_uri);
+    httpd_register_uri_handler(s_server, &info_uri);
     httpd_register_uri_handler(s_server, &theme_uri);
     httpd_register_uri_handler(s_server, &logo_uri);
     httpd_register_uri_handler(s_server, &prov_redirect);
@@ -410,12 +465,14 @@ void http_server_switch_to_mining(void)
     httpd_uri_t status_uri = { .uri = "/", .method = HTTP_GET, .handler = status_handler };
     httpd_uri_t stats_uri = { .uri = "/api/stats", .method = HTTP_GET, .handler = stats_handler };
     httpd_uri_t version_uri = { .uri = "/api/version", .method = HTTP_GET, .handler = version_handler };
+    httpd_uri_t info_uri = { .uri = "/api/info", .method = HTTP_GET, .handler = info_handler };
     httpd_uri_t ota_page_uri = { .uri = "/ota", .method = HTTP_GET, .handler = ota_page_handler };
     httpd_uri_t ota_upload_uri = { .uri = "/ota/upload", .method = HTTP_POST, .handler = ota_upload_handler };
 
     httpd_register_uri_handler(s_server, &status_uri);
     httpd_register_uri_handler(s_server, &stats_uri);
     httpd_register_uri_handler(s_server, &version_uri);
+    httpd_register_uri_handler(s_server, &info_uri);
     httpd_register_uri_handler(s_server, &ota_page_uri);
     httpd_register_uri_handler(s_server, &ota_upload_uri);
 }
@@ -439,6 +496,9 @@ esp_err_t http_server_start(void)
     httpd_uri_t version_uri = {
         .uri = "/api/version", .method = HTTP_GET, .handler = version_handler
     };
+    httpd_uri_t info_uri = {
+        .uri = "/api/info", .method = HTTP_GET, .handler = info_handler
+    };
     httpd_uri_t ota_page_uri = {
         .uri = "/ota", .method = HTTP_GET, .handler = ota_page_handler
     };
@@ -455,6 +515,7 @@ esp_err_t http_server_start(void)
     httpd_register_uri_handler(s_server, &status_uri);
     httpd_register_uri_handler(s_server, &stats_uri);
     httpd_register_uri_handler(s_server, &version_uri);
+    httpd_register_uri_handler(s_server, &info_uri);
     httpd_register_uri_handler(s_server, &ota_page_uri);
     httpd_register_uri_handler(s_server, &ota_upload_uri);
     httpd_register_uri_handler(s_server, &theme_uri);

@@ -508,6 +508,7 @@ void stratum_task(void *arg)
         uint16_t pool_port = nv_config_pool_port();
         s_wallet_addr = nv_config_wallet_addr();
         s_worker_name = nv_config_worker_name();
+        const char *pool_pass = nv_config_pool_pass();
 
         ESP_LOGI(TAG, "connecting to %s:%u wallet=%s worker=%s",
                  pool_host, pool_port, s_wallet_addr, s_worker_name);
@@ -555,8 +556,9 @@ void stratum_task(void *arg)
         {
             char auth_params[128];
             snprintf(auth_params, sizeof(auth_params),
-                     "[\"%s.%s\",\"x\"]",
-                     s_wallet_addr, s_worker_name);
+                     "[\"%s.%s\",\"%s\"]",
+                     s_wallet_addr, s_worker_name,
+                     pool_pass);
             s_authorize_id = stratum_request("mining.authorize", auth_params);
             if (s_authorize_id < 0) {
                 goto reconnect;

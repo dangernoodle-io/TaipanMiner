@@ -12,4 +12,10 @@ if(NOT PROJECT_VER)
     set(PROJECT_VER "dev")
 endif()
 
-project(TaipanMiner)
+# Board-specific project name for OTA validation
+if(DEFINED ENV{PIOENV})
+    string(REGEX REPLACE "-debug$" "" FIRMWARE_BOARD "$ENV{PIOENV}")
+else()
+    set(FIRMWARE_BOARD "unknown")
+endif()
+project(taipanminer-${FIRMWARE_BOARD})

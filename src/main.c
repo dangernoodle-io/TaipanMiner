@@ -69,7 +69,8 @@ static void start_mining(void)
 void app_main(void)
 {
     const esp_app_desc_t *app = esp_app_get_description();
-    ESP_LOGI(TAG, "TaipanMiner (%s) starting...", app->version);
+    ESP_LOGI(TAG, "%s v%s (%s %s, IDF %s) starting...",
+             app->project_name, app->version, app->date, app->time, app->idf_ver);
 
     // Suppress noisy wifi debug logs (before wifi_init)
     esp_log_level_set("wifi", ESP_LOG_WARN);

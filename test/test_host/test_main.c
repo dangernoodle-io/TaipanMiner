@@ -72,6 +72,28 @@ void test_decode_job_id(void);
 void test_decode_version_bits(void);
 void test_decode_version_bits_max(void);
 
+// Forward declarations from test_bm1370_ticket_mask.c
+void test_bm1370_ticket_mask_diff_1(void);
+void test_bm1370_ticket_mask_diff_2(void);
+void test_bm1370_ticket_mask_diff_4(void);
+void test_bm1370_ticket_mask_diff_8(void);
+void test_bm1370_ticket_mask_diff_256(void);
+void test_bm1370_ticket_mask_diff_512(void);
+void test_bm1370_ticket_mask_diff_1024(void);
+void test_bm1370_ticket_mask_diff_2048(void);
+void test_bm1370_ticket_mask_diff_4096(void);
+void test_bm1370_ticket_mask_non_power_of_2_700(void);
+void test_bm1370_ticket_mask_non_power_of_2_513(void);
+void test_bm1370_ticket_mask_non_power_of_2_1000(void);
+void test_bm1370_ticket_mask_below_1(void);
+void test_bm1370_ticket_mask_very_small(void);
+void test_bm1370_ticket_mask_diff_16(void);
+void test_bm1370_ticket_mask_diff_32(void);
+void test_bm1370_ticket_mask_diff_64(void);
+void test_bm1370_ticket_mask_diff_128(void);
+void test_bm1370_ticket_mask_boundary_513_5(void);
+void test_bm1370_ticket_mask_boundary_512_1(void);
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -151,6 +173,28 @@ int main(void) {
     RUN_TEST(test_decode_job_id);
     RUN_TEST(test_decode_version_bits);
     RUN_TEST(test_decode_version_bits_max);
+
+    // BM1370 ticket mask tests
+    RUN_TEST(test_bm1370_ticket_mask_diff_1);
+    RUN_TEST(test_bm1370_ticket_mask_diff_2);
+    RUN_TEST(test_bm1370_ticket_mask_diff_4);
+    RUN_TEST(test_bm1370_ticket_mask_diff_8);
+    RUN_TEST(test_bm1370_ticket_mask_diff_256);
+    RUN_TEST(test_bm1370_ticket_mask_diff_512);
+    RUN_TEST(test_bm1370_ticket_mask_diff_1024);
+    RUN_TEST(test_bm1370_ticket_mask_diff_2048);
+    RUN_TEST(test_bm1370_ticket_mask_diff_4096);
+    RUN_TEST(test_bm1370_ticket_mask_non_power_of_2_700);
+    RUN_TEST(test_bm1370_ticket_mask_non_power_of_2_513);
+    RUN_TEST(test_bm1370_ticket_mask_non_power_of_2_1000);
+    RUN_TEST(test_bm1370_ticket_mask_below_1);
+    RUN_TEST(test_bm1370_ticket_mask_very_small);
+    RUN_TEST(test_bm1370_ticket_mask_diff_16);
+    RUN_TEST(test_bm1370_ticket_mask_diff_32);
+    RUN_TEST(test_bm1370_ticket_mask_diff_64);
+    RUN_TEST(test_bm1370_ticket_mask_diff_128);
+    RUN_TEST(test_bm1370_ticket_mask_boundary_513_5);
+    RUN_TEST(test_bm1370_ticket_mask_boundary_512_1);
 
     return UNITY_END();
 }

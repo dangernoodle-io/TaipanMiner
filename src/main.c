@@ -54,14 +54,11 @@ static void start_mining(void)
     xTaskCreatePinnedToCore(stratum_task, "stratum", 8192, NULL, 5, NULL, 0);
 
 #ifdef ASIC_BM1370
-    // Initialize and start ASIC mining task on Core 1
-    ESP_ERROR_CHECK(asic_init());
+    // ASIC: Core 1 dedicated to ASIC mining (asic_init already done before WiFi)
     xTaskCreatePinnedToCore(asic_mining_task, "asic", 8192, NULL, 20, &asic_task_handle, 1);
 #else
-    // Start mining task on Core 1 (hardware SHA)
+    // Dongle: HW SHA on Core 1, SW SHA on Core 0
     xTaskCreatePinnedToCore(mining_task, "mining_hw", 4096, NULL, 20, &mining_hw_task_handle, 1);
-
-    // Start software mining task on Core 0 (software SHA, lower priority than stratum)
     xTaskCreatePinnedToCore(mining_task_sw, "mining_sw", 4096, NULL, 3, &mining_sw_task_handle, 0);
 #endif
 
@@ -90,6 +87,14 @@ void app_main(void)
 
     // Load config from NVS (falls back to defaults)
     ESP_ERROR_CHECK(nv_config_init());
+
+#ifdef ASIC_BM1370
+    // Initialize ASIC before WiFi — freq ramp takes ~8s, runs while WiFi isn't needed yet.
+    // Skip if not provisioned (will enter AP mode instead).
+    if (nv_config_is_provisioned()) {
+        ESP_ERROR_CHECK(asic_init());
+    }
+#endif
 
     if (!nv_config_is_provisioned()) {
         // Provisioning mode: start AP + captive portal

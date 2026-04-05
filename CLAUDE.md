@@ -42,6 +42,7 @@ Then create `~/.platformio/penv/.espidf-5.5.3/pio-idf-venv.json` with the correc
 - Core 0: WiFi, Stratum, HTTP server, display, LED
 - Core 1: HW SHA mining (priority 20, nonces 0x00000000-0x7FFFFFFF)
 - Core 0: SW SHA mining (priority 3, nonces 0x80000000-0xFFFFFFFF, yields to WiFi/Stratum)
+- Naming: `s_` prefix for file-scope static variables (e.g., `s_config`, `s_sock`)
 - Inter-core: FreeRTOS queues (work_queue, result_queue) + mutex (mining_stats)
 
 ### Mining pipeline
@@ -60,10 +61,11 @@ Then create `~/.platformio/penv/.espidf-5.5.3/pio-idf-venv.json` with the correc
 
 - TCP keepalive (60s idle, 10s interval, 3 probes), TCP_NODELAY
 - SO_RCVTIMEO cached to avoid redundant setsockopt calls
+- Framework log noise suppressed at init: `esp_log_level_set("wifi", ESP_LOG_WARN)` etc.
 - WiFi: infinite retry with 5s backoff, 60s startup timeout with esp_restart()
 
 ## Testing
 
-- Host tests cover SHA-256, Stratum parsing, coinbase/merkle, header serialization, target conversion
-- Device tests cover mining integration, NVS persistence, live pool handshake
+- Host test scope: SHA-256, Stratum parsing, coinbase/merkle, header serialization, target, CRC, PLL, BM1370 framing
+- Device test scope: mining integration, NVS persistence, live pool handshake
 - Anonymize test data per workspace rules

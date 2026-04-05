@@ -1,6 +1,7 @@
 #include "bm1370.h"
 #include "crc.h"
 #include <string.h>
+#include <math.h>
 
 size_t bm1370_build_cmd(uint8_t *buf, size_t buflen, uint8_t cmd, uint8_t group,
                         const uint8_t *data, uint8_t data_len) {
@@ -82,8 +83,30 @@ bool bm1370_parse_nonce(const uint8_t *buf, size_t len, bm1370_nonce_t *out) {
     return true;
 }
 
+// Reverse a byte array in place
+static void reverse_bytes(uint8_t *buf, size_t len)
+{
+    for (size_t i = 0; i < len / 2; i++) {
+        uint8_t tmp = buf[i];
+        buf[i] = buf[len - 1 - i];
+        buf[len - 1 - i] = tmp;
+    }
+}
+
+// Swap bytes within each 4-byte word
+static void swap_endian_words(uint8_t *buf, size_t len)
+{
+    for (size_t i = 0; i + 3 < len; i += 4) {
+        uint8_t t0 = buf[i], t1 = buf[i + 1];
+        buf[i] = buf[i + 3];
+        buf[i + 1] = buf[i + 2];
+        buf[i + 2] = t1;
+        buf[i + 3] = t0;
+    }
+}
+
 void bm1370_extract_job(const uint8_t header[80], uint8_t job_id, bm1370_job_t *job) {
-    // Header layout (all little-endian):
+    // Header layout (standard Bitcoin, all little-endian):
     // bytes 0-3: version
     // bytes 4-35: prevhash (32 bytes)
     // bytes 36-67: merkle_root (32 bytes)
@@ -97,12 +120,21 @@ void bm1370_extract_job(const uint8_t header[80], uint8_t job_id, bm1370_job_t *
     // starting_nonce = 0 (ASIC will scan nonces itself)
     memset(job->starting_nonce, 0, 4);
 
-    // Copy nbits, ntime, merkle_root, prev_block_hash, version (raw bytes, no swap)
+    // nbits, ntime, version — raw copy (LE, same as header)
     memcpy(job->nbits, header + 72, 4);
     memcpy(job->ntime, header + 68, 4);
-    memcpy(job->merkle_root, header + 36, 32);
-    memcpy(job->prev_block_hash, header + 4, 32);
     memcpy(job->version, header + 0, 4);
+
+    // merkle_root — swap endian words then reverse entire 32 bytes
+    memcpy(job->merkle_root, header + 36, 32);
+    swap_endian_words(job->merkle_root, 32);
+    reverse_bytes(job->merkle_root, 32);
+
+    // prev_block_hash — swap endian words then reverse entire 32 bytes
+    // (header has bswap32 per word from decode_stratum_prevhash; ASIC needs word-order reversed)
+    memcpy(job->prev_block_hash, header + 4, 32);
+    swap_endian_words(job->prev_block_hash, 32);
+    reverse_bytes(job->prev_block_hash, 32);
 }
 
 uint8_t bm1370_decode_job_id(const bm1370_nonce_t *nonce) {
@@ -113,4 +145,40 @@ uint32_t bm1370_decode_version_bits(const bm1370_nonce_t *nonce) {
     // Manual big-endian to host conversion of 2-byte version_bits field
     uint16_t v = ((uint16_t)nonce->version_bits[0] << 8) | nonce->version_bits[1];
     return (uint32_t)v << 13;
+}
+
+// Reverse bits in a single byte
+static uint8_t reverse_bits(uint8_t b)
+{
+    b = ((b & 0xF0) >> 4) | ((b & 0x0F) << 4);
+    b = ((b & 0xCC) >> 2) | ((b & 0x33) << 2);
+    b = ((b & 0xAA) >> 1) | ((b & 0x55) << 1);
+    return b;
+}
+
+// Largest power of 2 <= n
+static uint32_t largest_power_of_two(uint32_t n)
+{
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    return (n + 1) >> 1;
+}
+
+void bm1370_difficulty_to_mask(double difficulty, uint8_t mask_out[4])
+{
+    if (difficulty < 1.0) difficulty = 1.0;
+    uint32_t diff = (uint32_t)difficulty;
+    if (diff < 1) diff = 1;
+
+    // BM1370 ticket mask = (largest_power_of_2(diff) - 1), BE, per-byte bit-reversed
+    uint32_t mask_val = largest_power_of_two(diff) - 1;
+
+    // BE decomposition then per-byte bit-reversal
+    mask_out[0] = reverse_bits((uint8_t)(mask_val >> 24));
+    mask_out[1] = reverse_bits((uint8_t)(mask_val >> 16));
+    mask_out[2] = reverse_bits((uint8_t)(mask_val >> 8));
+    mask_out[3] = reverse_bits((uint8_t)(mask_val));
 }

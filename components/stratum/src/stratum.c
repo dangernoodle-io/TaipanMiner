@@ -3,6 +3,7 @@
 #include "mining.h"
 #include "work.h"
 #include "sha256.h"
+#include "board.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -17,6 +18,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "esp_log.h"
 #include "cJSON.h"
 
@@ -37,6 +39,9 @@ static uint32_t s_version_mask = 0;
 static int s_configure_id = 0;
 static const char *s_wallet_addr;
 static const char *s_worker_name;
+static uint32_t s_extranonce2 = 0;     // rolling extranonce2 counter
+static uint32_t s_work_seq = 0;        // work sequence counter
+static TickType_t s_last_job_tick = 0; // last job dispatch tick
 
 // Line buffer for reading from socket
 static char s_linebuf[2048];
@@ -210,10 +215,12 @@ static void handle_configure_result(cJSON *result)
 // Build mining work from current job
 static void build_work(mining_work_t *work)
 {
-    // Build extranonce2 (with nonzero value)
+    // Build extranonce2 from rolling counter (LE byte order)
     uint8_t extranonce2[MAX_EXTRANONCE2_SIZE];
     memset(extranonce2, 0, sizeof(extranonce2));
-    extranonce2[s_extranonce2_size - 1] = 0x01;
+    for (size_t i = 0; i < s_extranonce2_size && i < sizeof(uint32_t); i++) {
+        extranonce2[i] = (uint8_t)(s_extranonce2 >> (i * 8));
+    }
 
     // Store extranonce2 hex in work
     char en2_hex[17];
@@ -247,6 +254,7 @@ static void build_work(mining_work_t *work)
 
     // Set target from current difficulty
     difficulty_to_target(s_difficulty, work->target);
+    work->difficulty = s_difficulty;
     ESP_LOGD(TAG, "build_work: diff=%.6f target=%02x%02x%02x%02x %02x%02x%02x%02x",
              s_difficulty,
              work->target[31], work->target[30], work->target[29], work->target[28],
@@ -257,6 +265,7 @@ static void build_work(mining_work_t *work)
     work->ntime = s_job.ntime;
     strncpy(work->job_id, s_job.job_id, sizeof(work->job_id) - 1);
     work->job_id[sizeof(work->job_id) - 1] = '\0';
+    work->work_seq = ++s_work_seq;
 }
 
 // Handle mining.notify
@@ -319,6 +328,7 @@ static void handle_notify(cJSON *params)
              s_job.job_id, s_job.clean_jobs,
              version_j->valuestring, ntime_j->valuestring, nbits_j->valuestring);
 
+    s_extranonce2 = 0;
     mining_work_t work;
     build_work(&work);
 
@@ -332,6 +342,7 @@ static void handle_notify(cJSON *params)
         xQueueReset(work_queue);
     }
     xQueueOverwrite(work_queue, &work);
+    s_last_job_tick = xTaskGetTickCount();
 }
 
 // Handle mining.set_difficulty
@@ -401,7 +412,7 @@ static int submit_share(mining_result_t *result)
                  result->ntime_hex, result->nonce_hex);
     }
 
-    ESP_LOGD(TAG, "submit: %s", params);
+    ESP_LOGI(TAG, "submit: %s", params);
     return stratum_request("mining.submit", params) < 0 ? -1 : 0;
 }
 
@@ -470,6 +481,14 @@ static void process_message(const char *line)
                 }
             } else if (result_item && cJSON_IsTrue(result_item)) {
                 ESP_LOGI(TAG, "share accepted");
+                if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
+#ifdef ASIC_BM1370
+                    mining_stats.asic_shares++;
+#else
+                    mining_stats.hw_shares++;
+#endif
+                    xSemaphoreGive(mining_stats.mutex);
+                }
             }
         }
     }
@@ -489,6 +508,9 @@ void stratum_task(void *arg)
         uint16_t pool_port = nv_config_pool_port();
         s_wallet_addr = nv_config_wallet_addr();
         s_worker_name = nv_config_worker_name();
+
+        ESP_LOGI(TAG, "connecting to %s:%u wallet=%s worker=%s",
+                 pool_host, pool_port, s_wallet_addr, s_worker_name);
 
         // Connect
         if (stratum_connect(pool_host, pool_port) != 0) {
@@ -529,8 +551,7 @@ void stratum_task(void *arg)
             goto reconnect;
         }
 
-        // Authorize (must come before suggest_difficulty — pool requires
-        // an authenticated session for difficulty suggestions to take effect)
+        // Authorize
         {
             char auth_params[128];
             snprintf(auth_params, sizeof(auth_params),
@@ -569,6 +590,20 @@ void stratum_task(void *arg)
                     goto reconnect;
                 }
             }
+
+            // Periodic job dispatch — feed ASIC fresh nonce space
+#ifdef ASIC_BM1370
+            TickType_t now = xTaskGetTickCount();
+            if (s_job.job_id[0] != '\0' &&
+                (now - s_last_job_tick) >= pdMS_TO_TICKS(BM1370_JOB_INTERVAL_MS)) {
+                s_extranonce2++;
+                mining_work_t work;
+                build_work(&work);
+                work.clean = false;
+                xQueueOverwrite(work_queue, &work);
+                s_last_job_tick = now;
+            }
+#endif
         }
 
 reconnect:

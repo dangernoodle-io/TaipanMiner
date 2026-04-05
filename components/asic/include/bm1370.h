@@ -43,6 +43,7 @@
 #define BM1370_REG_VERSION    0xA4
 #define BM1370_REG_A8         0xA8
 #define BM1370_REG_MISC_SET   0xB9
+#define BM1370_REG_TICKET_MASK  0x14
 
 // --- Version mask (ASICBoost BIP 320) ---
 #define BM1370_VERSION_MASK   0x1FFFE000
@@ -94,3 +95,7 @@ uint8_t bm1370_decode_job_id(const bm1370_nonce_t *nonce);
 
 // Decode rolled version bits from a nonce response: ntohs(version_bits) << 13
 uint32_t bm1370_decode_version_bits(const bm1370_nonce_t *nonce);
+
+// Compute the 4-byte BM1370 ticket mask for a given pool difficulty.
+// Output is in wire format (BE, per-byte bit-reversed) ready to write to register 0x14.
+void bm1370_difficulty_to_mask(double difficulty, uint8_t mask_out[4]);

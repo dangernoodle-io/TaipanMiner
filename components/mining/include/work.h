@@ -36,7 +36,9 @@ typedef struct {
     uint32_t ntime;              // for ntime rolling
     char     job_id[64];
     char     extranonce2_hex[17]; // extranonce2 as hex string (8 bytes = 16 hex chars + null)
+    double   difficulty;         // pool difficulty (for ASIC ticket mask)
     bool     clean;              // true = new block, interrupt mining immediately
+    uint32_t work_seq;           // sequence counter — incremented on each build_work()
 } mining_work_t;
 
 // Coinbase construction: coinb1 + extranonce1 + extranonce2 + coinb2 -> SHA256d

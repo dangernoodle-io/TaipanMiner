@@ -30,3 +30,10 @@
 
 // BOOT button
 #define PIN_BOOT_BTN       0
+
+// ASIC operating parameters
+#define BM1370_DEFAULT_MV       1200   // TPS546 VOUT target (mV)
+#define BM1370_DEFAULT_FREQ_MHZ 485    // initial PLL target frequency (MHz)
+#define BM1370_CHIP_COUNT       1      // number of BM1370 chips in chain
+#define BM1370_JOB_INTERVAL_MS  500    // job dispatch interval (ms) — keeps ASIC fed
+#define I2C_BUS_NUM             0      // I2C master bus number

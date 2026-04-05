@@ -1,4 +1,4 @@
 .pio/
 .claude/worktrees/
 sdkconfig.esp32s3
-src/config.h
+components/nv_config/include/config.h

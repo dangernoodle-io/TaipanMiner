@@ -1,7 +1,7 @@
 #include "nv_config.h"
 #include <string.h>
 
-#define NVS_NAMESPACE "stickminer"
+#define NVS_NAMESPACE "taipanminer"
 
 static struct {
     char wifi_ssid[32];
@@ -17,6 +17,9 @@ static struct {
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_log.h"
+#if __has_include("config.h")
+#include "config.h"
+#endif
 
 static const char *TAG = "nv_config";
 
@@ -38,6 +41,15 @@ esp_err_t nv_config_init(void)
     if (err == ESP_ERR_NVS_NOT_FOUND) {
         ESP_LOGI(TAG, "no config in NVS");
         memset(&s_config, 0, sizeof(s_config));
+#ifdef CONFIG_TEST_POOL_HOST
+        strlcpy(s_config.wifi_ssid, CONFIG_TEST_WIFI_SSID, sizeof(s_config.wifi_ssid));
+        strlcpy(s_config.wifi_pass, CONFIG_TEST_WIFI_PASS, sizeof(s_config.wifi_pass));
+        strlcpy(s_config.pool_host, CONFIG_TEST_POOL_HOST, sizeof(s_config.pool_host));
+        s_config.pool_port = CONFIG_TEST_POOL_PORT;
+        strlcpy(s_config.wallet_addr, CONFIG_TEST_WALLET, sizeof(s_config.wallet_addr));
+        strlcpy(s_config.worker_name, CONFIG_TEST_WORKER, sizeof(s_config.worker_name));
+        ESP_LOGI(TAG, "test config loaded from config.h");
+#endif
         return ESP_OK;
     }
 
@@ -56,6 +68,19 @@ esp_err_t nv_config_init(void)
     }
 
     nvs_close(handle);
+
+#ifdef CONFIG_TEST_POOL_HOST
+    if (s_config.pool_host[0] == '\0') {
+        strlcpy(s_config.wifi_ssid, CONFIG_TEST_WIFI_SSID, sizeof(s_config.wifi_ssid));
+        strlcpy(s_config.wifi_pass, CONFIG_TEST_WIFI_PASS, sizeof(s_config.wifi_pass));
+        strlcpy(s_config.pool_host, CONFIG_TEST_POOL_HOST, sizeof(s_config.pool_host));
+        s_config.pool_port = CONFIG_TEST_POOL_PORT;
+        strlcpy(s_config.wallet_addr, CONFIG_TEST_WALLET, sizeof(s_config.wallet_addr));
+        strlcpy(s_config.worker_name, CONFIG_TEST_WORKER, sizeof(s_config.worker_name));
+        ESP_LOGI(TAG, "test config loaded from config.h (NVS pool_host empty)");
+    }
+#endif
+
     ESP_LOGI(TAG, "config loaded (pool=%s:%u worker=%s.%s)",
              s_config.pool_host, s_config.pool_port,
              s_config.wallet_addr, s_config.worker_name);
@@ -69,6 +94,10 @@ esp_err_t nv_config_init(void)
 #ifdef ESP_PLATFORM
 bool nv_config_is_provisioned(void)
 {
+#ifdef CONFIG_TEST_POOL_HOST
+    if (s_config.pool_host[0] != '\0') return true;
+#endif
+
     nvs_handle_t handle;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
 

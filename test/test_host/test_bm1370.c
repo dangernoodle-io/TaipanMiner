@@ -98,8 +98,12 @@ void test_extract_job_from_header(void) {
     // ntime copied raw from header[68..71]
     TEST_ASSERT_EQUAL_HEX8(0x29, job.ntime[0]);
     TEST_ASSERT_EQUAL_HEX8(0xAB, job.ntime[1]);
-    // merkle_root[0] from header[36]
-    TEST_ASSERT_EQUAL_HEX8(0x3B, job.merkle_root[0]);
+    // merkle_root transformed: swap_endian_words + reverse for ASIC format
+    // original bytes [0x3B, 0xA3, 0xED, 0xFD] at word 0 → reversed to end
+    TEST_ASSERT_EQUAL_HEX8(0x3B, job.merkle_root[28]);
+    TEST_ASSERT_EQUAL_HEX8(0xA3, job.merkle_root[29]);
+    TEST_ASSERT_EQUAL_HEX8(0xED, job.merkle_root[30]);
+    TEST_ASSERT_EQUAL_HEX8(0xFD, job.merkle_root[31]);
 }
 
 void test_parse_nonce_valid(void) {

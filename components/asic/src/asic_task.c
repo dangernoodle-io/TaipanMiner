@@ -449,9 +449,10 @@ void asic_mining_task(void *arg)
                                 ((uint32_t)nonce.nonce[2] << 16) | ((uint32_t)nonce.nonce[3] << 24);
             snprintf(result.nonce_hex, sizeof(result.nonce_hex), "%08" PRIx32, nonce_le);
 
-            // Version rolling — submit just the rolled bits (XOR delta from base version)
+            // Version rolling — submit the rolled version
             if (ver_bits != 0 && orig->version_mask != 0) {
-                snprintf(result.version_hex, sizeof(result.version_hex), "%08" PRIx32, ver_bits);
+                uint32_t rolled_submit = (orig->version & ~orig->version_mask) | (ver_bits & orig->version_mask);
+                snprintf(result.version_hex, sizeof(result.version_hex), "%08" PRIx32, rolled_submit);
             }
 
             xQueueSend(result_queue, &result, 0);
@@ -493,5 +494,16 @@ void asic_mining_task(void *arg)
         }
     }
 }
+
+const miner_config_t g_miner_config = {
+    .init = NULL,  // asic_init called separately before WiFi
+    .task_fn = asic_mining_task,
+    .name = "asic",
+    .stack_size = 8192,
+    .priority = 20,
+    .core = 1,
+    .extranonce2_roll = true,
+    .roll_interval_ms = BM1370_JOB_INTERVAL_MS,
+};
 
 #endif // ASIC_BM1370

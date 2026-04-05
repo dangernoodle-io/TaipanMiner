@@ -155,14 +155,12 @@ static esp_err_t prov_redirect_handler(httpd_req_t *req)
 
 static esp_err_t status_handler(httpd_req_t *req)
 {
-    double hw_rate = 0, sw_rate = 0;
-    uint32_t hw_shares = 0, sw_shares = 0;
+    double hw_rate = 0;
+    uint32_t hw_shares = 0;
 
     if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         hw_rate = mining_stats.hw_hashrate;
-        sw_rate = mining_stats.sw_hashrate;
         hw_shares = mining_stats.hw_shares;
-        sw_shares = mining_stats.sw_shares;
         xSemaphoreGive(mining_stats.mutex);
     }
 
@@ -176,8 +174,8 @@ static esp_err_t status_handler(httpd_req_t *req)
         "<p>Build: %s %s</p>"
         "<p>Pool: %s:%u</p>"
         "<p>Worker: %s.%s</p>"
-        "<p>Hashrate: %.1f kH/s (hw: %.1f / sw: %.1f)</p>"
-        "<p>Shares: %"PRIu32" (hw: %"PRIu32" / sw: %"PRIu32")</p>"
+        "<p>Hashrate: %.1f kH/s</p>"
+        "<p>Shares: %"PRIu32"</p>"
         "<p>Uptime: %llds</p>"
         "<p><a href=\"/ota\">OTA Update</a></p>"
         "</body></html>",
@@ -185,8 +183,8 @@ static esp_err_t status_handler(httpd_req_t *req)
         app->date, app->time,
         nv_config_pool_host(), nv_config_pool_port(),
         nv_config_wallet_addr(), nv_config_worker_name(),
-        (hw_rate + sw_rate) / 1000.0, hw_rate / 1000.0, sw_rate / 1000.0,
-        hw_shares + sw_shares, hw_shares, sw_shares,
+        hw_rate / 1000.0,
+        hw_shares,
         (long long)uptime_s);
 
     httpd_resp_set_type(req, "text/html");
@@ -196,14 +194,12 @@ static esp_err_t status_handler(httpd_req_t *req)
 
 static esp_err_t stats_handler(httpd_req_t *req)
 {
-    double hw_rate = 0, sw_rate = 0;
-    uint32_t hw_shares = 0, sw_shares = 0;
+    double hw_rate = 0;
+    uint32_t hw_shares = 0;
 
     if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         hw_rate = mining_stats.hw_hashrate;
-        sw_rate = mining_stats.sw_hashrate;
         hw_shares = mining_stats.hw_shares;
-        sw_shares = mining_stats.sw_shares;
         xSemaphoreGive(mining_stats.mutex);
     }
 
@@ -211,12 +207,8 @@ static esp_err_t stats_handler(httpd_req_t *req)
     int64_t uptime_s = (esp_timer_get_time() - s_start_time) / 1000000;
 
     cJSON *root = cJSON_CreateObject();
-    cJSON_AddNumberToObject(root, "hw_hashrate", hw_rate);
-    cJSON_AddNumberToObject(root, "sw_hashrate", sw_rate);
-    cJSON_AddNumberToObject(root, "total_hashrate", hw_rate + sw_rate);
-    cJSON_AddNumberToObject(root, "hw_shares", hw_shares);
-    cJSON_AddNumberToObject(root, "sw_shares", sw_shares);
-    cJSON_AddNumberToObject(root, "total_shares", hw_shares + sw_shares);
+    cJSON_AddNumberToObject(root, "hashrate", hw_rate);
+    cJSON_AddNumberToObject(root, "shares", hw_shares);
     cJSON_AddStringToObject(root, "pool_host", nv_config_pool_host());
     cJSON_AddNumberToObject(root, "pool_port", nv_config_pool_port());
     cJSON_AddStringToObject(root, "worker", nv_config_worker_name());
@@ -370,7 +362,6 @@ static esp_err_t ota_upload_handler(httpd_req_t *req)
     if (asic_task_handle) vTaskSuspend(asic_task_handle);
 #else
     if (mining_hw_task_handle) vTaskSuspend(mining_hw_task_handle);
-    if (mining_sw_task_handle) vTaskSuspend(mining_sw_task_handle);
 #endif
 
     err = esp_ota_end(ota_handle);
@@ -381,7 +372,6 @@ static esp_err_t ota_upload_handler(httpd_req_t *req)
         if (asic_task_handle) vTaskResume(asic_task_handle);
 #else
         if (mining_hw_task_handle) vTaskResume(mining_hw_task_handle);
-        if (mining_sw_task_handle) vTaskResume(mining_sw_task_handle);
 #endif
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA end failed");
         return ESP_FAIL;

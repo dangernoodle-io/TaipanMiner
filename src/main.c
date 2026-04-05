@@ -21,7 +21,6 @@ static const char *TAG = "taipanminer";
 TaskHandle_t asic_task_handle = NULL;
 #else
 TaskHandle_t mining_hw_task_handle = NULL;
-TaskHandle_t mining_sw_task_handle = NULL;
 #endif
 
 static void sntp_init_time(void)
@@ -53,15 +52,15 @@ static void start_mining(void)
     // Start stratum task on Core 0
     xTaskCreatePinnedToCore(stratum_task, "stratum", 8192, NULL, 5, NULL, 0);
 
+    // Start miner task (board-specific config from g_miner_config)
+    xTaskCreatePinnedToCore(g_miner_config.task_fn, g_miner_config.name,
+                            g_miner_config.stack_size, NULL, g_miner_config.priority,
 #ifdef ASIC_BM1370
-    // ASIC: Core 1 dedicated to ASIC mining (asic_init already done before WiFi)
-    xTaskCreatePinnedToCore(asic_mining_task, "asic", 8192, NULL, 20, &asic_task_handle, 1);
+                            &asic_task_handle,
 #else
-    // Dongle: HW SHA on Core 1, SW SHA on Core 0
-    xTaskCreatePinnedToCore(mining_task, "mining_hw", 4096, NULL, 20, &mining_hw_task_handle, 1);
-    // SW mining disabled — minimal hashrate gain not worth starving Core 0 networking
-    // xTaskCreatePinnedToCore(mining_task_sw, "mining_sw", 4096, NULL, 3, &mining_sw_task_handle, 0);
+                            &mining_hw_task_handle,
 #endif
+                            g_miner_config.core);
 
     ESP_LOGI(TAG, "all tasks started");
 }

@@ -94,6 +94,20 @@ void test_bm1370_ticket_mask_diff_128(void);
 void test_bm1370_ticket_mask_boundary_513_5(void);
 void test_bm1370_ticket_mask_boundary_512_1(void);
 
+// Forward declarations from test_mining.c
+void test_sw_backend_finds_block1_share(void);
+void test_sw_backend_early_reject_low_diff(void);
+void test_sw_backend_early_reject_high_diff(void);
+void test_mine_nonce_range_counts(void);
+void test_mine_nonce_range_stops_on_hit(void);
+void test_mine_result_has_version_hex(void);
+void test_mine_nonce_range_no_hit(void);
+void test_pack_target_word0_diff1(void);
+void test_pack_target_word0_easy_diff(void);
+void test_pack_target_word0_hard_diff(void);
+void test_build_block2_padding(void);
+void test_package_result_no_version_rolling(void);
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -195,6 +209,20 @@ int main(void) {
     RUN_TEST(test_bm1370_ticket_mask_diff_128);
     RUN_TEST(test_bm1370_ticket_mask_boundary_513_5);
     RUN_TEST(test_bm1370_ticket_mask_boundary_512_1);
+
+    // Mining loop tests
+    RUN_TEST(test_sw_backend_finds_block1_share);
+    RUN_TEST(test_sw_backend_early_reject_low_diff);
+    RUN_TEST(test_sw_backend_early_reject_high_diff);
+    RUN_TEST(test_mine_nonce_range_counts);
+    RUN_TEST(test_mine_nonce_range_stops_on_hit);
+    RUN_TEST(test_mine_result_has_version_hex);
+    RUN_TEST(test_mine_nonce_range_no_hit);
+    RUN_TEST(test_pack_target_word0_diff1);
+    RUN_TEST(test_pack_target_word0_easy_diff);
+    RUN_TEST(test_pack_target_word0_hard_diff);
+    RUN_TEST(test_build_block2_padding);
+    RUN_TEST(test_package_result_no_version_rolling);
 
     return UNITY_END();
 }

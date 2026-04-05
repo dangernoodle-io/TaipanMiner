@@ -4,18 +4,17 @@
 #include <string.h>
 #include <stdio.h>
 #include <inttypes.h>
+
+#ifdef ESP_PLATFORM
 #include "esp_log.h"
 #include "esp_timer.h"
-#ifdef ESP_PLATFORM
 #include "sha256_hw.h"
-#endif
 
 static const char *TAG = "mining";
 
 QueueHandle_t work_queue = NULL;
 QueueHandle_t result_queue = NULL;
 
-#ifdef ESP_PLATFORM
 mining_stats_t mining_stats = {0};
 
 void mining_stats_init(void)
@@ -32,495 +31,315 @@ static inline void store_be32(uint8_t *p, uint32_t v) {
     p[3] = v & 0xff;
 }
 
+// Build the 64-byte block2 from header tail + SHA padding
+void build_block2(uint8_t block2[64], const uint8_t header[80])
+{
+    memset(block2, 0, 64);
+    memcpy(block2, header + 64, 16);
+    block2[16] = 0x80;
+    block2[62] = 0x02;
+    block2[63] = 0x80;
+}
+
+// Pack target bytes [28-31] into a single word for early reject comparison
+uint32_t pack_target_word0(const uint8_t target[32])
+{
+    return ((uint32_t)target[28] << 24) |
+           ((uint32_t)target[29] << 16) |
+           ((uint32_t)target[30] <<  8) |
+            (uint32_t)target[31];
+}
+
+// Fill a mining_result_t from work + nonce + version info
+void package_result(mining_result_t *result,
+                    const mining_work_t *work,
+                    uint32_t nonce,
+                    uint32_t base_version,
+                    uint32_t ver_bits,
+                    uint32_t version_mask)
+{
+    strncpy(result->job_id, work->job_id, sizeof(result->job_id) - 1);
+    result->job_id[sizeof(result->job_id) - 1] = '\0';
+    strncpy(result->extranonce2_hex, work->extranonce2_hex, sizeof(result->extranonce2_hex) - 1);
+    result->extranonce2_hex[sizeof(result->extranonce2_hex) - 1] = '\0';
+    sprintf(result->ntime_hex, "%08" PRIx32, work->ntime);
+    sprintf(result->nonce_hex, "%08" PRIx32, nonce);
+    if (version_mask != 0 && ver_bits != 0) {
+        uint32_t rolled = (base_version & ~version_mask) | (ver_bits & version_mask);
+        sprintf(result->version_hex, "%08" PRIx32, rolled);
+    } else {
+        result->version_hex[0] = '\0';
+    }
+}
+
+// --- Software SHA hash backend (native build + host tests) ---
+
+void sw_prepare_job(hash_backend_t *b,
+                    const mining_work_t *work,
+                    const uint8_t block2[64])
+{
+    sw_backend_ctx_t *ctx = (sw_backend_ctx_t *)b->ctx;
+    memcpy(ctx->midstate, sha256_H0, sizeof(sha256_H0));
+    sha256_transform(ctx->midstate, work->header);
+    ctx->target_word0 = pack_target_word0(work->target);
+    memcpy(ctx->block2, block2, 64);
+}
+
+hash_result_t sw_hash_nonce(hash_backend_t *b,
+                            uint32_t nonce,
+                            uint8_t hash_out[32])
+{
+    sw_backend_ctx_t *ctx = (sw_backend_ctx_t *)b->ctx;
+
+    // Set nonce in block2 (bytes 12-15, little-endian)
+    ctx->block2[12] = (uint8_t)(nonce & 0xff);
+    ctx->block2[13] = (uint8_t)((nonce >> 8) & 0xff);
+    ctx->block2[14] = (uint8_t)((nonce >> 16) & 0xff);
+    ctx->block2[15] = (uint8_t)((nonce >> 24) & 0xff);
+
+    // First SHA-256: clone midstate + transform block2
+    uint32_t state[8];
+    memcpy(state, ctx->midstate, 32);
+    sha256_transform(state, ctx->block2);
+
+    // Write first hash into block3_words
+    for (int i = 0; i < 8; i++) {
+        ctx->block3_words[i] = state[i];
+    }
+
+    // Second SHA-256: H0 + transform block3_words
+    memcpy(state, sha256_H0, 32);
+    sha256_transform_words(state, ctx->block3_words);
+
+    // Early reject: check MSB word
+    if (state[7] <= ctx->target_word0) {
+        store_be32(hash_out,      state[0]);
+        store_be32(hash_out + 4,  state[1]);
+        store_be32(hash_out + 8,  state[2]);
+        store_be32(hash_out + 12, state[3]);
+        store_be32(hash_out + 16, state[4]);
+        store_be32(hash_out + 20, state[5]);
+        store_be32(hash_out + 24, state[6]);
+        store_be32(hash_out + 28, state[7]);
+        return HASH_CHECK;
+    }
+    return HASH_MISS;
+}
+
+void sw_backend_setup(hash_backend_t *b, sw_backend_ctx_t *ctx)
+{
+    memset(ctx->block3_words, 0, sizeof(ctx->block3_words));
+    ctx->block3_words[8]  = 0x80000000U;
+    ctx->block3_words[15] = 0x00000100U;
+
+    b->init = NULL;
+    b->prepare_job = sw_prepare_job;
+    b->hash_nonce = sw_hash_nonce;
+    b->ctx = ctx;
+}
+
+#ifdef ESP_PLATFORM
+// --- Hardware SHA hash backend (ESP32-S3 SHA peripheral) ---
+
+typedef struct {
+    uint32_t midstate_hw[8];
+    uint32_t *block2_words;
+} hw_backend_ctx_t;
+
+static void hw_backend_init(hash_backend_t *b)
+{
+    (void)b;
+    sha256_hw_init();
+}
+
+static void hw_prepare_job(hash_backend_t *b,
+                           const mining_work_t *work,
+                           const uint8_t block2[64])
+{
+    hw_backend_ctx_t *ctx = (hw_backend_ctx_t *)b->ctx;
+    sha256_hw_midstate(work->header, ctx->midstate_hw);
+    ctx->block2_words = (uint32_t *)block2;
+}
+
+static hash_result_t hw_hash_nonce(hash_backend_t *b,
+                                   uint32_t nonce,
+                                   uint8_t hash_out[32])
+{
+    hw_backend_ctx_t *ctx = (hw_backend_ctx_t *)b->ctx;
+    uint32_t digest_hw[8];
+    uint32_t h7_raw = sha256_hw_mine_nonce(ctx->midstate_hw, ctx->block2_words,
+                                           nonce, digest_hw);
+
+    if ((h7_raw >> 16) == 0) {
+        for (int i = 0; i < 8; i++) {
+            uint32_t w = __builtin_bswap32(digest_hw[i]);
+            store_be32(hash_out + i * 4, w);
+        }
+        return HASH_CHECK;
+    }
+    return HASH_MISS;
+}
+
+static void hw_backend_setup(hash_backend_t *b, hw_backend_ctx_t *ctx)
+{
+    b->init = hw_backend_init;
+    b->prepare_job = hw_prepare_job;
+    b->hash_nonce = hw_hash_nonce;
+    b->ctx = ctx;
+}
+#endif // ESP_PLATFORM
+
+bool mine_nonce_range(hash_backend_t *backend,
+                      mining_work_t *work,
+                      const mine_params_t *params,
+                      mining_result_t *result_out,
+                      bool *found_out)
+{
+    uint8_t block2[64];
+    build_block2(block2, work->header);
+    backend->prepare_job(backend, work, block2);
+
+#ifdef ESP_PLATFORM
+    int64_t start_us = esp_timer_get_time();
+    uint32_t hashes = 0;
+#endif
+
+    for (uint32_t nonce = params->nonce_start; ; nonce++) {
+        uint8_t hash[32];
+        hash_result_t hr = backend->hash_nonce(backend, nonce, hash);
+
+        if (hr == HASH_CHECK && meets_target(hash, work->target)) {
+            mining_result_t result;
+            package_result(&result, work, nonce,
+                           params->base_version, params->ver_bits,
+                           params->version_mask);
+
+#ifdef ESP_PLATFORM
+            ESP_LOGI(TAG, "share found! (nonce=%08" PRIx32 ")", nonce);
+
+            xQueueSend(result_queue, &result, 0);
+#endif
+            if (result_out) {
+                *result_out = result;
+            }
+            if (found_out) {
+                *found_out = true;
+                return false;  // in tests, stop after first hit
+            }
+        }
+
+#ifdef ESP_PLATFORM
+        hashes++;
+
+        // Periodic yield + job refresh
+        if (((nonce + 1) & params->yield_mask) == 0) {
+            if (((nonce + 1) & params->log_mask) == 0) {
+                int64_t elapsed_us = esp_timer_get_time() - start_us;
+                if (elapsed_us > 0) {
+                    double hashrate = (double)hashes / ((double)elapsed_us / 1000000.0);
+                    uint32_t shares = 0;
+                    if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
+                        mining_stats.hw_hashrate = hashrate;
+                        shares = mining_stats.hw_shares;
+                        xSemaphoreGive(mining_stats.mutex);
+                    }
+                    ESP_LOGI(TAG, "hw: %.1f kH/s | shares: %" PRIu32, hashrate / 1000.0, shares);
+                }
+            }
+
+            // Check for new work
+            mining_work_t new_work;
+            if (xQueuePeek(work_queue, &new_work, 0) == pdTRUE &&
+                new_work.work_seq != work->work_seq) {
+                memcpy(work, &new_work, sizeof(*work));
+                ESP_LOGI(TAG, "new job (%s)", work->job_id);
+                build_block2(block2, work->header);
+                backend->prepare_job(backend, work, block2);
+                start_us = esp_timer_get_time();
+                hashes = 0;
+                // Reset nonce to start (will increment to nonce_start on next iteration)
+                nonce = params->nonce_start - 1;
+                continue;
+            }
+
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
+#endif
+
+        if (nonce == params->nonce_end) break;
+    }
+    return false;
+}
+
+#ifdef ESP_PLATFORM
 void mining_task(void *arg)
 {
-    mining_work_t work;
+    (void)arg;
 
-#ifdef ESP_PLATFORM
-    uint32_t midstate_hw[8];
-#else
-    uint32_t midstate[8];
-#endif
+    // Set up hash backend
+    hw_backend_ctx_t hw_ctx;
+    hash_backend_t backend;
+    hw_backend_setup(&backend, &hw_ctx);
 
-    // Block 2: tail[16] + 0x80 + zeros + bit_length(640) = 64 bytes
-    uint8_t block2[64];
+    if (backend.init) {
+        backend.init(&backend);
+    }
 
-#ifndef ESP_PLATFORM
-    // Block 3: first_hash[32] + 0x80 + zeros + bit_length(256) = 64 bytes
-    // Only needed for software SHA path; hardware path handles this internally.
-    uint32_t block3_words[16];
-    memset(block3_words, 0, sizeof(block3_words));
-    block3_words[8]  = 0x80000000U;  // 0x80 padding byte in BE word
-    block3_words[15] = 0x00000100U;  // bit length 256 in BE word
-#endif
-
-    ESP_LOGI(TAG, "hw: task started");
-
-#ifdef ESP_PLATFORM
-    sha256_hw_init();
-#endif
+    ESP_LOGI(TAG, "mining task started");
 
     for (;;) {
+        mining_work_t work;
         if (xQueuePeek(work_queue, &work, portMAX_DELAY) != pdTRUE) {
             continue;
         }
 
-        ESP_LOGI(TAG, "hw: new job (%s)", work.job_id);
+        ESP_LOGI(TAG, "new job (%s)", work.job_id);
 
-        // Precompute MSB target word for early reject (needed only for software path).
-        // state[7] is in SHA-256 BE word order: (hash[28]<<24 | hash[29]<<16 | hash[30]<<8 | hash[31])
-        // Pack target the same way so the <= comparison works.
-        uint32_t target_word0 = ((uint32_t)work.target[28] << 24) |
-                                ((uint32_t)work.target[29] << 16) |
-                                ((uint32_t)work.target[30] << 8)  |
-                                (uint32_t)work.target[31];
-        ESP_LOGD(TAG, "target LE MSB: %02x%02x%02x%02x %02x%02x%02x%02x (tw0=%08" PRIx32 ")",
-                 work.target[31], work.target[30], work.target[29], work.target[28],
-                 work.target[27], work.target[26], work.target[25], work.target[24],
-                 target_word0);
-
-        // Compute midstate from first 64 bytes of header
-#ifdef ESP_PLATFORM
-        sha256_hw_midstate(work.header, midstate_hw);
-#else
-        memcpy(midstate, sha256_H0, sizeof(sha256_H0));
-        sha256_transform(midstate, work.header);
-#endif
-
-        // Pre-build block2: tail[16] + padding for 80-byte message
-        memset(block2, 0, 64);
-        memcpy(block2, work.header + 64, 16);
-        block2[16] = 0x80;
-        block2[62] = 0x02;
-        block2[63] = 0x80;
-
-#ifdef ESP_PLATFORM
-        uint32_t *block2_words = (uint32_t *)block2;
-#endif
-
-        // Version rolling outer loop (BIP 320)
         uint32_t base_version = work.version;
-        uint32_t ver_bits = 0;  // current version roll offset
+        uint32_t ver_bits = 0;
 
         for (;;) {  // version rolling outer loop
-            // Apply version roll
             if (work.version_mask != 0 && ver_bits != 0) {
                 uint32_t rolled = (base_version & ~work.version_mask) | (ver_bits & work.version_mask);
-                // Update version in header (bytes 0-3, little-endian)
                 work.header[0] = rolled & 0xFF;
                 work.header[1] = (rolled >> 8) & 0xFF;
                 work.header[2] = (rolled >> 16) & 0xFF;
                 work.header[3] = (rolled >> 24) & 0xFF;
-                // Recompute midstate (version is in first 64 bytes)
-                sha256_hw_midstate(work.header, midstate_hw);
             }
 
-            int64_t start_us = esp_timer_get_time();
-            uint32_t nonce = 0;
-            uint32_t hashes = 0;
+            mine_params_t params = {
+                .nonce_start = 0,
+                .nonce_end = 0xFFFFFFFFU,
+                .yield_mask = 0x3FFFF,
+                .log_mask = 0xFFFFF,
+                .ver_bits = ver_bits,
+                .base_version = base_version,
+                .version_mask = work.version_mask,
+            };
 
-            for (nonce = 0; nonce <= 0x7FFFFFFFU; nonce++) {
-#ifdef ESP_PLATFORM
-            // Hardware SHA path (Phase 3 optimized: zero-bswap HW-format pipeline)
-            uint32_t digest_hw[8];
-            uint32_t h7_raw = sha256_hw_mine_nonce(midstate_hw, block2_words, nonce, digest_hw);
+            mine_nonce_range(&backend, &work, &params, NULL, NULL);
 
-            if ((h7_raw >> 16) == 0) {
-                // Potential hit — convert HW format digest to BE hash bytes
-                uint8_t hash[32];
-                for (int i = 0; i < 8; i++) {
-                    // digest_hw is in HW LE format; bswap to get standard SHA words, then store BE
-                    uint32_t w = __builtin_bswap32(digest_hw[i]);
-                    store_be32(hash + i * 4, w);
-                }
-
-                if (meets_target(hash, work.target)) {
-                    mining_result_t result;
-                    strncpy(result.job_id, work.job_id, sizeof(result.job_id) - 1);
-                    result.job_id[sizeof(result.job_id) - 1] = '\0';
-                    strncpy(result.extranonce2_hex, work.extranonce2_hex, sizeof(result.extranonce2_hex) - 1);
-                    result.extranonce2_hex[sizeof(result.extranonce2_hex) - 1] = '\0';
-                    sprintf(result.ntime_hex, "%08" PRIx32, work.ntime);
-                    sprintf(result.nonce_hex, "%08" PRIx32, nonce);
-                    if (work.version_mask != 0 && ver_bits != 0) {
-                        uint32_t rolled = (base_version & ~work.version_mask) | (ver_bits & work.version_mask);
-                        sprintf(result.version_hex, "%08" PRIx32, rolled);
-                    } else {
-                        result.version_hex[0] = '\0';
-                    }
-
-                    ESP_LOGI(TAG, "hw: share found! (nonce=%08" PRIx32 ")", nonce);
-                    if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
-                        mining_stats.hw_shares++;
-                        xSemaphoreGive(mining_stats.mutex);
-                    }
-#ifdef TAIPANMINER_DEBUG
-                    // Cross-check with software SHA using standard midstate
-                    uint32_t sw_midstate[8];
-                    memcpy(sw_midstate, sha256_H0, sizeof(sha256_H0));
-                    sha256_transform(sw_midstate, work.header);
-
-                    uint8_t sw_block2[64];
-                    memcpy(sw_block2, block2, 64);
-                    sw_block2[12] = (uint8_t)(nonce & 0xff);
-                    sw_block2[13] = (uint8_t)((nonce >> 8) & 0xff);
-                    sw_block2[14] = (uint8_t)((nonce >> 16) & 0xff);
-                    sw_block2[15] = (uint8_t)((nonce >> 24) & 0xff);
-                    uint32_t sw_state[8];
-                    memcpy(sw_state, sw_midstate, 32);
-                    sha256_transform(sw_state, sw_block2);
-                    uint8_t sw_block3[64];
-                    memset(sw_block3, 0, 64);
-                    store_be32(sw_block3,      sw_state[0]);
-                    store_be32(sw_block3 + 4,  sw_state[1]);
-                    store_be32(sw_block3 + 8,  sw_state[2]);
-                    store_be32(sw_block3 + 12, sw_state[3]);
-                    store_be32(sw_block3 + 16, sw_state[4]);
-                    store_be32(sw_block3 + 20, sw_state[5]);
-                    store_be32(sw_block3 + 24, sw_state[6]);
-                    store_be32(sw_block3 + 28, sw_state[7]);
-                    sw_block3[32] = 0x80;
-                    sw_block3[62] = 0x01;
-                    sw_block3[63] = 0x00;
-                    memcpy(sw_state, sha256_H0, 32);
-                    sha256_transform(sw_state, sw_block3);
-                    uint8_t sw_hash[32];
-                    store_be32(sw_hash,      sw_state[0]);
-                    store_be32(sw_hash + 4,  sw_state[1]);
-                    store_be32(sw_hash + 8,  sw_state[2]);
-                    store_be32(sw_hash + 12, sw_state[3]);
-                    store_be32(sw_hash + 16, sw_state[4]);
-                    store_be32(sw_hash + 20, sw_state[5]);
-                    store_be32(sw_hash + 24, sw_state[6]);
-                    store_be32(sw_hash + 28, sw_state[7]);
-
-                    // Full sha256d verification (no midstate optimization)
-                    uint8_t verify_header[80];
-                    memcpy(verify_header, work.header, 80);
-                    verify_header[76] = (uint8_t)(nonce & 0xff);
-                    verify_header[77] = (uint8_t)((nonce >> 8) & 0xff);
-                    verify_header[78] = (uint8_t)((nonce >> 16) & 0xff);
-                    verify_header[79] = (uint8_t)((nonce >> 24) & 0xff);
-                    uint8_t full_hash[32];
-                    sha256d(verify_header, 80, full_hash);
-
-                    ESP_LOGI(TAG, "  HW hash:   %02x%02x%02x%02x %02x%02x%02x%02x",
-                             hash[0], hash[1], hash[2], hash[3],
-                             hash[4], hash[5], hash[6], hash[7]);
-                    ESP_LOGI(TAG, "  SW hash:   %02x%02x%02x%02x %02x%02x%02x%02x",
-                             sw_hash[0], sw_hash[1], sw_hash[2], sw_hash[3],
-                             sw_hash[4], sw_hash[5], sw_hash[6], sw_hash[7]);
-                    ESP_LOGI(TAG, "  full hash: %02x%02x%02x%02x %02x%02x%02x%02x",
-                             full_hash[0], full_hash[1], full_hash[2], full_hash[3],
-                             full_hash[4], full_hash[5], full_hash[6], full_hash[7]);
-#endif
-                    xQueueSend(result_queue, &result, 0);
-                }
-            }
-#else
-            // Software SHA path (native build / fallback)
-            // Set nonce in block2 (bytes 12-15, little-endian)
-            block2[12] = (uint8_t)(nonce & 0xff);
-            block2[13] = (uint8_t)((nonce >> 8) & 0xff);
-            block2[14] = (uint8_t)((nonce >> 16) & 0xff);
-            block2[15] = (uint8_t)((nonce >> 24) & 0xff);
-
-            // First SHA-256: clone midstate + transform block2
-            uint32_t state[8];
-            memcpy(state, midstate, 32);
-            sha256_transform(state, block2);
-
-            // Write first hash into block3_words (big-endian)
-            block3_words[0] = state[0];
-            block3_words[1] = state[1];
-            block3_words[2] = state[2];
-            block3_words[3] = state[3];
-            block3_words[4] = state[4];
-            block3_words[5] = state[5];
-            block3_words[6] = state[6];
-            block3_words[7] = state[7];
-
-            // Second SHA-256: H0 + transform block3_words
-            memcpy(state, sha256_H0, 32);
-            sha256_transform_words(state, block3_words);
-
-            // Quick reject: check MSB word (LE convention: state[7])
-            if (state[7] <= target_word0) {
-                uint8_t hash[32];
-                store_be32(hash,      state[0]);
-                store_be32(hash + 4,  state[1]);
-                store_be32(hash + 8,  state[2]);
-                store_be32(hash + 12, state[3]);
-                store_be32(hash + 16, state[4]);
-                store_be32(hash + 20, state[5]);
-                store_be32(hash + 24, state[6]);
-                store_be32(hash + 28, state[7]);
-
-                if (meets_target(hash, work.target)) {
-                    mining_result_t result;
-                    strncpy(result.job_id, work.job_id, sizeof(result.job_id) - 1);
-                    result.job_id[sizeof(result.job_id) - 1] = '\0';
-                    strncpy(result.extranonce2_hex, work.extranonce2_hex, sizeof(result.extranonce2_hex) - 1);
-                    result.extranonce2_hex[sizeof(result.extranonce2_hex) - 1] = '\0';
-                    sprintf(result.ntime_hex, "%08" PRIx32, work.ntime);
-                    sprintf(result.nonce_hex, "%08" PRIx32, nonce);
-
-                    ESP_LOGI(TAG, "hw: share found! (nonce=%08" PRIx32 ")", nonce);
-                    if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
-                        mining_stats.hw_shares++;
-                        xSemaphoreGive(mining_stats.mutex);
-                    }
-                    xQueueSend(result_queue, &result, 0);
-                }
-            }
-#endif
-
-            hashes++;
-
-            // Every 65536 hashes: check for new work and yield for WDT
-            if (((nonce + 1) & 0x3FFFF) == 0) {
-                if (((nonce + 1) & 0xFFFFF) == 0) {
-                    int64_t elapsed_us = esp_timer_get_time() - start_us;
-                    if (elapsed_us > 0) {
-                        double hashrate = (double)hashes / ((double)elapsed_us / 1000000.0);
-                        double sw_rate = 0;
-                        uint32_t hw_shares = 0;
-                        uint32_t sw_shares = 0;
-                        uint32_t total_shares = 0;
-#ifdef ESP_PLATFORM
-                        if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
-                            mining_stats.hw_hashrate = hashrate;
-                            sw_rate = mining_stats.sw_hashrate;
-                            hw_shares = mining_stats.hw_shares;
-                            sw_shares = mining_stats.sw_shares;
-                            total_shares = hw_shares + sw_shares;
-                            xSemaphoreGive(mining_stats.mutex);
-                        }
-                        ESP_LOGI(TAG, "hw: %.1f kH/s | sw: %.1f kH/s | total: %.1f kH/s | shares: %"PRIu32" hw / %"PRIu32" sw / %"PRIu32" total",
-                                 hashrate / 1000.0, sw_rate / 1000.0,
-                                 (hashrate + sw_rate) / 1000.0, hw_shares, sw_shares, total_shares);
-#else
-                        ESP_LOGI(TAG, "%.1f H/s (nonce=%08" PRIx32 ")", hashrate, nonce + 1);
-#endif
-                    }
-                }
-
-                mining_work_t new_work;
-                if (xQueuePeek(work_queue, &new_work, 0) == pdTRUE &&
-                    strcmp(new_work.job_id, work.job_id) != 0) {
-                    memcpy(&work, &new_work, sizeof(work));
-                    ESP_LOGI(TAG, "hw: new job (%s)", work.job_id);
-                    target_word0 = ((uint32_t)work.target[28] << 24) |
-                                   ((uint32_t)work.target[29] << 16) |
-                                   ((uint32_t)work.target[30] << 8)  |
-                                   (uint32_t)work.target[31];
-#ifdef ESP_PLATFORM
-                    sha256_hw_midstate(work.header, midstate_hw);
-#else
-                    memcpy(midstate, sha256_H0, sizeof(sha256_H0));
-                    sha256_transform(midstate, work.header);
-#endif
-                    memset(block2, 0, 64);
-                    memcpy(block2, work.header + 64, 16);
-                    block2[16] = 0x80;
-                    block2[62] = 0x02;
-                    block2[63] = 0x80;
-#ifdef ESP_PLATFORM
-                    // block2_words pointer still valid since block2 is static
-#endif
-                    start_us = esp_timer_get_time();
-                    nonce = (uint32_t)-1;
-                    hashes = 0;
-                    continue;
-                }
-
-                vTaskDelay(pdMS_TO_TICKS(1));
-            }
-
-            }  // end nonce loop
-
-            // Nonce range exhausted — try rolling version
-            if (work.version_mask == 0) break;  // no rolling, done
+            if (work.version_mask == 0) break;
             ver_bits = next_version_roll(ver_bits, work.version_mask);
-            if (ver_bits == 0) break;  // wrapped around, all versions exhausted
-            ESP_LOGI(TAG, "hw: rolling version: mask=%08" PRIx32 " bits=%08" PRIx32, work.version_mask, ver_bits);
-        }  // end version rolling outer loop
-
-        ESP_LOGW(TAG, "hw: exhausted nonce range for job %s", work.job_id);
-    }
-}
-
-void mining_task_sw(void *arg)
-{
-    mining_work_t work;
-    uint32_t midstate[8];
-    uint8_t block2[64];
-    uint32_t block3_words[16];
-
-    memset(block3_words, 0, sizeof(block3_words));
-    block3_words[8]  = 0x80000000U;  // 0x80 padding byte in BE word
-    block3_words[15] = 0x00000100U;  // bit length 256 in BE word
-
-    ESP_LOGI(TAG, "sw: task started (core %d)", xPortGetCoreID());
-
-    for (;;) {
-        // Peek for work (non-destructive — HW task also reads from same queue)
-        if (xQueuePeek(work_queue, &work, portMAX_DELAY) != pdTRUE) {
-            continue;
+            if (ver_bits == 0) break;
+            ESP_LOGI(TAG, "rolling version: mask=%08" PRIx32 " bits=%08" PRIx32, work.version_mask, ver_bits);
         }
 
-        ESP_LOGI(TAG, "sw: new job (%s)", work.job_id);
-
-        // Precompute target word for early reject
-        uint32_t target_word0 = ((uint32_t)work.target[28] << 24) |
-                                ((uint32_t)work.target[29] << 16) |
-                                ((uint32_t)work.target[30] << 8)  |
-                                (uint32_t)work.target[31];
-
-        // Compute midstate (software SHA)
-        memcpy(midstate, sha256_H0, sizeof(sha256_H0));
-        sha256_transform(midstate, work.header);
-
-        // Build block2
-        memset(block2, 0, 64);
-        memcpy(block2, work.header + 64, 16);
-        block2[16] = 0x80;
-        block2[62] = 0x02;
-        block2[63] = 0x80;
-
-        // Version rolling outer loop (BIP 320)
-        uint32_t base_version = work.version;
-        uint32_t ver_bits = 0;  // current version roll offset
-
-        for (;;) {  // version rolling outer loop
-            // Apply version roll
-            if (work.version_mask != 0 && ver_bits != 0) {
-                uint32_t rolled = (base_version & ~work.version_mask) | (ver_bits & work.version_mask);
-                // Update version in header (bytes 0-3, little-endian)
-                work.header[0] = rolled & 0xFF;
-                work.header[1] = (rolled >> 8) & 0xFF;
-                work.header[2] = (rolled >> 16) & 0xFF;
-                work.header[3] = (rolled >> 24) & 0xFF;
-                // Recompute midstate (version is in first 64 bytes)
-                memcpy(midstate, sha256_H0, sizeof(sha256_H0));
-                sha256_transform(midstate, work.header);
-            }
-
-            int64_t start_us = esp_timer_get_time();
-            uint32_t hashes = 0;
-
-            // SW task mines nonces 0x80000000 - 0xFFFFFFFF
-            for (uint32_t nonce = 0x80000000U; nonce != 0; nonce++) {
-            // Set nonce in block2
-            block2[12] = (uint8_t)(nonce & 0xff);
-            block2[13] = (uint8_t)((nonce >> 8) & 0xff);
-            block2[14] = (uint8_t)((nonce >> 16) & 0xff);
-            block2[15] = (uint8_t)((nonce >> 24) & 0xff);
-
-            // First SHA-256
-            uint32_t state[8];
-            memcpy(state, midstate, 32);
-            sha256_transform(state, block2);
-
-            // Write first hash into block3_words
-            block3_words[0] = state[0];
-            block3_words[1] = state[1];
-            block3_words[2] = state[2];
-            block3_words[3] = state[3];
-            block3_words[4] = state[4];
-            block3_words[5] = state[5];
-            block3_words[6] = state[6];
-            block3_words[7] = state[7];
-
-            // Second SHA-256
-            memcpy(state, sha256_H0, 32);
-            sha256_transform_words(state, block3_words);
-
-            // Quick reject
-            if ((state[7] >> 16) == 0 && state[7] <= target_word0) {
-                uint8_t hash[32];
-                store_be32(hash,      state[0]);
-                store_be32(hash + 4,  state[1]);
-                store_be32(hash + 8,  state[2]);
-                store_be32(hash + 12, state[3]);
-                store_be32(hash + 16, state[4]);
-                store_be32(hash + 20, state[5]);
-                store_be32(hash + 24, state[6]);
-                store_be32(hash + 28, state[7]);
-
-                if (meets_target(hash, work.target)) {
-                    mining_result_t result;
-                    strncpy(result.job_id, work.job_id, sizeof(result.job_id) - 1);
-                    result.job_id[sizeof(result.job_id) - 1] = '\0';
-                    strncpy(result.extranonce2_hex, work.extranonce2_hex, sizeof(result.extranonce2_hex) - 1);
-                    result.extranonce2_hex[sizeof(result.extranonce2_hex) - 1] = '\0';
-                    sprintf(result.ntime_hex, "%08" PRIx32, work.ntime);
-                    sprintf(result.nonce_hex, "%08" PRIx32, nonce);
-                    if (work.version_mask != 0 && ver_bits != 0) {
-                        uint32_t rolled = (base_version & ~work.version_mask) | (ver_bits & work.version_mask);
-                        sprintf(result.version_hex, "%08" PRIx32, rolled);
-                    } else {
-                        result.version_hex[0] = '\0';
-                    }
-
-                    ESP_LOGI(TAG, "sw: share found! (nonce=%08" PRIx32 ")", nonce);
-                    if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
-                        mining_stats.sw_shares++;
-                        xSemaphoreGive(mining_stats.mutex);
-                    }
-                    xQueueSend(result_queue, &result, 0);
-                }
-            }
-
-            hashes++;
-
-            // Every 65536 hashes: check for new work and yield
-            if (((nonce + 1) & 0x3FFFF) == 0) {
-                if (((nonce + 1) & 0xFFFFF) == 0) {
-                    int64_t elapsed_us = esp_timer_get_time() - start_us;
-                    if (elapsed_us > 0) {
-                        double hashrate = (double)hashes / ((double)elapsed_us / 1000000.0);
-                        if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
-                            mining_stats.sw_hashrate = hashrate;
-                            xSemaphoreGive(mining_stats.mutex);
-                        }
-                    }
-                }
-
-                // Check for new work (peek, don't consume)
-                mining_work_t new_work;
-                if (xQueuePeek(work_queue, &new_work, 0) == pdTRUE &&
-                    strcmp(new_work.job_id, work.job_id) != 0) {
-                    memcpy(&work, &new_work, sizeof(work));
-                    ESP_LOGI(TAG, "sw: new job (%s)", work.job_id);
-                    target_word0 = ((uint32_t)work.target[28] << 24) |
-                                   ((uint32_t)work.target[29] << 16) |
-                                   ((uint32_t)work.target[30] << 8)  |
-                                   (uint32_t)work.target[31];
-                    memcpy(midstate, sha256_H0, sizeof(sha256_H0));
-                    sha256_transform(midstate, work.header);
-                    memset(block2, 0, 64);
-                    memcpy(block2, work.header + 64, 16);
-                    block2[16] = 0x80;
-                    block2[62] = 0x02;
-                    block2[63] = 0x80;
-                    start_us = esp_timer_get_time();
-                    nonce = 0x80000000U - 1;  // will increment to 0x80000000
-                    hashes = 0;
-                    continue;
-                }
-
-                vTaskDelay(pdMS_TO_TICKS(1));
-            }
-            }  // end sw nonce loop
-
-            // Nonce range exhausted — try rolling version
-            if (work.version_mask == 0) break;  // no rolling, done
-            ver_bits = next_version_roll(ver_bits, work.version_mask);
-            if (ver_bits == 0) break;  // wrapped around, all versions exhausted
-            ESP_LOGI(TAG, "sw: rolling version: mask=%08" PRIx32 " bits=%08" PRIx32, work.version_mask, ver_bits);
-        }  // end version rolling outer loop
-
-        ESP_LOGW(TAG, "sw: exhausted nonce range for job %s", work.job_id);
+        ESP_LOGW(TAG, "exhausted nonce range for job %s", work.job_id);
     }
 }
+
+#ifndef ASIC_BM1370
+const miner_config_t g_miner_config = {
+    .init = NULL,
+    .task_fn = mining_task,
+    .name = "mining_hw",
+    .stack_size = 8192,
+    .priority = 20,
+    .core = 1,
+    .extranonce2_roll = false,
+    .roll_interval_ms = 0,
+};
+#endif
+#endif // ESP_PLATFORM
+

@@ -482,11 +482,7 @@ static void process_message(const char *line)
             } else if (result_item && cJSON_IsTrue(result_item)) {
                 ESP_LOGI(TAG, "share accepted");
                 if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
-#ifdef ASIC_BM1370
-                    mining_stats.asic_shares++;
-#else
                     mining_stats.hw_shares++;
-#endif
                     xSemaphoreGive(mining_stats.mutex);
                 }
             }
@@ -593,19 +589,19 @@ void stratum_task(void *arg)
                 }
             }
 
-            // Periodic job dispatch — feed ASIC fresh nonce space
-#ifdef ASIC_BM1370
-            TickType_t now = xTaskGetTickCount();
-            if (s_job.job_id[0] != '\0' &&
-                (now - s_last_job_tick) >= pdMS_TO_TICKS(BM1370_JOB_INTERVAL_MS)) {
-                s_extranonce2++;
-                mining_work_t work;
-                build_work(&work);
-                work.clean = false;
-                xQueueOverwrite(work_queue, &work);
-                s_last_job_tick = now;
+            // Periodic job dispatch — feed miner fresh nonce space (e.g. ASIC)
+            if (g_miner_config.extranonce2_roll) {
+                TickType_t now = xTaskGetTickCount();
+                if (s_job.job_id[0] != '\0' &&
+                    (now - s_last_job_tick) >= pdMS_TO_TICKS(g_miner_config.roll_interval_ms)) {
+                    s_extranonce2++;
+                    mining_work_t work;
+                    build_work(&work);
+                    work.clean = false;
+                    xQueueOverwrite(work_queue, &work);
+                    s_last_job_tick = now;
+                }
             }
-#endif
         }
 
 reconnect:

@@ -46,12 +46,12 @@ uint32_t sha256_hw_mine_second(uint32_t state[8], uint32_t target_word0);
 void sha256_hw_midstate(const uint8_t header_block1[64],
                         uint32_t midstate_hw[8]);
 
-// Optimized per-nonce SHA-256d with inline assembly.
+// Optimized per-nonce SHA-256d with zero-bswap pipeline.
 // midstate_hw[]: midstate in HW format (from sha256_hw_midstate).
 // block2_words[3]: header tail words (block2 bytes 0-11 as uint32_t[3]).
 // nonce: nonce to test.
-// digest_hw[8]: written only on potential hit (upper 16 bits of SHA_H[7] == 0).
-// Returns raw SHA_H_REG[7] value; caller checks (h7_raw >> 16) == 0 for hit.
+// digest_hw[8]: written only on potential hit (upper 16 bits of h7_raw are zero).
+// Returns raw SHA_H_REG[7] value; caller performs full target comparison.
 static inline __attribute__((always_inline)) IRAM_ATTR uint32_t
 sha256_hw_mine_nonce(const uint32_t midstate_hw[8],
                      const uint32_t block2_words[3],
@@ -109,7 +109,8 @@ sha256_hw_mine_nonce(const uint32_t midstate_hw[8],
     REG_WRITE(SHA_START_REG, 1);
     while (REG_READ(SHA_BUSY_REG)) {}
 
-    // Early reject: check upper 16 bits of SHA_H[7]
+    // Early reject: if upper 16 bits of h7_raw are nonzero, hash can't meet
+    // any pool difficulty >= ~6e-8 (covers all real-world mining scenarios)
     h7_raw = SHA_H_REG[7];
     if ((h7_raw >> 16) != 0) {
         return h7_raw;

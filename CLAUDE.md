@@ -41,7 +41,8 @@ Then create `~/.platformio/penv/.espidf-5.5.3/pio-idf-venv.json` with the correc
 4. **sdkconfig delta** — create `sdkconfig/<board>` with settings that differ from `sdkconfig.defaults` (e.g. console type, UART ISR); add `sdkconfig/<board>-debug` for debug overlay
 5. **Gitignore** — add `sdkconfig.<board>` and `sdkconfig.<board>-debug` to `.gitignore` (ESP-IDF auto-generates these at the project root)
 6. **CI/release** — add the env name to the matrix arrays in `ci.yml` and `release.yml`
-7. **default_envs** — add the env to `default_envs` in `platformio.ini`
+7. **Miner config** — define `g_miner_config` in the appropriate source file; if the board uses a novel hash engine, implement a `hash_backend_t`
+8. **default_envs** — add the env to `default_envs` in `platformio.ini`
 
 ## Project layout
 
@@ -61,21 +62,31 @@ Then create `~/.platformio/penv/.espidf-5.5.3/pio-idf-venv.json` with the correc
 ## Architecture
 
 - Core 0: WiFi, Stratum, HTTP server, display, LED
-- Core 1: HW SHA mining (priority 20, nonces 0x00000000-0x7FFFFFFF)
-- Core 0: SW SHA mining (priority 3, nonces 0x80000000-0xFFFFFFFF, yields to WiFi/Stratum)
+- Core 1: Mining (HW SHA on dongle, ASIC on bitaxe) — priority 20
 - Inter-core: FreeRTOS queues (work_queue, result_queue) + mutex (mining_stats)
 
-### Mining pipeline
+### Miner dispatch
 
-- Phase 3 zero-bswap HW-format pipeline: midstate stored in HW-native word order
-- `sha256_hw_mine_nonce`: force-inlined, midstate→SHA_H, block2+nonce→SHA_TEXT, SHA_CONTINUE, direct SHA_H→SHA_TEXT copy for pass 2, SHA_START
-- SHA_TEXT registers are NOT preserved after SHA operations (verified empirically)
-- SHA_START is 21% faster than SHA_CONTINUE+H0 for pass 2
-- APB peripheral bus fixed at 80 MHz — HW mining is MMIO-bound, not CPU-bound (~223 kH/s ceiling)
-- BIP 320 version rolling when nonce space exhausted
+- `miner_config_t` in `mining.h`: unified config struct (task function, stack, priority, core, extranonce2 roll)
+- `g_miner_config`: board-specific instance, defined in `mining.c` (dongle) or `asic_task.c` (bitaxe)
+- `main.c` dispatches via `g_miner_config` — no `#ifdef ASIC_BM1370` in task creation
+
+### Mining pipeline (dongle — ESP32-S3 HW SHA)
+
+- `hash_backend_t`: function pointer struct for hash operations (init, prepare_job, hash_nonce)
+- HW backend: Phase 3 zero-bswap pipeline via `sha256_hw_mine_nonce` (force-inlined MMIO)
+- SW backend: pure `sha256_transform` — used for host tests and native builds
+- `mine_nonce_range()`: unified nonce loop, parameterized by backend + nonce range
+- Full 32-bit nonce space (0x00000000–0xFFFFFFFF), BIP 320 version rolling when exhausted
+- APB peripheral bus fixed at 80 MHz — HW mining is MMIO-bound (~223 kH/s ceiling)
 - Yield every 256K nonces (0x3FFFF mask), hashrate log every 1M (0xFFFFF)
-- FreeRTOS tick rate: 100 Hz; vTaskDelay uses pdMS_TO_TICKS()
-- Combined hashrate logged by HW task (hw + sw + total in kH/s)
+
+### Mining pipeline (bitaxe — BM1370 ASIC)
+
+- ASIC scans nonces autonomously at ~485 GH/s
+- Stratum re-feeds fresh extranonce2 every 500ms via `g_miner_config.extranonce2_roll`
+- Firmware re-verifies ASIC nonces with SHA256d before pool submission
+- ASIC task uses UART I/O event loop, not `hash_backend_t`
 
 ### Network
 
@@ -86,6 +97,6 @@ Then create `~/.platformio/penv/.espidf-5.5.3/pio-idf-venv.json` with the correc
 
 ## Testing
 
-- Host test scope: SHA-256, Stratum parsing, coinbase/merkle, header serialization, target, CRC, PLL, BM1370 framing
+- Host test scope: SHA-256, Stratum parsing, coinbase/merkle, header serialization, target, mining loop (nonce iteration, early reject, share finding), CRC, PLL, BM1370 framing
 - Device test scope: mining integration, NVS persistence, live pool handshake
 - Anonymize test data per workspace rules

@@ -59,7 +59,8 @@ static void start_mining(void)
 #else
     // Dongle: HW SHA on Core 1, SW SHA on Core 0
     xTaskCreatePinnedToCore(mining_task, "mining_hw", 4096, NULL, 20, &mining_hw_task_handle, 1);
-    xTaskCreatePinnedToCore(mining_task_sw, "mining_sw", 4096, NULL, 3, &mining_sw_task_handle, 0);
+    // SW mining disabled — minimal hashrate gain not worth starving Core 0 networking
+    // xTaskCreatePinnedToCore(mining_task_sw, "mining_sw", 4096, NULL, 3, &mining_sw_task_handle, 0);
 #endif
 
     ESP_LOGI(TAG, "all tasks started");

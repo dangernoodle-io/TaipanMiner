@@ -6,6 +6,11 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_mac.h"
+#ifdef ESP_PLATFORM
+#include "mdns.h"
+#include "esp_app_desc.h"
+#include "board.h"
+#endif
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
@@ -24,9 +29,91 @@ static volatile bool s_dns_running = false;
 static TaskHandle_t s_dns_task_handle = NULL;
 static EventGroupHandle_t s_wifi_event_group = NULL;
 static int s_retry_count = 0;
+#ifdef ESP_PLATFORM
+static bool s_mdns_started = false;
+#endif
 
 // Public event group for provisioning
 EventGroupHandle_t g_prov_event_group = NULL;
+
+#ifdef ESP_PLATFORM
+static void mdns_build_hostname(char *out, size_t out_size)
+{
+    const char *worker = nv_config_worker_name();
+    char sanitized[64] = "";
+
+    if (worker && worker[0] != '\0') {
+        size_t i = 0, j = 0;
+        bool last_was_hyphen = false;
+        while (worker[i] && j < sizeof(sanitized) - 1) {
+            char c = worker[i++];
+            if (c >= 'A' && c <= 'Z') {
+                c += 32;
+            }
+            if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+                sanitized[j++] = c;
+                last_was_hyphen = false;
+            } else if (!last_was_hyphen && j > 0) {
+                sanitized[j++] = '-';
+                last_was_hyphen = true;
+            }
+        }
+        while (j > 0 && sanitized[j - 1] == '-') {
+            j--;
+        }
+        sanitized[j] = '\0';
+    }
+
+    if (sanitized[0] != '\0') {
+        snprintf(out, out_size, "taipanminer-%s", sanitized);
+    } else {
+        uint8_t mac[6];
+        esp_read_mac(mac, ESP_MAC_WIFI_STA);
+        snprintf(out, out_size, "taipanminer-%02x%02x", mac[4], mac[5]);
+    }
+
+    /* mDNS label max 63 chars */
+    out[63] = '\0';
+}
+
+static void mdns_start(void)
+{
+    if (s_mdns_started) {
+        return;
+    }
+
+    char hostname[64];
+    mdns_build_hostname(hostname, sizeof(hostname));
+
+    esp_err_t err = mdns_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "mdns_init failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    mdns_hostname_set(hostname);
+    mdns_instance_name_set("TaipanMiner");
+
+    const esp_app_desc_t *app = esp_app_get_description();
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+
+    char mac_str[13];
+    snprintf(mac_str, sizeof(mac_str), "%02x%02x%02x%02x%02x%02x",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    mdns_txt_item_t txt[] = {
+        {"board",   BOARD_NAME},
+        {"version", app->version},
+        {"mac",     mac_str},
+    };
+
+    mdns_service_add(NULL, "_taipanminer", "_tcp", 80, txt, 3);
+    s_mdns_started = true;
+
+    ESP_LOGI(TAG, "mDNS started: %s.local (_taipanminer._tcp)", hostname);
+}
+#endif /* ESP_PLATFORM */
 
 static void event_handler(void *arg, esp_event_base_t event_base,
                           int32_t event_id, void *event_data)
@@ -103,6 +190,10 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
 
     vEventGroupDelete(s_wifi_event_group);
     s_wifi_event_group = NULL;
+
+#ifdef ESP_PLATFORM
+    mdns_start();
+#endif
 
     return ESP_OK;
 }

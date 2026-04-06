@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include "ota_pull.h"
 
 static const char *TAG = "http";
 static int64_t s_start_time;
@@ -34,7 +35,7 @@ static esp_err_t ensure_server_started(void)
     if (s_server) return ESP_OK;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_open_sockets = 6;
-    config.max_uri_handlers = 12;
+    config.max_uri_handlers = 14;
     config.stack_size = 6144;
     config.uri_match_fn = httpd_uri_match_wildcard;
     return httpd_start(&s_server, &config);
@@ -466,6 +467,7 @@ void http_server_switch_to_mining(void)
     httpd_register_uri_handler(s_server, &info_uri);
     httpd_register_uri_handler(s_server, &ota_page_uri);
     httpd_register_uri_handler(s_server, &ota_upload_uri);
+    ota_pull_register_handler(s_server);
 }
 
 esp_err_t http_server_start(void)
@@ -511,6 +513,7 @@ esp_err_t http_server_start(void)
     httpd_register_uri_handler(s_server, &ota_upload_uri);
     httpd_register_uri_handler(s_server, &theme_uri);
     httpd_register_uri_handler(s_server, &logo_uri);
+    ota_pull_register_handler(s_server);
 
     ESP_LOGI(TAG, "HTTP server started on port %d", 80);
     return ESP_OK;

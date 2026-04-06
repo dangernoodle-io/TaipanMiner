@@ -1,5 +1,3 @@
 # Bitaxe 601 — delta from sdkconfig.defaults
-# UART console (no USB CDC on Bitaxe hardware)
-CONFIG_ESP_CONSOLE_UART_DEFAULT=y
 CONFIG_UART_ISR_IN_IRAM=y
 CONFIG_VFS_SELECT_IN_RAM=y

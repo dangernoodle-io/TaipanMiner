@@ -51,12 +51,13 @@ uint32_t pack_target_word0(const uint8_t target[32])
 }
 
 // Fill a mining_result_t from work + nonce + version info
+// Stratum mining.submit version field: pool expects the rolled bits only
+// (XOR delta from base version), not the full rolled version.  The pool
+// reconstructs the block version by applying the mask to its base template.
 void package_result(mining_result_t *result,
                     const mining_work_t *work,
                     uint32_t nonce,
-                    uint32_t base_version,
-                    uint32_t ver_bits,
-                    uint32_t version_mask)
+                    uint32_t ver_bits)
 {
     strncpy(result->job_id, work->job_id, sizeof(result->job_id) - 1);
     result->job_id[sizeof(result->job_id) - 1] = '\0';
@@ -64,9 +65,8 @@ void package_result(mining_result_t *result,
     result->extranonce2_hex[sizeof(result->extranonce2_hex) - 1] = '\0';
     sprintf(result->ntime_hex, "%08" PRIx32, work->ntime);
     sprintf(result->nonce_hex, "%08" PRIx32, nonce);
-    if (version_mask != 0 && ver_bits != 0) {
-        uint32_t rolled = (base_version & ~version_mask) | (ver_bits & version_mask);
-        sprintf(result->version_hex, "%08" PRIx32, rolled);
+    if (ver_bits != 0) {
+        sprintf(result->version_hex, "%08" PRIx32, ver_bits);
     } else {
         result->version_hex[0] = '\0';
     }
@@ -210,9 +210,7 @@ bool mine_nonce_range(hash_backend_t *backend,
 
         if (hr == HASH_CHECK && meets_target(hash, work->target)) {
             mining_result_t result;
-            package_result(&result, work, nonce,
-                           params->base_version, params->ver_bits,
-                           params->version_mask);
+            package_result(&result, work, nonce, params->ver_bits);
 
 #ifdef ESP_PLATFORM
             ESP_LOGI(TAG, "share found! (nonce=%08" PRIx32 ")", nonce);

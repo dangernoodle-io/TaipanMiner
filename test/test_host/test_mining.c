@@ -261,12 +261,14 @@ void test_mine_nonce_range_no_hit(void)
 }
 
 // Test: result has version_hex when version rolling is active
+// Pool expects ver_bits only (XOR delta from base version), not the full
+// rolled version.  Submitting the full version causes "Difficulty too low"
+// because the pool hashes with a wrong block version.
 void test_mine_result_has_version_hex(void)
 {
     mining_work_t work;
     setup_block1_work(&work);
-    work.version_mask = 0x0000FFFF;  // version bits [15:0] rolling
-    // Easy target so all-zero hash passes meets_target
+    work.version_mask = 0x1FFFE000;  // realistic BM1370 mask
     memset(work.target, 0xFF, 32);
 
     counting_ctx_t cctx = {0, 0};
@@ -282,8 +284,8 @@ void test_mine_result_has_version_hex(void)
         .nonce_end = 0,
         .yield_mask = 0xFFFFFFFF,
         .log_mask = 0xFFFFFFFF,
-        .ver_bits = 0x5678,
-        .base_version = 1,
+        .ver_bits = 0x00006000,
+        .base_version = 0x20000000,
         .version_mask = work.version_mask,
     };
 
@@ -292,10 +294,9 @@ void test_mine_result_has_version_hex(void)
     mine_nonce_range(&backend, &work, &params, &result, &found);
 
     TEST_ASSERT_TRUE(found);
-    // version_hex should be set (non-empty string) when ver_bits != 0 and version_mask != 0
     TEST_ASSERT_TRUE(result.version_hex[0] != '\0');
-    // Should contain the full rolled version: (1 & ~0xFFFF) | (0x5678 & 0xFFFF) = 0x00005678
-    TEST_ASSERT_EQUAL_STRING("00005678", result.version_hex);
+    // Must be ver_bits only, NOT full rolled version (0x20006000)
+    TEST_ASSERT_EQUAL_STRING("00006000", result.version_hex);
 }
 
 // Test: pack_target_word0 with difficulty 1.0
@@ -369,7 +370,7 @@ void test_build_block2_padding(void)
     TEST_ASSERT_EQUAL_HEX8(0x80, block2[63]);
 }
 
-// Test: package_result with version_mask=0 (no version rolling)
+// Test: package_result with no version rolling (ver_bits=0)
 void test_package_result_no_version_rolling(void)
 {
     mining_work_t work;
@@ -381,12 +382,30 @@ void test_package_result_no_version_rolling(void)
     work.extranonce2_hex[sizeof(work.extranonce2_hex) - 1] = '\0';
 
     mining_result_t result;
-    package_result(&result, &work, 0xdeadbeef, 1, 0, 0);
+    package_result(&result, &work, 0xdeadbeef, 0);
 
     TEST_ASSERT_EQUAL_STRING("job-abc", result.job_id);
     TEST_ASSERT_EQUAL_STRING("aabbccdd", result.extranonce2_hex);
     TEST_ASSERT_EQUAL_STRING("12345678", result.ntime_hex);
     TEST_ASSERT_EQUAL_STRING("deadbeef", result.nonce_hex);
-    // version_hex should be empty when version_mask=0
+    // version_hex should be empty when ver_bits=0
     TEST_ASSERT_EQUAL_STRING("", result.version_hex);
+}
+
+// Test: package_result submits ver_bits directly, not full rolled version
+void test_package_result_version_rolling_submits_ver_bits(void)
+{
+    mining_work_t work;
+    setup_block1_work(&work);
+    work.ntime = 0x12345678;
+    strncpy(work.job_id, "job-abc", sizeof(work.job_id) - 1);
+    work.job_id[sizeof(work.job_id) - 1] = '\0';
+    strncpy(work.extranonce2_hex, "aabbccdd", sizeof(work.extranonce2_hex) - 1);
+    work.extranonce2_hex[sizeof(work.extranonce2_hex) - 1] = '\0';
+
+    mining_result_t result;
+    // ver_bits=0x00006000: pool expects this, not 0x20006000 (full rolled)
+    package_result(&result, &work, 0xdeadbeef, 0x00006000);
+
+    TEST_ASSERT_EQUAL_STRING("00006000", result.version_hex);
 }

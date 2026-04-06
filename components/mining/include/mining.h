@@ -91,9 +91,7 @@ void build_block2(uint8_t block2[64], const uint8_t header[80]);
 void package_result(mining_result_t *result,
                     const mining_work_t *work,
                     uint32_t nonce,
-                    uint32_t base_version,
-                    uint32_t ver_bits,
-                    uint32_t version_mask);
+                    uint32_t ver_bits);
 
 #ifdef ESP_PLATFORM
 // Queues (created by main, used by stratum + mining tasks)

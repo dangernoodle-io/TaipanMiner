@@ -31,7 +31,7 @@ Then create `~/.platformio/penv/.espidf-5.5.3/pio-idf-venv.json` with the correc
 | Env | Board | ASIC | Console |
 |-----|-------|------|---------|
 | `tdongle-s3` | LilyGo T-Dongle S3 | none (SW mining) | USB CDC |
-| `bitaxe-601` | Bitaxe 601 Gamma | BM1370 | UART0 |
+| `bitaxe-601` | Bitaxe 601 Gamma | BM1370 | USB CDC |
 
 ### Adding a new board
 

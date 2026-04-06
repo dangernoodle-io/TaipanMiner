@@ -31,6 +31,10 @@ jobs:
         run: |
           sudo apt-get install -y ccache
           pip install platformio
+      - name: Static analysis
+        run: make check
+      - name: Test
+        run: make test
       - name: Build firmware
         run: make build-${{ matrix.env }}
       - name: Rename binary
@@ -66,6 +70,6 @@ jobs:
           echo "esptool.py --chip esp32s3 write_flash 0x0 taipanminer-<board>.bin" >> release-body.md
           echo '```' >> release-body.md
       - name: Create release
-        run: gh release create ${{ github.ref_name }} taipanminer-*.bin --notes-file release-body.md
+        run: gh release create ${{ github.ref_name }} taipanminer-*.bin --generate-notes --notes-file release-body.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

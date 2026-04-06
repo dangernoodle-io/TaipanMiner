@@ -1,5 +1,6 @@
 #include "ota_pull.h"
 #include "cJSON.h"
+#include <stdarg.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -10,6 +11,7 @@
 #include "esp_ota_ops.h"
 #include "esp_app_desc.h"
 #include "esp_crt_bundle.h"
+#include "esp_system.h"
 #include "board.h"
 #include "mining.h"
 #include "freertos/FreeRTOS.h"
@@ -19,11 +21,50 @@
 static const char *TAG = "ota_pull";
 
 #define GITHUB_API_URL "https://api.github.com/repos/dangernoodle-io/TaipanMiner/releases/latest"
-#define OTA_TASK_STACK 8192
+#define OTA_TASK_STACK 16384
 #define OTA_TASK_PRIO  3
 #define API_BUF_MAX    16384
 
 static volatile bool s_ota_in_progress = false;
+
+typedef enum {
+    OTA_STATE_IDLE,
+    OTA_STATE_CHECKING,
+    OTA_STATE_DOWNLOADING,
+    OTA_STATE_VERIFYING,
+    OTA_STATE_COMPLETE,
+    OTA_STATE_ERROR,
+} ota_state_t;
+
+static const char *s_ota_state_names[] = {
+    [OTA_STATE_IDLE]               = "idle",
+    [OTA_STATE_CHECKING]           = "checking",
+    [OTA_STATE_DOWNLOADING]        = "downloading",
+    [OTA_STATE_VERIFYING]          = "verifying",
+    [OTA_STATE_COMPLETE]           = "complete",
+    [OTA_STATE_ERROR]              = "error",
+};
+
+typedef struct {
+    volatile ota_state_t state;
+    char last_error[128];
+    volatile int progress_pct;
+} ota_status_t;
+
+static ota_status_t s_ota_status = {
+    .state = OTA_STATE_IDLE,
+    .last_error = {0},
+    .progress_pct = 0,
+};
+
+static void ota_set_error(const char *fmt, ...)
+{
+    s_ota_status.state = OTA_STATE_ERROR;
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(s_ota_status.last_error, sizeof(s_ota_status.last_error), fmt, ap);
+    va_end(ap);
+}
 
 typedef struct {
     char latest_tag[32];
@@ -108,7 +149,7 @@ static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = 10000,
         .user_agent = "TaipanMiner",
-        .buffer_size = 1024,
+        .buffer_size = 4096,
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -163,7 +204,8 @@ static esp_err_t ota_pull_check(ota_pull_check_result_t *result)
     }
 
     const esp_app_desc_t *running = esp_app_get_description();
-    result->update_available = strcmp(result->latest_tag, running->version) != 0;
+    result->update_available = strncmp(running->version, "dev", 3) == 0 ||
+                               strcmp(result->latest_tag, running->version) != 0;
 
     if (result->update_available) {
         ESP_LOGI(TAG, "update available: %s -> %s",
@@ -205,25 +247,37 @@ static void ota_worker_task(void *arg)
     #endif
 
     ESP_LOGI(TAG, "starting OTA update from %s", result.asset_url);
+    s_ota_status.state = OTA_STATE_DOWNLOADING;
+    s_ota_status.progress_pct = 0;
+    s_ota_status.last_error[0] = '\0';
 
     esp_http_client_config_t http_config = {
         .url = result.asset_url,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = 60000,
-        .max_redirection_count = 5,
         .user_agent = "TaipanMiner",
-        .buffer_size = 1024,
-        .buffer_size_tx = 512,
+        .buffer_size = 4096,
+        .buffer_size_tx = 2048,
     };
 
     esp_https_ota_config_t ota_config = {
         .http_config = &http_config,
     };
 
+    // Verify OTA partition exists before attempting
+    const esp_partition_t *update_partition = esp_ota_get_next_update_partition(NULL);
+    if (!update_partition) {
+        ESP_LOGE(TAG, "no OTA update partition found");
+        ota_set_error("no OTA update partition (check partition table)");
+        goto resume_and_exit;
+    }
+    ESP_LOGI(TAG, "OTA target partition: %s", update_partition->label);
+
     esp_https_ota_handle_t ota_handle = NULL;
     esp_err_t err = esp_https_ota_begin(&ota_config, &ota_handle);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_https_ota_begin failed: %s", esp_err_to_name(err));
+        ota_set_error("ota_begin: %s", esp_err_to_name(err));
         goto resume_and_exit;
     }
 
@@ -231,6 +285,7 @@ static void ota_worker_task(void *arg)
     err = esp_https_ota_get_img_desc(ota_handle, &img_desc);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_https_ota_get_img_desc failed: %s", esp_err_to_name(err));
+        ota_set_error("get_img_desc: %s", esp_err_to_name(err));
         esp_https_ota_abort(ota_handle);
         goto resume_and_exit;
     }
@@ -240,31 +295,45 @@ static void ota_worker_task(void *arg)
                 sizeof(img_desc.project_name)) != 0) {
         ESP_LOGE(TAG, "board mismatch: got '%s', expected '%s'",
                  img_desc.project_name, running->project_name);
+        ota_set_error("board mismatch: got '%s', expected '%s'",
+                      img_desc.project_name, running->project_name);
         esp_https_ota_abort(ota_handle);
         goto resume_and_exit;
     }
+
+    int image_size = esp_https_ota_get_image_size(ota_handle);
 
     while (true) {
         err = esp_https_ota_perform(ota_handle);
         if (err != ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
             break;
         }
+        if (image_size > 0) {
+            int read_so_far = esp_https_ota_get_image_len_read(ota_handle);
+            s_ota_status.progress_pct = (read_so_far * 100) / image_size;
+        }
     }
 
     if (!esp_https_ota_is_complete_data_received(ota_handle)) {
         ESP_LOGE(TAG, "incomplete OTA data received");
+        ota_set_error("incomplete OTA data received");
         esp_https_ota_abort(ota_handle);
         goto resume_and_exit;
     }
 
+    s_ota_status.state = OTA_STATE_VERIFYING;
+    s_ota_status.progress_pct = 100;
+
     err = esp_https_ota_finish(ota_handle);
     if (err == ESP_OK) {
+        s_ota_status.state = OTA_STATE_COMPLETE;
         ESP_LOGI(TAG, "OTA complete, rebooting to %s", result.latest_tag);
         vTaskDelay(pdMS_TO_TICKS(500));
         esp_restart();
     }
 
     ESP_LOGE(TAG, "esp_https_ota_finish failed: %s", esp_err_to_name(err));
+    ota_set_error("esp_https_ota_finish: %s", esp_err_to_name(err));
 
 resume_and_exit:
     s_ota_in_progress = false;
@@ -379,6 +448,9 @@ static esp_err_t ota_update_handler(httpd_req_t *req)
 
     memcpy(task_arg, &result, sizeof(ota_pull_check_result_t));
     s_ota_in_progress = true;
+    s_ota_status.state = OTA_STATE_CHECKING;
+    s_ota_status.progress_pct = 0;
+    s_ota_status.last_error[0] = '\0';
 
     TaskHandle_t task_handle = NULL;
     BaseType_t task_result = xTaskCreate(
@@ -409,6 +481,43 @@ static esp_err_t ota_update_handler(httpd_req_t *req)
 }
 
 /**
+ * GET /api/ota/status - Return OTA debug status
+ */
+static esp_err_t ota_status_handler(httpd_req_t *req)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        const char *response = "{\"error\":\"json_error\"}";
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, response, strlen(response));
+        return ESP_OK;
+    }
+
+    cJSON_AddStringToObject(root, "state", s_ota_state_names[s_ota_status.state]);
+    cJSON_AddBoolToObject(root, "in_progress", s_ota_in_progress);
+    cJSON_AddNumberToObject(root, "progress_pct", s_ota_status.progress_pct);
+    if (s_ota_status.last_error[0] != '\0') {
+        cJSON_AddStringToObject(root, "last_error", s_ota_status.last_error);
+    }
+
+    char *response_str = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    if (response_str) {
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, response_str, strlen(response_str));
+        free(response_str);
+    } else {
+        const char *response = "{\"error\":\"json_error\"}";
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_send(req, response, strlen(response));
+    }
+
+    return ESP_OK;
+}
+
+/**
  * Register OTA pull HTTP handlers with an existing httpd instance.
  */
 esp_err_t ota_pull_register_handler(httpd_handle_t server)
@@ -431,6 +540,13 @@ esp_err_t ota_pull_register_handler(httpd_handle_t server)
         .user_ctx = NULL,
     };
 
+    httpd_uri_t status_uri = {
+        .uri = "/api/ota/status",
+        .method = HTTP_GET,
+        .handler = ota_status_handler,
+        .user_ctx = NULL,
+    };
+
     esp_err_t err = httpd_register_uri_handler(server, &check_uri);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "failed to register /api/ota/check handler: %s",
@@ -441,6 +557,13 @@ esp_err_t ota_pull_register_handler(httpd_handle_t server)
     err = httpd_register_uri_handler(server, &update_uri);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "failed to register /api/ota/update handler: %s",
+                 esp_err_to_name(err));
+        return err;
+    }
+
+    err = httpd_register_uri_handler(server, &status_uri);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "failed to register /api/ota/status handler: %s",
                  esp_err_to_name(err));
         return err;
     }

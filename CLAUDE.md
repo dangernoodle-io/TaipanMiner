@@ -47,7 +47,7 @@ Then create `~/.platformio/penv/.espidf-5.5.3/pio-idf-venv.json` with the correc
 ## Project layout
 
 - `src/` — app entry point, version
-- `components/` — ESP-IDF components (mining, stratum, board, asic, display, wifi_prov, http_server, led, nv_config)
+- `components/` — ESP-IDF components (mining, stratum, board, asic, display, wifi_prov, http_server, led, nv_config, ota_pull)
 - `components/board/include/boards/` — per-board pin/peripheral headers
 - `sdkconfig/` — hand-authored sdkconfig deltas per board
 - `test/test_host/` — host-based unit tests (run without hardware via native env)

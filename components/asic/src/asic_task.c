@@ -449,10 +449,9 @@ void asic_mining_task(void *arg)
                                 ((uint32_t)nonce.nonce[2] << 16) | ((uint32_t)nonce.nonce[3] << 24);
             snprintf(result.nonce_hex, sizeof(result.nonce_hex), "%08" PRIx32, nonce_le);
 
-            // Version rolling — submit the rolled version
+            // Version rolling — submit ver_bits (pool XORs with base version)
             if (ver_bits != 0 && orig->version_mask != 0) {
-                uint32_t rolled_submit = (orig->version & ~orig->version_mask) | (ver_bits & orig->version_mask);
-                snprintf(result.version_hex, sizeof(result.version_hex), "%08" PRIx32, rolled_submit);
+                snprintf(result.version_hex, sizeof(result.version_hex), "%08" PRIx32, ver_bits);
             }
 
             xQueueSend(result_queue, &result, 0);

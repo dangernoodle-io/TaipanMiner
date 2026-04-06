@@ -107,6 +107,7 @@ void test_pack_target_word0_easy_diff(void);
 void test_pack_target_word0_hard_diff(void);
 void test_build_block2_padding(void);
 void test_package_result_no_version_rolling(void);
+void test_package_result_version_rolling_submits_ver_bits(void);
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -223,6 +224,7 @@ int main(void) {
     RUN_TEST(test_pack_target_word0_hard_diff);
     RUN_TEST(test_build_block2_padding);
     RUN_TEST(test_package_result_no_version_rolling);
+    RUN_TEST(test_package_result_version_rolling_submits_ver_bits);
 
     return UNITY_END();
 }

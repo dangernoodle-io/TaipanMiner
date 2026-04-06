@@ -31,7 +31,7 @@ static char s_extranonce1_hex[32];
 static uint8_t s_extranonce1[MAX_EXTRANONCE1_SIZE];
 static size_t s_extranonce1_len = 0;
 static int s_extranonce2_size = 4;  // bytes
-static double s_difficulty = 1.0;
+static double s_difficulty = 512.0;  // sane default for ASIC mining; pool overrides via set_difficulty
 static stratum_job_t s_job;
 static int s_subscribe_id = 0;
 static int s_authorize_id = 0;
@@ -356,11 +356,12 @@ static void handle_set_difficulty(cJSON *params)
         s_difficulty = diff->valuedouble;
         ESP_LOGI(TAG, "difficulty set to %.4f", s_difficulty);
 
-        // Re-dispatch work with updated target if we have a job
+        // Re-dispatch work with updated target — mark clean to invalidate
+        // stale job table entries that carry the old (easier) target
         if (s_job.job_id[0] != '\0') {
             mining_work_t work;
             build_work(&work);
-            work.clean = false;
+            work.clean = true;
             xQueueOverwrite(work_queue, &work);
         }
     }

@@ -112,13 +112,11 @@ void app_main(void)
         ESP_ERROR_CHECK(display_init());
         ESP_ERROR_CHECK(display_show_splash());
         vTaskDelay(pdMS_TO_TICKS(2000));
-        ESP_ERROR_CHECK(display_clear(DISPLAY_COLOR_BLACK));
     }
 #else
     ESP_ERROR_CHECK(display_init());
     ESP_ERROR_CHECK(display_show_splash());
     vTaskDelay(pdMS_TO_TICKS(2000));
-    ESP_ERROR_CHECK(display_clear(DISPLAY_COLOR_BLACK));
 #endif
 
     if (!nv_config_is_provisioned()) {
@@ -130,7 +128,7 @@ void app_main(void)
         char ap_ssid[32];
         wifi_prov_get_ap_ssid(ap_ssid, sizeof(ap_ssid));
         ESP_ERROR_CHECK(display_show_prov(ap_ssid, "taipanminer"));
-        ESP_ERROR_CHECK(led_set_color(0, 0, 255));
+        ESP_ERROR_CHECK(led_set_color(0, 0, 38));
 
         bool connected = false;
         while (!connected) {
@@ -141,7 +139,7 @@ void app_main(void)
 
             esp_err_t err = wifi_init_sta();
             if (err == ESP_OK) {
-                ESP_ERROR_CHECK(display_clear(DISPLAY_COLOR_BLACK));
+                ESP_ERROR_CHECK(display_off());
                 ESP_ERROR_CHECK(led_off());
                 ESP_LOGI(TAG, "provisioning complete");
                 nv_config_set_provisioned();
@@ -155,6 +153,7 @@ void app_main(void)
         http_server_switch_to_mining();
     } else {
         // Normal boot: connect to saved WiFi
+        ESP_ERROR_CHECK(display_off());
         ESP_ERROR_CHECK(wifi_init());
         ESP_ERROR_CHECK(http_server_start());
     }

@@ -255,7 +255,7 @@ static esp_err_t show_splash_st7735(void)
     int text_y = (LCD_HEIGHT - FONT_H) / 2;
     ESP_RETURN_ON_ERROR(
         draw_text_st7735(text_x, text_y, "TaipanMiner",
-                         DISPLAY_COLOR_AMBER, DISPLAY_COLOR_BLACK, true),
+                         DISPLAY_COLOR_AMBER, DISPLAY_COLOR_BLACK, false),
         TAG, "draw splash text");
 
     return ESP_OK;
@@ -402,6 +402,18 @@ esp_err_t display_show_prov(const char *ssid, const char *password)
     (void)ssid; (void)password;
     return ESP_OK;
 #endif
+}
+
+esp_err_t display_off(void)
+{
+#if defined(BOARD_TDONGLE_S3)
+    ESP_RETURN_ON_ERROR(clear_st7735(DISPLAY_COLOR_BLACK), TAG, "clear");
+    gpio_set_level(PIN_LCD_BL, 1);  // active-low: 1 = off
+#elif defined(BOARD_BITAXE_601)
+    ESP_RETURN_ON_ERROR(clear_ssd1306(0x00), TAG, "clear");
+    esp_lcd_panel_disp_on_off(s_panel, false);
+#endif
+    return ESP_OK;
 }
 
 #endif

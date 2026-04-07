@@ -19,5 +19,6 @@ esp_err_t display_clear(uint16_t color);
 esp_err_t display_draw_text(int x, int y, const char *text, uint16_t fg, uint16_t bg);
 esp_err_t display_show_splash(void);
 esp_err_t display_show_prov(const char *ssid, const char *password);
+esp_err_t display_off(void);
 
 #endif

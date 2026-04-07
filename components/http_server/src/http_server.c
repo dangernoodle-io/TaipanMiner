@@ -30,15 +30,23 @@ extern const unsigned int theme_css_len;
 extern const char logo_svg[];
 extern const unsigned int logo_svg_len;
 
+static esp_err_t preflight_handler(httpd_req_t *req);
+
 static esp_err_t ensure_server_started(void)
 {
     if (s_server) return ESP_OK;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_open_sockets = 6;
-    config.max_uri_handlers = 14;
+    config.max_open_sockets = 7;
+    config.lru_purge_enable = true;
+    config.max_uri_handlers = 16;
     config.stack_size = 6144;
     config.uri_match_fn = httpd_uri_match_wildcard;
-    return httpd_start(&s_server, &config);
+    esp_err_t err = httpd_start(&s_server, &config);
+    if (err != ESP_OK) return err;
+
+    httpd_uri_t preflight = { .uri = "/*", .method = HTTP_OPTIONS, .handler = preflight_handler };
+    httpd_register_uri_handler(s_server, &preflight);
+    return ESP_OK;
 }
 
 // Extract a field from URL-encoded body: "field=value&..."
@@ -71,8 +79,26 @@ static void url_decode_field(const char *body, const char *field, char *out, siz
     out[i] = '\0';
 }
 
+static void set_common_headers(httpd_req_t *req)
+{
+    httpd_resp_set_hdr(req, "Connection", "close");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Private-Network", "true");
+}
+
+static esp_err_t preflight_handler(httpd_req_t *req)
+{
+    set_common_headers(req);
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+    httpd_resp_set_status(req, "204 No Content");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
 static esp_err_t prov_form_handler(httpd_req_t *req)
 {
+    set_common_headers(req);
     httpd_resp_set_type(req, "text/html");
     httpd_resp_send(req, prov_form_html, prov_form_html_len);
     return ESP_OK;
@@ -81,6 +107,7 @@ static esp_err_t prov_form_handler(httpd_req_t *req)
 // This function has been replaced by the embedded HTML above
 static esp_err_t prov_save_handler(httpd_req_t *req)
 {
+    set_common_headers(req);
     char body[512];
     int len = httpd_req_recv(req, body, sizeof(body) - 1);
     if (len <= 0) {
@@ -148,6 +175,7 @@ static esp_err_t prov_save_handler(httpd_req_t *req)
 
 static esp_err_t prov_redirect_handler(httpd_req_t *req)
 {
+    set_common_headers(req);
     httpd_resp_set_status(req, "302 Found");
     httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
     httpd_resp_send(req, NULL, 0);
@@ -156,6 +184,7 @@ static esp_err_t prov_redirect_handler(httpd_req_t *req)
 
 static esp_err_t status_handler(httpd_req_t *req)
 {
+    set_common_headers(req);
     double hw_rate = 0;
     uint32_t hw_shares = 0;
 
@@ -195,6 +224,7 @@ static esp_err_t status_handler(httpd_req_t *req)
 
 static esp_err_t stats_handler(httpd_req_t *req)
 {
+    set_common_headers(req);
     double hw_rate = 0;
     uint32_t hw_shares = 0;
 
@@ -228,6 +258,7 @@ static esp_err_t stats_handler(httpd_req_t *req)
 
 static esp_err_t version_handler(httpd_req_t *req)
 {
+    set_common_headers(req);
     const esp_app_desc_t *app = esp_app_get_description();
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_send(req, app->version, strlen(app->version));
@@ -236,6 +267,7 @@ static esp_err_t version_handler(httpd_req_t *req)
 
 static esp_err_t info_handler(httpd_req_t *req)
 {
+    set_common_headers(req);
     const esp_app_desc_t *app = esp_app_get_description();
     esp_chip_info_t chip;
     esp_chip_info(&chip);
@@ -267,6 +299,7 @@ static esp_err_t info_handler(httpd_req_t *req)
 
 static esp_err_t logo_handler(httpd_req_t *req)
 {
+    set_common_headers(req);
     httpd_resp_set_type(req, "image/svg+xml");
     httpd_resp_send(req, logo_svg, logo_svg_len);
     return ESP_OK;
@@ -274,13 +307,23 @@ static esp_err_t logo_handler(httpd_req_t *req)
 
 static esp_err_t theme_handler(httpd_req_t *req)
 {
+    set_common_headers(req);
     httpd_resp_set_type(req, "text/css");
     httpd_resp_send(req, theme_css, theme_css_len);
     return ESP_OK;
 }
 
+static esp_err_t favicon_handler(httpd_req_t *req)
+{
+    httpd_resp_set_status(req, "204 No Content");
+    set_common_headers(req);
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
 static esp_err_t ota_page_handler(httpd_req_t *req)
 {
+    set_common_headers(req);
     const char *html =
         "<html><body>"
         "<h2>OTA Firmware Update</h2>"
@@ -297,6 +340,7 @@ static esp_err_t ota_page_handler(httpd_req_t *req)
 
 static esp_err_t ota_upload_handler(httpd_req_t *req)
 {
+    set_common_headers(req);
     const esp_partition_t *partition = esp_ota_get_next_update_partition(NULL);
     if (!partition) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No OTA partition");
@@ -395,6 +439,7 @@ static esp_err_t ota_upload_handler(httpd_req_t *req)
 
 static esp_err_t scan_handler(httpd_req_t *req)
 {
+    set_common_headers(req);
     wifi_scan_ap_t aps[WIFI_SCAN_MAX];
     memset(aps, 0, sizeof(aps));
     int count = wifi_scan_networks(aps, WIFI_SCAN_MAX);
@@ -428,6 +473,7 @@ esp_err_t http_server_start_prov(void)
     httpd_uri_t info_uri = { .uri = "/api/info", .method = HTTP_GET, .handler = info_handler };
     httpd_uri_t theme_uri = { .uri = "/theme.css", .method = HTTP_GET, .handler = theme_handler };
     httpd_uri_t logo_uri = { .uri = "/logo.svg", .method = HTTP_GET, .handler = logo_handler };
+    httpd_uri_t favicon_uri = { .uri = "/favicon.ico", .method = HTTP_GET, .handler = favicon_handler };
     httpd_uri_t prov_redirect = { .uri = "/*", .method = HTTP_GET, .handler = prov_redirect_handler };
 
     httpd_register_uri_handler(s_server, &prov_form);
@@ -437,6 +483,7 @@ esp_err_t http_server_start_prov(void)
     httpd_register_uri_handler(s_server, &info_uri);
     httpd_register_uri_handler(s_server, &theme_uri);
     httpd_register_uri_handler(s_server, &logo_uri);
+    httpd_register_uri_handler(s_server, &favicon_uri);
     httpd_register_uri_handler(s_server, &prov_redirect);
 
     ESP_LOGI(TAG, "provisioning server started on port 80");
@@ -456,15 +503,11 @@ void http_server_switch_to_mining(void)
     // Register mining handlers
     httpd_uri_t status_uri = { .uri = "/", .method = HTTP_GET, .handler = status_handler };
     httpd_uri_t stats_uri = { .uri = "/api/stats", .method = HTTP_GET, .handler = stats_handler };
-    httpd_uri_t version_uri = { .uri = "/api/version", .method = HTTP_GET, .handler = version_handler };
-    httpd_uri_t info_uri = { .uri = "/api/info", .method = HTTP_GET, .handler = info_handler };
     httpd_uri_t ota_page_uri = { .uri = "/ota", .method = HTTP_GET, .handler = ota_page_handler };
     httpd_uri_t ota_upload_uri = { .uri = "/ota/upload", .method = HTTP_POST, .handler = ota_upload_handler };
 
     httpd_register_uri_handler(s_server, &status_uri);
     httpd_register_uri_handler(s_server, &stats_uri);
-    httpd_register_uri_handler(s_server, &version_uri);
-    httpd_register_uri_handler(s_server, &info_uri);
     httpd_register_uri_handler(s_server, &ota_page_uri);
     httpd_register_uri_handler(s_server, &ota_upload_uri);
     ota_pull_register_handler(s_server);
@@ -504,12 +547,16 @@ esp_err_t http_server_start(void)
     httpd_uri_t logo_uri = {
         .uri = "/logo.svg", .method = HTTP_GET, .handler = logo_handler
     };
+    httpd_uri_t favicon_uri = {
+        .uri = "/favicon.ico", .method = HTTP_GET, .handler = favicon_handler
+    };
 
     httpd_register_uri_handler(s_server, &status_uri);
     httpd_register_uri_handler(s_server, &stats_uri);
     httpd_register_uri_handler(s_server, &version_uri);
     httpd_register_uri_handler(s_server, &info_uri);
     httpd_register_uri_handler(s_server, &ota_page_uri);
+    httpd_register_uri_handler(s_server, &favicon_uri);
     httpd_register_uri_handler(s_server, &ota_upload_uri);
     httpd_register_uri_handler(s_server, &theme_uri);
     httpd_register_uri_handler(s_server, &logo_uri);

@@ -37,6 +37,11 @@ static bool s_mdns_started = false;
 // Public event group for provisioning
 EventGroupHandle_t g_prov_event_group = NULL;
 
+// WiFi scan cache
+static wifi_scan_ap_t s_cached_scan[WIFI_SCAN_MAX];
+static int s_cached_scan_count = 0;
+static volatile bool s_scan_in_progress = false;
+
 #ifdef ESP_PLATFORM
 static void mdns_build_hostname(char *out, size_t out_size)
 {
@@ -450,6 +455,59 @@ int wifi_scan_networks(wifi_scan_ap_t *results, int max_results)
 
     free(records);
     return unique;
+}
+
+static void scan_worker_task(void *arg)
+{
+    wifi_scan_ap_t results[WIFI_SCAN_MAX];
+    memset(results, 0, sizeof(results));
+    int count = wifi_scan_networks(results, WIFI_SCAN_MAX);
+
+    // Update cache
+    memcpy(s_cached_scan, results, sizeof(results));
+    s_cached_scan_count = count;
+    s_scan_in_progress = false;
+
+    ESP_LOGD(TAG, "async scan complete: %d networks found", count);
+    vTaskDelete(NULL);
+}
+
+void wifi_scan_start_async(void)
+{
+    if (s_scan_in_progress) {
+        return;
+    }
+    s_scan_in_progress = true;
+
+    BaseType_t xReturned = xTaskCreate(
+        scan_worker_task,
+        "wifi_scan",
+        4096,
+        NULL,
+        tskIDLE_PRIORITY + 1,
+        NULL
+    );
+
+    if (xReturned != pdPASS) {
+        ESP_LOGW(TAG, "failed to create wifi_scan task");
+        s_scan_in_progress = false;
+    }
+}
+
+int wifi_scan_get_cached(wifi_scan_ap_t *results, int max_results)
+{
+    if (!results || max_results <= 0) {
+        return 0;
+    }
+
+    int count = s_cached_scan_count;
+    if (count > max_results) {
+        count = max_results;
+    }
+    if (count > 0) {
+        memcpy(results, s_cached_scan, count * sizeof(wifi_scan_ap_t));
+    }
+    return count;
 }
 
 void wifi_prov_get_ap_ssid(char *buf, size_t len)

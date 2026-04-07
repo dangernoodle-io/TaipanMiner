@@ -79,6 +79,12 @@ static esp_err_t prov_save_handler(httpd_req_t *req)
 {
     set_common_headers(req);
     char body[512];
+
+    // Validate content length to prevent silent body truncation
+    if (req->content_len > sizeof(body) - 1) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Body too large");
+        return ESP_FAIL;
+    }
     int len = httpd_req_recv(req, body, sizeof(body) - 1);
     if (len <= 0) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body");
@@ -117,7 +123,11 @@ static esp_err_t prov_save_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    nv_config_set_config(pool_host, port, wallet, worker, pool_pass);
+    err = nv_config_set_config(pool_host, port, wallet, worker, pool_pass);
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save config");
+        return ESP_FAIL;
+    }
 
     const char *response =
         "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -186,6 +196,10 @@ static esp_err_t status_handler(httpd_req_t *req)
         hw_rate / 1000.0,
         hw_shares,
         (long long)uptime_s);
+
+    // Cap len to buffer size to prevent OOB read in httpd_resp_send
+    if (len < 0) len = 0;
+    if (len >= (int)sizeof(buf)) len = (int)sizeof(buf) - 1;
 
     httpd_resp_set_type(req, "text/html");
     httpd_resp_send(req, buf, len);
@@ -330,11 +344,19 @@ static esp_err_t ota_upload_handler(httpd_req_t *req)
 
     char buf[1024];
     int received = 0;
+    int timeout_count = 0;
     while (received < req->content_len) {
         int ret = httpd_req_recv(req, buf, sizeof(buf) < (req->content_len - received) ? sizeof(buf) : (req->content_len - received));
         if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+            if (++timeout_count > 30) {  // 30 consecutive timeouts ~ 30s
+                ESP_LOGE(TAG, "OTA upload timeout after %d retries", timeout_count);
+                esp_ota_abort(ota_handle);
+                httpd_resp_send_err(req, HTTPD_408_REQ_TIMEOUT, "Upload timeout");
+                return ESP_FAIL;
+            }
             continue;
         }
+        timeout_count = 0;  // reset on successful recv
         if (ret <= 0) {
             ESP_LOGE(TAG, "OTA receive error at %d/%d", received, req->content_len);
             esp_ota_abort(ota_handle);
@@ -395,6 +417,12 @@ static esp_err_t ota_upload_handler(httpd_req_t *req)
     err = esp_ota_set_boot_partition(partition);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_ota_set_boot_partition failed: %s", esp_err_to_name(err));
+        // Resume mining tasks on set_boot_partition failure
+#ifdef ASIC_BM1370
+        if (asic_task_handle) vTaskResume(asic_task_handle);
+#else
+        if (mining_hw_task_handle) vTaskResume(mining_hw_task_handle);
+#endif
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Set boot partition failed");
         return ESP_FAIL;
     }
@@ -410,9 +438,14 @@ static esp_err_t ota_upload_handler(httpd_req_t *req)
 static esp_err_t scan_handler(httpd_req_t *req)
 {
     set_common_headers(req);
+
+    // Trigger a background scan for next request
+    wifi_scan_start_async();
+
+    // Return cached results immediately
     wifi_scan_ap_t aps[WIFI_SCAN_MAX];
     memset(aps, 0, sizeof(aps));
-    int count = wifi_scan_networks(aps, WIFI_SCAN_MAX);
+    int count = wifi_scan_get_cached(aps, WIFI_SCAN_MAX);
 
     cJSON *arr = cJSON_CreateArray();
     for (int i = 0; i < count; i++) {
@@ -455,6 +488,9 @@ esp_err_t http_server_start_prov(void)
     httpd_register_uri_handler(s_server, &logo_uri);
     httpd_register_uri_handler(s_server, &favicon_uri);
     httpd_register_uri_handler(s_server, &prov_redirect);
+
+    // Pre-populate scan cache with initial background scan
+    wifi_scan_start_async();
 
     ESP_LOGI(TAG, "provisioning server started on port 80");
     return ESP_OK;

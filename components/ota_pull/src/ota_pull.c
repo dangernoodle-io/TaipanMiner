@@ -23,6 +23,8 @@ static const char *TAG = "ota_pull";
 #define GITHUB_API_URL "https://api.github.com/repos/dangernoodle-io/TaipanMiner/releases/latest"
 #define OTA_TASK_STACK 16384
 #define OTA_TASK_PRIO  3
+#define OTA_CHECK_STACK 8192
+#define OTA_CHECK_PRIO 3
 #define API_BUF_MAX    16384
 
 static volatile bool s_ota_in_progress = false;
@@ -71,6 +73,10 @@ typedef struct {
     char asset_url[256];
     bool update_available;
 } ota_pull_check_result_t;
+
+static volatile bool s_check_in_progress = false;
+static volatile bool s_check_done = false;
+static ota_pull_check_result_t s_cached_check = {0};
 
 #endif // ESP_PLATFORM
 
@@ -353,55 +359,97 @@ resume_and_exit:
 }
 
 /**
- * GET /api/ota/check - Check for available updates
+ * OTA check worker task - performs the version check in background.
  */
-static esp_err_t ota_check_handler(httpd_req_t *req)
+static void ota_check_worker_task(void *arg)
 {
     ota_pull_check_result_t result = {0};
     esp_err_t err = ota_pull_check(&result);
 
-    if (err != ESP_OK) {
-        const char *error_response = "{\"error\":\"check_failed\"}";
-        httpd_resp_set_status(req, "500 Internal Server Error");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_send(req, error_response, strlen(error_response));
-        return ESP_OK;
-    }
-
-    // Build JSON response
-    cJSON *root = cJSON_CreateObject();
-    if (!root) {
-        const char *error_response = "{\"error\":\"json_error\"}";
-        httpd_resp_set_status(req, "500 Internal Server Error");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_send(req, error_response, strlen(error_response));
-        return ESP_OK;
-    }
-
-    const esp_app_desc_t *running_desc = esp_app_get_description();
-    if (running_desc) {
-        cJSON_AddStringToObject(root, "current_version", running_desc->version);
-    }
-    cJSON_AddStringToObject(root, "latest_version", result.latest_tag);
-    cJSON_AddBoolToObject(root, "update_available", result.update_available);
-
-    char asset_name[128];
-    snprintf(asset_name, sizeof(asset_name), "taipanminer-%s.bin", BOARD_NAME);
-    cJSON_AddStringToObject(root, "asset", asset_name);
-
-    char *response_str = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
-
-    if (response_str) {
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_send(req, response_str, strlen(response_str));
-        free(response_str);
+    if (err == ESP_OK) {
+        memcpy(&s_cached_check, &result, sizeof(ota_pull_check_result_t));
+        s_check_done = true;
+        ESP_LOGI(TAG, "background check completed");
     } else {
-        const char *error_response = "{\"error\":\"json_error\"}";
-        httpd_resp_set_status(req, "500 Internal Server Error");
-        httpd_resp_send(req, error_response, strlen(error_response));
+        ESP_LOGE(TAG, "background check failed");
+        s_check_done = false;
     }
 
+    s_check_in_progress = false;
+    vTaskDelete(NULL);
+}
+
+/**
+ * GET /api/ota/check - Check for available updates (non-blocking)
+ */
+static esp_err_t ota_check_handler(httpd_req_t *req)
+{
+    // If we have a cached result, return it
+    if (s_check_done) {
+        cJSON *root = cJSON_CreateObject();
+        if (!root) {
+            const char *error_response = "{\"error\":\"json_error\"}";
+            httpd_resp_set_status(req, "500 Internal Server Error");
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, error_response, strlen(error_response));
+            return ESP_OK;
+        }
+
+        const esp_app_desc_t *running_desc = esp_app_get_description();
+        if (running_desc) {
+            cJSON_AddStringToObject(root, "current_version", running_desc->version);
+        }
+        cJSON_AddStringToObject(root, "latest_version", s_cached_check.latest_tag);
+        cJSON_AddBoolToObject(root, "update_available", s_cached_check.update_available);
+
+        char asset_name[128];
+        snprintf(asset_name, sizeof(asset_name), "taipanminer-%s.bin", BOARD_NAME);
+        cJSON_AddStringToObject(root, "asset", asset_name);
+
+        char *response_str = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+
+        if (response_str) {
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, response_str, strlen(response_str));
+            free(response_str);
+        } else {
+            const char *error_response = "{\"error\":\"json_error\"}";
+            httpd_resp_set_status(req, "500 Internal Server Error");
+            httpd_resp_send(req, error_response, strlen(error_response));
+        }
+
+        // Invalidate cache so next request triggers a fresh check
+        s_check_done = false;
+        return ESP_OK;
+    }
+
+    // Trigger background check if not already running
+    if (!s_check_in_progress) {
+        s_check_in_progress = true;
+        BaseType_t task_result = xTaskCreate(
+            ota_check_worker_task,
+            "ota_chk",
+            OTA_CHECK_STACK,
+            NULL,
+            OTA_CHECK_PRIO,
+            NULL
+        );
+
+        if (task_result != pdPASS) {
+            s_check_in_progress = false;
+            const char *response = "{\"error\":\"task_create_failed\"}";
+            httpd_resp_set_status(req, "500 Internal Server Error");
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_send(req, response, strlen(response));
+            return ESP_OK;
+        }
+    }
+
+    const char *response = "{\"status\":\"checking\"}";
+    httpd_resp_set_status(req, "202 Accepted");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, response, strlen(response));
     return ESP_OK;
 }
 

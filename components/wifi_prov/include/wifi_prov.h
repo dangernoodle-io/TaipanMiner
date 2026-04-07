@@ -18,6 +18,12 @@ typedef struct {
 
 // Performs a blocking WiFi scan. Returns number of APs found (up to max_results).
 int wifi_scan_networks(wifi_scan_ap_t *results, int max_results);
+
+// Start a non-blocking WiFi scan in the background. Returns immediately.
+void wifi_scan_start_async(void);
+
+// Get cached WiFi scan results. Returns number of APs found (0 if no scan done yet).
+int wifi_scan_get_cached(wifi_scan_ap_t *results, int max_results);
 #endif
 
 // STA mode — blocks until connected or timeout

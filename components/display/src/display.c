@@ -144,45 +144,56 @@ static esp_err_t clear_st7735(uint16_t color)
     return ESP_OK;
 }
 
+// Double-buffer to avoid DMA race: spi_device_queue_trans returns before
+// DMA completes, but drains inflight at the start of the next tx_color call.
+// By alternating buffers, the previous buffer's DMA is always drained before reuse.
 static esp_err_t draw_text_st7735(int x, int y, const char *text, uint16_t fg, uint16_t bg)
 {
-    static uint16_t s_char_buf[FONT_W * FONT_H];
+    static uint16_t s_char_buf[2][FONT_W * FONT_H];
+    static int s_buf_idx;
+    uint16_t fg_s = SWAP16(fg);
+    uint16_t bg_s = SWAP16(bg);
 
     for (int ci = 0; text[ci] != '\0'; ci++) {
         uint8_t ch = (uint8_t)text[ci];
         if (ch < 0x20 || ch > 0x7E) ch = 0x20;
         const uint8_t *glyph = g_font8x16[ch - 0x20];
 
+        uint16_t *buf = s_char_buf[s_buf_idx];
         for (int row = 0; row < FONT_H; row++) {
             uint8_t bits = glyph[row];
             for (int col = 0; col < FONT_W; col++) {
-                s_char_buf[row * FONT_W + col] = (bits & (0x80 >> col)) ? SWAP16(fg) : SWAP16(bg);
+                buf[row * FONT_W + col] = (bits & (0x80 >> col)) ? fg_s : bg_s;
             }
         }
 
         int cx = x + ci * FONT_W;
         if (cx + FONT_W > LCD_WIDTH) break;
         ESP_RETURN_ON_ERROR(
-            esp_lcd_panel_draw_bitmap(s_panel, cx, y, cx + FONT_W, y + FONT_H, s_char_buf),
+            esp_lcd_panel_draw_bitmap(s_panel, cx, y, cx + FONT_W, y + FONT_H, buf),
             TAG, "draw char");
+        s_buf_idx ^= 1;
     }
     return ESP_OK;
 }
 
 static esp_err_t draw_logo_st7735(int x, int y)
 {
-    // Byte-swap logo row into temp buffer before sending
-    static uint16_t s_logo_row[LOGO_W];
+    // Double-buffer to avoid DMA race (same pattern as draw_text)
+    static uint16_t s_logo_row[2][LOGO_W];
+    int buf_idx = 0;
     for (int row = 0; row < LOGO_H; row++) {
         const uint16_t *src = &g_logo_data[row * LOGO_W];
+        uint16_t *buf = s_logo_row[buf_idx];
         for (int col = 0; col < LOGO_W; col++) {
-            s_logo_row[col] = SWAP16(src[col]);
+            buf[col] = SWAP16(src[col]);
         }
         ESP_RETURN_ON_ERROR(
             esp_lcd_panel_draw_bitmap(s_panel, x, y + row,
                                       x + LOGO_W, y + row + 1,
-                                      s_logo_row),
+                                      buf),
             TAG, "draw logo row");
+        buf_idx ^= 1;
     }
     return ESP_OK;
 }
@@ -191,7 +202,8 @@ static esp_err_t draw_logo_st7735(int x, int y)
 static esp_err_t draw_text_2x_st7735(int x, int y, const char *text,
                                       uint16_t fg, uint16_t bg)
 {
-    static uint16_t s_char2x[FONT_W * 2 * FONT_H * 2];
+    static uint16_t s_char2x[2][FONT_W * 2 * FONT_H * 2];
+    static int s_buf2x_idx;
     uint16_t fg_s = SWAP16(fg);
     uint16_t bg_s = SWAP16(bg);
     int stride = FONT_W * 2;
@@ -201,14 +213,15 @@ static esp_err_t draw_text_2x_st7735(int x, int y, const char *text,
         if (ch < 0x20 || ch > 0x7E) ch = 0x20;
         const uint8_t *glyph = g_font8x16[ch - 0x20];
 
+        uint16_t *buf = s_char2x[s_buf2x_idx];
         for (int row = 0; row < FONT_H; row++) {
             uint8_t bits = glyph[row];
             for (int col = 0; col < FONT_W; col++) {
                 uint16_t px = (bits & (0x80 >> col)) ? fg_s : bg_s;
-                s_char2x[(row * 2) * stride + col * 2] = px;
-                s_char2x[(row * 2) * stride + col * 2 + 1] = px;
-                s_char2x[(row * 2 + 1) * stride + col * 2] = px;
-                s_char2x[(row * 2 + 1) * stride + col * 2 + 1] = px;
+                buf[(row * 2) * stride + col * 2] = px;
+                buf[(row * 2) * stride + col * 2 + 1] = px;
+                buf[(row * 2 + 1) * stride + col * 2] = px;
+                buf[(row * 2 + 1) * stride + col * 2 + 1] = px;
             }
         }
 
@@ -217,8 +230,9 @@ static esp_err_t draw_text_2x_st7735(int x, int y, const char *text,
         ESP_RETURN_ON_ERROR(
             esp_lcd_panel_draw_bitmap(s_panel, cx, y,
                                       cx + FONT_W * 2, y + FONT_H * 2,
-                                      s_char2x),
+                                      buf),
             TAG, "draw char 2x");
+        s_buf2x_idx ^= 1;
     }
     return ESP_OK;
 }

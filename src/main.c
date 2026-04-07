@@ -10,6 +10,7 @@
 #include "nv_config.h"
 #include "http_server.h"
 #include "esp_ota_ops.h"
+#include "partition_fixup.h"
 #ifdef ASIC_BM1370
 #include "asic.h"
 #endif
@@ -68,6 +69,8 @@ static void start_mining(void)
 // cppcheck-suppress unusedFunction
 void app_main(void)
 {
+    partition_fixup_check();
+
     const esp_app_desc_t *app = esp_app_get_description();
     ESP_LOGI(TAG, "%s v%s (%s %s, IDF %s) starting...",
              app->project_name, app->version, app->date, app->time, app->idf_ver);

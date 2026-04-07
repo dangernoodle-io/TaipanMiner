@@ -8,3 +8,4 @@ sdkconfig.tdongle-s3-debug
 sdkconfig.bitaxe-601
 sdkconfig.bitaxe-601-debug
 sdkconfig.bitdsk-n8t
+src/partition_fixup_data.c

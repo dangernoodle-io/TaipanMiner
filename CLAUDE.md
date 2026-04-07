@@ -37,7 +37,7 @@ Then create `~/.platformio/penv/.espidf-5.5.3/pio-idf-venv.json` with the correc
 
 1. **Board header** — create `components/board/include/boards/<board>.h` with pin definitions
 2. **Board dispatch** — add `#elif defined(BOARD_<NAME>)` to `components/board/include/board.h`
-3. **PlatformIO env** — add `[env:<board>]` and `[env:<board>-debug]` to `platformio.ini` with `-DBOARD_<NAME>` (and `-DASIC_<CHIP>` if applicable) in `build_flags`
+3. **PlatformIO env** — add `[env:<board>]` and `[env:<board>-debug]` to `platformio.ini` with `-DBOARD_<NAME>` (and `-DASIC_<CHIP>` if applicable) in `build_flags`; set `board_build.cmake_extra_args = -DFIRMWARE_BOARD=<board>` for OTA project name
 4. **sdkconfig delta** — create `sdkconfig/<board>` with settings that differ from `sdkconfig.defaults` (e.g. console type, UART ISR); add `sdkconfig/<board>-debug` for debug overlay
 5. **Gitignore** — add `sdkconfig.<board>` and `sdkconfig.<board>-debug` to `.gitignore` (ESP-IDF auto-generates these at the project root)
 6. **CI/release** — add the env name to the matrix arrays in `ci.yml` and `release.yml`

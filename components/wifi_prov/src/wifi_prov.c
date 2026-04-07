@@ -29,6 +29,7 @@ static volatile bool s_dns_running = false;
 static TaskHandle_t s_dns_task_handle = NULL;
 static EventGroupHandle_t s_wifi_event_group = NULL;
 static int s_retry_count = 0;
+static char s_ap_ssid[32];
 #ifdef ESP_PLATFORM
 static bool s_mdns_started = false;
 #endif
@@ -317,6 +318,8 @@ esp_err_t wifi_init_ap(void)
 
     char ssid[32];
     snprintf(ssid, sizeof(ssid), "TaipanMiner-%02X%02X", mac[4], mac[5]);
+    strncpy(s_ap_ssid, ssid, sizeof(s_ap_ssid) - 1);
+    s_ap_ssid[sizeof(s_ap_ssid) - 1] = '\0';
 
     // Configure AP
     wifi_config_t ap_config = {
@@ -447,4 +450,10 @@ int wifi_scan_networks(wifi_scan_ap_t *results, int max_results)
 
     free(records);
     return unique;
+}
+
+void wifi_prov_get_ap_ssid(char *buf, size_t len)
+{
+    strncpy(buf, s_ap_ssid, len - 1);
+    buf[len - 1] = '\0';
 }

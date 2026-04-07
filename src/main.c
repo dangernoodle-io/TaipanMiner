@@ -9,8 +9,12 @@
 #include "stratum.h"
 #include "nv_config.h"
 #include "http_server.h"
+#include "display.h"
+#include "led.h"
 #include "esp_ota_ops.h"
 #include "partition_fixup.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #ifdef ASIC_BM1370
 #include "asic.h"
 #endif
@@ -91,6 +95,7 @@ void app_main(void)
 
     // Load config from NVS (falls back to defaults)
     ESP_ERROR_CHECK(nv_config_init());
+    ESP_ERROR_CHECK(led_init());
 
 #ifdef ASIC_BM1370
     // Initialize ASIC before WiFi — freq ramp takes ~8s, runs while WiFi isn't needed yet.
@@ -100,11 +105,32 @@ void app_main(void)
     }
 #endif
 
+    // Initialize display early so splash is visible during boot.
+    // On Bitaxe, skip if not provisioned — I2C bus not available without asic_init().
+#if defined(ASIC_BM1370)
+    if (nv_config_is_provisioned()) {
+        ESP_ERROR_CHECK(display_init());
+        ESP_ERROR_CHECK(display_show_splash());
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        ESP_ERROR_CHECK(display_clear(DISPLAY_COLOR_BLACK));
+    }
+#else
+    ESP_ERROR_CHECK(display_init());
+    ESP_ERROR_CHECK(display_show_splash());
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    ESP_ERROR_CHECK(display_clear(DISPLAY_COLOR_BLACK));
+#endif
+
     if (!nv_config_is_provisioned()) {
-        // Provisioning mode: start AP + captive portal
         ESP_LOGI(TAG, "entering provisioning mode");
         ESP_ERROR_CHECK(wifi_init_ap());
         ESP_ERROR_CHECK(http_server_start_prov());
+
+        // Show provisioning info on display + solid blue LED
+        char ap_ssid[32];
+        wifi_prov_get_ap_ssid(ap_ssid, sizeof(ap_ssid));
+        ESP_ERROR_CHECK(display_show_prov(ap_ssid, "taipanminer"));
+        ESP_ERROR_CHECK(led_set_color(0, 0, 255));
 
         bool connected = false;
         while (!connected) {
@@ -115,6 +141,8 @@ void app_main(void)
 
             esp_err_t err = wifi_init_sta();
             if (err == ESP_OK) {
+                ESP_ERROR_CHECK(display_clear(DISPLAY_COLOR_BLACK));
+                ESP_ERROR_CHECK(led_off());
                 ESP_LOGI(TAG, "provisioning complete");
                 nv_config_set_provisioned();
                 connected = true;
@@ -124,7 +152,6 @@ void app_main(void)
             }
         }
 
-        // Switch HTTP server from provisioning to mining handlers
         http_server_switch_to_mining();
     } else {
         // Normal boot: connect to saved WiFi

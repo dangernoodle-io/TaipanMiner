@@ -27,6 +27,7 @@ esp_err_t wifi_init_sta(void);       // returns ESP_ERR_TIMEOUT on failure (prov
 // AP mode — for provisioning
 esp_err_t wifi_init_ap(void);        // starts AP + captive DNS
 void wifi_stop_ap(void);             // stops AP + DNS, deinits wifi
+void wifi_prov_get_ap_ssid(char *buf, size_t len);  // get AP SSID
 
 // Provisioning event
 #define PROV_DONE_BIT BIT0

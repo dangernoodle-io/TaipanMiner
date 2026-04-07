@@ -27,6 +27,9 @@
 
 static const char *TAG = "asic";
 
+// --- I2C bus handle (initialized in asic_init, shared with display) ---
+static i2c_master_bus_handle_t s_i2c_bus;
+
 // --- Active job table (static to avoid stack allocation ~28 KB) ---
 static mining_work_t s_job_table[BM1370_JOB_ID_MOD];
 static uint8_t s_next_job_id;
@@ -272,16 +275,15 @@ esp_err_t asic_init(void)
         .glitch_ignore_cnt = 7,
         .flags.enable_internal_pullup = true,
     };
-    i2c_master_bus_handle_t i2c_bus;
-    ESP_RETURN_ON_ERROR(i2c_new_master_bus(&bus_cfg, &i2c_bus), TAG, "i2c bus");
+    ESP_RETURN_ON_ERROR(i2c_new_master_bus(&bus_cfg, &s_i2c_bus), TAG, "i2c bus");
     ESP_LOGI(TAG, "I2C bus ready (SDA=%d SCL=%d)", PIN_I2C_SDA, PIN_I2C_SCL);
 
     // 4. TPS546 voltage regulator
-    ESP_RETURN_ON_ERROR(tps546_init(i2c_bus, TPS546_I2C_ADDR, BM1370_DEFAULT_MV), TAG, "tps546");
+    ESP_RETURN_ON_ERROR(tps546_init(s_i2c_bus, TPS546_I2C_ADDR, BM1370_DEFAULT_MV), TAG, "tps546");
     vTaskDelay(pdMS_TO_TICKS(50));
 
     // 5. EMC2101 temp sensor + fan
-    ESP_RETURN_ON_ERROR(emc2101_init(i2c_bus, EMC2101_I2C_ADDR), TAG, "emc2101");
+    ESP_RETURN_ON_ERROR(emc2101_init(s_i2c_bus, EMC2101_I2C_ADDR), TAG, "emc2101");
     ESP_RETURN_ON_ERROR(emc2101_set_fan_duty(63), TAG, "fan on");  // max
 
     // 6. BM1370 chip init sequence
@@ -504,5 +506,10 @@ const miner_config_t g_miner_config = {
     .extranonce2_roll = true,
     .roll_interval_ms = BM1370_JOB_INTERVAL_MS,
 };
+
+i2c_master_bus_handle_t asic_get_i2c_bus(void)
+{
+    return s_i2c_bus;
+}
 
 #endif // ASIC_BM1370

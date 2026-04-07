@@ -16,6 +16,7 @@
 #include "mining.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/portmacro.h"
 #include <stdlib.h>
 
 static const char *TAG = "ota_pull";
@@ -48,9 +49,9 @@ static const char *s_ota_state_names[] = {
 };
 
 typedef struct {
-    volatile ota_state_t state;
+    ota_state_t state;
     char last_error[128];
-    volatile int progress_pct;
+    int progress_pct;
 } ota_status_t;
 
 static ota_status_t s_ota_status = {
@@ -59,12 +60,17 @@ static ota_status_t s_ota_status = {
     .progress_pct = 0,
 };
 
+// Spinlock protecting s_ota_status from concurrent access on dual-core ESP32-S3
+static portMUX_TYPE s_ota_status_mux = portMUX_INITIALIZER_UNLOCKED;
+
 static void ota_set_error(const char *fmt, ...)
 {
-    s_ota_status.state = OTA_STATE_ERROR;
     va_list ap;
     va_start(ap, fmt);
+    taskENTER_CRITICAL(&s_ota_status_mux);
+    s_ota_status.state = OTA_STATE_ERROR;
     vsnprintf(s_ota_status.last_error, sizeof(s_ota_status.last_error), fmt, ap);
+    taskEXIT_CRITICAL(&s_ota_status_mux);
     va_end(ap);
 }
 
@@ -253,9 +259,11 @@ static void ota_worker_task(void *arg)
     #endif
 
     ESP_LOGI(TAG, "starting OTA update from %s", result.asset_url);
+    taskENTER_CRITICAL(&s_ota_status_mux);
     s_ota_status.state = OTA_STATE_DOWNLOADING;
     s_ota_status.progress_pct = 0;
     s_ota_status.last_error[0] = '\0';
+    taskEXIT_CRITICAL(&s_ota_status_mux);
 
     esp_http_client_config_t http_config = {
         .url = result.asset_url,
@@ -316,7 +324,9 @@ static void ota_worker_task(void *arg)
         }
         if (image_size > 0) {
             int read_so_far = esp_https_ota_get_image_len_read(ota_handle);
+            taskENTER_CRITICAL(&s_ota_status_mux);
             s_ota_status.progress_pct = (read_so_far * 100) / image_size;
+            taskEXIT_CRITICAL(&s_ota_status_mux);
         }
     }
 
@@ -327,12 +337,16 @@ static void ota_worker_task(void *arg)
         goto resume_and_exit;
     }
 
+    taskENTER_CRITICAL(&s_ota_status_mux);
     s_ota_status.state = OTA_STATE_VERIFYING;
     s_ota_status.progress_pct = 100;
+    taskEXIT_CRITICAL(&s_ota_status_mux);
 
     err = esp_https_ota_finish(ota_handle);
     if (err == ESP_OK) {
+        taskENTER_CRITICAL(&s_ota_status_mux);
         s_ota_status.state = OTA_STATE_COMPLETE;
+        taskEXIT_CRITICAL(&s_ota_status_mux);
         ESP_LOGI(TAG, "OTA complete, rebooting to %s", result.latest_tag);
         vTaskDelay(pdMS_TO_TICKS(500));
         esp_restart();
@@ -496,9 +510,11 @@ static esp_err_t ota_update_handler(httpd_req_t *req)
 
     memcpy(task_arg, &result, sizeof(ota_pull_check_result_t));
     s_ota_in_progress = true;
+    taskENTER_CRITICAL(&s_ota_status_mux);
     s_ota_status.state = OTA_STATE_CHECKING;
     s_ota_status.progress_pct = 0;
     s_ota_status.last_error[0] = '\0';
+    taskEXIT_CRITICAL(&s_ota_status_mux);
 
     TaskHandle_t task_handle = NULL;
     BaseType_t task_result = xTaskCreate(
@@ -533,6 +549,12 @@ static esp_err_t ota_update_handler(httpd_req_t *req)
  */
 static esp_err_t ota_status_handler(httpd_req_t *req)
 {
+    // Snapshot status under lock
+    ota_status_t status_copy;
+    taskENTER_CRITICAL(&s_ota_status_mux);
+    memcpy(&status_copy, &s_ota_status, sizeof(status_copy));
+    taskEXIT_CRITICAL(&s_ota_status_mux);
+
     cJSON *root = cJSON_CreateObject();
     if (!root) {
         const char *response = "{\"error\":\"json_error\"}";
@@ -542,11 +564,11 @@ static esp_err_t ota_status_handler(httpd_req_t *req)
         return ESP_OK;
     }
 
-    cJSON_AddStringToObject(root, "state", s_ota_state_names[s_ota_status.state]);
+    cJSON_AddStringToObject(root, "state", s_ota_state_names[status_copy.state]);
     cJSON_AddBoolToObject(root, "in_progress", s_ota_in_progress);
-    cJSON_AddNumberToObject(root, "progress_pct", s_ota_status.progress_pct);
-    if (s_ota_status.last_error[0] != '\0') {
-        cJSON_AddStringToObject(root, "last_error", s_ota_status.last_error);
+    cJSON_AddNumberToObject(root, "progress_pct", status_copy.progress_pct);
+    if (status_copy.last_error[0] != '\0') {
+        cJSON_AddStringToObject(root, "last_error", status_copy.last_error);
     }
 
     char *response_str = cJSON_PrintUnformatted(root);

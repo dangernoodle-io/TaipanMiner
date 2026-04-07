@@ -1,4 +1,5 @@
 #include "stratum.h"
+#include "stratum_utils.h"
 #include "nv_config.h"
 #include "mining.h"
 #include "work.h"
@@ -66,9 +67,9 @@ static int stratum_request(const char *method, const char *params_json)
 {
     char buf[512];
     int id = s_msg_id++;
-    snprintf(buf, sizeof(buf),
-             "{\"id\":%d,\"method\":\"%s\",\"params\":%s}\n",
-             id, method, params_json);
+    if (format_stratum_request(buf, sizeof(buf), id, method, params_json) < 0) {
+        return -1;
+    }
     if (stratum_send(buf) != 0) {
         return -1;
     }
@@ -399,18 +400,12 @@ static int handle_subscribe_result(cJSON *result)
 static int submit_share(mining_result_t *result)
 {
     char params[256];
-    if (result->version_hex[0] != '\0') {
-        snprintf(params, sizeof(params),
-                 "[\"%s.%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"]",
-                 s_wallet_addr, s_worker_name,
-                 result->job_id, result->extranonce2_hex,
-                 result->ntime_hex, result->nonce_hex, result->version_hex);
-    } else {
-        snprintf(params, sizeof(params),
-                 "[\"%s.%s\",\"%s\",\"%s\",\"%s\",\"%s\"]",
-                 s_wallet_addr, s_worker_name,
-                 result->job_id, result->extranonce2_hex,
-                 result->ntime_hex, result->nonce_hex);
+    if (format_submit_params(params, sizeof(params),
+                            s_wallet_addr, s_worker_name,
+                            result->job_id, result->extranonce2_hex,
+                            result->ntime_hex, result->nonce_hex,
+                            result->version_hex) < 0) {
+        return -1;
     }
 
     ESP_LOGI(TAG, "submit: %s", params);

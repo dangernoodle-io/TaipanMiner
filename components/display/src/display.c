@@ -147,7 +147,8 @@ static esp_err_t clear_st7735(uint16_t color)
 // Double-buffer to avoid DMA race: spi_device_queue_trans returns before
 // DMA completes, but drains inflight at the start of the next tx_color call.
 // By alternating buffers, the previous buffer's DMA is always drained before reuse.
-static esp_err_t draw_text_st7735(int x, int y, const char *text, uint16_t fg, uint16_t bg)
+static esp_err_t draw_text_st7735(int x, int y, const char *text,
+                                   uint16_t fg, uint16_t bg, bool bold)
 {
     static uint16_t s_char_buf[2][FONT_W * FONT_H];
     static int s_buf_idx;
@@ -162,6 +163,7 @@ static esp_err_t draw_text_st7735(int x, int y, const char *text, uint16_t fg, u
         uint16_t *buf = s_char_buf[s_buf_idx];
         for (int row = 0; row < FONT_H; row++) {
             uint8_t bits = glyph[row];
+            if (bold) bits |= (bits >> 1);
             for (int col = 0; col < FONT_W; col++) {
                 buf[row * FONT_W + col] = (bits & (0x80 >> col)) ? fg_s : bg_s;
             }
@@ -251,7 +253,7 @@ static esp_err_t show_splash_st7735(void)
     int text_y = (LCD_HEIGHT - FONT_H) / 2;
     ESP_RETURN_ON_ERROR(
         draw_text_st7735(text_x, text_y, "TaipanMiner",
-                         DISPLAY_COLOR_AMBER, DISPLAY_COLOR_BLACK),
+                         DISPLAY_COLOR_AMBER, DISPLAY_COLOR_BLACK, true),
         TAG, "draw splash text");
 
     return ESP_OK;
@@ -263,25 +265,25 @@ static esp_err_t show_prov_st7735(const char *ssid, const char *password)
 
     ESP_RETURN_ON_ERROR(
         draw_text_st7735(0, 4, "WiFi Setup",
-                         DISPLAY_COLOR_YELLOW, DISPLAY_COLOR_BLACK),
+                         DISPLAY_COLOR_YELLOW, DISPLAY_COLOR_BLACK, false),
         TAG, "header");
 
     ESP_RETURN_ON_ERROR(
         draw_text_st7735(0, 24, "SSID:",
-                         DISPLAY_COLOR_CYAN, DISPLAY_COLOR_BLACK),
+                         DISPLAY_COLOR_CYAN, DISPLAY_COLOR_BLACK, false),
         TAG, "ssid label");
     ESP_RETURN_ON_ERROR(
         draw_text_st7735(0, 40, ssid,
-                         DISPLAY_COLOR_WHITE, DISPLAY_COLOR_BLACK),
+                         DISPLAY_COLOR_WHITE, DISPLAY_COLOR_BLACK, false),
         TAG, "ssid value");
 
     ESP_RETURN_ON_ERROR(
         draw_text_st7735(0, 56, "Pass:",
-                         DISPLAY_COLOR_CYAN, DISPLAY_COLOR_BLACK),
+                         DISPLAY_COLOR_CYAN, DISPLAY_COLOR_BLACK, false),
         TAG, "pass label");
     ESP_RETURN_ON_ERROR(
         draw_text_st7735(40, 56, password,
-                         DISPLAY_COLOR_WHITE, DISPLAY_COLOR_BLACK),
+                         DISPLAY_COLOR_WHITE, DISPLAY_COLOR_BLACK, false),
         TAG, "pass value");
 
     return ESP_OK;
@@ -374,7 +376,7 @@ esp_err_t display_clear(uint16_t color)
 esp_err_t display_draw_text(int x, int y, const char *text, uint16_t fg, uint16_t bg)
 {
 #if defined(BOARD_TDONGLE_S3)
-    return draw_text_st7735(x, y, text, fg, bg);
+    return draw_text_st7735(x, y, text, fg, bg, false);
 #else
     (void)x; (void)y; (void)text; (void)fg; (void)bg;
     return ESP_OK;

@@ -14,11 +14,29 @@
   </div>
 
   <nav class='tabs'>
+    <button class='tab' data-view='diagnostics'>Diagnostics</button>
     <button class='tab' data-view='info'>Info</button>
-    <button class='tab active' data-view='status'>Status</button>
     <button class='tab' data-view='settings'>Settings</button>
+    <button class='tab active' data-view='status'>Status</button>
     <button class='tab' data-view='update'>Update</button>
   </nav>
+
+  <div id='diagnostics' class='view'>
+    <div class='section'>
+      <h2>Live Logs</h2>
+      <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:8px'>
+        <span id='log-status' style='font-size:12px;color:var(--label)'>Disconnected</span>
+        <label style='font-size:12px;color:var(--label)'>
+          <input type='checkbox' id='log-autoscroll' checked> Auto-scroll
+        </label>
+      </div>
+      <pre id='log-panel' style='height:320px;overflow-y:auto;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;margin:0;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px'></pre>
+    </div>
+    <div class='section'>
+      <h2>Device</h2>
+      <button class='ota-btn' id='rebootBtn'>Reboot Device</button>
+    </div>
+  </div>
 
   <div id='status' class='view active'>
     <div class='stat-grid'>

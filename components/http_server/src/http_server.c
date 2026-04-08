@@ -19,7 +19,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <sys/socket.h>
 #include "ota_pull.h"
+#include "log_stream.h"
 
 static const char *TAG = "http";
 static httpd_handle_t s_server = NULL;
@@ -47,6 +49,8 @@ static esp_err_t ensure_server_started(void)
     config.lru_purge_enable = true;
     config.max_uri_handlers = 16;
     config.stack_size = 6144;
+    config.recv_wait_timeout = 86400;
+    config.send_wait_timeout = 30;
     config.uri_match_fn = httpd_uri_match_wildcard;
     esp_err_t err = httpd_start(&s_server, &config);
     if (err != ESP_OK) return err;
@@ -434,6 +438,123 @@ static esp_err_t ota_upload_handler(httpd_req_t *req)
     return ESP_OK;  // unreachable
 }
 
+static volatile int s_sse_client_type = 0;  // 0=none, 1=browser, 2=external
+static volatile bool s_sse_stop = false;
+static TaskHandle_t s_sse_task_handle = NULL;
+
+static void s_sse_task(void *arg)
+{
+    httpd_req_t *req = (httpd_req_t *)arg;
+
+    int fd = httpd_req_to_sockfd(req);
+    struct timeval tv = { .tv_sec = 86400, .tv_usec = 0 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    httpd_resp_set_type(req, "text/event-stream");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    httpd_resp_set_hdr(req, "Connection", "keep-alive");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Private-Network", "true");
+
+    esp_err_t err = httpd_resp_send_chunk(req, ": connected\n\n", HTTPD_RESP_USE_STRLEN);
+
+    char line[192];
+    char frame[220];
+
+    while (err == ESP_OK && !s_sse_stop) {
+        size_t n = log_stream_drain(line, sizeof(line), pdMS_TO_TICKS(500));
+        if (n == 0) continue;
+        while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r'))
+            line[--n] = '\0';
+        int flen = snprintf(frame, sizeof(frame), "data: %s\n\n", line);
+        err = httpd_resp_send_chunk(req, frame,
+                    (flen > 0 && flen < (int)sizeof(frame)) ? flen : HTTPD_RESP_USE_STRLEN);
+    }
+
+    httpd_resp_send_chunk(req, NULL, 0);
+    httpd_req_async_handler_complete(req);
+    s_sse_task_handle = NULL;
+    s_sse_client_type = 0;
+    vTaskDelete(NULL);
+}
+
+static esp_err_t logs_handler(httpd_req_t *req)
+{
+    // Determine client type from query string
+    int client_type = 2;  // default: external
+    char query[32];
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        char val[16];
+        if (httpd_query_key_value(query, "source", val, sizeof(val)) == ESP_OK
+            && strcmp(val, "browser") == 0) {
+            client_type = 1;
+        }
+    }
+
+    // Only an external client can preempt a browser stream;
+    // all other combinations (browser→external, external→external) get 503
+    if (s_sse_task_handle && !(client_type == 2 && s_sse_client_type == 1)) {
+        set_common_headers(req);
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        httpd_resp_sendstr(req, "Log stream in use");
+        return ESP_OK;
+    }
+
+    // Stop existing browser stream (external client taking over)
+    if (s_sse_task_handle) {
+        s_sse_stop = true;
+        for (int i = 0; i < 10 && s_sse_task_handle; i++)
+            vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    s_sse_stop = false;
+
+    if (client_type == 2) {
+        ESP_LOGI(TAG, "external log client connected");
+    }
+
+    httpd_req_t *async_req = NULL;
+    if (httpd_req_async_handler_begin(req, &async_req) != ESP_OK) {
+        set_common_headers(req);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Async init failed");
+        return ESP_FAIL;
+    }
+
+    s_sse_client_type = client_type;
+    if (xTaskCreate(s_sse_task, "sse_log", 4096, async_req, 1, &s_sse_task_handle) != pdPASS) {
+        httpd_req_async_handler_complete(async_req);
+        s_sse_client_type = 0;
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
+}
+
+static esp_err_t logs_status_handler(httpd_req_t *req)
+{
+    set_common_headers(req);
+    httpd_resp_set_type(req, "application/json");
+    char buf[64];
+    if (s_sse_client_type == 0) {
+        snprintf(buf, sizeof(buf), "{\"active\":false,\"client\":null}");
+    } else {
+        snprintf(buf, sizeof(buf), "{\"active\":true,\"client\":\"%s\"}",
+                 s_sse_client_type == 1 ? "browser" : "external");
+    }
+    httpd_resp_sendstr(req, buf);
+    return ESP_OK;
+}
+
+static esp_err_t reboot_handler(httpd_req_t *req)
+{
+    set_common_headers(req);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"rebooting\"}");
+
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
+    return ESP_OK;  // unreachable
+}
+
 static esp_err_t scan_handler(httpd_req_t *req)
 {
     set_common_headers(req);
@@ -514,6 +635,13 @@ void http_server_switch_to_mining(void)
     httpd_register_uri_handler(s_server, &mining_js_uri);
     httpd_register_uri_handler(s_server, &ota_upload_uri);
     ota_pull_register_handler(s_server);
+
+    httpd_uri_t logs_status_uri = { .uri = "/api/logs/status", .method = HTTP_GET, .handler = logs_status_handler };
+    httpd_uri_t logs_uri = { .uri = "/api/logs", .method = HTTP_GET, .handler = logs_handler };
+    httpd_uri_t reboot_uri = { .uri = "/api/reboot", .method = HTTP_POST, .handler = reboot_handler };
+    httpd_register_uri_handler(s_server, &logs_status_uri);
+    httpd_register_uri_handler(s_server, &logs_uri);
+    httpd_register_uri_handler(s_server, &reboot_uri);
 }
 
 esp_err_t http_server_start(void)
@@ -562,6 +690,13 @@ esp_err_t http_server_start(void)
     httpd_register_uri_handler(s_server, &theme_uri);
     httpd_register_uri_handler(s_server, &logo_uri);
     ota_pull_register_handler(s_server);
+
+    httpd_uri_t logs_status_uri = { .uri = "/api/logs/status", .method = HTTP_GET, .handler = logs_status_handler };
+    httpd_uri_t logs_uri = { .uri = "/api/logs", .method = HTTP_GET, .handler = logs_handler };
+    httpd_uri_t reboot_uri = { .uri = "/api/reboot", .method = HTTP_POST, .handler = reboot_handler };
+    httpd_register_uri_handler(s_server, &logs_status_uri);
+    httpd_register_uri_handler(s_server, &logs_uri);
+    httpd_register_uri_handler(s_server, &reboot_uri);
 
     ESP_LOGI(TAG, "HTTP server started on port %d", 80);
     return ESP_OK;

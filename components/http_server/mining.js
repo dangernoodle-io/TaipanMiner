@@ -10,6 +10,12 @@ document.querySelectorAll('.tab').forEach(tab => {
     tab.classList.add('active');
     document.getElementById(tab.dataset.view).classList.add('active');
 
+    if (tab.dataset.view === 'diagnostics') {
+      startLogStream();
+    } else {
+      stopLogStream();
+    }
+
     if (tab.dataset.view === 'info' && !infoLoaded) {
       fetch('/api/info').then(r=>r.json()).then(d => {
         document.getElementById('i-board').textContent = d.board;
@@ -154,3 +160,66 @@ document.getElementById('otaCheckBtn').addEventListener('click', function() {
 });
 
 try { document.getElementById('u-host').textContent = location.host; } catch(e) {}
+
+var logEs = null;
+var LOG_MAX_LINES = 200;
+
+document.getElementById('log-panel').addEventListener('scroll', function() {
+  var atBottom = this.scrollHeight - this.scrollTop - this.clientHeight < 8;
+  document.getElementById('log-autoscroll').checked = atBottom;
+});
+
+function setLogStatus(msg, color) {
+  var status = document.getElementById('log-status');
+  if (status) { status.textContent = msg; status.style.color = color; }
+}
+
+function startLogStream() {
+  if (logEs) return;
+  setLogStatus('Connecting...', 'var(--label)');
+  logEs = new EventSource('/api/logs?source=browser');
+  logEs.onopen = function() { setLogStatus('Connected', '#4a4'); };
+  logEs.onmessage = function(e) {
+    var auto = document.getElementById('log-autoscroll').checked;
+    var span = document.createElement('span');
+    span.textContent = e.data + '\n';
+    var panel = document.getElementById('log-panel');
+    panel.appendChild(span);
+    while (panel.childNodes.length > LOG_MAX_LINES) panel.removeChild(panel.firstChild);
+    if (auto) panel.scrollTop = panel.scrollHeight;
+  };
+  logEs.onerror = function() {
+    logEs.close();
+    logEs = null;
+    fetch('/api/logs/status').then(function(r) { return r.json(); }).then(function(d) {
+      if (d.active && d.client === 'external') {
+        setLogStatus('External client connected', '#ca4');
+      } else {
+        setLogStatus('Disconnected (retrying...)', '#c44');
+      }
+    }).catch(function() {
+      setLogStatus('Disconnected (retrying...)', '#c44');
+    });
+    setTimeout(startLogStream, 3000);
+  };
+}
+
+function stopLogStream() {
+  if (!logEs) return;
+  logEs.close();
+  logEs = null;
+  setLogStatus('Disconnected', 'var(--label)');
+}
+
+document.getElementById('rebootBtn').addEventListener('click', function() {
+  if (!confirm('Reboot the device? Mining will be interrupted.')) return;
+  var btn = this;
+  btn.disabled = true;
+  btn.textContent = 'Rebooting...';
+  fetch('/api/reboot', { method: 'POST' }).then(function() {
+    btn.textContent = 'Device is rebooting...';
+  }).catch(function() {
+    btn.textContent = 'Reboot Device';
+    btn.disabled = false;
+  });
+});

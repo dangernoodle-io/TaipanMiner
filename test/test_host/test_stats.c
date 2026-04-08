@@ -35,58 +35,72 @@ void test_ema_decay(void)
 
 void test_hash_to_difficulty_leading_zeros(void)
 {
-    // All-zero leading 4 bytes → capped at 1e15
+    // Hash with 5 leading zero bytes (LE): bytes 31-27 = 0, byte 26 = 0xFF
+    // sig = 0xFF000000, zero_bytes = 5
+    // diff = (0xFFFF0000 / 0xFF000000) * 2^((5-4)*8) = ~1.004 * 256 ≈ 257
     uint8_t hash[32] = {0};
-    hash[4] = 0xFF;  // non-zero after leading 4
+    hash[26] = 0xFF;
     double diff = hash_to_difficulty(hash);
-    TEST_ASSERT_EQUAL_DOUBLE(1e15, diff);
+    TEST_ASSERT_DOUBLE_WITHIN(2.0, 257.0, diff);
 }
 
 void test_hash_to_difficulty_diff1(void)
 {
-    // Leading bytes 0x0000FFFF → diff ≈ 65536
-    // 0xFFFF0000 / 0x0000FFFF ≈ 65536.5
+    // Hash at diff-1 (LE): bytes 31-28 = 0, byte 27 = 0xFF, byte 26 = 0xFF
+    // zero_bytes = 4, sig = 0xFFFF0000
+    // diff = 0xFFFF0000 / 0xFFFF0000 * 2^0 = 1.0
     uint8_t hash[32] = {0};
-    hash[0] = 0x00;
-    hash[1] = 0x00;
-    hash[2] = 0xFF;
-    hash[3] = 0xFF;
+    hash[27] = 0xFF;
+    hash[26] = 0xFF;
     double diff = hash_to_difficulty(hash);
-    TEST_ASSERT_DOUBLE_WITHIN(1.0, 65536.0, diff);
+    TEST_ASSERT_DOUBLE_WITHIN(0.01, 1.0, diff);
 }
 
 void test_hash_to_difficulty_easy(void)
 {
-    // Leading byte 0xFF → very low difficulty
-    // 0xFFFF0000 / 0xFF000000 = ~1.004
+    // All 0xFF hash → very low difficulty (sub-diff-1)
+    // zero_bytes=0, sig=0xFFFFFFFF, shift=-32
+    // diff ≈ 2.33e-10
     uint8_t hash[32];
     memset(hash, 0xFF, 32);
     double diff = hash_to_difficulty(hash);
-    // 0xFFFF0000 / 0xFFFFFFFF ≈ 1.0
-    TEST_ASSERT_TRUE(diff < 2.0);
+    TEST_ASSERT_TRUE(diff < 1e-9);
     TEST_ASSERT_TRUE(diff > 0.0);
+}
+
+void test_hash_to_difficulty_six_zeros(void)
+{
+    // Hash with 6 leading zero bytes (LE): bytes 31-26 = 0, byte 25 = 0x80
+    // sig = 0x80000000, zero_bytes = 6
+    // diff = (0xFFFF0000 / 0x80000000) * 2^((6-4)*8) = ~2.0 * 65536 = ~131070
+    uint8_t hash[32] = {0};
+    hash[25] = 0x80;
+    double diff = hash_to_difficulty(hash);
+    TEST_ASSERT_DOUBLE_WITHIN(2.0, 131070.0, diff);
 }
 
 void test_best_diff_only_increases(void)
 {
-    // Simulate best_diff tracking logic
     mining_lifetime_t lt = {0};
 
-    // First share: diff_exp = 10
-    double share_diff1 = 1024.0;  // log2(1024) = 10
-    uint32_t exp1 = (uint32_t)(log2(share_diff1));
-    if (exp1 > lt.best_diff) lt.best_diff = exp1;
-    TEST_ASSERT_EQUAL_UINT32(10, lt.best_diff);
+    // First share: diff 1024.0
+    double share_diff1 = 1024.0;
+    if (share_diff1 > lt.best_diff) lt.best_diff = share_diff1;
+    TEST_ASSERT_EQUAL_DOUBLE(1024.0, lt.best_diff);
 
-    // Second share: diff_exp = 5 (lower, should not update)
-    double share_diff2 = 32.0;  // log2(32) = 5
-    uint32_t exp2 = (uint32_t)(log2(share_diff2));
-    if (exp2 > lt.best_diff) lt.best_diff = exp2;
-    TEST_ASSERT_EQUAL_UINT32(10, lt.best_diff);  // still 10
+    // Second share: diff 32.0 (lower, should not update)
+    double share_diff2 = 32.0;
+    if (share_diff2 > lt.best_diff) lt.best_diff = share_diff2;
+    TEST_ASSERT_EQUAL_DOUBLE(1024.0, lt.best_diff);
 
-    // Third share: diff_exp = 15 (higher, should update)
-    double share_diff3 = 32768.0;  // log2(32768) = 15
-    uint32_t exp3 = (uint32_t)(log2(share_diff3));
-    if (exp3 > lt.best_diff) lt.best_diff = exp3;
-    TEST_ASSERT_EQUAL_UINT32(15, lt.best_diff);
+    // Third share: diff 32768.0 (higher, should update)
+    double share_diff3 = 32768.0;
+    if (share_diff3 > lt.best_diff) lt.best_diff = share_diff3;
+    TEST_ASSERT_EQUAL_DOUBLE(32768.0, lt.best_diff);
+
+    // Sub-diff-1 share on fresh stats
+    mining_lifetime_t lt2 = {0};
+    double share_diff4 = 0.05;
+    if (share_diff4 > lt2.best_diff) lt2.best_diff = share_diff4;
+    TEST_ASSERT_EQUAL_DOUBLE(0.05, lt2.best_diff);
 }

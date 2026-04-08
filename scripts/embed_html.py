@@ -7,8 +7,14 @@ Compresses with gzip (level 9) before embedding.
 """
 import os
 import gzip
+import sys
 
-Import("env")
+# Support both standalone execution and PlatformIO pre-build script usage
+try:
+    Import("env")
+except NameError:
+    # Running standalone, not in PlatformIO SCons context
+    pass
 
 HTML_DIR = os.path.join("components", "http_server")
 OUT_DIR = os.path.join("components", "http_server", "src")
@@ -17,6 +23,9 @@ FILES = [
     ("prov_form.html", "prov_form_html_gz"),
     ("theme.css", "theme_css_gz"),
     ("logo.svg", "logo_svg_gz"),
+    ("mining.html", "mining_html_gz"),
+    ("mining.js", "mining_js_gz"),
+    ("prov_save.html", "prov_save_html_gz"),
 ]
 
 

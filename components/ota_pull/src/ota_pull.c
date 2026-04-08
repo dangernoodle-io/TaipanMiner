@@ -24,7 +24,7 @@ static const char *TAG = "ota_pull";
 #define GITHUB_API_URL "https://api.github.com/repos/dangernoodle-io/TaipanMiner/releases/latest"
 #define OTA_TASK_STACK 16384
 #define OTA_TASK_PRIO  3
-#define OTA_CHECK_STACK 8192
+#define OTA_CHECK_STACK 32768
 #define OTA_CHECK_PRIO 3
 #define API_BUF_MAX    16384
 
@@ -82,6 +82,7 @@ typedef struct {
 
 static volatile bool s_check_in_progress = false;
 static volatile bool s_check_done = false;
+static volatile bool s_check_failed = false;
 static ota_pull_check_result_t s_cached_check = {0};
 
 #endif // ESP_PLATFORM
@@ -377,16 +378,33 @@ resume_and_exit:
  */
 static void ota_check_worker_task(void *arg)
 {
+    // Suspend mining to free memory for TLS handshake
+    ESP_LOGI(TAG, "suspending mining for OTA check");
+#ifdef ASIC_BM1370
+    if (asic_task_handle) vTaskSuspend(asic_task_handle);
+#else
+    if (mining_hw_task_handle) vTaskSuspend(mining_hw_task_handle);
+#endif
+
     ota_pull_check_result_t result = {0};
     esp_err_t err = ota_pull_check(&result);
+
+    ESP_LOGI(TAG, "resuming mining");
+#ifdef ASIC_BM1370
+    if (asic_task_handle) vTaskResume(asic_task_handle);
+#else
+    if (mining_hw_task_handle) vTaskResume(mining_hw_task_handle);
+#endif
 
     if (err == ESP_OK) {
         memcpy(&s_cached_check, &result, sizeof(ota_pull_check_result_t));
         s_check_done = true;
+        s_check_failed = false;
         ESP_LOGI(TAG, "background check completed");
     } else {
         ESP_LOGE(TAG, "background check failed");
         s_check_done = false;
+        s_check_failed = true;
     }
 
     s_check_in_progress = false;
@@ -398,6 +416,16 @@ static void ota_check_worker_task(void *arg)
  */
 static esp_err_t ota_check_handler(httpd_req_t *req)
 {
+    // If the background check failed, return error
+    if (s_check_failed) {
+        s_check_failed = false;
+        const char *response = "{\"error\":\"check_failed\"}";
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, response, strlen(response));
+        return ESP_OK;
+    }
+
     // If we have a cached result, return it
     if (s_check_done) {
         cJSON *root = cJSON_CreateObject();

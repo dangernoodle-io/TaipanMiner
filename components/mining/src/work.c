@@ -243,12 +243,26 @@ void difficulty_to_target(double diff, uint8_t target[32])
 
 double hash_to_difficulty(const uint8_t hash[32])
 {
-    // Find leading significant 32 bits (hash is big-endian, byte 0 = MSB)
-    uint32_t leading = ((uint32_t)hash[0] << 24) | ((uint32_t)hash[1] << 16) |
-                       ((uint32_t)hash[2] << 8) | hash[3];
-    if (leading == 0) {
-        // Extremely good hash — cap to avoid division by zero
-        return 1e15;
+    // Hash is little-endian: byte[31] = MSB, byte[0] = LSB
+    // Count leading zero bytes from MSB end
+    int zero_bytes = 0;
+    while (zero_bytes < 28 && hash[31 - zero_bytes] == 0) {
+        zero_bytes++;
     }
-    return (double)0xFFFF0000UL / (double)leading;
+
+    // Read 4 significant bytes (big-endian order) from MSB position
+    int pos = 31 - zero_bytes;
+    uint32_t sig = ((uint32_t)hash[pos] << 24) |
+                   ((uint32_t)hash[pos - 1] << 16) |
+                   ((uint32_t)hash[pos - 2] << 8) |
+                   hash[pos - 3];
+
+    if (sig == 0) return 1e15;
+
+    // Bitcoin difficulty 1 target: 0x00000000 FFFF0000 00...00 (big-endian)
+    // In little-endian byte order: 00...00 0000FFFF 00000000
+    // Significant bytes at offset 28 from LSB with value 0xFFFF0000
+    double base_diff = (double)0xFFFF0000UL / (double)sig;
+    int shift_bits = (zero_bytes - 4) * 8;
+    return ldexp(base_diff, shift_bits);
 }

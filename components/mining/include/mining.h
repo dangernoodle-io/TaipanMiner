@@ -111,7 +111,7 @@ typedef struct {
 // Lifetime stats (persisted to NVS)
 typedef struct {
     uint32_t total_shares;
-    uint32_t best_diff;       // floor(log2(share_difficulty))
+    double   best_diff;       // highest share difficulty (raw value)
     uint64_t total_hashes;
 } mining_lifetime_t;
 
@@ -146,6 +146,7 @@ typedef struct {
     float               asic_temp_c;     // ASIC die temperature via EMC2101
 #endif
     uint32_t            hw_shares;
+    double              pool_difficulty;
     mining_session_t    session;
     mining_lifetime_t   lifetime;
     SemaphoreHandle_t   mutex;

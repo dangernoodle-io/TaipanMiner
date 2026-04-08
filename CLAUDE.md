@@ -80,6 +80,7 @@ Then create `~/.platformio/penv/.espidf-5.5.3/pio-idf-venv.json` with the correc
 - Full 32-bit nonce space (0x00000000–0xFFFFFFFF), BIP 320 version rolling when exhausted
 - APB peripheral bus fixed at 80 MHz — HW mining is MMIO-bound (~223 kH/s ceiling)
 - Yield every 256K nonces (0x3FFFF mask), hashrate log every 1M (0xFFFFF)
+- Hash byte order: little-endian (byte[31]=MSB) — matches Bitcoin internal byte order; `meets_target` and `hash_to_difficulty` both use this convention
 
 ### Mining pipeline (bitaxe — BM1370 ASIC)
 
@@ -94,6 +95,16 @@ Then create `~/.platformio/penv/.espidf-5.5.3/pio-idf-venv.json` with the correc
 - SO_RCVTIMEO cached to avoid redundant setsockopt calls
 - Framework log noise suppressed at init: `esp_log_level_set("wifi", ESP_LOG_WARN)` etc.
 - WiFi: infinite retry with 5s backoff, 60s startup timeout with esp_restart()
+
+### Web UI
+
+- Mining-mode SPA: `mining.html` + `mining.js` at `/`, four tabs (Info, Status, Settings, Update)
+- Provisioning-mode: `prov_form.html` at `/`, `prov_save.html` at `/save`
+- `theme.css` shared between both modes (dark navy/gold design system)
+- `scripts/embed_html.py` pre-build: gzip-compresses web assets → C byte arrays in `src/*_gz.c`
+- To add a web asset: add file to `components/http_server/`, add to `embed_html.py` FILES, add `src/<name>_gz.c` to CMakeLists.txt SRCS, add extern + handler in `http_server.c`
+- API: `/api/stats` (polled every 5s), `/api/info` (device details), `/api/version`, `/api/ota/check`
+- OTA check suspends mining task to free heap for TLS handshake (~29 KB stack)
 
 ## Testing
 

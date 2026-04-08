@@ -7,6 +7,8 @@
 #include "esp_log.h"
 #include "esp_chip_info.h"
 #include "esp_mac.h"
+#include "esp_flash.h"
+#include "esp_heap_caps.h"
 #include "board.h"
 #include "mining.h"
 #include "nv_config.h"
@@ -28,6 +30,12 @@ extern const unsigned char theme_css_gz[];
 extern const unsigned int theme_css_gz_len;
 extern const unsigned char logo_svg_gz[];
 extern const unsigned int logo_svg_gz_len;
+extern const unsigned char mining_html_gz[];
+extern const unsigned int mining_html_gz_len;
+extern const unsigned char mining_js_gz[];
+extern const unsigned int mining_js_gz_len;
+extern const unsigned char prov_save_html_gz[];
+extern const unsigned int prov_save_html_gz_len;
 
 static esp_err_t preflight_handler(httpd_req_t *req);
 
@@ -129,22 +137,9 @@ static esp_err_t prov_save_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    const char *response =
-        "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "<title>TaipanMiner Setup</title>"
-        "<link rel='stylesheet' href='/theme.css'>"
-        "</head><body><div class='container'>"
-        "<div class='header'><div id='logo'></div><h1>TaipanMiner</h1></div>"
-        "<div class='card' style='text-align:center'>"
-        "<h2>Configuration Saved</h2><div class='spinner'></div>"
-        "<p style='margin-top:20px;color:var(--label)'>Connecting to WiFi...</p>"
-        "</div><div class='footer'>Powered by TaipanMiner <span id='ver'></span></div>"
-        "</div><script>"
-        "fetch('/logo.svg').then(function(r){return r.text()}).then(function(s){document.getElementById('logo').innerHTML=s});"
-        "fetch('/api/version').then(function(r){return r.text()}).then(function(v){document.getElementById('ver').textContent='v'+v})"
-        "</script></body></html>";
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
     httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, response, strlen(response));
+    httpd_resp_send(req, (const char *)prov_save_html_gz, prov_save_html_gz_len);
 
     // Signal provisioning complete
     extern EventGroupHandle_t g_prov_event_group;
@@ -165,46 +160,9 @@ static esp_err_t prov_redirect_handler(httpd_req_t *req)
 static esp_err_t status_handler(httpd_req_t *req)
 {
     set_common_headers(req);
-    double hw_rate = 0;
-    uint32_t hw_shares = 0;
-    int64_t session_start_us = 0;
-
-    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        hw_rate = mining_stats.hw_hashrate;
-        hw_shares = mining_stats.hw_shares;
-        session_start_us = mining_stats.session.start_us;
-        xSemaphoreGive(mining_stats.mutex);
-    }
-
-    const esp_app_desc_t *app = esp_app_get_description();
-    int64_t uptime_s = (session_start_us > 0) ? (esp_timer_get_time() - session_start_us) / 1000000 : 0;
-
-    char buf[640];
-    int len = snprintf(buf, sizeof(buf),
-        "<html><body>"
-        "<h2>TaipanMiner %s</h2>"
-        "<p>Build: %s %s</p>"
-        "<p>Pool: %s:%u</p>"
-        "<p>Worker: %s.%s</p>"
-        "<p>Hashrate: %.1f kH/s</p>"
-        "<p>Shares: %"PRIu32"</p>"
-        "<p>Uptime: %llds</p>"
-        "<p><a href=\"/ota\">OTA Update</a></p>"
-        "</body></html>",
-        app->version,
-        app->date, app->time,
-        nv_config_pool_host(), nv_config_pool_port(),
-        nv_config_wallet_addr(), nv_config_worker_name(),
-        hw_rate / 1000.0,
-        hw_shares,
-        (long long)uptime_s);
-
-    // Cap len to buffer size to prevent OOB read in httpd_resp_send
-    if (len < 0) len = 0;
-    if (len >= (int)sizeof(buf)) len = (int)sizeof(buf) - 1;
-
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
     httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, buf, len);
+    httpd_resp_send(req, (const char *)mining_html_gz, mining_html_gz_len);
     return ESP_OK;
 }
 
@@ -212,6 +170,7 @@ static esp_err_t stats_handler(httpd_req_t *req)
 {
     set_common_headers(req);
     double hw_rate = 0, hw_ema = 0;
+    double pool_diff = 0;
     uint32_t hw_shares = 0;
     float temp = 0;
     uint32_t session_shares = 0, session_rejected = 0;
@@ -227,6 +186,7 @@ static esp_err_t stats_handler(httpd_req_t *req)
         hw_rate = mining_stats.hw_hashrate;
         hw_ema = mining_stats.hw_ema.value;
         hw_shares = mining_stats.hw_shares;
+        pool_diff = mining_stats.pool_difficulty;
         temp = mining_stats.temp_c;
         session_shares = mining_stats.session.shares;
         session_rejected = mining_stats.session.rejected;
@@ -252,6 +212,7 @@ static esp_err_t stats_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "hashrate_avg", hw_ema);
     cJSON_AddNumberToObject(root, "temp_c", (double)temp);
     cJSON_AddNumberToObject(root, "shares", hw_shares);
+    cJSON_AddNumberToObject(root, "pool_difficulty", pool_diff);
     cJSON_AddNumberToObject(root, "session_shares", session_shares);
     cJSON_AddNumberToObject(root, "session_rejected", session_rejected);
     cJSON_AddNumberToObject(root, "last_share_ago_s", (double)last_share_ago_s);
@@ -260,6 +221,7 @@ static esp_err_t stats_handler(httpd_req_t *req)
     cJSON_AddStringToObject(root, "pool_host", nv_config_pool_host());
     cJSON_AddNumberToObject(root, "pool_port", nv_config_pool_port());
     cJSON_AddStringToObject(root, "worker", nv_config_worker_name());
+    cJSON_AddStringToObject(root, "wallet", nv_config_wallet_addr());
     cJSON_AddNumberToObject(root, "uptime_s", (double)uptime_s);
     cJSON_AddStringToObject(root, "version", app->version);
     cJSON_AddStringToObject(root, "build_date", app->date);
@@ -304,13 +266,26 @@ static esp_err_t info_handler(httpd_req_t *req)
     cJSON_AddStringToObject(root, "idf_version", app->idf_ver);
     cJSON_AddStringToObject(root, "build_date", app->date);
     cJSON_AddStringToObject(root, "build_time", app->time);
-    cJSON_AddNumberToObject(root, "chip_cores", chip.cores);
+    cJSON_AddNumberToObject(root, "cores", chip.cores);
 
     char mac_str[18];
     snprintf(mac_str, sizeof(mac_str), "%02x:%02x:%02x:%02x:%02x:%02x",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     cJSON_AddStringToObject(root, "mac", mac_str);
     cJSON_AddStringToObject(root, "worker_name", nv_config_worker_name());
+    cJSON_AddStringToObject(root, "ssid", nv_config_wifi_ssid());
+
+    cJSON_AddNumberToObject(root, "total_heap", (double)heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
+    cJSON_AddNumberToObject(root, "free_heap", (double)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+
+    uint32_t flash_size = 0;
+    esp_flash_get_size(NULL, &flash_size);
+    cJSON_AddNumberToObject(root, "flash_size", (double)flash_size);
+
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    if (running) {
+        cJSON_AddNumberToObject(root, "app_size", (double)running->size);
+    }
 
     char *json = cJSON_PrintUnformatted(root);
     httpd_resp_set_type(req, "application/json");
@@ -338,28 +313,20 @@ static esp_err_t theme_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t mining_js_handler(httpd_req_t *req)
+{
+    set_common_headers(req);
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    httpd_resp_set_type(req, "application/javascript");
+    httpd_resp_send(req, (const char *)mining_js_gz, mining_js_gz_len);
+    return ESP_OK;
+}
+
 static esp_err_t favicon_handler(httpd_req_t *req)
 {
     httpd_resp_set_status(req, "204 No Content");
     set_common_headers(req);
     httpd_resp_send(req, NULL, 0);
-    return ESP_OK;
-}
-
-static esp_err_t ota_page_handler(httpd_req_t *req)
-{
-    set_common_headers(req);
-    const char *html =
-        "<html><body>"
-        "<h2>OTA Firmware Update</h2>"
-        "<p>Upload firmware via curl:</p>"
-        "<pre>curl -X POST http://&lt;device-ip&gt;/ota/upload "
-        "--data-binary @firmware.bin</pre>"
-        "<p><a href=\"/\">Back</a></p>"
-        "</body></html>";
-
-    httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, html, strlen(html));
     return ESP_OK;
 }
 
@@ -548,12 +515,12 @@ void http_server_switch_to_mining(void)
     // Register mining handlers
     httpd_uri_t status_uri = { .uri = "/", .method = HTTP_GET, .handler = status_handler };
     httpd_uri_t stats_uri = { .uri = "/api/stats", .method = HTTP_GET, .handler = stats_handler };
-    httpd_uri_t ota_page_uri = { .uri = "/ota", .method = HTTP_GET, .handler = ota_page_handler };
+    httpd_uri_t mining_js_uri = { .uri = "/mining.js", .method = HTTP_GET, .handler = mining_js_handler };
     httpd_uri_t ota_upload_uri = { .uri = "/ota/upload", .method = HTTP_POST, .handler = ota_upload_handler };
 
     httpd_register_uri_handler(s_server, &status_uri);
     httpd_register_uri_handler(s_server, &stats_uri);
-    httpd_register_uri_handler(s_server, &ota_page_uri);
+    httpd_register_uri_handler(s_server, &mining_js_uri);
     httpd_register_uri_handler(s_server, &ota_upload_uri);
     ota_pull_register_handler(s_server);
 }
@@ -578,8 +545,8 @@ esp_err_t http_server_start(void)
     httpd_uri_t info_uri = {
         .uri = "/api/info", .method = HTTP_GET, .handler = info_handler
     };
-    httpd_uri_t ota_page_uri = {
-        .uri = "/ota", .method = HTTP_GET, .handler = ota_page_handler
+    httpd_uri_t mining_js_uri = {
+        .uri = "/mining.js", .method = HTTP_GET, .handler = mining_js_handler
     };
     httpd_uri_t ota_upload_uri = {
         .uri = "/ota/upload", .method = HTTP_POST, .handler = ota_upload_handler
@@ -598,8 +565,8 @@ esp_err_t http_server_start(void)
     httpd_register_uri_handler(s_server, &stats_uri);
     httpd_register_uri_handler(s_server, &version_uri);
     httpd_register_uri_handler(s_server, &info_uri);
-    httpd_register_uri_handler(s_server, &ota_page_uri);
     httpd_register_uri_handler(s_server, &favicon_uri);
+    httpd_register_uri_handler(s_server, &mining_js_uri);
     httpd_register_uri_handler(s_server, &ota_upload_uri);
     httpd_register_uri_handler(s_server, &theme_uri);
     httpd_register_uri_handler(s_server, &logo_uri);

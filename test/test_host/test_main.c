@@ -150,6 +150,7 @@ void test_ema_decay(void);
 void test_hash_to_difficulty_leading_zeros(void);
 void test_hash_to_difficulty_diff1(void);
 void test_hash_to_difficulty_easy(void);
+void test_hash_to_difficulty_six_zeros(void);
 void test_best_diff_only_increases(void);
 
 void setUp(void) {}
@@ -310,6 +311,7 @@ int main(void) {
     RUN_TEST(test_hash_to_difficulty_leading_zeros);
     RUN_TEST(test_hash_to_difficulty_diff1);
     RUN_TEST(test_hash_to_difficulty_easy);
+    RUN_TEST(test_hash_to_difficulty_six_zeros);
     RUN_TEST(test_best_diff_only_increases);
 
     return UNITY_END();

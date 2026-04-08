@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width,initial-scale=1'>
+  <title>TaipanMiner</title>
+  <link rel='stylesheet' href='/theme.css'>
+</head>
+<body>
+<div class='container wide'>
+  <div class='header'>
+    <div id='logo'></div>
+    <h1>TaipanMiner</h1>
+  </div>
+
+  <nav class='tabs'>
+    <button class='tab' data-view='info'>Info</button>
+    <button class='tab active' data-view='status'>Status</button>
+    <button class='tab' data-view='settings'>Settings</button>
+    <button class='tab' data-view='update'>Update</button>
+  </nav>
+
+  <div id='status' class='view active'>
+    <div class='stat-grid'>
+      <div class='stat-item wide'>
+        <div class='stat-value'><span class='live-dot'></span><span id='s-hashrate'>--</span></div>
+        <div class='stat-label'>Hashrate (avg: <span id='s-hashrate-avg'>--</span>)</div>
+      </div>
+      <div class='stat-item'>
+        <div class='stat-value'><span id='s-shares'>--</span> / <span id='s-rejected'>--</span> <span class='stat-pct' id='s-acceptrate'></span></div>
+        <div class='stat-label'>Accepted / Rejected</div>
+      </div>
+      <div class='stat-item'>
+        <div class='stat-value' id='s-lifetime'>--</div>
+        <div class='stat-label'>Shares (lifetime)</div>
+      </div>
+      <div class='stat-item'>
+        <div class='stat-value' id='s-bestdiff'>--</div>
+        <div class='stat-label'>Best Difficulty</div>
+      </div>
+      <div class='stat-item'>
+        <div class='stat-value' id='s-lastshare'>--</div>
+        <div class='stat-label'>Last Share</div>
+      </div>
+      <div class='stat-item'>
+        <div class='stat-value' id='s-temp'>--</div>
+        <div class='stat-label'>Temperature</div>
+      </div>
+      <div class='stat-item'>
+        <div class='stat-value' id='s-uptime'>--</div>
+        <div class='stat-label'>Uptime</div>
+      </div>
+    </div>
+    <div class='status-bar'>
+      <span id='s-pool'>--</span>
+      <span>diff: <span id='s-pooldiff'>--</span></span>
+    </div>
+  </div>
+
+  <div id='settings' class='view'>
+    <div class='section'>
+      <h2>Configuration</h2>
+      <div class='info-row'><span class='info-key'>Pool</span><span class='info-val' id='c-pool'>--</span></div>
+      <div class='info-row'><span class='info-key'>Port</span><span class='info-val' id='c-port'>--</span></div>
+      <div class='info-row'><span class='info-key'>Worker</span><span class='info-val' id='c-worker'>--</span></div>
+      <p class='hint'>Settings configuration coming soon</p>
+    </div>
+  </div>
+
+  <div id='update' class='view'>
+    <div class='section'>
+      <h2>Firmware</h2>
+      <div class='version-info'>Version: <strong id='u-version'>--</strong></div>
+      <div class='version-info'>Build: <span id='u-build'>--</span></div>
+      <button class='ota-btn' id='otaCheckBtn'>Check for Updates</button>
+      <div class='ota-status' id='otaStatus'></div>
+    </div>
+    <div class='section'>
+      <h2>Manual Upload</h2>
+      <p class='hint'>Upload firmware via curl:</p>
+      <pre>curl -X POST http://<span id='u-host'>device-ip</span>/ota/upload \
+  --data-binary @firmware.bin</pre>
+    </div>
+  </div>
+
+  <div id='info' class='view'>
+    <div class='section'>
+      <h2>Pool</h2>
+      <div class='info-row'><span class='info-key'>Host</span><span class='info-val' id='i-host'>--</span></div>
+      <div class='info-row'><span class='info-key'>Port</span><span class='info-val' id='i-port'>--</span></div>
+      <div class='info-row'><span class='info-key'>Worker</span><span class='info-val' id='i-worker'>--</span></div>
+      <div class='info-row'><span class='info-key'>Wallet</span><span class='info-val' id='i-wallet'>--</span></div>
+    </div>
+    <div class='section'>
+      <h2>Device</h2>
+      <div class='info-row'><span class='info-key'>Board</span><span class='info-val' id='i-board'>--</span></div>
+      <div class='info-row'><span class='info-key'>Version</span><span class='info-val' id='i-version'>--</span></div>
+      <div class='info-row'><span class='info-key'>IDF Version</span><span class='info-val' id='i-idf'>--</span></div>
+      <div class='info-row'><span class='info-key'>Cores</span><span class='info-val' id='i-cores'>--</span></div>
+      <div class='info-row'><span class='info-key'>MAC</span><span class='info-val' id='i-mac'>--</span></div>
+      <div class='info-row'><span class='info-key'>SSID</span><span class='info-val' id='i-ssid'>--</span></div>
+      <div class='info-row'><span class='info-key'>Memory</span><span class='info-val' id='i-heap'>--</span></div>
+      <div class='info-row'><span class='info-key'>Flash</span><span class='info-val' id='i-flash'>--</span></div>
+    </div>
+  </div>
+
+  <div class='footer'>Powered by TaipanMiner <span id='ver'></span></div>
+</div>
+<script src='/mining.js'></script>
+</body>
+</html>

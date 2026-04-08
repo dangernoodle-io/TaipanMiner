@@ -40,7 +40,13 @@ void mining_stats_load_lifetime(void)
     }
 
     nvs_get_u32(h, "lt_shares", &mining_stats.lifetime.total_shares);
-    nvs_get_u32(h, "lt_best_diff", &mining_stats.lifetime.best_diff);
+
+    // Load best_diff as double stored in two u32s
+    uint32_t bd_lo = 0, bd_hi = 0;
+    nvs_get_u32(h, "lt_bdiff_lo", &bd_lo);
+    nvs_get_u32(h, "lt_bdiff_hi", &bd_hi);
+    uint64_t bd_bits = ((uint64_t)bd_hi << 32) | bd_lo;
+    memcpy(&mining_stats.lifetime.best_diff, &bd_bits, sizeof(double));
 
     uint32_t lo = 0, hi = 0;
     nvs_get_u32(h, "lt_hashes_lo", &lo);
@@ -48,7 +54,21 @@ void mining_stats_load_lifetime(void)
     mining_stats.lifetime.total_hashes = ((uint64_t)hi << 32) | lo;
 
     nvs_close(h);
-    ESP_LOGI(TAG, "loaded lifetime stats: shares=%" PRIu32 " best_diff=%" PRIu32 " hashes=%" PRIu64,
+
+    // Self-healing: cap best_diff to a plausible maximum for the board
+#ifdef ASIC_BM1370
+    double max_plausible_diff = 1e19;   // ASIC ~485 GH/s
+#else
+    double max_plausible_diff = 1e14;   // SW ~223 kH/s
+#endif
+    if (!isfinite(mining_stats.lifetime.best_diff) ||
+        mining_stats.lifetime.best_diff < 0 ||
+        mining_stats.lifetime.best_diff > max_plausible_diff) {
+        ESP_LOGW(TAG, "best_diff invalid or implausible, resetting");
+        mining_stats.lifetime.best_diff = 0;
+    }
+
+    ESP_LOGI(TAG, "loaded lifetime stats: shares=%" PRIu32 " best_diff=%.4f hashes=%" PRIu64,
              mining_stats.lifetime.total_shares, mining_stats.lifetime.best_diff,
              (uint64_t)mining_stats.lifetime.total_hashes);
 }
@@ -62,7 +82,13 @@ void mining_stats_save_lifetime(const mining_lifetime_t *snapshot)
     }
 
     nvs_set_u32(h, "lt_shares", snapshot->total_shares);
-    nvs_set_u32(h, "lt_best_diff", snapshot->best_diff);
+
+    // Store best_diff double as two u32s
+    uint64_t bd_bits;
+    memcpy(&bd_bits, &snapshot->best_diff, sizeof(double));
+    nvs_set_u32(h, "lt_bdiff_lo", (uint32_t)(bd_bits & 0xFFFFFFFF));
+    nvs_set_u32(h, "lt_bdiff_hi", (uint32_t)(bd_bits >> 32));
+
     nvs_set_u32(h, "lt_hashes_lo", (uint32_t)(snapshot->total_hashes & 0xFFFFFFFF));
     nvs_set_u32(h, "lt_hashes_hi", (uint32_t)(snapshot->total_hashes >> 32));
     nvs_commit(h);
@@ -282,9 +308,8 @@ bool mine_nonce_range(hash_backend_t *backend,
             {
                 double share_diff = hash_to_difficulty(hash);
                 if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
-                    uint32_t diff_exp = (share_diff > 1.0) ? (uint32_t)(log2(share_diff)) : 0;
-                    if (diff_exp > mining_stats.lifetime.best_diff) {
-                        mining_stats.lifetime.best_diff = diff_exp;
+                    if (share_diff > mining_stats.lifetime.best_diff) {
+                        mining_stats.lifetime.best_diff = share_diff;
                     }
                     xSemaphoreGive(mining_stats.mutex);
                 }
@@ -376,6 +401,12 @@ void mining_task(void *arg)
         mining_work_t work;
         if (xQueuePeek(work_queue, &work, portMAX_DELAY) != pdTRUE) {
             continue;
+        }
+
+        // Update pool difficulty
+        if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
+            mining_stats.pool_difficulty = work.difficulty;
+            xSemaphoreGive(mining_stats.mutex);
         }
 
         ESP_LOGI(TAG, "new job (%s)", work.job_id);

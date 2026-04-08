@@ -434,9 +434,8 @@ void asic_mining_task(void *arg)
             {
                 double share_diff = hash_to_difficulty(hash);
                 if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
-                    uint32_t diff_exp = (share_diff > 1.0) ? (uint32_t)(log2(share_diff)) : 0;
-                    if (diff_exp > mining_stats.lifetime.best_diff) {
-                        mining_stats.lifetime.best_diff = diff_exp;
+                    if (share_diff > mining_stats.lifetime.best_diff) {
+                        mining_stats.lifetime.best_diff = share_diff;
                     }
                     xSemaphoreGive(mining_stats.mutex);
                 }

@@ -14,6 +14,7 @@
 #include "esp_ota_ops.h"
 #include "esp_timer.h"
 #include "partition_fixup.h"
+#include "log_stream.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #ifdef ASIC_BM1370
@@ -124,6 +125,8 @@ void app_main(void)
     esp_log_level_set("phy_init", ESP_LOG_WARN);
     esp_log_level_set("esp_netif_handlers", ESP_LOG_WARN);
     esp_log_level_set("esp-x509-crt-bundle", ESP_LOG_WARN);
+
+    ESP_ERROR_CHECK(log_stream_init());
 
     // Initialize NVS (required by WiFi)
     esp_err_t ret = nvs_flash_init();

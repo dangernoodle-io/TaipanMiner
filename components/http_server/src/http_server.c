@@ -228,6 +228,7 @@ static esp_err_t stats_handler(httpd_req_t *req)
     cJSON_AddStringToObject(root, "version", app->version);
     cJSON_AddStringToObject(root, "build_date", app->date);
     cJSON_AddStringToObject(root, "build_time", app->time);
+    cJSON_AddStringToObject(root, "board", BOARD_NAME);
 #ifdef ASIC_BM1370
     cJSON_AddNumberToObject(root, "asic_hashrate", asic_rate);
     cJSON_AddNumberToObject(root, "asic_hashrate_avg", asic_ema);

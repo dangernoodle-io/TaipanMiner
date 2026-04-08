@@ -1,5 +1,5 @@
 fetch('/logo.svg').then(r=>r.text()).then(s=>{document.getElementById('logo').innerHTML=s});
-fetch('/api/version').then(r=>r.text()).then(v=>{document.getElementById('ver').textContent='v'+v});
+fetch('/api/version').then(r=>r.text()).then(v=>{document.getElementById('ver').textContent=v});
 
 var infoLoaded = false;
 
@@ -88,6 +88,7 @@ function refreshStats() {
       document.getElementById('s-bestdiff').textContent = '--';
     }
     document.getElementById('s-lastshare').textContent = fmtLastShare(d.last_share_ago_s);
+    document.getElementById('s-worker').textContent = d.worker;
     document.getElementById('s-pool').textContent = d.pool_host + ':' + d.pool_port;
     document.getElementById('s-pooldiff').textContent = d.pool_difficulty > 0 ? parseFloat(d.pool_difficulty.toFixed(4)) : '--';
     document.getElementById('i-host').textContent = d.pool_host;
@@ -102,6 +103,7 @@ function refreshStats() {
     document.getElementById('c-port').textContent = d.pool_port;
     document.getElementById('c-worker').textContent = d.worker;
     document.getElementById('u-version').textContent = d.version;
+    document.getElementById('u-board').textContent = d.board;
     document.getElementById('u-build').textContent = d.build_date + ' ' + d.build_time;
   }).catch(()=>{});
 }
@@ -132,9 +134,9 @@ document.getElementById('otaCheckBtn').addEventListener('click', function() {
       } else if (r.status === 200) {
         return r.json().then(d => {
           if (d.update_available) {
-            status.textContent = 'Update available: v' + d.latest_version;
+            status.textContent = 'Update available: ' + d.latest_version;
           } else {
-            status.textContent = 'Firmware is up to date (v' + d.current_version + ')';
+            status.textContent = 'Firmware is up to date (' + d.current_version + ')';
           }
           btn.disabled = false;
         });

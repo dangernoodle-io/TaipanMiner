@@ -39,7 +39,7 @@ input[type='submit']:hover{background:var(--accent-hover)}
 .info-row:last-child{border-bottom:none}
 .info-key{color:var(--label);font-size:12px;text-transform:uppercase}
 .info-val{color:var(--text);font-size:14px}
-.live-dot{display:inline-block;width:8px;height:8px;background:#4caf50;border-radius:50%;margin-right:6px;animation:pulse 2s ease-in-out infinite}
+.live-dot{display:inline-block;width:8px;height:8px;background:#4caf50;border-radius:50%;margin-right:6px;vertical-align:middle;animation:pulse 2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
 .version-info{font-size:14px;color:var(--text);margin-bottom:15px}
 .ota-btn{width:100%;padding:12px;background:var(--input);color:var(--accent);border:1px solid var(--border);border-radius:4px;font-size:14px;cursor:pointer;text-transform:uppercase;letter-spacing:1px;transition:border-color 0.2s}

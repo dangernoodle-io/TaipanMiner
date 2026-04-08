@@ -123,6 +123,7 @@ void app_main(void)
     esp_log_level_set("wifi_init", ESP_LOG_WARN);
     esp_log_level_set("phy_init", ESP_LOG_WARN);
     esp_log_level_set("esp_netif_handlers", ESP_LOG_WARN);
+    esp_log_level_set("esp-x509-crt-bundle", ESP_LOG_WARN);
 
     // Initialize NVS (required by WiFi)
     esp_err_t ret = nvs_flash_init();

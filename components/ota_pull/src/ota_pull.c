@@ -507,19 +507,12 @@ static esp_err_t ota_update_handler(httpd_req_t *req)
     s_ota_in_progress = true;
     taskEXIT_CRITICAL(&s_ota_status_mux);
 
+    // Use cached check result instead of hitting GitHub again — avoids a second
+    // TLS handshake that fails under memory pressure when mining is active.
     ota_pull_check_result_t result = {0};
-    esp_err_t err = ota_pull_check(&result);
-
-    if (err != ESP_OK) {
-        taskENTER_CRITICAL(&s_ota_status_mux);
-        s_ota_in_progress = false;
-        taskEXIT_CRITICAL(&s_ota_status_mux);
-        const char *response = "{\"error\":\"check_failed\"}";
-        httpd_resp_set_status(req, "500 Internal Server Error");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_send(req, response, strlen(response));
-        return ESP_OK;
-    }
+    taskENTER_CRITICAL(&s_ota_status_mux);
+    memcpy(&result, &s_cached_check, sizeof(result));
+    taskEXIT_CRITICAL(&s_ota_status_mux);
 
     if (!result.update_available) {
         taskENTER_CRITICAL(&s_ota_status_mux);

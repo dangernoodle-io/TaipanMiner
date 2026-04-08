@@ -70,6 +70,8 @@ static void start_mining(void)
     // Initialize mining stats
     mining_stats_init();
 
+    mining_pause_init();
+
     // Start periodic stats save timer (10 minutes)
     const esp_timer_create_args_t timer_args = {
         .callback = stats_save_timer_cb,

@@ -14,6 +14,13 @@
 // Enable SHA-256 hardware peripheral clock. Call once at startup.
 void sha256_hw_init(void);
 
+// Acquire/release the SHA peripheral lock + clock.
+// Mining holds the lock while hashing; releases during pause so mbedTLS (TLS)
+// can use the peripheral. mbedTLS blocks on acquire, so it falls back to
+// software SHA only while mining holds the lock — no contention.
+void sha256_hw_acquire(void);
+void sha256_hw_release(void);
+
 // Drop-in hardware replacement for sha256_transform.
 // Writes state to SHA_H, bswaps block to SHA_TEXT, SHA_CONTINUE, polls, reads back.
 void sha256_hw_transform(uint32_t state[8], const uint8_t block[64]);

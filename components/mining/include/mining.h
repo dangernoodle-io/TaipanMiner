@@ -127,7 +127,14 @@ extern QueueHandle_t result_queue;
 #include "freertos/semphr.h"
 #include "driver/temperature_sensor.h"
 
-// Mining task handles (for suspend/resume during OTA verification)
+// Cooperative mining pause (for OTA — avoids mid-hash vTaskSuspend)
+void mining_pause_init(void);
+void mining_pause(void);
+void mining_resume(void);
+// Check if a pause has been requested and block until resumed; returns true if paused
+bool mining_pause_check(void);
+
+// Mining task handles
 #ifdef ASIC_BM1370
 extern TaskHandle_t asic_task_handle;
 #else

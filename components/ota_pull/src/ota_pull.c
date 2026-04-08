@@ -248,16 +248,8 @@ static void ota_worker_task(void *arg)
         return;
     }
 
-    // Suspend mining task
-    #ifdef ASIC_BM1370
-    if (asic_task_handle) {
-        vTaskSuspend(asic_task_handle);
-    }
-    #else
-    if (mining_hw_task_handle) {
-        vTaskSuspend(mining_hw_task_handle);
-    }
-    #endif
+    // Cooperatively pause mining to free memory for OTA download
+    mining_pause();
 
     ESP_LOGI(TAG, "starting OTA update from %s", result.asset_url);
     taskENTER_CRITICAL(&s_ota_status_mux);
@@ -358,17 +350,7 @@ static void ota_worker_task(void *arg)
 
 resume_and_exit:
     s_ota_in_progress = false;
-
-    // Resume mining task
-    #ifdef ASIC_BM1370
-    if (asic_task_handle) {
-        vTaskResume(asic_task_handle);
-    }
-    #else
-    if (mining_hw_task_handle) {
-        vTaskResume(mining_hw_task_handle);
-    }
-    #endif
+    mining_resume();
 
     vTaskDelete(NULL);
 }
@@ -378,23 +360,13 @@ resume_and_exit:
  */
 static void ota_check_worker_task(void *arg)
 {
-    // Suspend mining to free memory for TLS handshake
-    ESP_LOGI(TAG, "suspending mining for OTA check");
-#ifdef ASIC_BM1370
-    if (asic_task_handle) vTaskSuspend(asic_task_handle);
-#else
-    if (mining_hw_task_handle) vTaskSuspend(mining_hw_task_handle);
-#endif
+    // Cooperatively pause mining to free memory for TLS handshake
+    mining_pause();
 
     ota_pull_check_result_t result = {0};
     esp_err_t err = ota_pull_check(&result);
 
-    ESP_LOGI(TAG, "resuming mining");
-#ifdef ASIC_BM1370
-    if (asic_task_handle) vTaskResume(asic_task_handle);
-#else
-    if (mining_hw_task_handle) vTaskResume(mining_hw_task_handle);
-#endif
+    mining_resume();
 
     if (err == ESP_OK) {
         memcpy(&s_cached_check, &result, sizeof(ota_pull_check_result_t));

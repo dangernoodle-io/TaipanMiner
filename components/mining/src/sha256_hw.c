@@ -3,8 +3,8 @@
 #include "sha256_hw.h"
 #include "soc/hwcrypto_reg.h"
 #include "soc/soc.h"
-#include "soc/periph_defs.h"
-#include "esp_private/periph_ctrl.h"
+#include "esp_crypto_lock.h"
+#include "esp_crypto_periph_clk.h"
 #include "esp_attr.h"
 
 // ESP32-S3 SHA hardware stores registers as raw bytes in memory-mapped IO.
@@ -26,10 +26,22 @@
 // must be written before each SHA operation — no per-nonce write reduction
 // is possible.
 
+void sha256_hw_acquire(void)
+{
+    esp_crypto_sha_aes_lock_acquire();
+    esp_crypto_sha_enable_periph_clk(true);
+    REG_WRITE(SHA_MODE_REG, 2);  // SHA-256
+}
+
+void sha256_hw_release(void)
+{
+    esp_crypto_sha_enable_periph_clk(false);
+    esp_crypto_sha_aes_lock_release();
+}
+
 void sha256_hw_init(void)
 {
-    periph_module_enable(PERIPH_SHA_MODULE);
-    REG_WRITE(SHA_MODE_REG, 2);  // SHA-256
+    sha256_hw_acquire();
 
 #ifdef TAIPANMINER_DEBUG
     sha256_hw_verify_text_preserved();

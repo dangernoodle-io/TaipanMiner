@@ -309,8 +309,16 @@ void asic_mining_task(void *arg)
     uint32_t nonces_since_log = 0;
 
     for (;;) {
+        mining_pause_check();
+
         // 1. Peek for work
         if (xQueuePeek(work_queue, &work, pdMS_TO_TICKS(100)) != pdTRUE) {
+            continue;
+        }
+
+        if (!is_target_valid(work.target)) {
+            ESP_LOGW(TAG, "invalid target from queue, waiting for fresh work");
+            vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
 
@@ -433,8 +441,9 @@ void asic_mining_task(void *arg)
 
             double share_diff = hash_to_difficulty(hash);
 
-            // Sanity check: share difficulty must be at least half pool difficulty
-            if (share_diff < orig->difficulty * 0.5) {
+            // Sanity check: target/difficulty must be valid and share must meet pool diff
+            if (orig->difficulty < 0.001 || !is_target_valid(orig->target) ||
+                share_diff < orig->difficulty * 0.5) {
                 ESP_LOGE(TAG, "share sanity fail: share_diff=%.4f pool_diff=%.4f, skipping",
                          share_diff, orig->difficulty);
                 continue;

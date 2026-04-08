@@ -31,6 +31,9 @@ QueueHandle_t result_queue = NULL;
 mining_stats_t mining_stats = {0};
 
 static temperature_sensor_handle_t s_temp_handle = NULL;
+static volatile bool s_pause_requested = false;
+static SemaphoreHandle_t s_pause_ack = NULL;
+static SemaphoreHandle_t s_pause_done = NULL;
 
 void mining_stats_load_lifetime(void)
 {
@@ -305,8 +308,9 @@ bool mine_nonce_range(hash_backend_t *backend,
 #ifdef ESP_PLATFORM
             double share_diff = hash_to_difficulty(hash);
 
-            // Sanity check: share difficulty must be at least half pool difficulty
-            if (share_diff < work->difficulty * 0.5) {
+            // Sanity check: target/difficulty must be valid and share must meet pool diff
+            if (work->difficulty < 0.001 || !is_target_valid(work->target) ||
+                share_diff < work->difficulty * 0.5) {
                 ESP_LOGE(TAG, "share sanity fail: share_diff=%.4f pool_diff=%.4f, skipping",
                          share_diff, work->difficulty);
                 continue;
@@ -378,7 +382,19 @@ bool mine_nonce_range(hash_backend_t *backend,
                 continue;
             }
 
+            // Release SHA lock so mbedTLS can use HW SHA during TLS/OTA
+            sha256_hw_release();
             vTaskDelay(pdMS_TO_TICKS(1));
+            bool paused = mining_pause_check();
+            sha256_hw_acquire();
+
+            if (paused) {
+                backend->prepare_job(backend, work, block2);
+                start_us = esp_timer_get_time();
+                hashes = 0;
+                nonce = params->nonce_start - 1;
+                continue;
+            }
         }
 #endif
 
@@ -388,6 +404,37 @@ bool mine_nonce_range(hash_backend_t *backend,
 }
 
 #ifdef ESP_PLATFORM
+void mining_pause_init(void)
+{
+    s_pause_ack = xSemaphoreCreateBinary();
+    s_pause_done = xSemaphoreCreateBinary();
+}
+
+void mining_pause(void)
+{
+    s_pause_requested = true;
+    if (xSemaphoreTake(s_pause_ack, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        ESP_LOGW(TAG, "mining pause timeout, proceeding anyway");
+    }
+}
+
+void mining_resume(void)
+{
+    s_pause_requested = false;
+    xSemaphoreGive(s_pause_done);
+}
+
+bool mining_pause_check(void)
+{
+    if (!s_pause_requested) return false;
+    ESP_LOGI(TAG, "mining paused for maintenance");
+    xSemaphoreGive(s_pause_ack);
+    xSemaphoreTake(s_pause_done, portMAX_DELAY);
+    ESP_LOGI(TAG, "mining resumed (stack high water: %" PRIu32 ")",
+             (uint32_t)uxTaskGetStackHighWaterMark(NULL));
+    return true;
+}
+
 void mining_task(void *arg)
 {
     (void)arg;
@@ -406,6 +453,12 @@ void mining_task(void *arg)
     for (;;) {
         mining_work_t work;
         if (xQueuePeek(work_queue, &work, portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
+
+        if (!is_target_valid(work.target)) {
+            ESP_LOGW(TAG, "invalid target from queue, waiting for fresh work");
+            vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
 

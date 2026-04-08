@@ -99,8 +99,16 @@ static void mdns_start(void)
         return;
     }
 
-    mdns_hostname_set(hostname);
-    mdns_instance_name_set("TaipanMiner");
+    err = mdns_hostname_set(hostname);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "mdns_hostname_set failed: %s", esp_err_to_name(err));
+        return;
+    }
+    err = mdns_instance_name_set("TaipanMiner");
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "mdns_instance_name_set failed: %s", esp_err_to_name(err));
+        return;
+    }
 
     const esp_app_desc_t *app = esp_app_get_description();
     uint8_t mac[6];
@@ -116,7 +124,11 @@ static void mdns_start(void)
         {"mac",     mac_str},
     };
 
-    mdns_service_add(NULL, "_taipanminer", "_tcp", 80, txt, 3);
+    err = mdns_service_add(NULL, "_taipanminer", "_tcp", 80, txt, 3);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "mdns_service_add failed: %s", esp_err_to_name(err));
+        return;
+    }
     s_mdns_started = true;
 
     ESP_LOGI(TAG, "mDNS started: %s.local (_taipanminer._tcp)", hostname);
@@ -141,7 +153,9 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
         s_retry_count = 0;
-        xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+        if (s_wifi_event_group) {
+            xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+        }
     }
 }
 

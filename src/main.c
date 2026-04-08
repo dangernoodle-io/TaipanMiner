@@ -30,6 +30,7 @@ TaskHandle_t mining_hw_task_handle = NULL;
 #endif
 
 static esp_timer_handle_t s_stats_timer = NULL;
+static TaskHandle_t s_stats_save_task = NULL;
 
 static void sntp_init_time(void)
 {
@@ -38,17 +39,26 @@ static void sntp_init_time(void)
     esp_sntp_init();
 }
 
+static void stats_save_task(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        mining_lifetime_t lt;
+        if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            lt = mining_stats.lifetime;
+            xSemaphoreGive(mining_stats.mutex);
+            mining_stats_save_lifetime(&lt);
+        }
+    }
+}
+
 static void stats_save_timer_cb(void *arg)
 {
     (void)arg;
-    mining_lifetime_t lt;
-    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        lt = mining_stats.lifetime;
-        xSemaphoreGive(mining_stats.mutex);
-    } else {
-        return;
+    if (s_stats_save_task) {
+        xTaskNotifyGive(s_stats_save_task);
     }
-    mining_stats_save_lifetime(&lt);
 }
 
 static void start_mining(void)
@@ -71,6 +81,9 @@ static void start_mining(void)
     mining_stats_init();
 
     mining_pause_init();
+
+    // Create task for NVS stats save (low priority, blocks on notification)
+    xTaskCreate(stats_save_task, "nvs_save", 4096, NULL, 1, &s_stats_save_task);
 
     // Start periodic stats save timer (10 minutes)
     const esp_timer_create_args_t timer_args = {

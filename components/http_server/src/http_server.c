@@ -404,22 +404,14 @@ static esp_err_t ota_upload_handler(httpd_req_t *req)
 
     ESP_LOGI(TAG, "OTA receive complete (%d bytes), validating", received);
 
-    // Suspend mining tasks — HW SHA mining conflicts with image verification
-#ifdef ASIC_BM1370
-    if (asic_task_handle) vTaskSuspend(asic_task_handle);
-#else
-    if (mining_hw_task_handle) vTaskSuspend(mining_hw_task_handle);
-#endif
+    // Pause mining cooperatively — avoids deadlock on SHA peripheral lock
+    mining_pause();
 
     err = esp_ota_end(ota_handle);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_ota_end failed: %s (0x%x)", esp_err_to_name(err), err);
-        // Resume mining tasks on OTA failure
-#ifdef ASIC_BM1370
-        if (asic_task_handle) vTaskResume(asic_task_handle);
-#else
-        if (mining_hw_task_handle) vTaskResume(mining_hw_task_handle);
-#endif
+        // Resume mining on OTA failure
+        mining_resume();
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA end failed");
         return ESP_FAIL;
     }
@@ -427,12 +419,8 @@ static esp_err_t ota_upload_handler(httpd_req_t *req)
     err = esp_ota_set_boot_partition(partition);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_ota_set_boot_partition failed: %s", esp_err_to_name(err));
-        // Resume mining tasks on set_boot_partition failure
-#ifdef ASIC_BM1370
-        if (asic_task_handle) vTaskResume(asic_task_handle);
-#else
-        if (mining_hw_task_handle) vTaskResume(mining_hw_task_handle);
-#endif
+        // Resume mining on set_boot_partition failure
+        mining_resume();
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Set boot partition failed");
         return ESP_FAIL;
     }

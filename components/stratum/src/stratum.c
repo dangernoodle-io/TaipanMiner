@@ -46,7 +46,7 @@ static uint32_t s_work_seq = 0;        // work sequence counter
 static TickType_t s_last_job_tick = 0; // last job dispatch tick
 
 // Line buffer for reading from socket
-static char s_linebuf[2048];
+static char s_linebuf[4096];
 static int s_linebuf_len = 0;
 static int s_rcvtimeo_ms = -1;
 
@@ -112,9 +112,9 @@ static int stratum_readline(char *out, int max_len, int timeout_ms)
 
     int space = sizeof(s_linebuf) - s_linebuf_len - 1;
     if (space <= 0) {
-        ESP_LOGE(TAG, "line buffer overflow");
+        ESP_LOGW(TAG, "line buffer overflow, discarding");
         s_linebuf_len = 0;
-        return -1;
+        return 0;
     }
 
     int n = recv(s_sock, s_linebuf + s_linebuf_len, space, 0);
@@ -359,9 +359,6 @@ static void handle_notify(cJSON *params)
     ESP_LOGD(TAG, "header: %s", hdr_hex);
     work.clean = s_job.clean_jobs;
 
-    if (s_job.clean_jobs) {
-        xQueueReset(work_queue);
-    }
     xQueueOverwrite(work_queue, &work);
     s_last_job_tick = xTaskGetTickCount();
 }
@@ -524,7 +521,7 @@ static void process_message(const char *line)
 
 void stratum_task(void *arg)
 {
-    static char line[2048];
+    static char line[4096];
 
     ESP_LOGI(TAG, "stratum task started");
 
@@ -596,14 +593,23 @@ void stratum_task(void *arg)
         }
 
         // Wait for authorize response, set_difficulty, and initial notify
+        bool job_received = false;
         for (int i = 0; i < 50; i++) {  // 5s timeout
             int n = stratum_readline(line, sizeof(line), 100);
             if (n > 0) {
                 process_message(line);
+                if (s_job.job_id[0] != '\0') {
+                    job_received = true;
+                }
             } else if (n < 0) {
                 goto reconnect;
             }
         }
+        if (!job_received) {
+            ESP_LOGW(TAG, "no job received during handshake, continuing to main loop");
+        }
+
+        s_last_job_tick = xTaskGetTickCount();
 
         // Main loop: read messages and submit shares
         for (;;) {
@@ -621,6 +627,13 @@ void stratum_task(void *arg)
                 if (submit_share(&result) != 0) {
                     goto reconnect;
                 }
+            }
+
+            // Reconnect if no new job received for 10 minutes
+            if (s_last_job_tick != 0 &&
+                (xTaskGetTickCount() - s_last_job_tick) >= pdMS_TO_TICKS(600000)) {
+                ESP_LOGW(TAG, "no new job for 10 minutes, reconnecting");
+                break;
             }
 
             // Periodic job dispatch — feed miner fresh nonce space (e.g. ASIC)
@@ -648,6 +661,12 @@ reconnect:
         s_authorize_id = 0;
         s_configure_id = 0;
         s_version_mask = 0;
+        memset(&s_job, 0, sizeof(s_job));
+        // Drain stale shares from previous session
+        {
+            mining_result_t stale;
+            while (xQueueReceive(result_queue, &stale, 0) == pdTRUE) {}
+        }
         ESP_LOGW(TAG, "reconnecting in 5s");
         vTaskDelay(pdMS_TO_TICKS(5000));
     }

@@ -34,6 +34,7 @@ static temperature_sensor_handle_t s_temp_handle = NULL;
 static volatile bool s_pause_requested = false;
 static SemaphoreHandle_t s_pause_ack = NULL;
 static SemaphoreHandle_t s_pause_done = NULL;
+static SemaphoreHandle_t s_pause_mutex = NULL;
 
 void mining_stats_load_lifetime(void)
 {
@@ -298,7 +299,9 @@ bool mine_nonce_range(hash_backend_t *backend,
                 xSemaphoreGive(mining_stats.mutex);
             }
 
-            xQueueSend(result_queue, &result, 0);
+            if (xQueueSend(result_queue, &result, 0) != pdTRUE) {
+                ESP_LOGW(TAG, "result queue full, share dropped");
+            }
 #endif
             if (result_out) {
                 *result_out = result;
@@ -381,10 +384,15 @@ void mining_pause_init(void)
 {
     s_pause_ack = xSemaphoreCreateBinary();
     s_pause_done = xSemaphoreCreateBinary();
+    s_pause_mutex = xSemaphoreCreateMutex();
 }
 
 void mining_pause(void)
 {
+    if (xSemaphoreTake(s_pause_mutex, pdMS_TO_TICKS(30000)) != pdTRUE) {
+        ESP_LOGW(TAG, "mining pause mutex timeout — another caller holds pause");
+        return;
+    }
     s_pause_requested = true;
     if (xSemaphoreTake(s_pause_ack, pdMS_TO_TICKS(5000)) != pdTRUE) {
         ESP_LOGW(TAG, "mining pause timeout, proceeding anyway");
@@ -395,6 +403,7 @@ void mining_resume(void)
 {
     s_pause_requested = false;
     xSemaphoreGive(s_pause_done);
+    xSemaphoreGive(s_pause_mutex);
 }
 
 bool mining_pause_check(void)

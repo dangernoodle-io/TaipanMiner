@@ -80,9 +80,9 @@ typedef struct {
     bool update_available;
 } ota_pull_check_result_t;
 
-static volatile bool s_check_in_progress = false;
-static volatile bool s_check_done = false;
-static volatile bool s_check_failed = false;
+static bool s_check_in_progress = false;
+static bool s_check_done = false;
+static bool s_check_failed = false;
 static ota_pull_check_result_t s_cached_check = {0};
 
 #endif // ESP_PLATFORM
@@ -368,18 +368,25 @@ static void ota_check_worker_task(void *arg)
 
     mining_resume();
 
-    if (err == ESP_OK) {
+    bool ok = (err == ESP_OK);
+    taskENTER_CRITICAL(&s_ota_status_mux);
+    if (ok) {
         memcpy(&s_cached_check, &result, sizeof(ota_pull_check_result_t));
         s_check_done = true;
         s_check_failed = false;
-        ESP_LOGI(TAG, "background check completed");
     } else {
-        ESP_LOGE(TAG, "background check failed");
         s_check_done = false;
         s_check_failed = true;
     }
-
     s_check_in_progress = false;
+    taskEXIT_CRITICAL(&s_ota_status_mux);
+
+    if (ok) {
+        ESP_LOGI(TAG, "background check completed");
+    } else {
+        ESP_LOGE(TAG, "background check failed");
+    }
+
     vTaskDelete(NULL);
 }
 
@@ -388,9 +395,21 @@ static void ota_check_worker_task(void *arg)
  */
 static esp_err_t ota_check_handler(httpd_req_t *req)
 {
+    // Snapshot state under critical section
+    bool check_done, check_failed, check_in_progress;
+    ota_pull_check_result_t cached;
+    taskENTER_CRITICAL(&s_ota_status_mux);
+    check_done = s_check_done;
+    check_failed = s_check_failed;
+    check_in_progress = s_check_in_progress;
+    if (check_done) {
+        memcpy(&cached, &s_cached_check, sizeof(cached));
+        s_check_done = false;  // invalidate cache
+    }
+    taskEXIT_CRITICAL(&s_ota_status_mux);
+
     // If the background check failed, return error
-    if (s_check_failed) {
-        s_check_failed = false;
+    if (check_failed) {
         const char *response = "{\"error\":\"check_failed\"}";
         httpd_resp_set_status(req, "500 Internal Server Error");
         httpd_resp_set_type(req, "application/json");
@@ -399,7 +418,7 @@ static esp_err_t ota_check_handler(httpd_req_t *req)
     }
 
     // If we have a cached result, return it
-    if (s_check_done) {
+    if (check_done) {
         cJSON *root = cJSON_CreateObject();
         if (!root) {
             const char *error_response = "{\"error\":\"json_error\"}";
@@ -413,8 +432,8 @@ static esp_err_t ota_check_handler(httpd_req_t *req)
         if (running_desc) {
             cJSON_AddStringToObject(root, "current_version", running_desc->version);
         }
-        cJSON_AddStringToObject(root, "latest_version", s_cached_check.latest_tag);
-        cJSON_AddBoolToObject(root, "update_available", s_cached_check.update_available);
+        cJSON_AddStringToObject(root, "latest_version", cached.latest_tag);
+        cJSON_AddBoolToObject(root, "update_available", cached.update_available);
 
         char asset_name[128];
         snprintf(asset_name, sizeof(asset_name), "taipanminer-%s.bin", BOARD_NAME);
@@ -433,14 +452,15 @@ static esp_err_t ota_check_handler(httpd_req_t *req)
             httpd_resp_send(req, error_response, strlen(error_response));
         }
 
-        // Invalidate cache so next request triggers a fresh check
-        s_check_done = false;
         return ESP_OK;
     }
 
     // Trigger background check if not already running
-    if (!s_check_in_progress) {
+    if (!check_in_progress) {
+        taskENTER_CRITICAL(&s_ota_status_mux);
         s_check_in_progress = true;
+        taskEXIT_CRITICAL(&s_ota_status_mux);
+
         BaseType_t task_result = xTaskCreate(
             ota_check_worker_task,
             "ota_chk",
@@ -451,7 +471,9 @@ static esp_err_t ota_check_handler(httpd_req_t *req)
         );
 
         if (task_result != pdPASS) {
+            taskENTER_CRITICAL(&s_ota_status_mux);
             s_check_in_progress = false;
+            taskEXIT_CRITICAL(&s_ota_status_mux);
             const char *response = "{\"error\":\"task_create_failed\"}";
             httpd_resp_set_status(req, "500 Internal Server Error");
             httpd_resp_set_type(req, "application/json");
@@ -472,18 +494,26 @@ static esp_err_t ota_check_handler(httpd_req_t *req)
  */
 static esp_err_t ota_update_handler(httpd_req_t *req)
 {
+    // Atomically check and set s_ota_in_progress
+    taskENTER_CRITICAL(&s_ota_status_mux);
     if (s_ota_in_progress) {
+        taskEXIT_CRITICAL(&s_ota_status_mux);
         const char *response = "{\"error\":\"update_in_progress\"}";
         httpd_resp_set_status(req, "409 Conflict");
         httpd_resp_set_type(req, "application/json");
         httpd_resp_send(req, response, strlen(response));
         return ESP_OK;
     }
+    s_ota_in_progress = true;
+    taskEXIT_CRITICAL(&s_ota_status_mux);
 
     ota_pull_check_result_t result = {0};
     esp_err_t err = ota_pull_check(&result);
 
     if (err != ESP_OK) {
+        taskENTER_CRITICAL(&s_ota_status_mux);
+        s_ota_in_progress = false;
+        taskEXIT_CRITICAL(&s_ota_status_mux);
         const char *response = "{\"error\":\"check_failed\"}";
         httpd_resp_set_status(req, "500 Internal Server Error");
         httpd_resp_set_type(req, "application/json");
@@ -492,6 +522,9 @@ static esp_err_t ota_update_handler(httpd_req_t *req)
     }
 
     if (!result.update_available) {
+        taskENTER_CRITICAL(&s_ota_status_mux);
+        s_ota_in_progress = false;
+        taskEXIT_CRITICAL(&s_ota_status_mux);
         const char *response = "{\"status\":\"already_up_to_date\"}";
         httpd_resp_set_type(req, "application/json");
         httpd_resp_send(req, response, strlen(response));
@@ -501,6 +534,9 @@ static esp_err_t ota_update_handler(httpd_req_t *req)
     // Allocate task argument
     ota_pull_check_result_t *task_arg = malloc(sizeof(ota_pull_check_result_t));
     if (!task_arg) {
+        taskENTER_CRITICAL(&s_ota_status_mux);
+        s_ota_in_progress = false;
+        taskEXIT_CRITICAL(&s_ota_status_mux);
         const char *response = "{\"error\":\"allocation_failed\"}";
         httpd_resp_set_status(req, "500 Internal Server Error");
         httpd_resp_set_type(req, "application/json");
@@ -509,7 +545,6 @@ static esp_err_t ota_update_handler(httpd_req_t *req)
     }
 
     memcpy(task_arg, &result, sizeof(ota_pull_check_result_t));
-    s_ota_in_progress = true;
     taskENTER_CRITICAL(&s_ota_status_mux);
     s_ota_status.state = OTA_STATE_CHECKING;
     s_ota_status.progress_pct = 0;
@@ -528,7 +563,9 @@ static esp_err_t ota_update_handler(httpd_req_t *req)
 
     if (task_result != pdPASS) {
         free(task_arg);
+        taskENTER_CRITICAL(&s_ota_status_mux);
         s_ota_in_progress = false;
+        taskEXIT_CRITICAL(&s_ota_status_mux);
         const char *response = "{\"error\":\"task_create_failed\"}";
         httpd_resp_set_status(req, "500 Internal Server Error");
         httpd_resp_set_type(req, "application/json");

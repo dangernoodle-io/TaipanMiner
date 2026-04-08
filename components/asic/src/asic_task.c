@@ -487,7 +487,9 @@ void asic_mining_task(void *arg)
                 snprintf(result.version_hex, sizeof(result.version_hex), "%08" PRIx32, ver_bits);
             }
 
-            xQueueSend(result_queue, &result, 0);
+            if (xQueueSend(result_queue, &result, 0) != pdTRUE) {
+                ESP_LOGW(TAG, "result queue full, share dropped");
+            }
         }
 
         // 4. Periodic temp reading + fan control (~every 5s, log every 30s)

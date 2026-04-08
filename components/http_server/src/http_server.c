@@ -171,6 +171,7 @@ static esp_err_t stats_handler(httpd_req_t *req)
     set_common_headers(req);
     double hw_rate = 0, hw_ema = 0;
     double pool_diff = 0;
+    double best_diff = 0;
     uint32_t hw_shares = 0;
     float temp = 0;
     uint32_t session_shares = 0, session_rejected = 0;
@@ -192,6 +193,7 @@ static esp_err_t stats_handler(httpd_req_t *req)
         session_rejected = mining_stats.session.rejected;
         last_share_us = mining_stats.session.last_share_us;
         session_start_us = mining_stats.session.start_us;
+        best_diff = mining_stats.session.best_diff;
         lifetime = mining_stats.lifetime;
 #ifdef ASIC_BM1370
         asic_rate = mining_stats.asic_hashrate;
@@ -217,7 +219,7 @@ static esp_err_t stats_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "session_rejected", session_rejected);
     cJSON_AddNumberToObject(root, "last_share_ago_s", (double)last_share_ago_s);
     cJSON_AddNumberToObject(root, "lifetime_shares", lifetime.total_shares);
-    cJSON_AddNumberToObject(root, "best_diff", lifetime.best_diff);
+    cJSON_AddNumberToObject(root, "best_diff", best_diff);
     cJSON_AddStringToObject(root, "pool_host", nv_config_pool_host());
     cJSON_AddNumberToObject(root, "pool_port", nv_config_pool_port());
     cJSON_AddStringToObject(root, "worker", nv_config_worker_name());

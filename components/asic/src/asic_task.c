@@ -450,8 +450,8 @@ void asic_mining_task(void *arg)
             }
 
             if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
-                if (share_diff > mining_stats.lifetime.best_diff) {
-                    mining_stats.lifetime.best_diff = share_diff;
+                if (share_diff > mining_stats.session.best_diff) {
+                    mining_stats.session.best_diff = share_diff;
                 }
                 xSemaphoreGive(mining_stats.mutex);
             }

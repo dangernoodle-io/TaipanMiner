@@ -106,12 +106,12 @@ typedef struct {
     uint32_t rejected;
     int64_t  start_us;
     int64_t  last_share_us;   // 0 = no share yet
+    double   best_diff;       // highest share difficulty (raw value)
 } mining_session_t;
 
 // Lifetime stats (persisted to NVS)
 typedef struct {
     uint32_t total_shares;
-    double   best_diff;       // highest share difficulty (raw value)
     uint64_t total_hashes;
 } mining_lifetime_t;
 

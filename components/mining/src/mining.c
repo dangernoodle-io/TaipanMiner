@@ -44,13 +44,6 @@ void mining_stats_load_lifetime(void)
 
     nvs_get_u32(h, "lt_shares", &mining_stats.lifetime.total_shares);
 
-    // Load best_diff as double stored in two u32s
-    uint32_t bd_lo = 0, bd_hi = 0;
-    nvs_get_u32(h, "lt_bdiff_lo", &bd_lo);
-    nvs_get_u32(h, "lt_bdiff_hi", &bd_hi);
-    uint64_t bd_bits = ((uint64_t)bd_hi << 32) | bd_lo;
-    memcpy(&mining_stats.lifetime.best_diff, &bd_bits, sizeof(double));
-
     uint32_t lo = 0, hi = 0;
     nvs_get_u32(h, "lt_hashes_lo", &lo);
     nvs_get_u32(h, "lt_hashes_hi", &hi);
@@ -58,22 +51,8 @@ void mining_stats_load_lifetime(void)
 
     nvs_close(h);
 
-    // Self-healing: cap best_diff to a plausible maximum for the board
-#ifdef ASIC_BM1370
-    double max_plausible_diff = 1e19;   // ASIC ~485 GH/s
-#else
-    double max_plausible_diff = 1e14;   // SW ~223 kH/s
-#endif
-    if (!isfinite(mining_stats.lifetime.best_diff) ||
-        mining_stats.lifetime.best_diff < 0 ||
-        mining_stats.lifetime.best_diff > max_plausible_diff) {
-        ESP_LOGW(TAG, "best_diff invalid or implausible, resetting");
-        mining_stats.lifetime.best_diff = 0;
-    }
-
-    ESP_LOGI(TAG, "loaded lifetime stats: shares=%" PRIu32 " best_diff=%.4f hashes=%" PRIu64,
-             mining_stats.lifetime.total_shares, mining_stats.lifetime.best_diff,
-             (uint64_t)mining_stats.lifetime.total_hashes);
+    ESP_LOGI(TAG, "loaded lifetime stats: shares=%" PRIu32 " hashes=%" PRIu64,
+             mining_stats.lifetime.total_shares, (uint64_t)mining_stats.lifetime.total_hashes);
 }
 
 void mining_stats_save_lifetime(const mining_lifetime_t *snapshot)
@@ -85,12 +64,6 @@ void mining_stats_save_lifetime(const mining_lifetime_t *snapshot)
     }
 
     nvs_set_u32(h, "lt_shares", snapshot->total_shares);
-
-    // Store best_diff double as two u32s
-    uint64_t bd_bits;
-    memcpy(&bd_bits, &snapshot->best_diff, sizeof(double));
-    nvs_set_u32(h, "lt_bdiff_lo", (uint32_t)(bd_bits & 0xFFFFFFFF));
-    nvs_set_u32(h, "lt_bdiff_hi", (uint32_t)(bd_bits >> 32));
 
     nvs_set_u32(h, "lt_hashes_lo", (uint32_t)(snapshot->total_hashes & 0xFFFFFFFF));
     nvs_set_u32(h, "lt_hashes_hi", (uint32_t)(snapshot->total_hashes >> 32));
@@ -319,8 +292,8 @@ bool mine_nonce_range(hash_backend_t *backend,
             ESP_LOGI(TAG, "share found! (nonce=%08" PRIx32 ")", nonce);
 
             if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
-                if (share_diff > mining_stats.lifetime.best_diff) {
-                    mining_stats.lifetime.best_diff = share_diff;
+                if (share_diff > mining_stats.session.best_diff) {
+                    mining_stats.session.best_diff = share_diff;
                 }
                 xSemaphoreGive(mining_stats.mutex);
             }

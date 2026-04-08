@@ -81,7 +81,7 @@ void test_hash_to_difficulty_six_zeros(void)
 
 void test_best_diff_only_increases(void)
 {
-    mining_lifetime_t lt = {0};
+    mining_session_t lt = {0};
 
     // First share: diff 1024.0
     double share_diff1 = 1024.0;
@@ -99,7 +99,7 @@ void test_best_diff_only_increases(void)
     TEST_ASSERT_EQUAL_DOUBLE(32768.0, lt.best_diff);
 
     // Sub-diff-1 share on fresh stats
-    mining_lifetime_t lt2 = {0};
+    mining_session_t lt2 = {0};
     double share_diff4 = 0.05;
     if (share_diff4 > lt2.best_diff) lt2.best_diff = share_diff4;
     TEST_ASSERT_EQUAL_DOUBLE(0.05, lt2.best_diff);

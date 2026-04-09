@@ -28,6 +28,7 @@
 
 static const char *TAG = "http";
 static httpd_handle_t s_server = NULL;
+static uint32_t s_wdt_resets = 0;
 
 extern const unsigned char prov_form_html_gz[];
 extern const unsigned int prov_form_html_gz_len;
@@ -307,15 +308,7 @@ static esp_err_t info_handler(httpd_req_t *req)
     }
     cJSON_AddStringToObject(root, "reset_reason", reason_str);
 
-    {
-        nvs_handle_t h;
-        uint32_t wdt_count = 0;
-        if (nvs_open("taipanminer", NVS_READONLY, &h) == ESP_OK) {
-            nvs_get_u32(h, "wdt_resets", &wdt_count);
-            nvs_close(h);
-        }
-        cJSON_AddNumberToObject(root, "wdt_resets", (double)wdt_count);
-    }
+    cJSON_AddNumberToObject(root, "wdt_resets", (double)s_wdt_resets);
 
     {
         time_t now = time(NULL);
@@ -807,6 +800,15 @@ esp_err_t http_server_start_prov(void)
 
 void http_server_switch_to_mining(void)
 {
+    // Cache WDT reset count — only changes on boot
+    {
+        nvs_handle_t h;
+        if (nvs_open("taipanminer", NVS_READONLY, &h) == ESP_OK) {
+            nvs_get_u32(h, "wdt_resets", &s_wdt_resets);
+            nvs_close(h);
+        }
+    }
+
     // Unregister prov handlers
     httpd_unregister_uri_handler(s_server, "/", HTTP_GET);
     httpd_unregister_uri_handler(s_server, "/save", HTTP_POST);

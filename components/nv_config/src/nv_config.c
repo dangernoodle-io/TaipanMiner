@@ -11,6 +11,7 @@ static struct {
     char wallet_addr[64];
     char worker_name[32];
     char pool_pass[64];
+    uint8_t display_en;
 } s_config;
 
 // Helper to load a string from NVS with fallback (ESP only)
@@ -38,6 +39,7 @@ esp_err_t nv_config_init(void)
     if (err == ESP_ERR_NVS_NOT_FOUND) {
         ESP_LOGI(TAG, "no config in NVS");
         memset(&s_config, 0, sizeof(s_config));
+        s_config.display_en = 1;  // default: display on
         return ESP_OK;
     }
 
@@ -56,6 +58,10 @@ esp_err_t nv_config_init(void)
         s_config.pool_port = 0;
     }
 
+    if (nvs_get_u8(handle, "display_en", &s_config.display_en) != ESP_OK) {
+        s_config.display_en = 1;  // default: display on
+    }
+
     nvs_close(handle);
 
     ESP_LOGI(TAG, "config loaded (pool=%s:%u worker=%s.%s)",
@@ -64,6 +70,7 @@ esp_err_t nv_config_init(void)
 #else
     // Native build: no NVS, all fields empty/zero
     memset(&s_config, 0, sizeof(s_config));
+    s_config.display_en = 1;
 #endif
     return ESP_OK;
 }
@@ -182,6 +189,28 @@ esp_err_t nv_config_set_config(const char *pool_host, uint16_t pool_port,
 
     return err;
 }
+
+esp_err_t nv_config_set_display_enabled(bool en)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = nvs_set_u8(handle, "display_en", en ? 1 : 0);
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+
+    if (err == ESP_OK) {
+        s_config.display_en = en ? 1 : 0;
+    }
+
+    return err;
+}
 #endif
 
 const char *nv_config_wifi_ssid(void) { return s_config.wifi_ssid; }
@@ -191,3 +220,4 @@ uint16_t nv_config_pool_port(void) { return s_config.pool_port; }
 const char *nv_config_wallet_addr(void) { return s_config.wallet_addr; }
 const char *nv_config_worker_name(void) { return s_config.worker_name; }
 const char *nv_config_pool_pass(void) { return s_config.pool_pass; }
+bool nv_config_display_enabled(void) { return s_config.display_en != 0; }

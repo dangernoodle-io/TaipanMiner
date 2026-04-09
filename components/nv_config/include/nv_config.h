@@ -19,6 +19,7 @@ uint16_t nv_config_pool_port(void);
 const char *nv_config_wallet_addr(void);
 const char *nv_config_worker_name(void);
 const char *nv_config_pool_pass(void);
+bool nv_config_display_enabled(void);
 
 #ifdef ESP_PLATFORM
 bool nv_config_is_provisioned(void);
@@ -27,6 +28,7 @@ esp_err_t nv_config_set_wifi(const char *ssid, const char *pass);
 esp_err_t nv_config_set_config(const char *pool_host, uint16_t pool_port,
                                 const char *wallet_addr, const char *worker_name,
                                 const char *pool_pass);
+esp_err_t nv_config_set_display_enabled(bool en);
 #else
 static inline bool nv_config_is_provisioned(void) { return false; }
 #endif

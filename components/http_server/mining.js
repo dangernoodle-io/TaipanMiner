@@ -2,6 +2,7 @@ fetch('/logo.svg').then(r=>r.text()).then(s=>{document.getElementById('logo').in
 fetch('/api/version').then(r=>r.text()).then(v=>{document.getElementById('ver').textContent=v});
 
 var infoLoaded = false;
+var settingsLoaded = false;
 
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
@@ -30,6 +31,10 @@ document.querySelectorAll('.tab').forEach(tab => {
         }
         infoLoaded = true;
       }).catch(()=>{});
+    }
+
+    if (tab.dataset.view === 'settings' && !settingsLoaded) {
+      loadSettings();
     }
   });
 });
@@ -105,9 +110,6 @@ function refreshStats() {
     } else {
       document.getElementById('i-wallet').textContent = d.wallet || '--';
     }
-    document.getElementById('c-pool').textContent = d.pool_host;
-    document.getElementById('c-port').textContent = d.pool_port;
-    document.getElementById('c-worker').textContent = d.worker;
     document.getElementById('u-version').textContent = d.version;
     document.getElementById('u-board').textContent = d.board;
     document.getElementById('u-build').textContent = d.build_date + ' ' + d.build_time;
@@ -220,6 +222,145 @@ document.getElementById('rebootBtn').addEventListener('click', function() {
     btn.textContent = 'Device is rebooting...';
   }).catch(function() {
     btn.textContent = 'Reboot Device';
+    btn.disabled = false;
+  });
+});
+
+var savedSettings = {};
+
+function loadSettings() {
+  fetch('/api/settings').then(function(r) { return r.json(); }).then(function(d) {
+    savedSettings = d;
+
+    // Populate read-only view
+    document.getElementById('sv-pool').textContent = d.pool_host || '--';
+    document.getElementById('sv-port').textContent = d.pool_port || '--';
+    if (d.wallet && d.wallet.length > 10) {
+      document.getElementById('sv-wallet').textContent = d.wallet.slice(0,6) + '...' + d.wallet.slice(-4);
+    } else {
+      document.getElementById('sv-wallet').textContent = d.wallet || '--';
+    }
+    document.getElementById('sv-worker').textContent = d.worker || '--';
+    document.getElementById('sv-poolpass').textContent = d.pool_pass ? '••••••••' : '(none)';
+    document.getElementById('sv-display-text').textContent = d.display_en ? 'On' : 'Off';
+
+    // Populate edit form
+    document.getElementById('set-pool').value = d.pool_host || '';
+    document.getElementById('set-port').value = d.pool_port || '';
+    document.getElementById('set-wallet').value = d.wallet || '';
+    document.getElementById('set-worker').value = d.worker || '';
+    document.getElementById('set-poolpass').value = d.pool_pass || '';
+    document.getElementById('set-display').checked = d.display_en;
+
+    settingsLoaded = true;
+  }).catch(function() {});
+}
+
+document.getElementById('editSettingsBtn').addEventListener('click', function() {
+  document.getElementById('settings-view').style.display = 'none';
+  document.getElementById('settings-edit').style.display = 'block';
+  document.getElementById('settingsStatus').style.display = 'none';
+});
+
+document.getElementById('cancelSettingsBtn').addEventListener('click', function() {
+  document.getElementById('settings-edit').style.display = 'none';
+  document.getElementById('settings-view').style.display = 'block';
+  settingsLoaded = false;
+  loadSettings();
+});
+
+function setFieldError(inputId, errId, msg) {
+  var input = document.getElementById(inputId);
+  var err = document.getElementById(errId);
+  if (msg) {
+    input.classList.add('invalid');
+    err.textContent = msg;
+    err.classList.add('visible');
+  } else {
+    input.classList.remove('invalid');
+    err.textContent = '';
+    err.classList.remove('visible');
+  }
+}
+
+// Clear inline errors on input
+['set-pool', 'set-port', 'set-wallet', 'set-worker'].forEach(function(id) {
+  document.getElementById(id).addEventListener('input', function() {
+    var errId = 'err-' + id.replace('set-', '');
+    setFieldError(id, errId, '');
+  });
+});
+
+document.getElementById('saveSettingsBtn').addEventListener('click', function() {
+  var btn = this;
+  var status = document.getElementById('settingsStatus');
+
+  // Validate required fields
+  var pool = document.getElementById('set-pool').value.trim();
+  var portStr = document.getElementById('set-port').value.trim();
+  var wallet = document.getElementById('set-wallet').value.trim();
+  var worker = document.getElementById('set-worker').value.trim();
+  var poolpass = document.getElementById('set-poolpass').value;
+  var displayEn = document.getElementById('set-display').checked;
+  var port = parseInt(portStr, 10);
+
+  var valid = true;
+  setFieldError('set-pool', 'err-pool', pool ? '' : 'Required');
+  setFieldError('set-port', 'err-port', (port && port >= 1 && port <= 65535) ? '' : 'Valid port (1\u201365535) required');
+  setFieldError('set-wallet', 'err-wallet', wallet ? '' : 'Required');
+  setFieldError('set-worker', 'err-worker', worker ? '' : 'Required');
+  if (!pool || !port || port < 1 || port > 65535 || !wallet || !worker) return;
+
+  // Build PATCH payload with only changed fields
+  var payload = {};
+  if (pool !== (savedSettings.pool_host || '')) payload.pool_host = pool;
+  if (port !== (savedSettings.pool_port || 0)) payload.pool_port = port;
+  if (wallet !== (savedSettings.wallet || '')) payload.wallet = wallet;
+  if (worker !== (savedSettings.worker || '')) payload.worker = worker;
+  if (poolpass !== (savedSettings.pool_pass || '')) payload.pool_pass = poolpass;
+  if (displayEn !== savedSettings.display_en) payload.display_en = displayEn;
+
+  if (Object.keys(payload).length === 0) {
+    document.getElementById('settings-edit').style.display = 'none';
+    document.getElementById('settings-view').style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  status.style.display = 'none';
+
+  fetch('/api/settings', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(function(r) {
+    if (!r.ok) return r.text().then(function(t) { throw new Error(t); });
+    return r.json();
+  }).then(function(d) {
+    if (d.reboot_required) {
+      status.style.display = 'block';
+      status.textContent = 'Settings saved. Rebooting...';
+      btn.textContent = 'Rebooting...';
+      setTimeout(function() {
+        fetch('/api/reboot', { method: 'POST' });
+      }, 500);
+    } else {
+      // Only display_en changed — no reboot needed
+      status.style.display = 'block';
+      status.textContent = 'Settings saved.';
+      btn.textContent = 'Save Settings';
+      btn.disabled = false;
+      // Switch back to read-only view
+      document.getElementById('settings-edit').style.display = 'none';
+      document.getElementById('settings-view').style.display = 'block';
+      settingsLoaded = false;
+      loadSettings();
+    }
+  }).catch(function(err) {
+    status.style.display = 'block';
+    status.textContent = 'Failed to save: ' + err.message;
+    btn.textContent = 'Save Settings';
     btn.disabled = false;
   });
 });

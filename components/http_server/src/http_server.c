@@ -47,7 +47,7 @@ static esp_err_t ensure_server_started(void)
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_open_sockets = 7;
     config.lru_purge_enable = true;
-    config.max_uri_handlers = 16;
+    config.max_uri_handlers = 20;
     config.stack_size = 6144;
     config.recv_wait_timeout = 86400;
     config.send_wait_timeout = 30;
@@ -233,6 +233,7 @@ static esp_err_t stats_handler(httpd_req_t *req)
     cJSON_AddStringToObject(root, "build_date", app->date);
     cJSON_AddStringToObject(root, "build_time", app->time);
     cJSON_AddStringToObject(root, "board", BOARD_NAME);
+    cJSON_AddBoolToObject(root, "display_en", nv_config_display_enabled());
 #ifdef ASIC_BM1370
     cJSON_AddNumberToObject(root, "asic_hashrate", asic_rate);
     cJSON_AddNumberToObject(root, "asic_hashrate_avg", asic_ema);
@@ -555,6 +556,141 @@ static esp_err_t reboot_handler(httpd_req_t *req)
     return ESP_OK;  // unreachable
 }
 
+static esp_err_t settings_get_handler(httpd_req_t *req)
+{
+    set_common_headers(req);
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "pool_host", nv_config_pool_host());
+    cJSON_AddNumberToObject(root, "pool_port", nv_config_pool_port());
+    cJSON_AddStringToObject(root, "wallet", nv_config_wallet_addr());
+    cJSON_AddStringToObject(root, "worker", nv_config_worker_name());
+    cJSON_AddStringToObject(root, "pool_pass", nv_config_pool_pass());
+    cJSON_AddBoolToObject(root, "display_en", nv_config_display_enabled());
+
+    char *json = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, strlen(json));
+    free(json);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+// Shared helper for POST (full) and PATCH (partial) settings
+static esp_err_t apply_settings(httpd_req_t *req, bool partial)
+{
+    set_common_headers(req);
+    char body[512];
+
+    if (req->content_len > sizeof(body) - 1) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Body too large");
+        return ESP_FAIL;
+    }
+    int len = httpd_req_recv(req, body, sizeof(body) - 1);
+    if (len <= 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body");
+        return ESP_FAIL;
+    }
+    body[len] = '\0';
+
+    cJSON *root = cJSON_Parse(body);
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+
+    // Extract fields — use current values as defaults for PATCH
+    const char *pool_host = nv_config_pool_host();
+    uint16_t pool_port = nv_config_pool_port();
+    const char *wallet = nv_config_wallet_addr();
+    const char *worker = nv_config_worker_name();
+    const char *pool_pass = nv_config_pool_pass();
+    bool reboot_required = false;
+
+    cJSON *j;
+
+    j = cJSON_GetObjectItem(root, "pool_host");
+    if (j && cJSON_IsString(j)) { pool_host = j->valuestring; }
+    else if (!partial) { if (!j) { cJSON_Delete(root); httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "pool_host required"); return ESP_FAIL; } }
+
+    j = cJSON_GetObjectItem(root, "pool_port");
+    if (j && cJSON_IsNumber(j)) { pool_port = (uint16_t)j->valuedouble; }
+    else if (!partial) { if (!j) { cJSON_Delete(root); httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "pool_port required"); return ESP_FAIL; } }
+
+    j = cJSON_GetObjectItem(root, "wallet");
+    if (j && cJSON_IsString(j)) { wallet = j->valuestring; }
+    else if (!partial) { if (!j) { cJSON_Delete(root); httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "wallet required"); return ESP_FAIL; } }
+
+    j = cJSON_GetObjectItem(root, "worker");
+    if (j && cJSON_IsString(j)) { worker = j->valuestring; }
+    else if (!partial) { if (!j) { cJSON_Delete(root); httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "worker required"); return ESP_FAIL; } }
+
+    j = cJSON_GetObjectItem(root, "pool_pass");
+    if (j && cJSON_IsString(j)) { pool_pass = j->valuestring; }
+    // pool_pass is optional even for POST
+
+    // Compare against current values to determine if reboot is needed
+    if (strcmp(pool_host, nv_config_pool_host()) != 0 ||
+        pool_port != nv_config_pool_port() ||
+        strcmp(wallet, nv_config_wallet_addr()) != 0 ||
+        strcmp(worker, nv_config_worker_name()) != 0 ||
+        strcmp(pool_pass, nv_config_pool_pass()) != 0) {
+        reboot_required = true;
+    }
+
+    // Validate
+    if (pool_host[0] == '\0' || wallet[0] == '\0' || worker[0] == '\0') {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "pool_host, wallet, worker must not be empty");
+        return ESP_FAIL;
+    }
+    if (pool_port == 0) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "pool_port must be > 0");
+        return ESP_FAIL;
+    }
+
+    // Save mining config if any mining field was provided
+    if (reboot_required) {
+        esp_err_t err = nv_config_set_config(pool_host, pool_port, wallet, worker, pool_pass);
+        if (err != ESP_OK) {
+            cJSON_Delete(root);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save config");
+            return ESP_FAIL;
+        }
+    }
+
+    // Handle display_en separately (takes effect immediately, no reboot needed)
+    j = cJSON_GetObjectItem(root, "display_en");
+    if (j && cJSON_IsBool(j)) {
+        esp_err_t err = nv_config_set_display_enabled(cJSON_IsTrue(j));
+        if (err != ESP_OK) {
+            cJSON_Delete(root);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save display setting");
+            return ESP_FAIL;
+        }
+    }
+
+    cJSON_Delete(root);
+
+    // Response
+    char resp[64];
+    snprintf(resp, sizeof(resp), "{\"status\":\"saved\",\"reboot_required\":%s}",
+             reboot_required ? "true" : "false");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, resp);
+    return ESP_OK;
+}
+
+static esp_err_t settings_post_handler(httpd_req_t *req)
+{
+    return apply_settings(req, false);
+}
+
+static esp_err_t settings_patch_handler(httpd_req_t *req)
+{
+    return apply_settings(req, true);
+}
+
 static esp_err_t scan_handler(httpd_req_t *req)
 {
     set_common_headers(req);
@@ -642,6 +778,13 @@ void http_server_switch_to_mining(void)
     httpd_register_uri_handler(s_server, &logs_status_uri);
     httpd_register_uri_handler(s_server, &logs_uri);
     httpd_register_uri_handler(s_server, &reboot_uri);
+
+    httpd_uri_t settings_get_uri = { .uri = "/api/settings", .method = HTTP_GET, .handler = settings_get_handler };
+    httpd_uri_t settings_post_uri = { .uri = "/api/settings", .method = HTTP_POST, .handler = settings_post_handler };
+    httpd_uri_t settings_patch_uri = { .uri = "/api/settings", .method = HTTP_PATCH, .handler = settings_patch_handler };
+    httpd_register_uri_handler(s_server, &settings_get_uri);
+    httpd_register_uri_handler(s_server, &settings_post_uri);
+    httpd_register_uri_handler(s_server, &settings_patch_uri);
 }
 
 esp_err_t http_server_start(void)
@@ -697,6 +840,13 @@ esp_err_t http_server_start(void)
     httpd_register_uri_handler(s_server, &logs_status_uri);
     httpd_register_uri_handler(s_server, &logs_uri);
     httpd_register_uri_handler(s_server, &reboot_uri);
+
+    httpd_uri_t settings_get_uri = { .uri = "/api/settings", .method = HTTP_GET, .handler = settings_get_handler };
+    httpd_uri_t settings_post_uri = { .uri = "/api/settings", .method = HTTP_POST, .handler = settings_post_handler };
+    httpd_uri_t settings_patch_uri = { .uri = "/api/settings", .method = HTTP_PATCH, .handler = settings_patch_handler };
+    httpd_register_uri_handler(s_server, &settings_get_uri);
+    httpd_register_uri_handler(s_server, &settings_post_uri);
+    httpd_register_uri_handler(s_server, &settings_patch_uri);
 
     ESP_LOGI(TAG, "HTTP server started on port %d", 80);
     return ESP_OK;

@@ -77,12 +77,64 @@
   </div>
 
   <div id='settings' class='view'>
-    <div class='section'>
-      <h2>Configuration</h2>
-      <div class='info-row'><span class='info-key'>Pool</span><span class='info-val' id='c-pool'>--</span></div>
-      <div class='info-row'><span class='info-key'>Port</span><span class='info-val' id='c-port'>--</span></div>
-      <div class='info-row'><span class='info-key'>Worker</span><span class='info-val' id='c-worker'>--</span></div>
-      <p class='hint'>Settings configuration coming soon</p>
+    <div id='settings-view'>
+      <div class='section'>
+        <h2>Mining</h2>
+        <div class='info-row'><span class='info-key'>Pool</span><span class='info-val' id='sv-pool'>--</span></div>
+        <div class='info-row'><span class='info-key'>Port</span><span class='info-val' id='sv-port'>--</span></div>
+        <div class='info-row'><span class='info-key'>Wallet</span><span class='info-val' id='sv-wallet'>--</span></div>
+        <div class='info-row'><span class='info-key'>Worker</span><span class='info-val' id='sv-worker'>--</span></div>
+        <div class='info-row'><span class='info-key'>Pool Password</span><span class='info-val' id='sv-poolpass'>--</span></div>
+      </div>
+      <div class='section'>
+        <h2>Settings</h2>
+        <div class='info-row'><span class='info-key'>Screen</span><span class='info-val' id='sv-display-text'>--</span></div>
+      </div>
+      <button class='ota-btn' id='editSettingsBtn'>Edit Settings</button>
+    </div>
+    <div id='settings-edit' style='display:none'>
+      <div class='section'>
+        <h2>Mining</h2>
+        <div class='form-group'>
+          <label>Pool Host</label>
+          <input type='text' id='set-pool' maxlength='63'>
+          <span class='field-error' id='err-pool'></span>
+        </div>
+        <div class='form-group'>
+          <label>Port</label>
+          <input type='text' inputmode='numeric' pattern='[0-9]*' id='set-port' maxlength='5'>
+          <span class='field-error' id='err-port'></span>
+        </div>
+        <div class='form-group'>
+          <label>Wallet Address</label>
+          <input type='text' id='set-wallet' maxlength='63'>
+          <span class='field-error' id='err-wallet'></span>
+        </div>
+        <div class='form-group'>
+          <label>Worker Name</label>
+          <input type='text' id='set-worker' maxlength='31'>
+          <span class='field-error' id='err-worker'></span>
+        </div>
+        <div class='form-group'>
+          <label>Pool Password</label>
+          <input type='text' id='set-poolpass' maxlength='63' placeholder='optional'>
+        </div>
+      </div>
+      <div class='section'>
+        <h2>Settings</h2>
+        <div class='info-row'>
+          <span class='info-key'>Screen</span>
+          <label class='toggle'>
+            <input type='checkbox' id='set-display'>
+            <span class='toggle-slider'></span>
+          </label>
+        </div>
+      </div>
+      <div style='display:flex;gap:10px'>
+        <button class='ota-btn' id='saveSettingsBtn' style='flex:1'>Save Settings</button>
+        <button class='ota-btn' id='cancelSettingsBtn' style='flex:1'>Cancel</button>
+      </div>
+      <div class='ota-status' id='settingsStatus'></div>
     </div>
   </div>
 

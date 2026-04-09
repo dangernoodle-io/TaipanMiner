@@ -8,6 +8,7 @@
 #include "driver/gpio.h"
 #include "esp_lcd_panel_ops.h"
 #include "font8x16.h"
+#include "nv_config.h"
 
 #include <string.h>
 #include <stdbool.h>
@@ -698,6 +699,24 @@ esp_err_t display_off(void)
 
 esp_err_t display_show_status(const display_status_t *status)
 {
+    static bool s_was_off = false;
+
+    if (!nv_config_display_enabled()) {
+        if (!s_was_off) {
+            display_off();
+            s_was_off = true;
+        }
+        return ESP_OK;
+    }
+    if (s_was_off) {
+#if defined(BOARD_TDONGLE_S3)
+        gpio_set_level(PIN_LCD_BL, 0);  // active-low: 0 = on
+#elif defined(BOARD_BITAXE_601)
+        esp_lcd_panel_disp_on_off(s_panel, true);
+#endif
+        s_was_off = false;
+    }
+
 #if defined(BOARD_TDONGLE_S3)
     return show_status_st7735(status);
 #elif defined(BOARD_BITAXE_601)

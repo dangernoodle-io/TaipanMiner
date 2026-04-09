@@ -11,9 +11,35 @@
 
 #include <string.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include <inttypes.h>
 
 static const char *TAG = "display";
 static esp_lcd_panel_handle_t s_panel;
+
+// Shared formatting helpers
+static void fmt_hashrate(double hr, char *buf, size_t len)
+{
+    const char *unit;
+    if (hr >= 1e12) { hr /= 1e12; unit = "TH/s"; }
+    else if (hr >= 1e9) { hr /= 1e9; unit = "GH/s"; }
+    else if (hr >= 1e6) { hr /= 1e6; unit = "MH/s"; }
+    else if (hr >= 1e3) { hr /= 1e3; unit = "kH/s"; }
+    else { unit = "H/s"; }
+    snprintf(buf, len, "%.1f %s", hr, unit);
+}
+
+static void fmt_uptime(int64_t us, char *buf, size_t len)
+{
+    int secs = (int)(us / 1000000);
+    int days = secs / 86400;
+    int hours = (secs % 86400) / 3600;
+    int mins = (secs % 3600) / 60;
+
+    if (days > 0) snprintf(buf, len, "%dd %dh", days, hours);
+    else if (hours > 0) snprintf(buf, len, "%dh %dm", hours, mins);
+    else snprintf(buf, len, "%dm %ds", mins, secs % 60);
+}
 
 #if defined(BOARD_TDONGLE_S3)
 
@@ -291,9 +317,136 @@ static esp_err_t show_prov_st7735(const char *ssid, const char *password)
     return ESP_OK;
 }
 
+// Render one pixel row of a text string into a line buffer.
+// Fills pixels from x to x+(strlen*8), leaving other pixels untouched.
+static void render_text_row(uint16_t *line, int x, const char *text,
+                            int font_row, uint16_t fg_s, uint16_t bg_s)
+{
+    for (int ci = 0; text[ci] != '\0'; ci++) {
+        uint8_t ch = (uint8_t)text[ci];
+        if (ch < 0x20 || ch > 0x7E) ch = 0x20;
+        uint8_t bits = g_font8x16[ch - 0x20][font_row];
+        int cx = x + ci * FONT_W;
+        if (cx + FONT_W > LCD_WIDTH) break;
+        for (int col = 0; col < FONT_W; col++) {
+            line[cx + col] = (bits & (0x80 >> col)) ? fg_s : bg_s;
+        }
+    }
+}
+
+// Render one pixel row of the logo into a line buffer at the given x offset.
+static void render_logo_row_buf(uint16_t *line, int logo_x, int logo_row)
+{
+    for (int col = 0; col < LOGO_W; col++) {
+        int idx = logo_row * LOGO_W + col;
+        bool fg = (g_logo_bits[idx / 8] >> (7 - (idx % 8))) & 1;
+        line[logo_x + col] = fg ? SWAP16(LOGO_FG_COLOR) : 0x0000;
+    }
+}
+
+// Render one pixel row of page content into a line buffer.
+// page: 0=splash, 1=stats. content_y: 0-79.
+// stat_text: pre-formatted stat strings [4][21] (only used for page 1).
+static void render_page_row(uint16_t *line, int page, int content_y,
+                            char stat_text[4][21])
+{
+    // Clear line to black
+    for (int x = 0; x < LCD_WIDTH; x++) line[x] = 0x0000;
+
+    if (page == 0) {
+        // Splash page: logo at (2, 12), text at (62, 32)
+        int logo_x = 2;
+        int logo_y = (LCD_HEIGHT - LOGO_H) / 2;  // 12
+        int text_x = logo_x + LOGO_W + 4;        // 62
+        int text_y = (LCD_HEIGHT - FONT_H) / 2;   // 32
+
+        if (content_y >= logo_y && content_y < logo_y + LOGO_H) {
+            render_logo_row_buf(line, logo_x, content_y - logo_y);
+        }
+        if (content_y >= text_y && content_y < text_y + FONT_H) {
+            render_text_row(line, text_x, "TaipanMiner",
+                           content_y - text_y,
+                           SWAP16(DISPLAY_COLOR_AMBER), 0x0000);
+        }
+    } else {
+        // Stats page: 4 text lines at y=0,16,32,48
+        int text_idx = content_y / FONT_H;
+        int font_row = content_y % FONT_H;
+        if (text_idx < 4) {
+            uint16_t fg = (text_idx == 0)
+                ? SWAP16(DISPLAY_COLOR_AMBER)
+                : SWAP16(DISPLAY_COLOR_WHITE);
+            render_text_row(line, 0, stat_text[text_idx], font_row, fg, 0x0000);
+        }
+    }
+}
+
+// Render one frame of the virtual content strip (splash + stats, 160px total).
+// offset: pixel offset into the virtual strip (0 = splash visible, wraps at 160).
+static esp_err_t render_frame(int offset, char stat_text[4][21])
+{
+    static uint16_t s_row_buf[2][LCD_WIDTH];
+    static int s_row_idx;
+    int total = LCD_HEIGHT * 2;
+
+    for (int sy = 0; sy < LCD_HEIGHT; sy++) {
+        uint16_t *line = s_row_buf[s_row_idx];
+        int content_y = (sy + offset) % total;
+
+        if (content_y < LCD_HEIGHT) {
+            render_page_row(line, 0, content_y, stat_text);
+        } else {
+            render_page_row(line, 1, content_y - LCD_HEIGHT, stat_text);
+        }
+
+        ESP_RETURN_ON_ERROR(
+            esp_lcd_panel_draw_bitmap(s_panel, 0, sy, LCD_WIDTH, sy + 1, line),
+            TAG, "scroll row");
+        s_row_idx ^= 1;
+    }
+    return ESP_OK;
+}
+
+// Two-state scroll: hold splash (5s), scroll through stats and back (8s at 1px/tick).
+static esp_err_t show_status_st7735(const display_status_t *status)
+{
+    static int s_state;   // 0=hold_splash, 1=scroll
+    static int s_tick;
+    static int s_offset;
+
+    char stat_text[4][21];
+    fmt_hashrate(status->hashrate, stat_text[0], 21);
+    snprintf(stat_text[1], 21, "Shares: %" PRIu32 "/%" PRIu32,
+             status->shares, status->rejected);
+    snprintf(stat_text[2], 21, "Temp: %.1fC", status->temp_c);
+    {
+        char up[16];
+        fmt_uptime(status->uptime_us, up, sizeof(up));
+        snprintf(stat_text[3], 21, "Up: %s", up);
+    }
+
+    switch (s_state) {
+    case 0:  // Hold splash
+        if (s_tick == 0) {
+            ESP_RETURN_ON_ERROR(render_frame(0, stat_text), TAG, "splash");
+        }
+        if (++s_tick >= 100) { s_state = 1; s_tick = 0; s_offset = 0; }
+        break;
+
+    case 1:  // Scroll through stats back to splash
+        s_offset++;
+        ESP_RETURN_ON_ERROR(render_frame(s_offset, stat_text), TAG, "scroll");
+        if (s_offset >= LCD_HEIGHT * 2) { s_state = 0; s_tick = 0; }
+        break;
+    }
+
+    return ESP_OK;
+}
+
 #elif defined(BOARD_BITAXE_601)
 
 #include "asic.h"
+#include "driver/i2c_master.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_vendor.h"
 #include "esp_lcd_panel_ssd1306.h"
@@ -304,6 +457,19 @@ static esp_err_t show_prov_st7735(const char *ssid, const char *password)
 static esp_err_t init_ssd1306(void)
 {
     i2c_master_bus_handle_t i2c_bus = asic_get_i2c_bus();
+    if (i2c_bus == NULL) {
+        i2c_master_bus_config_t bus_cfg = {
+            .i2c_port = I2C_BUS_NUM,
+            .sda_io_num = PIN_I2C_SDA,
+            .scl_io_num = PIN_I2C_SCL,
+            .clk_source = I2C_CLK_SRC_DEFAULT,
+            .glitch_ignore_cnt = 7,
+            .flags.enable_internal_pullup = true,
+        };
+        ESP_RETURN_ON_ERROR(i2c_new_master_bus(&bus_cfg, &i2c_bus), TAG, "i2c bus");
+        asic_set_i2c_bus(i2c_bus);
+        ESP_LOGI(TAG, "I2C bus created by display (no ASIC init)");
+    }
 
     esp_lcd_panel_io_i2c_config_t io_cfg = {
         .dev_addr = SSD1306_I2C_ADDR,
@@ -336,11 +502,118 @@ static esp_err_t init_ssd1306(void)
     return ESP_OK;
 }
 
+static uint8_t s_fb[OLED_WIDTH * (OLED_HEIGHT / 8)];
+
 static esp_err_t clear_ssd1306(uint16_t color)
 {
-    static uint8_t s_fb[OLED_WIDTH * (OLED_HEIGHT / 8)];
     memset(s_fb, color ? 0xFF : 0x00, sizeof(s_fb));
     esp_lcd_panel_draw_bitmap(s_panel, 0, 0, OLED_WIDTH, OLED_HEIGHT, s_fb);
+    return ESP_OK;
+}
+
+// Write text into s_fb without flushing to display
+static void fb_draw_text(int x, int y, const char *text)
+{
+    int page_start = y / 8;
+
+    for (int ci = 0; text[ci] != '\0'; ci++) {
+        uint8_t ch = (uint8_t)text[ci];
+        if (ch < 0x20 || ch > 0x7E) ch = 0x20;
+        const uint8_t *glyph = g_font8x16[ch - 0x20];
+
+        int cx = x + ci * FONT_W;
+        if (cx + FONT_W > OLED_WIDTH) break;
+
+        // Each 8x16 character occupies 2 pages vertically
+        for (int p = 0; p < 2; p++) {
+            int page = page_start + p;
+            if (page >= (OLED_HEIGHT / 8)) break;
+
+            for (int col = 0; col < FONT_W; col++) {
+                uint8_t col_byte = 0;
+                for (int bit = 0; bit < 8; bit++) {
+                    int font_row = p * 8 + bit;
+                    if (glyph[font_row] & (0x80 >> col)) {
+                        col_byte |= (1 << bit);
+                    }
+                }
+                s_fb[page * OLED_WIDTH + cx + col] = col_byte;
+            }
+        }
+    }
+}
+
+static esp_err_t fb_flush(void)
+{
+    return esp_lcd_panel_draw_bitmap(s_panel, 0, 0, OLED_WIDTH, OLED_HEIGHT, s_fb);
+}
+
+static esp_err_t draw_text_ssd1306(int x, int y, const char *text)
+{
+    fb_draw_text(x, y, text);
+    ESP_RETURN_ON_ERROR(fb_flush(), TAG, "draw text");
+    return ESP_OK;
+}
+
+static esp_err_t show_splash_ssd1306(void)
+{
+    memset(s_fb, 0x00, sizeof(s_fb));
+    fb_draw_text(20, 8, "TaipanMiner");
+    ESP_RETURN_ON_ERROR(fb_flush(), TAG, "splash");
+    return ESP_OK;
+}
+
+static esp_err_t show_prov_ssd1306(const char *ssid, const char *password)
+{
+    memset(s_fb, 0x00, sizeof(s_fb));
+
+    // Line 0: SSID (truncated to 16 chars)
+    char ssid_buf[17];
+    strncpy(ssid_buf, ssid, 16);
+    ssid_buf[16] = '\0';
+    fb_draw_text(0, 0, ssid_buf);
+
+    // Line 1: "PW:" + password (truncated to fit)
+    char pw_buf[14];
+    snprintf(pw_buf, sizeof(pw_buf), "PW: %s", password);
+    fb_draw_text(0, 16, pw_buf);
+
+    ESP_RETURN_ON_ERROR(fb_flush(), TAG, "prov");
+    return ESP_OK;
+}
+
+static esp_err_t show_status_ssd1306(const display_status_t *status)
+{
+    static int s_page;
+    static int s_tick;
+
+    if (++s_tick < 100) return ESP_OK;
+    s_tick = 0;
+
+    memset(s_fb, 0x00, sizeof(s_fb));
+
+    char buf[17];
+
+    if (s_page == 0) {
+        // Page 0: hashrate + shares
+        fmt_hashrate(status->hashrate, buf, sizeof(buf));
+        fb_draw_text(0, 0, buf);
+
+        snprintf(buf, sizeof(buf), "Shares:%" PRIu32 "/%" PRIu32, status->shares, status->rejected);
+        fb_draw_text(0, 16, buf);
+    } else {
+        // Page 1: temp + uptime
+        snprintf(buf, sizeof(buf), "Temp: %.1fC", status->temp_c);
+        fb_draw_text(0, 0, buf);
+
+        char up[12];
+        fmt_uptime(status->uptime_us, up, sizeof(up));
+        snprintf(buf, sizeof(buf), "Up: %s", up);
+        fb_draw_text(0, 16, buf);
+    }
+
+    s_page ^= 1;
+    ESP_RETURN_ON_ERROR(fb_flush(), TAG, "status");
     return ESP_OK;
 }
 
@@ -379,6 +652,9 @@ esp_err_t display_draw_text(int x, int y, const char *text, uint16_t fg, uint16_
 {
 #if defined(BOARD_TDONGLE_S3)
     return draw_text_st7735(x, y, text, fg, bg, false);
+#elif defined(BOARD_BITAXE_601)
+    (void)fg; (void)bg;
+    return draw_text_ssd1306(x, y, text);
 #else
     (void)x; (void)y; (void)text; (void)fg; (void)bg;
     return ESP_OK;
@@ -389,6 +665,8 @@ esp_err_t display_show_splash(void)
 {
 #if defined(BOARD_TDONGLE_S3)
     return show_splash_st7735();
+#elif defined(BOARD_BITAXE_601)
+    return show_splash_ssd1306();
 #else
     return ESP_OK;
 #endif
@@ -398,6 +676,8 @@ esp_err_t display_show_prov(const char *ssid, const char *password)
 {
 #if defined(BOARD_TDONGLE_S3)
     return show_prov_st7735(ssid, password);
+#elif defined(BOARD_BITAXE_601)
+    return show_prov_ssd1306(ssid, password);
 #else
     (void)ssid; (void)password;
     return ESP_OK;
@@ -414,6 +694,18 @@ esp_err_t display_off(void)
     esp_lcd_panel_disp_on_off(s_panel, false);
 #endif
     return ESP_OK;
+}
+
+esp_err_t display_show_status(const display_status_t *status)
+{
+#if defined(BOARD_TDONGLE_S3)
+    return show_status_st7735(status);
+#elif defined(BOARD_BITAXE_601)
+    return show_status_ssd1306(status);
+#else
+    (void)status;
+    return ESP_OK;
+#endif
 }
 
 #endif

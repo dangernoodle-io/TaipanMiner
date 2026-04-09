@@ -110,6 +110,35 @@ static void start_mining(void)
     ESP_LOGI(TAG, "all tasks started");
 }
 
+static void display_status_task(void *arg)
+{
+    (void)arg;
+    display_status_t status = {0};
+    int tick = 0;
+
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(50));
+
+        if (tick % 100 == 0) {
+            if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                status.hashrate = mining_stats.hw_ema.value;
+                status.temp_c = mining_stats.temp_c;
+                status.shares = mining_stats.session.shares;
+                status.rejected = mining_stats.session.rejected;
+                status.uptime_us = esp_timer_get_time() - mining_stats.session.start_us;
+#ifdef ASIC_BM1370
+                status.hashrate = mining_stats.asic_ema.value;
+                status.temp_c = mining_stats.asic_temp_c;
+#endif
+                xSemaphoreGive(mining_stats.mutex);
+            }
+        }
+        tick++;
+
+        display_show_status(&status);
+    }
+}
+
 // cppcheck-suppress unusedFunction
 void app_main(void)
 {
@@ -149,18 +178,10 @@ void app_main(void)
 #endif
 
     // Initialize display early so splash is visible during boot.
-    // On Bitaxe, skip if not provisioned — I2C bus not available without asic_init().
-#if defined(ASIC_BM1370)
-    if (nv_config_is_provisioned()) {
-        ESP_ERROR_CHECK(display_init());
-        ESP_ERROR_CHECK(display_show_splash());
-        vTaskDelay(pdMS_TO_TICKS(2000));
-    }
-#else
+    // On Bitaxe, display creates I2C bus itself if asic_init() hasn't run.
     ESP_ERROR_CHECK(display_init());
     ESP_ERROR_CHECK(display_show_splash());
     vTaskDelay(pdMS_TO_TICKS(2000));
-#endif
 
     if (!nv_config_is_provisioned()) {
         ESP_LOGI(TAG, "entering provisioning mode");
@@ -196,7 +217,6 @@ void app_main(void)
         http_server_switch_to_mining();
     } else {
         // Normal boot: connect to saved WiFi
-        ESP_ERROR_CHECK(display_off());
         ESP_ERROR_CHECK(wifi_init());
         ESP_ERROR_CHECK(http_server_start());
     }
@@ -206,4 +226,7 @@ void app_main(void)
 
     // Start mining
     start_mining();
+
+    // Start display status task on Core 0
+    xTaskCreatePinnedToCore(display_status_task, "display", 4096, NULL, 2, NULL, 0);
 }

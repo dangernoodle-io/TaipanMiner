@@ -268,15 +268,19 @@ esp_err_t asic_init(void)
     ESP_LOGI(TAG, "ASIC reset complete");
 
     // 3. I2C bus
-    i2c_master_bus_config_t bus_cfg = {
-        .i2c_port = I2C_BUS_NUM,
-        .sda_io_num = PIN_I2C_SDA,
-        .scl_io_num = PIN_I2C_SCL,
-        .clk_source = I2C_CLK_SRC_DEFAULT,
-        .glitch_ignore_cnt = 7,
-        .flags.enable_internal_pullup = true,
-    };
-    ESP_RETURN_ON_ERROR(i2c_new_master_bus(&bus_cfg, &s_i2c_bus), TAG, "i2c bus");
+    if (s_i2c_bus != NULL) {
+        ESP_LOGI(TAG, "I2C bus already initialized");
+    } else {
+        i2c_master_bus_config_t bus_cfg = {
+            .i2c_port = I2C_BUS_NUM,
+            .sda_io_num = PIN_I2C_SDA,
+            .scl_io_num = PIN_I2C_SCL,
+            .clk_source = I2C_CLK_SRC_DEFAULT,
+            .glitch_ignore_cnt = 7,
+            .flags.enable_internal_pullup = true,
+        };
+        ESP_RETURN_ON_ERROR(i2c_new_master_bus(&bus_cfg, &s_i2c_bus), TAG, "i2c bus");
+    }
     ESP_LOGI(TAG, "I2C bus ready (SDA=%d SCL=%d)", PIN_I2C_SDA, PIN_I2C_SCL);
 
     // 4. TPS546 voltage regulator
@@ -559,6 +563,11 @@ const miner_config_t g_miner_config = {
 i2c_master_bus_handle_t asic_get_i2c_bus(void)
 {
     return s_i2c_bus;
+}
+
+void asic_set_i2c_bus(i2c_master_bus_handle_t bus)
+{
+    s_i2c_bus = bus;
 }
 
 #endif // ASIC_BM1370

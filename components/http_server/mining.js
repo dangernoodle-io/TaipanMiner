@@ -95,7 +95,8 @@ function refreshStats() {
   fetch('/api/stats').then(r=>r.json()).then(d => {
     document.getElementById('s-hashrate').textContent = fmtHash(d.hashrate);
     document.getElementById('s-hashrate-avg').textContent = fmtHash(d.hashrate_avg);
-    document.getElementById('s-temp').textContent = d.temp_c.toFixed(1) + '\u00B0C';
+    var temp = (d.asic_temp_c != null) ? d.asic_temp_c : d.temp_c;
+    document.getElementById('s-temp').textContent = temp.toFixed(1) + '\u00B0C';
     document.getElementById('s-uptime').textContent = fmtUptime(d.uptime_s);
     document.getElementById('s-shares').textContent = d.session_shares;
     document.getElementById('s-rejected').textContent = d.session_rejected;

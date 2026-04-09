@@ -9,6 +9,8 @@
 #include "esp_mac.h"
 #include "esp_flash.h"
 #include "esp_heap_caps.h"
+#include "esp_system.h"
+#include "nvs.h"
 #include "board.h"
 #include "mining.h"
 #include "nv_config.h"
@@ -19,6 +21,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 #include <sys/socket.h>
 #include "ota_pull.h"
 #include "log_stream.h"
@@ -49,7 +52,7 @@ static esp_err_t ensure_server_started(void)
     config.lru_purge_enable = true;
     config.max_uri_handlers = 20;
     config.stack_size = 6144;
-    config.recv_wait_timeout = 86400;
+    config.recv_wait_timeout = 30;
     config.send_wait_timeout = 30;
     config.uri_match_fn = httpd_uri_match_wildcard;
     esp_err_t err = httpd_start(&s_server, &config);
@@ -290,6 +293,38 @@ static esp_err_t info_handler(httpd_req_t *req)
     esp_flash_get_size(NULL, &flash_size);
     cJSON_AddNumberToObject(root, "flash_size", (double)flash_size);
 
+    esp_reset_reason_t reason = esp_reset_reason();
+    const char *reason_str;
+    switch (reason) {
+    case ESP_RST_POWERON:   reason_str = "power-on"; break;
+    case ESP_RST_SW:        reason_str = "software"; break;
+    case ESP_RST_PANIC:     reason_str = "panic"; break;
+    case ESP_RST_TASK_WDT:  reason_str = "task_wdt"; break;
+    case ESP_RST_WDT:       reason_str = "wdt"; break;
+    case ESP_RST_DEEPSLEEP: reason_str = "deep_sleep"; break;
+    case ESP_RST_BROWNOUT:  reason_str = "brownout"; break;
+    default:                reason_str = "unknown"; break;
+    }
+    cJSON_AddStringToObject(root, "reset_reason", reason_str);
+
+    {
+        nvs_handle_t h;
+        uint32_t wdt_count = 0;
+        if (nvs_open("taipanminer", NVS_READONLY, &h) == ESP_OK) {
+            nvs_get_u32(h, "wdt_resets", &wdt_count);
+            nvs_close(h);
+        }
+        cJSON_AddNumberToObject(root, "wdt_resets", (double)wdt_count);
+    }
+
+    {
+        time_t now = time(NULL);
+        if (now > 1000000000) {
+            int64_t uptime_s = esp_timer_get_time() / 1000000;
+            cJSON_AddNumberToObject(root, "boot_time", (double)(now - uptime_s));
+        }
+    }
+
     const esp_partition_t *running = esp_ota_get_running_partition();
     if (running) {
         cJSON_AddNumberToObject(root, "app_size", (double)running->size);
@@ -447,14 +482,14 @@ static esp_err_t ota_upload_handler(httpd_req_t *req)
 
 static volatile int s_sse_client_type = 0;  // 0=none, 1=browser, 2=external
 static volatile bool s_sse_stop = false;
-static TaskHandle_t s_sse_task_handle = NULL;
+static volatile TaskHandle_t s_sse_task_handle = NULL;
 
 static void s_sse_task(void *arg)
 {
     httpd_req_t *req = (httpd_req_t *)arg;
 
     int fd = httpd_req_to_sockfd(req);
-    struct timeval tv = { .tv_sec = 86400, .tv_usec = 0 };
+    struct timeval tv = { .tv_sec = 30, .tv_usec = 0 };
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     httpd_resp_set_type(req, "text/event-stream");

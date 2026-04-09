@@ -16,6 +16,7 @@
 #include "freertos/task.h"
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
+#include "esp_timer.h"
 
 static const char *TAG = "wifi_prov";
 #define WIFI_CONNECTED_BIT BIT0
@@ -32,6 +33,7 @@ static int s_retry_count = 0;
 static char s_ap_ssid[32];
 static esp_event_handler_instance_t s_wifi_handler = NULL;
 static esp_event_handler_instance_t s_ip_handler = NULL;
+static esp_timer_handle_t s_reconnect_timer = NULL;
 #ifdef ESP_PLATFORM
 static bool s_mdns_started = false;
 #endif
@@ -45,6 +47,12 @@ static int s_cached_scan_count = 0;
 static volatile bool s_scan_in_progress = false;
 
 #ifdef ESP_PLATFORM
+static void reconnect_timer_cb(void *arg)
+{
+    (void)arg;
+    esp_wifi_connect();
+}
+
 static void mdns_build_hostname(char *out, size_t out_size)
 {
     const char *worker = nv_config_worker_name();
@@ -142,9 +150,17 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         if (s_retry_count >= WIFI_MAX_RETRY) {
-            ESP_LOGW(TAG, "max retries reached, resetting and retrying");
+            ESP_LOGW(TAG, "max retries reached, delaying 5s before retry");
             s_retry_count = 0;
-            vTaskDelay(pdMS_TO_TICKS(5000));
+            if (!s_reconnect_timer) {
+                const esp_timer_create_args_t args = {
+                    .callback = reconnect_timer_cb,
+                    .name = "wifi_reconn",
+                };
+                esp_timer_create(&args, &s_reconnect_timer);
+            }
+            esp_timer_start_once(s_reconnect_timer, 5000000);  // 5s in microseconds
+            return;  // don't call esp_wifi_connect() now
         }
         esp_wifi_connect();
         s_retry_count++;

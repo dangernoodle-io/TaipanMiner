@@ -1,5 +1,6 @@
 #include "mining.h"
 #include "sha256.h"
+#include "stratum.h"
 #include "work.h"
 #include <string.h>
 #include <stdio.h>
@@ -19,6 +20,7 @@ void mining_stats_update_ema(hashrate_ema_t *ema, double sample, int64_t now_us)
 #ifdef ESP_PLATFORM
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_task_wdt.h"
 #include "sha256_hw.h"
 #include "nvs.h"
 #include "driver/temperature_sensor.h"
@@ -32,6 +34,7 @@ mining_stats_t mining_stats = {0};
 
 static temperature_sensor_handle_t s_temp_handle = NULL;
 static volatile bool s_pause_requested = false;
+static volatile bool s_pause_active = false;
 static SemaphoreHandle_t s_pause_ack = NULL;
 static SemaphoreHandle_t s_pause_done = NULL;
 static SemaphoreHandle_t s_pause_mutex = NULL;
@@ -292,14 +295,16 @@ bool mine_nonce_range(hash_backend_t *backend,
 
             ESP_LOGI(TAG, "share found! (nonce=%08" PRIx32 ")", nonce);
 
-            if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
+            if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                 if (share_diff > mining_stats.session.best_diff) {
                     mining_stats.session.best_diff = share_diff;
                 }
                 xSemaphoreGive(mining_stats.mutex);
             }
 
-            if (xQueueSend(result_queue, &result, 0) != pdTRUE) {
+            if (!stratum_is_connected()) {
+                ESP_LOGD(TAG, "stratum disconnected, discarding share");
+            } else if (xQueueSend(result_queue, &result, 0) != pdTRUE) {
                 ESP_LOGW(TAG, "result queue full, share dropped");
             }
 #endif
@@ -322,7 +327,7 @@ bool mine_nonce_range(hash_backend_t *backend,
                 if (elapsed_us > 0) {
                     double hashrate = (double)hashes / ((double)elapsed_us / 1000000.0);
                     uint32_t shares = 0;
-                    if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
+                    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                         mining_stats.hw_hashrate = hashrate;
                         mining_stats_update_ema(&mining_stats.hw_ema, hashrate, esp_timer_get_time());
                         mining_stats.session.hashes += hashes;
@@ -336,7 +341,7 @@ bool mine_nonce_range(hash_backend_t *backend,
             {
                 float temp = 0;
                 if (s_temp_handle && temperature_sensor_get_celsius(s_temp_handle, &temp) == ESP_OK) {
-                    if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
+                    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                         mining_stats.temp_c = temp;
                         xSemaphoreGive(mining_stats.mutex);
                     }
@@ -360,6 +365,7 @@ bool mine_nonce_range(hash_backend_t *backend,
 
             // Release SHA lock so mbedTLS can use HW SHA during TLS/OTA
             sha256_hw_release();
+            esp_task_wdt_reset();
             vTaskDelay(pdMS_TO_TICKS(1));
             bool paused = mining_pause_check();
             sha256_hw_acquire();
@@ -395,14 +401,19 @@ void mining_pause(void)
     }
     s_pause_requested = true;
     if (xSemaphoreTake(s_pause_ack, pdMS_TO_TICKS(5000)) != pdTRUE) {
-        ESP_LOGW(TAG, "mining pause timeout, proceeding anyway");
+        ESP_LOGW(TAG, "mining pause acknowledge timeout, resetting state");
+        s_pause_requested = false;
+        xSemaphoreGive(s_pause_mutex);
+        return;
     }
 }
 
 void mining_resume(void)
 {
     s_pause_requested = false;
-    xSemaphoreGive(s_pause_done);
+    if (s_pause_active) {
+        xSemaphoreGive(s_pause_done);
+    }
     xSemaphoreGive(s_pause_mutex);
 }
 
@@ -410,8 +421,12 @@ bool mining_pause_check(void)
 {
     if (!s_pause_requested) return false;
     ESP_LOGI(TAG, "mining paused for maintenance");
+    s_pause_active = true;
     xSemaphoreGive(s_pause_ack);
-    xSemaphoreTake(s_pause_done, portMAX_DELAY);
+    if (xSemaphoreTake(s_pause_done, pdMS_TO_TICKS(30000)) != pdTRUE) {
+        ESP_LOGE(TAG, "mining resume timeout, resuming anyway");
+    }
+    s_pause_active = false;
     ESP_LOGI(TAG, "mining resumed (stack high water: %" PRIu32 ")",
              (uint32_t)uxTaskGetStackHighWaterMark(NULL));
     return true;
@@ -430,11 +445,16 @@ void mining_task(void *arg)
         backend.init(&backend);
     }
 
+    // Subscribe mining task to TWDT — IDLE1 monitoring is disabled because
+    // this task is CPU-bound on core 1 by design. Feed at each yield point.
+    esp_task_wdt_add(NULL);
+
     ESP_LOGI(TAG, "mining task started");
 
     for (;;) {
         mining_work_t work;
-        if (xQueuePeek(work_queue, &work, portMAX_DELAY) != pdTRUE) {
+        if (xQueuePeek(work_queue, &work, pdMS_TO_TICKS(5000)) != pdTRUE) {
+            esp_task_wdt_reset();
             continue;
         }
 
@@ -445,7 +465,7 @@ void mining_task(void *arg)
         }
 
         // Update pool difficulty
-        if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
+        if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
             mining_stats.pool_difficulty = work.difficulty;
             xSemaphoreGive(mining_stats.mutex);
         }

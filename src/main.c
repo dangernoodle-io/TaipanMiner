@@ -2,6 +2,8 @@
 #include <inttypes.h>
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "esp_system.h"
+#include "nvs.h"
 #include "esp_sntp.h"
 #include "board.h"
 #include "wifi_prov.h"
@@ -72,12 +74,20 @@ static void start_mining(void)
         if (ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
             esp_ota_mark_app_valid_cancel_rollback();
             ESP_LOGI(TAG, "OTA: firmware validated");
+
+            // Reset WDT counter on new firmware — clean baseline per release
+            nvs_handle_t h;
+            if (nvs_open("taipanminer", NVS_READWRITE, &h) == ESP_OK) {
+                nvs_erase_key(h, "wdt_resets");
+                nvs_commit(h);
+                nvs_close(h);
+            }
         }
     }
 
     // Create inter-task queues
     work_queue = xQueueCreate(1, sizeof(mining_work_t));
-    result_queue = xQueueCreate(2, sizeof(mining_result_t));
+    result_queue = xQueueCreate(16, sizeof(mining_result_t));
 
     // Initialize mining stats
     mining_stats_init();
@@ -140,6 +150,38 @@ static void display_status_task(void *arg)
     }
 }
 
+static void log_reset_reason(void)
+{
+    esp_reset_reason_t reason = esp_reset_reason();
+    const char *reason_str;
+    switch (reason) {
+    case ESP_RST_POWERON:   reason_str = "power-on"; break;
+    case ESP_RST_SW:        reason_str = "software"; break;
+    case ESP_RST_PANIC:     reason_str = "panic"; break;
+    case ESP_RST_TASK_WDT:  reason_str = "task_wdt"; break;
+    case ESP_RST_WDT:       reason_str = "wdt"; break;
+    case ESP_RST_DEEPSLEEP: reason_str = "deep_sleep"; break;
+    case ESP_RST_BROWNOUT:  reason_str = "brownout"; break;
+    default:                reason_str = "unknown"; break;
+    }
+
+    ESP_LOGI(TAG, "reset reason: %s", reason_str);
+
+    if (reason == ESP_RST_TASK_WDT || reason == ESP_RST_WDT || reason == ESP_RST_PANIC) {
+        ESP_LOGW(TAG, "abnormal reset detected (%s)", reason_str);
+        nvs_handle_t h;
+        if (nvs_open("taipanminer", NVS_READWRITE, &h) == ESP_OK) {
+            uint32_t wdt_count = 0;
+            nvs_get_u32(h, "wdt_resets", &wdt_count);
+            wdt_count++;
+            nvs_set_u32(h, "wdt_resets", wdt_count);
+            nvs_commit(h);
+            nvs_close(h);
+            ESP_LOGW(TAG, "abnormal reset count: %" PRIu32, wdt_count);
+        }
+    }
+}
+
 // cppcheck-suppress unusedFunction
 void app_main(void)
 {
@@ -168,6 +210,7 @@ void app_main(void)
 
     // Load config from NVS (falls back to defaults)
     ESP_ERROR_CHECK(nv_config_init());
+    log_reset_reason();
     ESP_ERROR_CHECK(led_init());
 
     // Boot failure counter — detect WiFi credential boot-loop on no-serial boards

@@ -44,6 +44,7 @@ static const char *s_worker_name;
 static uint32_t s_extranonce2 = 0;     // rolling extranonce2 counter
 static uint32_t s_work_seq = 0;        // work sequence counter
 static TickType_t s_last_job_tick = 0; // last job dispatch tick
+static volatile bool s_stratum_connected = false;
 
 // Line buffer for reading from socket
 static char s_linebuf[4096];
@@ -65,6 +66,11 @@ static int stratum_send(const char *msg)
     }
     ESP_LOGD(TAG, ">> %s", msg);
     return 0;
+}
+
+bool stratum_is_connected(void)
+{
+    return s_stratum_connected;
 }
 
 // Send a JSON-RPC request. Returns assigned message id, or -1 on error.
@@ -177,6 +183,10 @@ static int stratum_connect(const char *host, uint16_t port)
         return -1;
     }
 
+    // Connect timeout — prevent blocking for 75+ seconds on unreachable hosts
+    struct timeval conn_tv = { .tv_sec = 10, .tv_usec = 0 };
+    setsockopt(s_sock, SOL_SOCKET, SO_SNDTIMEO, &conn_tv, sizeof(conn_tv));
+
     if (connect(s_sock, res->ai_addr, res->ai_addrlen) != 0) {
         ESP_LOGE(TAG, "connect failed: %d", errno);
         close(s_sock);
@@ -191,6 +201,10 @@ static int stratum_connect(const char *host, uint16_t port)
     setsockopt(s_sock, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
     setsockopt(s_sock, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
     setsockopt(s_sock, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
+
+    // Send timeout — prevent indefinite blocking on half-open connections
+    struct timeval snd_tv = { .tv_sec = 10, .tv_usec = 0 };
+    setsockopt(s_sock, SOL_SOCKET, SO_SNDTIMEO, &snd_tv, sizeof(snd_tv));
 
     // Disable Nagle — send shares immediately
     int nodelay = 1;
@@ -609,6 +623,7 @@ void stratum_task(void *arg)
             ESP_LOGW(TAG, "no job received during handshake, continuing to main loop");
         }
 
+        s_stratum_connected = true;
         s_last_job_tick = xTaskGetTickCount();
 
         // Main loop: read messages and submit shares
@@ -652,6 +667,8 @@ void stratum_task(void *arg)
         }
 
 reconnect:
+        s_stratum_connected = false;
+        xQueueReset(work_queue);
         if (s_sock >= 0) {
             close(s_sock);
             s_sock = -1;

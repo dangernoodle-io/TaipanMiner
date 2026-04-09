@@ -29,6 +29,9 @@ document.querySelectorAll('.tab').forEach(tab => {
           document.getElementById('i-heap').textContent = fmtBytes(d.free_heap) + ' / ' + fmtBytes(d.total_heap);
           document.getElementById('i-flash').textContent = fmtBytes(d.app_size) + ' / ' + fmtBytes(d.flash_size);
         }
+        if (d.reset_reason) document.getElementById('i-reset').textContent = d.reset_reason;
+        if (d.wdt_resets !== undefined) document.getElementById('i-wdt').textContent = d.wdt_resets;
+        document.getElementById('i-reboot').textContent = (d.boot_time && d.boot_time > 0) ? fmtDate(d.boot_time) : '--';
         infoLoaded = true;
       }).catch(()=>{});
     }
@@ -71,6 +74,15 @@ function fmtLastShare(s) {
   if (s < 60) return s + 's ago';
   if (s < 3600) return Math.floor(s/60) + 'm ago';
   return Math.floor(s/3600) + 'h ago';
+}
+
+function fmtDate(ts) {
+  var d = new Date(ts * 1000);
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var day = d.getDate();
+  var h = d.getHours(), m = d.getMinutes(), s = d.getSeconds();
+  return months[d.getMonth()] + ' ' + (day < 10 ? ' ' : '') + day + ' ' + d.getFullYear() + ' ' +
+    (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
 }
 
 function fmtBytes(b) {

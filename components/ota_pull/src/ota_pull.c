@@ -587,8 +587,10 @@ static esp_err_t ota_status_handler(httpd_req_t *req)
 {
     // Snapshot status under lock
     ota_status_t status_copy;
+    bool in_progress;
     taskENTER_CRITICAL(&s_ota_status_mux);
     memcpy(&status_copy, &s_ota_status, sizeof(status_copy));
+    in_progress = s_ota_in_progress;
     taskEXIT_CRITICAL(&s_ota_status_mux);
 
     cJSON *root = cJSON_CreateObject();
@@ -601,7 +603,7 @@ static esp_err_t ota_status_handler(httpd_req_t *req)
     }
 
     cJSON_AddStringToObject(root, "state", s_ota_state_names[status_copy.state]);
-    cJSON_AddBoolToObject(root, "in_progress", s_ota_in_progress);
+    cJSON_AddBoolToObject(root, "in_progress", in_progress);
     cJSON_AddNumberToObject(root, "progress_pct", status_copy.progress_pct);
     if (status_copy.last_error[0] != '\0') {
         cJSON_AddStringToObject(root, "last_error", status_copy.last_error);

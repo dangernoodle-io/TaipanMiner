@@ -7,6 +7,7 @@
 #include "tps546.h"
 #include "emc2101.h"
 #include "mining.h"
+#include "stratum.h"
 #include "work.h"
 #include "sha256.h"
 #include "board.h"
@@ -355,7 +356,7 @@ void asic_mining_task(void *arg)
             memcpy(&s_job_table[s_next_job_id], &work, sizeof(work));
             s_current_work_seq = work.work_seq;
 
-            if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
+            if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                 mining_stats.pool_difficulty = work.difficulty;
                 xSemaphoreGive(mining_stats.mutex);
             }
@@ -458,7 +459,7 @@ void asic_mining_task(void *arg)
                 continue;
             }
 
-            if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
+            if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                 if (share_diff > mining_stats.session.best_diff) {
                     mining_stats.session.best_diff = share_diff;
                 }
@@ -491,7 +492,9 @@ void asic_mining_task(void *arg)
                 snprintf(result.version_hex, sizeof(result.version_hex), "%08" PRIx32, ver_bits);
             }
 
-            if (xQueueSend(result_queue, &result, 0) != pdTRUE) {
+            if (!stratum_is_connected()) {
+                ESP_LOGD(TAG, "stratum disconnected, discarding share");
+            } else if (xQueueSend(result_queue, &result, 0) != pdTRUE) {
                 ESP_LOGW(TAG, "result queue full, share dropped");
             }
         }
@@ -504,7 +507,7 @@ void asic_mining_task(void *arg)
                 // Fan: always max until hysteresis is implemented
                 emc2101_set_fan_duty(63);
 
-                if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
+                if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                     mining_stats.asic_temp_c = temp;
                     xSemaphoreGive(mining_stats.mutex);
                 }
@@ -519,7 +522,7 @@ void asic_mining_task(void *arg)
             double hashrate = (elapsed_s > 0) ? (double)nonces_since_log * ASIC_TICKET_DIFF * 4294967296.0 / elapsed_s : 0;
             uint32_t shares = 0;
             float temp = 0;
-            if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
+            if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                 mining_stats.asic_hashrate = hashrate;
                 mining_stats_update_ema(&mining_stats.asic_ema, hashrate, (int64_t)now * (1000000 / configTICK_RATE_HZ));
                 mining_stats.hw_hashrate = hashrate;
@@ -534,7 +537,7 @@ void asic_mining_task(void *arg)
                 float esp_temp = 0;
                 temperature_sensor_handle_t th = mining_stats_temp_handle();
                 if (th && temperature_sensor_get_celsius(th, &esp_temp) == ESP_OK) {
-                    if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
+                    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                         mining_stats.temp_c = esp_temp;
                         xSemaphoreGive(mining_stats.mutex);
                     }

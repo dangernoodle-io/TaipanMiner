@@ -24,6 +24,16 @@ bool nv_config_display_enabled(void);
 #ifdef ESP_PLATFORM
 bool nv_config_is_provisioned(void);
 esp_err_t nv_config_set_provisioned(void);
+esp_err_t nv_config_clear_provisioned(void);
+
+#define NV_CONFIG_BOOT_FAIL_THRESHOLD 3
+uint8_t   nv_config_boot_count(void);
+esp_err_t nv_config_increment_boot_count(void);
+esp_err_t nv_config_reset_boot_count(void);
+
+bool      nv_config_ota_skip_check(void);
+esp_err_t nv_config_set_ota_skip_check(bool skip);
+
 esp_err_t nv_config_set_wifi(const char *ssid, const char *pass);
 esp_err_t nv_config_set_config(const char *pool_host, uint16_t pool_port,
                                 const char *wallet_addr, const char *worker_name,

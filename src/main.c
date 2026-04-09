@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <inttypes.h>
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "esp_sntp.h"
@@ -169,6 +170,19 @@ void app_main(void)
     ESP_ERROR_CHECK(nv_config_init());
     ESP_ERROR_CHECK(led_init());
 
+    // Boot failure counter — detect WiFi credential boot-loop on no-serial boards
+    nv_config_increment_boot_count();
+    uint8_t boot_cnt = nv_config_boot_count();
+    if (boot_cnt >= NV_CONFIG_BOOT_FAIL_THRESHOLD && nv_config_is_provisioned()) {
+        ESP_LOGW(TAG, "boot_count=%" PRIu8 " >= %d: clearing provisioning for AP fallback",
+                 boot_cnt, NV_CONFIG_BOOT_FAIL_THRESHOLD);
+        nv_config_clear_provisioned();
+        nv_config_reset_boot_count();
+    } else if (boot_cnt > 1) {
+        ESP_LOGW(TAG, "boot_count=%" PRIu8 " (%d until AP fallback)",
+                 boot_cnt, NV_CONFIG_BOOT_FAIL_THRESHOLD - boot_cnt);
+    }
+
 #ifdef ASIC_BM1370
     // Initialize ASIC before WiFi — freq ramp takes ~8s, runs while WiFi isn't needed yet.
     // Skip if not provisioned (will enter AP mode instead).
@@ -207,6 +221,7 @@ void app_main(void)
                 ESP_ERROR_CHECK(led_off());
                 ESP_LOGI(TAG, "provisioning complete");
                 nv_config_set_provisioned();
+                nv_config_reset_boot_count();
                 connected = true;
             } else {
                 ESP_LOGW(TAG, "STA connect failed, re-entering provisioning");

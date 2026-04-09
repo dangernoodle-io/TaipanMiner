@@ -388,11 +388,17 @@ static esp_err_t ota_upload_handler(httpd_req_t *req)
 
             if (strncmp(incoming->project_name, running->project_name,
                         sizeof(incoming->project_name)) != 0) {
-                ESP_LOGE(TAG, "OTA rejected: firmware is for '%s', this device is '%s'",
-                         incoming->project_name, running->project_name);
-                esp_ota_abort(ota_handle);
-                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Firmware board mismatch");
-                return ESP_FAIL;
+                if (nv_config_ota_skip_check()) {
+                    ESP_LOGW(TAG, "OTA board mismatch IGNORED (ota_skip_check): "
+                             "firmware is for '%s', this device is '%s'",
+                             incoming->project_name, running->project_name);
+                } else {
+                    ESP_LOGE(TAG, "OTA rejected: firmware is for '%s', this device is '%s'",
+                             incoming->project_name, running->project_name);
+                    esp_ota_abort(ota_handle);
+                    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Firmware board mismatch");
+                    return ESP_FAIL;
+                }
             }
             ESP_LOGI(TAG, "OTA board check passed: %s", incoming->project_name);
         }
@@ -566,6 +572,7 @@ static esp_err_t settings_get_handler(httpd_req_t *req)
     cJSON_AddStringToObject(root, "worker", nv_config_worker_name());
     cJSON_AddStringToObject(root, "pool_pass", nv_config_pool_pass());
     cJSON_AddBoolToObject(root, "display_en", nv_config_display_enabled());
+    cJSON_AddBoolToObject(root, "ota_skip_check", nv_config_ota_skip_check());
 
     char *json = cJSON_PrintUnformatted(root);
     httpd_resp_set_type(req, "application/json");
@@ -666,6 +673,17 @@ static esp_err_t apply_settings(httpd_req_t *req, bool partial)
         if (err != ESP_OK) {
             cJSON_Delete(root);
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save display setting");
+            return ESP_FAIL;
+        }
+    }
+
+    j = cJSON_GetObjectItem(root, "ota_skip_check");
+    if (j && cJSON_IsBool(j)) {
+        esp_err_t err = nv_config_set_ota_skip_check(cJSON_IsTrue(j));
+        if (err != ESP_OK) {
+            cJSON_Delete(root);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                "Failed to save ota_skip_check");
             return ESP_FAIL;
         }
     }

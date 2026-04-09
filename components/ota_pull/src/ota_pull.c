@@ -14,6 +14,7 @@
 #include "esp_system.h"
 #include "board.h"
 #include "mining.h"
+#include "nv_config.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/portmacro.h"
@@ -300,12 +301,17 @@ static void ota_worker_task(void *arg)
     const esp_app_desc_t *running = esp_app_get_description();
     if (strncmp(img_desc.project_name, running->project_name,
                 sizeof(img_desc.project_name)) != 0) {
-        ESP_LOGE(TAG, "board mismatch: got '%s', expected '%s'",
-                 img_desc.project_name, running->project_name);
-        ota_set_error("board mismatch: got '%s', expected '%s'",
-                      img_desc.project_name, running->project_name);
-        esp_https_ota_abort(ota_handle);
-        goto resume_and_exit;
+        if (nv_config_ota_skip_check()) {
+            ESP_LOGW(TAG, "board mismatch IGNORED (ota_skip_check): got '%s', expected '%s'",
+                     img_desc.project_name, running->project_name);
+        } else {
+            ESP_LOGE(TAG, "board mismatch: got '%s', expected '%s'",
+                     img_desc.project_name, running->project_name);
+            ota_set_error("board mismatch: got '%s', expected '%s'",
+                          img_desc.project_name, running->project_name);
+            esp_https_ota_abort(ota_handle);
+            goto resume_and_exit;
+        }
     }
 
     int image_size = esp_https_ota_get_image_size(ota_handle);

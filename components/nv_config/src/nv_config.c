@@ -211,6 +211,74 @@ esp_err_t nv_config_set_display_enabled(bool en)
 
     return err;
 }
+
+esp_err_t nv_config_clear_provisioned(void)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+    err = nvs_erase_key(handle, "provisioned");
+    if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
+    if (err == ESP_OK) err = nvs_commit(handle);
+    nvs_close(handle);
+    return err;
+}
+
+uint8_t nv_config_boot_count(void)
+{
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) != ESP_OK) return 0;
+    uint8_t val = 0;
+    nvs_get_u8(handle, "boot_cnt", &val);
+    nvs_close(handle);
+    return val;
+}
+
+esp_err_t nv_config_increment_boot_count(void)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+    uint8_t val = 0;
+    nvs_get_u8(handle, "boot_cnt", &val);
+    if (val < UINT8_MAX) val++;
+    err = nvs_set_u8(handle, "boot_cnt", val);
+    if (err == ESP_OK) err = nvs_commit(handle);
+    nvs_close(handle);
+    return err;
+}
+
+esp_err_t nv_config_reset_boot_count(void)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+    err = nvs_set_u8(handle, "boot_cnt", 0);
+    if (err == ESP_OK) err = nvs_commit(handle);
+    nvs_close(handle);
+    return err;
+}
+
+bool nv_config_ota_skip_check(void)
+{
+    nvs_handle_t handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) != ESP_OK) return false;
+    uint8_t val = 0;
+    nvs_get_u8(handle, "ota_skip", &val);
+    nvs_close(handle);
+    return val != 0;
+}
+
+esp_err_t nv_config_set_ota_skip_check(bool skip)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+    err = nvs_set_u8(handle, "ota_skip", skip ? 1 : 0);
+    if (err == ESP_OK) err = nvs_commit(handle);
+    nvs_close(handle);
+    return err;
+}
 #endif
 
 const char *nv_config_wifi_ssid(void) { return s_config.wifi_ssid; }

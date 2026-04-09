@@ -243,6 +243,7 @@ function loadSettings() {
     document.getElementById('sv-worker').textContent = d.worker || '--';
     document.getElementById('sv-poolpass').textContent = d.pool_pass ? '••••••••' : '(none)';
     document.getElementById('sv-display-text').textContent = d.display_en ? 'On' : 'Off';
+    document.getElementById('sv-otaskip-text').textContent = d.ota_skip_check ? 'On' : 'Off';
 
     // Populate edit form
     document.getElementById('set-pool').value = d.pool_host || '';
@@ -251,6 +252,7 @@ function loadSettings() {
     document.getElementById('set-worker').value = d.worker || '';
     document.getElementById('set-poolpass').value = d.pool_pass || '';
     document.getElementById('set-display').checked = d.display_en;
+    document.getElementById('set-otaskip').checked = d.ota_skip_check;
 
     settingsLoaded = true;
   }).catch(function() {});
@@ -302,6 +304,7 @@ document.getElementById('saveSettingsBtn').addEventListener('click', function() 
   var worker = document.getElementById('set-worker').value.trim();
   var poolpass = document.getElementById('set-poolpass').value;
   var displayEn = document.getElementById('set-display').checked;
+  var otaSkip = document.getElementById('set-otaskip').checked;
   var port = parseInt(portStr, 10);
 
   var valid = true;
@@ -319,6 +322,7 @@ document.getElementById('saveSettingsBtn').addEventListener('click', function() 
   if (worker !== (savedSettings.worker || '')) payload.worker = worker;
   if (poolpass !== (savedSettings.pool_pass || '')) payload.pool_pass = poolpass;
   if (displayEn !== savedSettings.display_en) payload.display_en = displayEn;
+  if (otaSkip !== savedSettings.ota_skip_check) payload.ota_skip_check = otaSkip;
 
   if (Object.keys(payload).length === 0) {
     document.getElementById('settings-edit').style.display = 'none';

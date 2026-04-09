@@ -159,6 +159,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
                 };
                 esp_timer_create(&args, &s_reconnect_timer);
             }
+            esp_timer_stop(s_reconnect_timer);  // ensure no stale timer pending
             esp_timer_start_once(s_reconnect_timer, 5000000);  // 5s in microseconds
             return;  // don't call esp_wifi_connect() now
         }
@@ -173,6 +174,11 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         if (s_wifi_event_group) {
             xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
         }
+#ifdef ESP_PLATFORM
+        if (s_mdns_started) {
+            mdns_instance_name_set("TaipanMiner");
+        }
+#endif
     }
 }
 
@@ -217,6 +223,11 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
     if ((bits & WIFI_CONNECTED_BIT) == 0) {
         vEventGroupDelete(s_wifi_event_group);
         s_wifi_event_group = NULL;
+
+        // Stop reconnect timer before deinit to prevent firing on dead driver
+        if (s_reconnect_timer) {
+            esp_timer_stop(s_reconnect_timer);
+        }
 
         // Clean up WiFi so it can be reinitialized
         esp_wifi_stop();

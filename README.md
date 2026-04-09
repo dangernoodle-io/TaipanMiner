@@ -1,10 +1,6 @@
-# TaipanMiner
+# <img src="logo.svg" width="80" align="absmiddle" alt="TaipanMiner logo"> TaipanMiner
 
-<p align="center">
-  <img src="components/http_server/logo.svg" width="120" alt="TaipanMiner logo">
-</p>
-
-[![CI](https://github.com/dangernoodle-io/TaipanMiner/actions/workflows/ci.yml/badge.svg)](https://github.com/dangernoodle-io/TaipanMiner/actions/workflows/ci.yml)
+[![Build](https://github.com/dangernoodle-io/TaipanMiner/actions/workflows/build.yml/badge.svg)](https://github.com/dangernoodle-io/TaipanMiner/actions/workflows/build.yml)
 [![Release](https://github.com/dangernoodle-io/TaipanMiner/actions/workflows/release.yml/badge.svg)](https://github.com/dangernoodle-io/TaipanMiner/actions/workflows/release.yml)
 [![Coverage Status](https://coveralls.io/repos/github/dangernoodle-io/TaipanMiner/badge.svg?branch=main)](https://coveralls.io/github/dangernoodle-io/TaipanMiner?branch=main)
 

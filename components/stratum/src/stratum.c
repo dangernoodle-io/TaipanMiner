@@ -519,7 +519,7 @@ static void process_message(const char *line)
                     mining_stats.session.shares++;
                     mining_stats.session.last_share_us = now_us;
                     mining_stats.lifetime.total_shares++;
-#ifdef ASIC_BM1370
+#ifdef ASIC_CHIP
                     mining_stats.asic_shares++;
 #endif
                     lt_snap = mining_stats.lifetime;

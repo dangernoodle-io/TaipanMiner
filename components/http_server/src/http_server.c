@@ -185,7 +185,7 @@ static esp_err_t stats_handler(httpd_req_t *req)
     uint32_t session_shares = 0, session_rejected = 0;
     int64_t last_share_us = 0, session_start_us = 0;
     mining_lifetime_t lifetime = {0};
-#ifdef ASIC_BM1370
+#ifdef ASIC_CHIP
     double asic_rate = 0, asic_ema = 0;
     uint32_t asic_shares = 0;
     float asic_temp = 0;
@@ -203,7 +203,7 @@ static esp_err_t stats_handler(httpd_req_t *req)
         session_start_us = mining_stats.session.start_us;
         best_diff = mining_stats.session.best_diff;
         lifetime = mining_stats.lifetime;
-#ifdef ASIC_BM1370
+#ifdef ASIC_CHIP
         asic_rate = mining_stats.asic_hashrate;
         asic_ema = mining_stats.asic_ema.value;
         asic_shares = mining_stats.asic_shares;
@@ -238,7 +238,7 @@ static esp_err_t stats_handler(httpd_req_t *req)
     cJSON_AddStringToObject(root, "build_time", app->time);
     cJSON_AddStringToObject(root, "board", BOARD_NAME);
     cJSON_AddBoolToObject(root, "display_en", nv_config_display_enabled());
-#ifdef ASIC_BM1370
+#ifdef ASIC_CHIP
     cJSON_AddNumberToObject(root, "asic_hashrate", asic_rate);
     cJSON_AddNumberToObject(root, "asic_hashrate_avg", asic_ema);
     cJSON_AddNumberToObject(root, "asic_shares", asic_shares);

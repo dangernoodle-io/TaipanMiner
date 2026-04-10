@@ -12,7 +12,7 @@ Bitcoin mining firmware for ESP32-S3 boards with optional ASIC support.
 |-------|------|-----------|
 | LilyGo T-Dongle S3 | None (ESP32-S3 HW SHA) | ~223 kH/s |
 | Bitaxe 601 Gamma | BM1370 | ~485 GH/s |
-| Bitaxe Supra 403 | BM1368 | ~500 GH/s |
+| Bitaxe 403 | BM1368 | ~500 GH/s |
 
 ## Quick Start
 

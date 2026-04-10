@@ -6,8 +6,8 @@ Bitcoin mining firmware for ESP32-S3 boards with optional ASIC support.
 
 - Framework: ESP-IDF via PlatformIO
 - `make help` — show all targets
-- `make build` — build all boards (tdongle-s3, bitaxe-601, bitaxe-supra)
-- `make build-<env>` — build specific board (e.g. `make build-bitaxe-601`)
+- `make build` — build all boards (tdongle-s3, bitaxe-601, bitaxe-403)
+- `make build-<env>` — build specific board (e.g. `make build-bitaxe-403`)
 - `make flash-<env>` — flash specific board
 - `make test` — host unit tests
 - `make check` — static analysis (cppcheck)
@@ -32,7 +32,7 @@ Then create `~/.platformio/penv/.espidf-5.5.3/pio-idf-venv.json` with the correc
 |-----|-------|------|---------|
 | `tdongle-s3` | LilyGo T-Dongle S3 | none (SW mining) | USB CDC |
 | `bitaxe-601` | Bitaxe 601 Gamma | BM1370 | USB CDC |
-| `bitaxe-supra` | Bitaxe Supra 403 | BM1368 | USB CDC |
+| `bitaxe-403` | Bitaxe 403 | BM1368 | USB CDC |
 
 ### Adding a new board
 

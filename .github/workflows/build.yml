@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        env: [tdongle-s3, bitaxe-601, bitaxe-supra]
+        env: [tdongle-s3, bitaxe-601, bitaxe-403]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -74,7 +74,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        env: [tdongle-s3-debug, bitaxe-601-debug, bitaxe-supra-debug]
+        env: [tdongle-s3-debug, bitaxe-601-debug, bitaxe-403-debug]
     steps:
       - uses: actions/checkout@v6
         with:

@@ -407,7 +407,7 @@ static esp_err_t show_status_st7735(const display_status_t *status)
     return ESP_OK;
 }
 
-#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_SUPRA)
+#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_403)
 
 #include "asic.h"
 #include "driver/i2c_master.h"
@@ -591,7 +591,7 @@ esp_err_t display_init(void)
 
 #if defined(BOARD_TDONGLE_S3)
     ESP_RETURN_ON_ERROR(init_st7735(), TAG, "st7735 init");
-#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_SUPRA)
+#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_403)
     ESP_RETURN_ON_ERROR(init_ssd1306(), TAG, "ssd1306 init");
 #else
     ESP_LOGW(TAG, "no display configured for this board");
@@ -604,7 +604,7 @@ esp_err_t display_clear(uint16_t color)
 {
 #if defined(BOARD_TDONGLE_S3)
     return clear_st7735(color);
-#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_SUPRA)
+#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_403)
     return clear_ssd1306(color);
 #else
     (void)color;
@@ -616,7 +616,7 @@ esp_err_t display_draw_text(int x, int y, const char *text, uint16_t fg, uint16_
 {
 #if defined(BOARD_TDONGLE_S3)
     return draw_text_st7735(x, y, text, fg, bg, false);
-#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_SUPRA)
+#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_403)
     (void)fg; (void)bg;
     return draw_text_ssd1306(x, y, text);
 #else
@@ -629,7 +629,7 @@ esp_err_t display_show_splash(void)
 {
 #if defined(BOARD_TDONGLE_S3)
     return show_splash_st7735();
-#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_SUPRA)
+#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_403)
     return show_splash_ssd1306();
 #else
     return ESP_OK;
@@ -640,7 +640,7 @@ esp_err_t display_show_prov(const char *ssid, const char *password)
 {
 #if defined(BOARD_TDONGLE_S3)
     return show_prov_st7735(ssid, password);
-#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_SUPRA)
+#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_403)
     return show_prov_ssd1306(ssid, password);
 #else
     (void)ssid; (void)password;
@@ -653,7 +653,7 @@ esp_err_t display_off(void)
 #if defined(BOARD_TDONGLE_S3)
     ESP_RETURN_ON_ERROR(clear_st7735(DISPLAY_COLOR_BLACK), TAG, "clear");
     gpio_set_level(PIN_LCD_BL, 1);  // active-low: 1 = off
-#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_SUPRA)
+#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_403)
     ESP_RETURN_ON_ERROR(clear_ssd1306(0x00), TAG, "clear");
     esp_lcd_panel_disp_on_off(s_panel, false);
 #endif
@@ -674,7 +674,7 @@ esp_err_t display_show_status(const display_status_t *status)
     if (s_was_off) {
 #if defined(BOARD_TDONGLE_S3)
         gpio_set_level(PIN_LCD_BL, 0);  // active-low: 0 = on
-#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_SUPRA)
+#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_403)
         esp_lcd_panel_disp_on_off(s_panel, true);
 #endif
         s_was_off = false;
@@ -682,7 +682,7 @@ esp_err_t display_show_status(const display_status_t *status)
 
 #if defined(BOARD_TDONGLE_S3)
     return show_status_st7735(status);
-#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_SUPRA)
+#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_403)
     return show_status_ssd1306(status);
 #else
     (void)status;

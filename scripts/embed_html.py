@@ -23,6 +23,7 @@ FILES = [
     ("prov_form.html", "prov_form_html_gz"),
     ("theme.css", "theme_css_gz"),
     ("logo.svg", "logo_svg_gz"),
+    ("favicon.svg", "favicon_svg_gz"),
     ("mining.html", "mining_html_gz"),
     ("mining.js", "mining_js_gz"),
     ("prov_save.html", "prov_save_html_gz"),

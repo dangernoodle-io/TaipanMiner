@@ -42,6 +42,8 @@ extern const unsigned char mining_js_gz[];
 extern const unsigned int mining_js_gz_len;
 extern const unsigned char prov_save_html_gz[];
 extern const unsigned int prov_save_html_gz_len;
+extern const uint8_t favicon_svg_gz[];
+extern const unsigned int favicon_svg_gz_len;
 
 static esp_err_t preflight_handler(httpd_req_t *req);
 
@@ -360,9 +362,10 @@ static esp_err_t mining_js_handler(httpd_req_t *req)
 
 static esp_err_t favicon_handler(httpd_req_t *req)
 {
-    httpd_resp_set_status(req, "204 No Content");
+    httpd_resp_set_type(req, "image/svg+xml");
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
     set_common_headers(req);
-    httpd_resp_send(req, NULL, 0);
+    httpd_resp_send(req, (const char *)favicon_svg_gz, favicon_svg_gz_len);
     return ESP_OK;
 }
 

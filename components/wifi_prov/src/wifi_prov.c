@@ -241,6 +241,7 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
 
         if (restart_on_timeout) {
             ESP_LOGE(TAG, "WiFi connection timeout after 60s, restarting");
+            nv_config_increment_boot_count();
             esp_restart();
         } else {
             ESP_LOGE(TAG, "WiFi connection timeout after 60s");

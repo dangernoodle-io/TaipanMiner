@@ -213,8 +213,8 @@ void app_main(void)
     log_reset_reason();
     ESP_ERROR_CHECK(led_init());
 
-    // Boot failure counter — detect WiFi credential boot-loop on no-serial boards
-    nv_config_increment_boot_count();
+    // Boot failure counter — incremented only on WiFi timeout restart (wifi_prov.c),
+    // not on every boot, so flash/power-cycle doesn't trigger AP fallback.
     uint8_t boot_cnt = nv_config_boot_count();
     if (boot_cnt >= NV_CONFIG_BOOT_FAIL_THRESHOLD && nv_config_is_provisioned()) {
         ESP_LOGW(TAG, "boot_count=%" PRIu8 " >= %d: clearing provisioning for AP fallback",

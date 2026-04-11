@@ -7,3 +7,6 @@ void stratum_task(void *arg);
 
 // Get stratum connection status
 bool stratum_is_connected(void);
+
+// Request stratum reconnect (called from WiFi event handler on IP loss)
+void stratum_request_reconnect(void);

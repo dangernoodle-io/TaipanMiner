@@ -1,5 +1,6 @@
 #include "wifi_prov.h"
 #include "nv_config.h"
+#include "stratum.h"
 #include <string.h>
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -179,6 +180,9 @@ static void event_handler(void *arg, esp_event_base_t event_base,
             mdns_instance_name_set("TaipanMiner");
         }
 #endif
+    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_LOST_IP) {
+        ESP_LOGW(TAG, "IP lost, requesting stratum reconnect");
+        stratum_request_reconnect();
     }
 }
 
@@ -206,7 +210,7 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
     }
     if (!s_ip_handler) {
         ESP_ERROR_CHECK(esp_event_handler_instance_register(
-            IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL, &s_ip_handler));
+            IP_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, &s_ip_handler));
     }
 
     wifi_config_t wifi_config = {0};
@@ -215,6 +219,7 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
+    esp_wifi_set_ps(WIFI_PS_NONE);
 
     ESP_LOGI(TAG, "connecting to %s", nv_config_wifi_ssid());
     EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
@@ -235,7 +240,7 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
 
         // Unregister event handlers and clear handles for fresh registration on retry
         esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, s_wifi_handler);
-        esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, s_ip_handler);
+        esp_event_handler_instance_unregister(IP_EVENT, ESP_EVENT_ANY_ID, s_ip_handler);
         s_wifi_handler = NULL;
         s_ip_handler = NULL;
 

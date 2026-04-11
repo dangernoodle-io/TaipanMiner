@@ -44,9 +44,12 @@ static const char *s_worker_name;
 static uint32_t s_extranonce2 = 0;     // rolling extranonce2 counter
 static uint32_t s_work_seq = 0;        // work sequence counter
 static TickType_t s_last_job_tick = 0; // last job dispatch tick
+static TickType_t s_last_pool_job_tick = 0; // last mining.notify from pool (not extranonce2 roll)
 static TickType_t s_last_share_tick = 0; // last share submission tick (30-min watchdog)
+static TickType_t s_session_start_tick = 0;
 static uint32_t s_reconnect_delay_ms = 5000; // exponential backoff for reconnect attempts
 static volatile bool s_stratum_connected = false;
+static volatile bool s_reconnect_requested = false;
 
 // Line buffer for reading from socket
 static char s_linebuf[4096];
@@ -73,6 +76,11 @@ static int stratum_send(const char *msg)
 bool stratum_is_connected(void)
 {
     return s_stratum_connected;
+}
+
+void stratum_request_reconnect(void)
+{
+    s_reconnect_requested = true;
 }
 
 // Send a JSON-RPC request. Returns assigned message id, or -1 on error.
@@ -377,6 +385,7 @@ static void handle_notify(cJSON *params)
 
     xQueueOverwrite(work_queue, &work);
     s_last_job_tick = xTaskGetTickCount();
+    s_last_pool_job_tick = s_last_job_tick;
     s_reconnect_delay_ms = 5000;  // reset backoff on successful job receipt
 }
 
@@ -633,6 +642,8 @@ void stratum_task(void *arg)
 
         s_stratum_connected = true;
         s_last_job_tick = xTaskGetTickCount();
+        s_last_pool_job_tick = s_last_job_tick;
+        s_session_start_tick = xTaskGetTickCount();
 
         // Main loop: read messages and submit shares
         for (;;) {
@@ -652,18 +663,28 @@ void stratum_task(void *arg)
                 }
             }
 
-            // Reconnect if no new job received for 5 minutes
-            if (s_last_job_tick != 0 &&
-                (xTaskGetTickCount() - s_last_job_tick) >= pdMS_TO_TICKS(300000)) {
+            // External reconnect request (e.g. IP loss)
+            if (s_reconnect_requested) {
+                s_reconnect_requested = false;
+                ESP_LOGW(TAG, "reconnect requested externally");
+                break;
+            }
+
+            // Reconnect if no new pool job received for 5 minutes
+            if (s_last_pool_job_tick != 0 &&
+                (xTaskGetTickCount() - s_last_pool_job_tick) >= pdMS_TO_TICKS(300000)) {
                 ESP_LOGW(TAG, "no new job for 5 minutes, reconnecting");
                 break;
             }
 
             // Reconnect if no share submitted in 30 minutes
-            if (s_last_share_tick != 0 &&
-                (xTaskGetTickCount() - s_last_share_tick) >= pdMS_TO_TICKS(1800000)) {
-                ESP_LOGW(TAG, "no share submitted in 30 minutes, reconnecting");
-                break;
+            {
+                TickType_t share_ref = s_last_share_tick ? s_last_share_tick : s_session_start_tick;
+                if (share_ref != 0 &&
+                    (xTaskGetTickCount() - share_ref) >= pdMS_TO_TICKS(1800000)) {
+                    ESP_LOGW(TAG, "no share submitted in 30 minutes, reconnecting");
+                    break;
+                }
             }
 
             // Periodic job dispatch — feed miner fresh nonce space (e.g. ASIC)
@@ -695,6 +716,7 @@ reconnect:
         s_version_mask = 0;
         memset(&s_job, 0, sizeof(s_job));
         s_last_share_tick = 0;
+        s_last_pool_job_tick = 0;
         // Drain stale shares from previous session
         {
             mining_result_t stale;

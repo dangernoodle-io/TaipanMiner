@@ -1,6 +1,6 @@
 PIO ?= pio
 
-.PHONY: help check test coverage build clean monitor
+.PHONY: help check test coverage build clean monitor compile-db
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_%-]+:.*##' $(MAKEFILE_LIST) | sort | \
@@ -20,6 +20,11 @@ build: ## Build default envs (tdongle-s3 + bitaxe-601)
 
 build-%: ## Build specific env (e.g. make build-tdongle-s3)
 	$(PIO) run -e $*
+
+compile-db: ## Generate compile_commands.json for all boards (clangd LSP)
+	$(PIO) run -t compiledb -e bitaxe-601
+	$(PIO) run -t compiledb -e bitaxe-403
+	$(PIO) run -t compiledb -e tdongle-s3
 
 flash-%: ## Flash specific env (e.g. make flash-bitaxe-601)
 	$(PIO) run -e $* -t upload

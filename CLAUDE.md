@@ -13,6 +13,7 @@ Bitcoin mining firmware for ESP32-S3 boards with optional ASIC support.
 - `make check` — static analysis (cppcheck)
 - `make coverage` — test + gcovr coverage report
 - `make monitor` — serial monitor
+- `make compile-db` — generate `compile_commands.json` for all boards (clangd LSP prerequisite; no linking, cheap)
 - Debug: `make build-tdongle-s3-debug` or `make build-bitaxe-601-debug` (adds `TAIPANMINER_DEBUG=1`)
 
 ### Python compatibility
@@ -25,6 +26,14 @@ python3.13 -m venv ~/.platformio/penv/.espidf-5.5.3
 ```
 
 Then create `~/.platformio/penv/.espidf-5.5.3/pio-idf-venv.json` with the correct version info to prevent PlatformIO from overwriting the venv.
+
+### Editor / LSP setup
+
+For clangd-based C/C++ IntelliSense (e.g. via the `esp-idf-clangd` Claude Code plugin):
+
+1. Run `make compile-db` once to generate `compile_commands.json` for every board. Re-run only when `platformio.ini` or toolchain versions change.
+2. Copy `.clangd.example` to `.clangd` (gitignored, per-developer).
+3. Uncomment the `CompilationDatabase:` line matching the board you're actively developing.
 
 ## Boards
 
@@ -44,6 +53,7 @@ Then create `~/.platformio/penv/.espidf-5.5.3/pio-idf-venv.json` with the correc
 6. **CI/release** — add the env name to the matrix arrays in `ci.yml` and `release.yml`
 7. **Miner config** — define `g_miner_config` in the appropriate source file; if the board uses a novel hash engine, implement a `hash_backend_t`
 8. **default_envs** — add the env to `default_envs` in `platformio.ini`
+9. **LSP** — add a `pio run -t compiledb -e <env>` line to the `compile-db` target in `Makefile`, and add a matching `# CompilationDatabase: .pio/build/<env>` line to `.clangd.example`
 
 ## Project layout
 
@@ -106,6 +116,16 @@ Then create `~/.platformio/penv/.espidf-5.5.3/pio-idf-venv.json` with the correc
 - To add a web asset: add file to `components/http_server/`, add to `embed_html.py` FILES, add `src/<name>_gz.c` to CMakeLists.txt SRCS, add extern + handler in `http_server.c`
 - API: `/api/stats` (polled every 5s), `/api/info` (device details), `/api/version`, `/api/ota/check`
 - OTA check suspends mining task to free heap for TLS handshake (~29 KB stack)
+
+## Conventions
+
+- FreeRTOS task stacks: 4096–8192 bytes; justify anything outside that range
+- Mining task runs at priority 20 on core 1 — new tasks must not preempt it unintentionally
+- Always take the `mining_stats` mutex before reading or writing shared stats
+- Gate verbose debug output with `#ifdef TAIPANMINER_DEBUG`
+- Network reconnect uses a goto-based loop — do not restructure to callbacks
+- Board dispatch via `components/board/include/board.h` `#if defined(BOARD_*)` chain — never hardcode pins outside board headers
+- `build_src_filter` in `platformio.ini` defines the host-testable boundary — never reference ESP-only APIs in files included by the native env
 
 ## Testing
 

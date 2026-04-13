@@ -186,6 +186,12 @@ static void event_handler(void *arg, esp_event_base_t event_base,
     }
 }
 
+void wifi_force_reassociate(void)
+{
+    ESP_LOGW(TAG, "forcing WiFi reassociation (zombie state recovery)");
+    esp_wifi_disconnect();
+}
+
 static esp_err_t wifi_connect_sta(bool restart_on_timeout)
 {
     s_wifi_event_group = xEventGroupCreate();
@@ -219,7 +225,7 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
-    esp_wifi_set_ps(WIFI_PS_NONE);
+    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
 
     ESP_LOGI(TAG, "connecting to %s", nv_config_wifi_ssid());
     EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,

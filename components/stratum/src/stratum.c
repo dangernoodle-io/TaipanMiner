@@ -46,10 +46,14 @@ static uint32_t s_work_seq = 0;        // work sequence counter
 static TickType_t s_last_job_tick = 0; // last job dispatch tick
 static TickType_t s_last_pool_job_tick = 0; // last mining.notify from pool (not extranonce2 roll)
 static TickType_t s_last_share_tick = 0; // last share submission tick (30-min watchdog)
+static TickType_t s_last_tx_tick = 0;    // last stratum TX (for app-level keepalive)
 static TickType_t s_session_start_tick = 0;
 static uint32_t s_reconnect_delay_ms = 5000; // exponential backoff for reconnect attempts
 static volatile bool s_stratum_connected = false;
 static volatile bool s_reconnect_requested = false;
+static stratum_wifi_kick_cb_t s_wifi_kick_cb = NULL;
+static int s_connect_fail_count = 0;
+#define STRATUM_WIFI_KICK_THRESHOLD 5
 
 // Line buffer for reading from socket
 static char s_linebuf[4096];
@@ -69,6 +73,7 @@ static int stratum_send(const char *msg)
         }
         total += sent;
     }
+    s_last_tx_tick = xTaskGetTickCount();
     ESP_LOGD(TAG, ">> %s", msg);
     return 0;
 }
@@ -81,6 +86,11 @@ bool stratum_is_connected(void)
 void stratum_request_reconnect(void)
 {
     s_reconnect_requested = true;
+}
+
+void stratum_set_wifi_kick_cb(stratum_wifi_kick_cb_t cb)
+{
+    s_wifi_kick_cb = cb;
 }
 
 // Send a JSON-RPC request. Returns assigned message id, or -1 on error.
@@ -568,11 +578,22 @@ void stratum_task(void *arg)
 
         // Connect
         if (stratum_connect(pool_host, pool_port) != 0) {
-            ESP_LOGW(TAG, "reconnecting in %" PRIu32 "ms", s_reconnect_delay_ms);
+            s_connect_fail_count++;
+            ESP_LOGW(TAG, "connect failed (%d/%d), reconnecting in %" PRIu32 "ms",
+                     s_connect_fail_count, STRATUM_WIFI_KICK_THRESHOLD,
+                     s_reconnect_delay_ms);
+            if (s_connect_fail_count >= STRATUM_WIFI_KICK_THRESHOLD && s_wifi_kick_cb) {
+                ESP_LOGW(TAG, "forcing WiFi reassociation after %d consecutive failures",
+                         s_connect_fail_count);
+                s_connect_fail_count = 0;
+                s_reconnect_delay_ms = 5000;
+                s_wifi_kick_cb();
+            }
             vTaskDelay(pdMS_TO_TICKS(s_reconnect_delay_ms));
             if (s_reconnect_delay_ms < 60000) s_reconnect_delay_ms *= 2;
             continue;
         }
+        s_connect_fail_count = 0;
 
         // Configure (version rolling) — non-fatal if pool doesn't support it
         s_configure_id = stratum_request("mining.configure",
@@ -643,6 +664,7 @@ void stratum_task(void *arg)
         s_stratum_connected = true;
         s_last_job_tick = xTaskGetTickCount();
         s_last_pool_job_tick = s_last_job_tick;
+        s_last_tx_tick = s_last_job_tick;
         s_session_start_tick = xTaskGetTickCount();
 
         // Main loop: read messages and submit shares
@@ -700,6 +722,21 @@ void stratum_task(void *arg)
                     s_last_job_tick = now;
                 }
             }
+
+            // App-level keepalive — keep NAT table alive on routers that ignore TCP keepalives
+            {
+                TickType_t now = xTaskGetTickCount();
+                if (s_last_tx_tick != 0 &&
+                    (now - s_last_tx_tick) >= pdMS_TO_TICKS(90000)) {
+                    ESP_LOGD(TAG, "sending keepalive ping");
+                    char params[32];
+                    snprintf(params, sizeof(params), "[%.4f]", s_difficulty);
+                    if (stratum_request("mining.suggest_difficulty", params) < 0) {
+                        ESP_LOGW(TAG, "keepalive send failed, reconnecting");
+                        break;
+                    }
+                }
+            }
         }
 
 reconnect:
@@ -717,6 +754,7 @@ reconnect:
         memset(&s_job, 0, sizeof(s_job));
         s_last_share_tick = 0;
         s_last_pool_job_tick = 0;
+        s_last_tx_tick = 0;
         // Drain stale shares from previous session
         {
             mining_result_t stale;

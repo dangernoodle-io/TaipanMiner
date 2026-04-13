@@ -30,6 +30,9 @@ int wifi_scan_get_cached(wifi_scan_ap_t *results, int max_results);
 esp_err_t wifi_init(void);           // restarts on timeout (normal boot)
 esp_err_t wifi_init_sta(void);       // returns ESP_ERR_TIMEOUT on failure (provisioning retry)
 
+// Force WiFi reassociation — recover from zombie-connected state
+void wifi_force_reassociate(void);
+
 // AP mode — for provisioning
 esp_err_t wifi_init_ap(void);        // starts AP + captive DNS
 void wifi_stop_ap(void);             // stops AP + DNS, deinits wifi

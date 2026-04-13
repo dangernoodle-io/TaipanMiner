@@ -105,6 +105,9 @@ static void start_mining(void)
     ESP_ERROR_CHECK(esp_timer_create(&timer_args, &s_stats_timer));
     ESP_ERROR_CHECK(esp_timer_start_periodic(s_stats_timer, 10ULL * 60 * 1000000));
 
+    // Register WiFi kick callback for zombie-state recovery
+    stratum_set_wifi_kick_cb(wifi_force_reassociate);
+
     // Start stratum task on Core 0
     xTaskCreatePinnedToCore(stratum_task, "stratum", 8192, NULL, 5, NULL, 0);
 

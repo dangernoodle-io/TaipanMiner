@@ -3,10 +3,11 @@
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include <stdint.h>
+#include <stddef.h>
+#include <stdbool.h>
 
 #ifdef ESP_PLATFORM
-#include <stdint.h>
-#include <stdbool.h>
 
 // WiFi scan results
 #define WIFI_SCAN_MAX 20
@@ -41,3 +42,11 @@ void wifi_prov_get_ap_ssid(char *buf, size_t len);  // get AP SSID
 // Provisioning event
 #define PROV_DONE_BIT BIT0
 extern EventGroupHandle_t g_prov_event_group;
+
+// Diagnostic getters — lock-free reads from interrupt-safe statics
+void wifi_prov_get_disconnect(uint8_t *reason, int64_t *age_us);
+int wifi_prov_get_retry_count(void);
+bool wifi_prov_mdns_started(void);
+esp_err_t wifi_prov_get_ip_str(char *out, size_t out_len);
+esp_err_t wifi_prov_get_rssi(int8_t *out);
+bool wifi_prov_has_ip(void);

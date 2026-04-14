@@ -308,10 +308,11 @@ static void render_logo_row_buf(uint16_t *line, int logo_x, int logo_row)
 }
 
 // Render one pixel row of page content into a line buffer.
-// page: 0=splash, 1=stats. content_y: 0-79.
-// stat_text: pre-formatted stat strings [4][21] (only used for page 1).
+// page: 0=splash, 1=stats, 2=network. content_y: 0-79.
+// stat_text: pre-formatted stat strings [4][21] (used for page 1).
+// net_text: pre-formatted network strings [5][21] (used for page 2).
 static void render_page_row(uint16_t *line, int page, int content_y,
-                            char stat_text[4][21])
+                            char stat_text[4][21], char net_text[5][21])
 {
     // Clear line to black
     for (int x = 0; x < LCD_WIDTH; x++) line[x] = 0x0000;
@@ -331,7 +332,7 @@ static void render_page_row(uint16_t *line, int page, int content_y,
                            content_y - text_y,
                            SWAP16(DISPLAY_COLOR_AMBER), 0x0000);
         }
-    } else {
+    } else if (page == 1) {
         // Stats page: 4 text lines at y=0,16,32,48
         int text_idx = content_y / FONT_H;
         int font_row = content_y % FONT_H;
@@ -341,26 +342,45 @@ static void render_page_row(uint16_t *line, int page, int content_y,
                 : SWAP16(DISPLAY_COLOR_WHITE);
             render_text_row(line, 0, stat_text[text_idx], font_row, fg, 0x0000);
         }
+    } else if (page == 2) {
+        // Network page: 5 text lines at y=0,16,32,48,64
+        int text_idx = content_y / FONT_H;
+        int font_row = content_y % FONT_H;
+        if (text_idx < 5) {
+            uint16_t fg = (text_idx == 0)
+                ? SWAP16(DISPLAY_COLOR_AMBER)
+                : SWAP16(DISPLAY_COLOR_WHITE);
+            render_text_row(line, 0, net_text[text_idx], font_row, fg, 0x0000);
+        }
     }
 }
 
-// Render one frame of the virtual content strip (splash + stats, 160px total).
-// offset: pixel offset into the virtual strip (0 = splash visible, wraps at 160).
-static esp_err_t render_frame(int offset, char stat_text[4][21])
+// Render one frame of the virtual content strip (splash + stats + network, 240px total).
+// offset: pixel offset into the virtual strip (0 = splash visible, wraps at 240).
+static esp_err_t render_frame(int offset, char stat_text[4][21], char net_text[5][21])
 {
     static uint16_t s_row_buf[2][LCD_WIDTH];
     static int s_row_idx;
-    int total = LCD_HEIGHT * 2;
+    int total = LCD_HEIGHT * 3;
 
     for (int sy = 0; sy < LCD_HEIGHT; sy++) {
         uint16_t *line = s_row_buf[s_row_idx];
         int content_y = (sy + offset) % total;
 
+        int page;
+        int page_y;
         if (content_y < LCD_HEIGHT) {
-            render_page_row(line, 0, content_y, stat_text);
+            page = 0;
+            page_y = content_y;
+        } else if (content_y < LCD_HEIGHT * 2) {
+            page = 1;
+            page_y = content_y - LCD_HEIGHT;
         } else {
-            render_page_row(line, 1, content_y - LCD_HEIGHT, stat_text);
+            page = 2;
+            page_y = content_y - LCD_HEIGHT * 2;
         }
+
+        render_page_row(line, page, page_y, stat_text, net_text);
 
         ESP_RETURN_ON_ERROR(
             esp_lcd_panel_draw_bitmap(s_panel, 0, sy, LCD_WIDTH, sy + 1, line),
@@ -370,7 +390,7 @@ static esp_err_t render_frame(int offset, char stat_text[4][21])
     return ESP_OK;
 }
 
-// Two-state scroll: hold splash (5s), scroll through stats and back (8s at 1px/tick).
+// Three-state scroll: hold splash (5s), scroll through stats and network and back (12s at 1px/tick).
 static esp_err_t show_status_st7735(const display_status_t *status)
 {
     static int s_state;   // 0=hold_splash, 1=scroll
@@ -388,20 +408,44 @@ static esp_err_t show_status_st7735(const display_status_t *status)
         snprintf(stat_text[3], 21, "Up: %s", up);
     }
 
+    char net_text[5][21];
+    // Line 0: NET status
+    const char *net_state;
+    if (status->stratum_ok && status->mdns_ok) {
+        net_state = "NET ok";
+    } else if (status->wifi_retry_count > 0 || !status->stratum_ok) {
+        net_state = "NET rcon";
+    } else {
+        net_state = "NET off";
+    }
+    snprintf(net_text[0], 21, "%s", net_state);
+    // Line 1: SSID and RSSI
+    const char *ssid = nv_config_wifi_ssid();
+    snprintf(net_text[1], 21, "%-13.13s%4ddBm", ssid ? ssid : "?", status->rssi);
+    // Line 2: IP address
+    snprintf(net_text[2], 21, "%s", status->ip);
+    // Line 3: disconnect reason, minutes, retry count
+    uint32_t disc_mins = status->wifi_disc_age_s / 60;
+    snprintf(net_text[3], 21, "D:%-3u %-4um r:%d", status->wifi_disc_reason, (unsigned)disc_mins, status->wifi_retry_count);
+    // Line 4: mDNS and Stratum status
+    snprintf(net_text[4], 21, "MDNS:%s S:%s",
+             status->mdns_ok ? "ok" : "--",
+             status->stratum_ok ? "ok" : "r");
+
     switch (s_state) {
     case 0:  // Hold splash
         if (s_tick == 0) {
-            ESP_RETURN_ON_ERROR(render_frame(0, stat_text), TAG, "splash");
+            ESP_RETURN_ON_ERROR(render_frame(0, stat_text, net_text), TAG, "splash");
         }
         if (++s_tick >= 100) { s_state = 1; s_tick = 0; s_offset = 0; }
         break;
 
-    case 1:  // Scroll through stats back to splash
+    case 1:  // Scroll through stats and network back to splash
         s_offset++;
         if (s_offset % 3 == 0) {
-            ESP_RETURN_ON_ERROR(render_frame(s_offset, stat_text), TAG, "scroll");
+            ESP_RETURN_ON_ERROR(render_frame(s_offset, stat_text, net_text), TAG, "scroll");
         }
-        if (s_offset >= LCD_HEIGHT * 2) { s_state = 0; s_tick = 0; }
+        if (s_offset >= LCD_HEIGHT * 3) { s_state = 0; s_tick = 0; }
         break;
     }
 

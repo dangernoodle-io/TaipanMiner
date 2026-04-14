@@ -15,6 +15,7 @@
 #include "mining.h"
 #include "nv_config.h"
 #include "wifi_prov.h"
+#include "stratum.h"
 #include "cJSON.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -327,6 +328,40 @@ static esp_err_t info_handler(httpd_req_t *req)
     }
 
     cJSON_AddBoolToObject(root, "validated", !ota_validator_is_pending());
+
+    cJSON *network = cJSON_CreateObject();
+
+    int8_t rssi = 0;
+    wifi_prov_get_rssi(&rssi);
+    cJSON_AddNumberToObject(network, "rssi", (double)rssi);
+
+    char ip[16] = "0.0.0.0";
+    wifi_prov_get_ip_str(ip, sizeof(ip));
+    cJSON_AddStringToObject(network, "ip", ip);
+
+    uint8_t disc_reason = 0;
+    int64_t disc_age_us = 0;
+    wifi_prov_get_disconnect(&disc_reason, &disc_age_us);
+    cJSON_AddNumberToObject(network, "disc_reason", (double)disc_reason);
+    uint32_t disc_age_s = (uint32_t)(disc_age_us / 1000000);
+    cJSON_AddNumberToObject(network, "disc_age_s", (double)disc_age_s);
+
+    int retry_count = wifi_prov_get_retry_count();
+    cJSON_AddNumberToObject(network, "retry_count", (double)retry_count);
+
+    bool mdns = wifi_prov_mdns_started();
+    cJSON_AddBoolToObject(network, "mdns", mdns);
+
+    bool strat = stratum_is_connected();
+    cJSON_AddBoolToObject(network, "stratum", strat);
+
+    uint32_t strat_delay = stratum_get_reconnect_delay_ms();
+    cJSON_AddNumberToObject(network, "stratum_reconnect_ms", (double)strat_delay);
+
+    int strat_fail = stratum_get_connect_fail_count();
+    cJSON_AddNumberToObject(network, "stratum_fail_count", (double)strat_fail);
+
+    cJSON_AddItemToObject(root, "network", network);
 
     char *json = cJSON_PrintUnformatted(root);
     httpd_resp_set_type(req, "application/json");

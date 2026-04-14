@@ -1,6 +1,7 @@
 #include "wifi_prov.h"
 #include "nv_config.h"
 #include "stratum.h"
+#include "wifi_reconn.h"
 #include <string.h>
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -16,7 +17,6 @@
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "lwip/sockets.h"
-#include "lwip/netdb.h"
 #include "esp_timer.h"
 
 static const char *TAG = "wifi_prov";
@@ -35,6 +35,7 @@ static char s_ap_ssid[32];
 static esp_event_handler_instance_t s_wifi_handler = NULL;
 static esp_event_handler_instance_t s_ip_handler = NULL;
 static esp_timer_handle_t s_reconnect_timer = NULL;
+static volatile bool s_has_ip = false;
 #ifdef ESP_PLATFORM
 static bool s_mdns_started = false;
 #endif
@@ -144,25 +145,97 @@ static void mdns_start(void)
 }
 #endif /* ESP_PLATFORM */
 
+// Getters for diagnostics
+void wifi_prov_get_disconnect(uint8_t *reason, int64_t *age_us)
+{
+    if (wifi_reconn_is_active()) {
+        wifi_reconn_get_disconnect(reason, age_us);
+    } else {
+        if (reason) *reason = 0;
+        if (age_us) *age_us = 0;
+    }
+}
+
+int wifi_prov_get_retry_count(void)
+{
+    return wifi_reconn_is_active() ? wifi_reconn_get_retry_count() : s_retry_count;
+}
+
+bool wifi_prov_mdns_started(void)
+{
+    return s_mdns_started;
+}
+
+esp_err_t wifi_prov_get_ip_str(char *out, size_t out_len)
+{
+    if (!s_sta_netif || out_len < 16) {
+        if (out && out_len > 0) {
+            snprintf(out, out_len, "0.0.0.0");
+        }
+        return ESP_FAIL;
+    }
+
+    esp_netif_ip_info_t ip_info;
+    esp_err_t err = esp_netif_get_ip_info(s_sta_netif, &ip_info);
+    if (err != ESP_OK) {
+        snprintf(out, out_len, "0.0.0.0");
+        return ESP_FAIL;
+    }
+
+    snprintf(out, out_len, IPSTR, IP2STR(&ip_info.ip));
+    return ESP_OK;
+}
+
+esp_err_t wifi_prov_get_rssi(int8_t *out)
+{
+    if (!out) {
+        return ESP_FAIL;
+    }
+
+    wifi_ap_record_t info;
+    esp_err_t err = esp_wifi_sta_get_ap_info(&info);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    *out = info.rssi;
+    return ESP_OK;
+}
+
+bool wifi_prov_has_ip(void)
+{
+    return s_has_ip;
+}
+
 static void event_handler(void *arg, esp_event_base_t event_base,
                           int32_t event_id, void *event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        wifi_event_sta_disconnected_t *disc = (wifi_event_sta_disconnected_t *)event_data;
+        s_has_ip = false;
+
+        if (wifi_reconn_is_active()) {
+            // Post-boot: manager task owns retry policy
+            wifi_reconn_on_disconnect(disc ? disc->reason : 0);
+            return;
+        }
+
+        // Boot-time connect: legacy inline retry until wifi_connect_sta() hands off
         if (s_retry_count >= WIFI_MAX_RETRY) {
             ESP_LOGW(TAG, "max retries reached, delaying 5s before retry");
             s_retry_count = 0;
             if (!s_reconnect_timer) {
                 const esp_timer_create_args_t args = {
                     .callback = reconnect_timer_cb,
-                    .name = "wifi_reconn",
+                    .name = "wifi_reconn_boot",
                 };
                 esp_timer_create(&args, &s_reconnect_timer);
             }
-            esp_timer_stop(s_reconnect_timer);  // ensure no stale timer pending
-            esp_timer_start_once(s_reconnect_timer, 5000000);  // 5s in microseconds
-            return;  // don't call esp_wifi_connect() now
+            esp_timer_stop(s_reconnect_timer);
+            esp_timer_start_once(s_reconnect_timer, 5000000);
+            return;
         }
         esp_wifi_connect();
         s_retry_count++;
@@ -171,6 +244,10 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
         s_retry_count = 0;
+        s_has_ip = true;
+        if (wifi_reconn_is_active()) {
+            wifi_reconn_on_got_ip();
+        }
         nv_config_reset_boot_count();
         if (s_wifi_event_group) {
             xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
@@ -187,6 +264,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
             ESP_LOGD(TAG, "IP_LOST_IP but netif still has IP, ignoring");
             return;
         }
+        s_has_ip = false;
         ESP_LOGW(TAG, "IP lost, requesting stratum reconnect");
         stratum_request_reconnect();
     }
@@ -271,6 +349,7 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
 
 #ifdef ESP_PLATFORM
     mdns_start();
+    wifi_reconn_start();
 #endif
 
     return ESP_OK;

@@ -4,6 +4,7 @@
 
 #include "esp_err.h"
 #include <stdint.h>
+#include <stdbool.h>
 
 // RGB565 colors (standard, not byte-swapped)
 #define DISPLAY_COLOR_BLACK   0x0000
@@ -20,6 +21,16 @@ typedef struct {
     uint32_t shares;       // session accepted
     uint32_t rejected;     // session rejected
     int64_t  uptime_us;    // session uptime in microseconds
+    // Network diagnostics
+    int8_t   rssi;               // 0 if not available
+    char     ip[16];             // dotted string
+    uint8_t  wifi_disc_reason;   // 0 = never
+    uint32_t wifi_disc_age_s;    // seconds since last disconnect
+    int      wifi_retry_count;
+    bool     mdns_ok;
+    bool     stratum_ok;
+    uint32_t stratum_reconnect_ms;
+    int      stratum_fail_count;
 } display_status_t;
 
 esp_err_t display_init(void);

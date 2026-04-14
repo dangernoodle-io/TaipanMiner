@@ -5,7 +5,6 @@
 #include "esp_system.h"
 #include "nvs.h"
 #include "esp_sntp.h"
-#include "board.h"
 #include "wifi_prov.h"
 #include "mining.h"
 #include "work.h"
@@ -129,6 +128,20 @@ static void display_status_task(void *arg)
 #endif
                 xSemaphoreGive(mining_stats.mutex);
             }
+
+            // Populate network diagnostics (lock-free getters)
+            int8_t rssi = 0;
+            wifi_prov_get_rssi(&rssi);
+            status.rssi = rssi;
+            wifi_prov_get_ip_str(status.ip, sizeof(status.ip));
+            int64_t age_us = 0;
+            wifi_prov_get_disconnect(&status.wifi_disc_reason, &age_us);
+            status.wifi_disc_age_s = (uint32_t)(age_us / 1000000);
+            status.wifi_retry_count = wifi_prov_get_retry_count();
+            status.mdns_ok = wifi_prov_mdns_started();
+            status.stratum_ok = stratum_is_connected();
+            status.stratum_reconnect_ms = stratum_get_reconnect_delay_ms();
+            status.stratum_fail_count = stratum_get_connect_fail_count();
         }
         tick++;
 

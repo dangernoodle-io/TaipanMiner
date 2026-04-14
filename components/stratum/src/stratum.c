@@ -7,9 +7,10 @@
 #include "board.h"
 #include "ota_validator.h"
 
+bool wifi_prov_has_ip(void);
+
 #include <string.h>
 #include <stdio.h>
-#include <math.h>
 #include <stdint.h>
 #include <inttypes.h>
 #include <sys/socket.h>
@@ -18,7 +19,6 @@
 #include <unistd.h>
 #include <netinet/tcp.h>
 
-#include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_log.h"
@@ -93,6 +93,16 @@ void stratum_request_reconnect(void)
 void stratum_set_wifi_kick_cb(stratum_wifi_kick_cb_t cb)
 {
     s_wifi_kick_cb = cb;
+}
+
+uint32_t stratum_get_reconnect_delay_ms(void)
+{
+    return s_reconnect_delay_ms;
+}
+
+int stratum_get_connect_fail_count(void)
+{
+    return s_connect_fail_count;
 }
 
 // Send a JSON-RPC request. Returns assigned message id, or -1 on error.
@@ -184,6 +194,17 @@ static int stratum_connect(const char *host, uint16_t port)
 {
     char port_str[8];
     snprintf(port_str, sizeof(port_str), "%d", port);
+
+    // Gate: skip DNS lookup if WiFi station has no IP yet
+    if (!wifi_prov_has_ip()) {
+        static int64_t s_last_no_ip_log_us = 0;
+        int64_t now_us = esp_timer_get_time();
+        if (now_us - s_last_no_ip_log_us > 10000000) {  // 10s rate limit
+            ESP_LOGW(TAG, "no IP yet, deferring DNS lookup");
+            s_last_no_ip_log_us = now_us;
+        }
+        return -1;
+    }
 
     struct addrinfo hints = {
         .ai_family = AF_INET,

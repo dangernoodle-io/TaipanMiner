@@ -25,6 +25,7 @@ bool nv_config_display_enabled(void);
 bool nv_config_is_provisioned(void);
 esp_err_t nv_config_set_provisioned(void);
 esp_err_t nv_config_clear_provisioned(void);
+esp_err_t nv_config_clear_wifi(void);
 
 #define NV_CONFIG_BOOT_FAIL_THRESHOLD 3
 uint8_t   nv_config_boot_count(void);

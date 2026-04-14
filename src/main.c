@@ -206,6 +206,7 @@ void app_main(void)
     if (boot_cnt >= NV_CONFIG_BOOT_FAIL_THRESHOLD && nv_config_is_provisioned()) {
         ESP_LOGW(TAG, "boot_count=%" PRIu8 " >= %d: clearing provisioning for AP fallback",
                  boot_cnt, NV_CONFIG_BOOT_FAIL_THRESHOLD);
+        nv_config_clear_wifi();
         nv_config_clear_provisioned();
         nv_config_reset_boot_count();
     } else if (boot_cnt > 1) {

@@ -224,6 +224,26 @@ esp_err_t nv_config_clear_provisioned(void)
     return err;
 }
 
+esp_err_t nv_config_clear_wifi(void)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+    err = nvs_erase_key(handle, "wifi_ssid");
+    if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
+    if (err == ESP_OK) {
+        err = nvs_erase_key(handle, "wifi_pass");
+        if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
+    }
+    if (err == ESP_OK) err = nvs_commit(handle);
+    nvs_close(handle);
+    if (err == ESP_OK) {
+        s_config.wifi_ssid[0] = '\0';
+        s_config.wifi_pass[0] = '\0';
+    }
+    return err;
+}
+
 uint8_t nv_config_boot_count(void)
 {
     nvs_handle_t handle;

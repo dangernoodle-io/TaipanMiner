@@ -18,6 +18,7 @@
 #include "esp_timer.h"
 #include "partition_fixup.h"
 #include "log_stream.h"
+#include "ota_validator.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #ifdef ASIC_BM1370
@@ -67,24 +68,6 @@ static void stats_save_timer_cb(void *arg)
 
 static void start_mining(void)
 {
-    // Confirm OTA image if pending verification (rollback protection)
-    esp_ota_img_states_t ota_state;
-    const esp_partition_t *running = esp_ota_get_running_partition();
-    if (esp_ota_get_state_partition(running, &ota_state) == ESP_OK) {
-        if (ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
-            esp_ota_mark_app_valid_cancel_rollback();
-            ESP_LOGI(TAG, "OTA: firmware validated");
-
-            // Reset WDT counter on new firmware — clean baseline per release
-            nvs_handle_t h;
-            if (nvs_open("taipanminer", NVS_READWRITE, &h) == ESP_OK) {
-                nvs_erase_key(h, "wdt_resets");
-                nvs_commit(h);
-                nvs_close(h);
-            }
-        }
-    }
-
     // Create inter-task queues
     work_queue = xQueueCreate(1, sizeof(mining_work_t));
     result_queue = xQueueCreate(16, sizeof(mining_result_t));
@@ -214,6 +197,7 @@ void app_main(void)
     // Load config from NVS (falls back to defaults)
     ESP_ERROR_CHECK(nv_config_init());
     log_reset_reason();
+    ota_validator_start();
     ESP_ERROR_CHECK(led_init());
 
     // Boot failure counter — incremented only on WiFi timeout restart (wifi_prov.c),

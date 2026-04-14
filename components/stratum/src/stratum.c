@@ -5,6 +5,7 @@
 #include "work.h"
 #include "sha256.h"
 #include "board.h"
+#include "ota_validator.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -508,6 +509,7 @@ static void process_message(const char *line)
             // Authorize response
             if (result_item && cJSON_IsTrue(result_item)) {
                 ESP_LOGI(TAG, "authorized");
+                ota_validator_on_stratum_authorized();
             } else {
                 ESP_LOGE(TAG, "authorization failed");
                 if (error_item && !cJSON_IsNull(error_item)) {
@@ -541,6 +543,7 @@ static void process_message(const char *line)
                 }
             } else if (result_item && cJSON_IsTrue(result_item)) {
                 ESP_LOGI(TAG, "share accepted");
+                ota_validator_on_share_accepted();
                 int64_t now_us = esp_timer_get_time();
                 mining_lifetime_t lt_snap = {0};
                 if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(10)) == pdTRUE) {

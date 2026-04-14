@@ -24,6 +24,7 @@
 #include <time.h>
 #include <sys/socket.h>
 #include "ota_pull.h"
+#include "ota_validator.h"
 #include "log_stream.h"
 
 static const char *TAG = "http";
@@ -323,6 +324,34 @@ static esp_err_t info_handler(httpd_req_t *req)
     const esp_partition_t *running = esp_ota_get_running_partition();
     if (running) {
         cJSON_AddNumberToObject(root, "app_size", (double)running->size);
+    }
+
+    cJSON_AddBoolToObject(root, "validated", !ota_validator_is_pending());
+
+    char *json = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, strlen(json));
+    free(json);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+static esp_err_t ota_mark_valid_handler(httpd_req_t *req)
+{
+    set_common_headers(req);
+    esp_err_t err = ota_validator_mark_valid_manual();
+
+    cJSON *root = cJSON_CreateObject();
+
+    if (err == ESP_OK) {
+        httpd_resp_set_status(req, "200 OK");
+        cJSON_AddBoolToObject(root, "validated", true);
+    } else if (err == ESP_ERR_INVALID_STATE) {
+        httpd_resp_set_status(req, "409 Conflict");
+        cJSON_AddStringToObject(root, "error", "not pending");
+    } else {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        cJSON_AddStringToObject(root, "error", "mark_valid failed");
     }
 
     char *json = cJSON_PrintUnformatted(root);
@@ -830,6 +859,9 @@ void http_server_switch_to_mining(void)
     httpd_register_uri_handler(s_server, &ota_upload_uri);
     ota_pull_register_handler(s_server);
 
+    httpd_uri_t ota_mark_valid_uri = { .uri = "/api/ota/mark-valid", .method = HTTP_POST, .handler = ota_mark_valid_handler };
+    httpd_register_uri_handler(s_server, &ota_mark_valid_uri);
+
     httpd_uri_t logs_status_uri = { .uri = "/api/logs/status", .method = HTTP_GET, .handler = logs_status_handler };
     httpd_uri_t logs_uri = { .uri = "/api/logs", .method = HTTP_GET, .handler = logs_handler };
     httpd_uri_t reboot_uri = { .uri = "/api/reboot", .method = HTTP_POST, .handler = reboot_handler };
@@ -891,6 +923,9 @@ esp_err_t http_server_start(void)
     httpd_register_uri_handler(s_server, &theme_uri);
     httpd_register_uri_handler(s_server, &logo_uri);
     ota_pull_register_handler(s_server);
+
+    httpd_uri_t ota_mark_valid_uri = { .uri = "/api/ota/mark-valid", .method = HTTP_POST, .handler = ota_mark_valid_handler };
+    httpd_register_uri_handler(s_server, &ota_mark_valid_uri);
 
     httpd_uri_t logs_status_uri = { .uri = "/api/logs/status", .method = HTTP_GET, .handler = logs_status_handler };
     httpd_uri_t logs_uri = { .uri = "/api/logs", .method = HTTP_GET, .handler = logs_handler };

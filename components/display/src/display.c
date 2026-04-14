@@ -3,6 +3,7 @@
 #ifdef ESP_PLATFORM
 
 #include "board.h"
+#include "board_gpio.h"
 #include "esp_log.h"
 #include "esp_check.h"
 #include "driver/gpio.h"
@@ -421,7 +422,12 @@ static esp_err_t show_status_st7735(const display_status_t *status)
 static esp_err_t init_ssd1306(void)
 {
     i2c_master_bus_handle_t i2c_bus = asic_get_i2c_bus();
+#ifdef HAS_I2C
     if (i2c_bus == NULL) {
+        if (!board_gpio_valid(PIN_I2C_SDA, "I2C_SDA") || !board_gpio_valid(PIN_I2C_SCL, "I2C_SCL")) {
+            ESP_LOGW(TAG, "I2C GPIO validation failed, skipping display init");
+            return ESP_OK;
+        }
         i2c_master_bus_config_t bus_cfg = {
             .i2c_port = I2C_BUS_NUM,
             .sda_io_num = PIN_I2C_SDA,
@@ -434,6 +440,12 @@ static esp_err_t init_ssd1306(void)
         asic_set_i2c_bus(i2c_bus);
         ESP_LOGI(TAG, "I2C bus created by display (no ASIC init)");
     }
+#else
+    if (i2c_bus == NULL) {
+        ESP_LOGW(TAG, "HAS_I2C undefined, cannot initialize display");
+        return ESP_OK;
+    }
+#endif
 
     esp_lcd_panel_io_i2c_config_t io_cfg = {
         .dev_addr = SSD1306_I2C_ADDR,

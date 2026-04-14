@@ -12,6 +12,7 @@
 #include "work.h"
 #include "sha256.h"
 #include "board.h"
+#include "board_gpio.h"
 
 #include "esp_log.h"
 #include "esp_check.h"
@@ -132,28 +133,46 @@ esp_err_t asic_init(void)
     ESP_LOGI(TAG, "ASIC reset complete");
 
     // 3. I2C bus
+#ifdef HAS_I2C
     if (s_i2c_bus != NULL) {
         ESP_LOGI(TAG, "I2C bus already initialized");
     } else {
-        i2c_master_bus_config_t bus_cfg = {
-            .i2c_port = I2C_BUS_NUM,
-            .sda_io_num = PIN_I2C_SDA,
-            .scl_io_num = PIN_I2C_SCL,
-            .clk_source = I2C_CLK_SRC_DEFAULT,
-            .glitch_ignore_cnt = 7,
-            .flags.enable_internal_pullup = true,
-        };
-        ESP_RETURN_ON_ERROR(i2c_new_master_bus(&bus_cfg, &s_i2c_bus), TAG, "i2c bus");
+        if (!board_gpio_valid(PIN_I2C_SDA, "I2C_SDA") || !board_gpio_valid(PIN_I2C_SCL, "I2C_SCL")) {
+            ESP_LOGW(TAG, "I2C GPIO validation failed, skipping I2C init");
+        } else {
+            i2c_master_bus_config_t bus_cfg = {
+                .i2c_port = I2C_BUS_NUM,
+                .sda_io_num = PIN_I2C_SDA,
+                .scl_io_num = PIN_I2C_SCL,
+                .clk_source = I2C_CLK_SRC_DEFAULT,
+                .glitch_ignore_cnt = 7,
+                .flags.enable_internal_pullup = true,
+            };
+            ESP_RETURN_ON_ERROR(i2c_new_master_bus(&bus_cfg, &s_i2c_bus), TAG, "i2c bus");
+        }
     }
-    ESP_LOGI(TAG, "I2C bus ready (SDA=%d SCL=%d)", PIN_I2C_SDA, PIN_I2C_SCL);
+    if (s_i2c_bus != NULL) {
+        ESP_LOGI(TAG, "I2C bus ready (SDA=%d SCL=%d)", PIN_I2C_SDA, PIN_I2C_SCL);
+    }
 
     // 4. Voltage regulator
-    ESP_RETURN_ON_ERROR(g_chip_ops->vreg_init(s_i2c_bus, g_chip_ops->default_mv), TAG, "vreg");
-    vTaskDelay(pdMS_TO_TICKS(50));
+    if (s_i2c_bus != NULL) {
+        ESP_RETURN_ON_ERROR(g_chip_ops->vreg_init(s_i2c_bus, g_chip_ops->default_mv), TAG, "vreg");
+        vTaskDelay(pdMS_TO_TICKS(50));
+    } else {
+        ESP_LOGW(TAG, "I2C bus not available, skipping voltage regulator init");
+    }
 
     // 5. EMC2101 temp sensor + fan
-    ESP_RETURN_ON_ERROR(emc2101_init(s_i2c_bus, EMC2101_I2C_ADDR), TAG, "emc2101");
-    ESP_RETURN_ON_ERROR(emc2101_set_fan_duty(63), TAG, "fan on");  // max
+    if (s_i2c_bus != NULL) {
+        ESP_RETURN_ON_ERROR(emc2101_init(s_i2c_bus, EMC2101_I2C_ADDR), TAG, "emc2101");
+        ESP_RETURN_ON_ERROR(emc2101_set_fan_duty(63), TAG, "fan on");  // max
+    } else {
+        ESP_LOGW(TAG, "I2C bus not available, skipping EMC2101 init");
+    }
+#else
+    ESP_LOGW(TAG, "HAS_I2C undefined, skipping I2C init");
+#endif
 
     // 6. Chip init sequence
     ESP_RETURN_ON_ERROR(g_chip_ops->chip_init(), TAG, "chip init");

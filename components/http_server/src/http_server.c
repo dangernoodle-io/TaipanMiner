@@ -888,7 +888,7 @@ void http_server_switch_to_mining(void)
     httpd_uri_t status_uri = { .uri = "/", .method = HTTP_GET, .handler = status_handler };
     httpd_uri_t stats_uri = { .uri = "/api/stats", .method = HTTP_GET, .handler = stats_handler };
     httpd_uri_t mining_js_uri = { .uri = "/mining.js", .method = HTTP_GET, .handler = mining_js_handler };
-    httpd_uri_t ota_upload_uri = { .uri = "/ota/upload", .method = HTTP_POST, .handler = ota_upload_handler };
+    httpd_uri_t ota_upload_uri = { .uri = "/api/ota/upload", .method = HTTP_POST, .handler = ota_upload_handler };
 
     httpd_register_uri_handler(s_server, &status_uri);
     httpd_register_uri_handler(s_server, &stats_uri);
@@ -938,7 +938,7 @@ esp_err_t http_server_start(void)
         .uri = "/mining.js", .method = HTTP_GET, .handler = mining_js_handler
     };
     httpd_uri_t ota_upload_uri = {
-        .uri = "/ota/upload", .method = HTTP_POST, .handler = ota_upload_handler
+        .uri = "/api/ota/upload", .method = HTTP_POST, .handler = ota_upload_handler
     };
     httpd_uri_t theme_uri = {
         .uri = "/theme.css", .method = HTTP_GET, .handler = theme_handler

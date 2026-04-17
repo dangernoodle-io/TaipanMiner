@@ -14,7 +14,6 @@
 #if defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_403) || defined(BOARD_TDONGLE_S3)
 #  define HAS_I2C 1
 #endif
-// N8-T intentionally omitted until real I2C pins are confirmed (TA-48)
 
 // Compile-time sanity check: C3 targets must have I2C pins in valid range
 #if CONFIG_IDF_TARGET_ESP32C3 && defined(HAS_I2C)

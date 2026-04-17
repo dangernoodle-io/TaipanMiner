@@ -9,7 +9,6 @@ sdkconfig.bitaxe-601
 sdkconfig.bitaxe-601-debug
 sdkconfig.bitaxe-403
 sdkconfig.bitaxe-403-debug
-sdkconfig.bitdsk-n8t
 src/partition_fixup_data.c
 components/http_server/src/*_gz.c
 .code-graph/

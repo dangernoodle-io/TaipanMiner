@@ -33,6 +33,7 @@ static StaticRingbuffer_t s_rb_static;
 static RingbufHandle_t s_rb = NULL;
 static vprintf_like_t s_orig_vprintf = NULL;
 static bool s_ready = false;
+static uint32_t s_dropped_lines = 0;
 
 static void s_drop_oldest(void)
 {
@@ -59,10 +60,13 @@ static int s_log_vprintf(const char *fmt, va_list args)
 
     size_t len = (n < (int)sizeof(line)) ? (size_t)n : sizeof(line) - 1;
 
-    // Non-blocking send; drop oldest on overflow
+    // Non-blocking send; drop oldest on overflow (bounded loop)
     if (xRingbufferSend(s_rb, line, len + 1, 0) != pdTRUE) {
-        s_drop_oldest();
-        xRingbufferSend(s_rb, line, len + 1, 0);
+        for (int i = 0; i < 8; i++) {
+            s_drop_oldest();
+            if (xRingbufferSend(s_rb, line, len + 1, 0) == pdTRUE) break;
+            if (i == 7) s_dropped_lines++;
+        }
     }
 
     return result;
@@ -101,6 +105,11 @@ size_t log_stream_drain(char *out_buf, size_t out_buf_len, uint32_t ticks_to_wai
 bool log_stream_ready(void)
 {
     return s_ready;
+}
+
+uint32_t log_stream_dropped_lines(void)
+{
+    return s_dropped_lines;
 }
 
 #endif /* ESP_PLATFORM */

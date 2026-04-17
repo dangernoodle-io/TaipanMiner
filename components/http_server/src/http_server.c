@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <sys/socket.h>
+#include <inttypes.h>
 #include "ota_pull.h"
 #include "ota_validator.h"
 #include "log_stream.h"
@@ -635,12 +636,13 @@ static esp_err_t logs_status_handler(httpd_req_t *req)
 {
     set_common_headers(req);
     httpd_resp_set_type(req, "application/json");
-    char buf[64];
+    char buf[96];
+    uint32_t dropped = log_stream_dropped_lines();
     if (s_sse_client_type == 0) {
-        snprintf(buf, sizeof(buf), "{\"active\":false,\"client\":null}");
+        snprintf(buf, sizeof(buf), "{\"active\":false,\"client\":null,\"dropped\":%" PRIu32 "}", dropped);
     } else {
-        snprintf(buf, sizeof(buf), "{\"active\":true,\"client\":\"%s\"}",
-                 s_sse_client_type == 1 ? "browser" : "external");
+        snprintf(buf, sizeof(buf), "{\"active\":true,\"client\":\"%s\",\"dropped\":%" PRIu32 "}",
+                 s_sse_client_type == 1 ? "browser" : "external", dropped);
     }
     httpd_resp_sendstr(req, buf);
     return ESP_OK;

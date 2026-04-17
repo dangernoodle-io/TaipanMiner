@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 /**
  * Format fmt+args into out_buf (like vsnprintf).
@@ -31,5 +32,10 @@ size_t log_stream_drain(char *out_buf, size_t out_buf_len, uint32_t ticks_to_wai
  * Returns true if log_stream_init() has been called successfully.
  */
 bool log_stream_ready(void);
+
+/**
+ * Returns the count of lines that could not be sent despite the drop-oldest loop.
+ */
+uint32_t log_stream_dropped_lines(void);
 
 #endif /* ESP_PLATFORM */

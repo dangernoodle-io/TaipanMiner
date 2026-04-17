@@ -15,6 +15,8 @@ extern const unsigned int g_partitions_bin_len;
 
 #define PARTITION_TABLE_ADDR  0x8000
 #define OTA_0_ADDR            0x20000
+#define OTA_1_ADDR            0x200000
+#define OTA_SLOT_SIZE         0x1E0000
 #define OTADATA_ADDR          0xF000
 #define OTADATA_SIZE          0x2000
 #define COPY_CHUNK_SIZE       4096
@@ -107,6 +109,35 @@ void partition_fixup_check(void)
         ESP_LOGE(TAG, "write partition table failed: %s", esp_err_to_name(err));
         return;
     }
+
+    // Duplicate ota_0 into ota_1 for rollback safety
+    // Prevents anti-rollback from booting into garbage if mark-valid doesn't fire
+    ESP_LOGI(TAG, "duplicating ota_0 -> ota_1 for rollback safety");
+    for (uint32_t offset = 0; offset < OTA_SLOT_SIZE; offset += COPY_CHUNK_SIZE) {
+        uint32_t len = COPY_CHUNK_SIZE;
+        if (offset + len > OTA_SLOT_SIZE) {
+            len = OTA_SLOT_SIZE - offset;
+        }
+
+        err = esp_flash_read(NULL, s_buf, OTA_0_ADDR + offset, len);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "ota_1 copy: read failed at offset 0x%" PRIx32 ": %s", offset, esp_err_to_name(err));
+            return;
+        }
+
+        err = esp_flash_erase_region(NULL, OTA_1_ADDR + offset, COPY_CHUNK_SIZE);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "ota_1 copy: erase failed at offset 0x%" PRIx32 ": %s", offset, esp_err_to_name(err));
+            return;
+        }
+
+        err = esp_flash_write(NULL, s_buf, OTA_1_ADDR + offset, len);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "ota_1 copy: write failed at offset 0x%" PRIx32 ": %s", offset, esp_err_to_name(err));
+            return;
+        }
+    }
+    ESP_LOGI(TAG, "ota_1 duplication complete (%" PRIu32 " bytes)", OTA_SLOT_SIZE);
 
     // Erase otadata (8KB = two 4KB sectors at 0xF000)
     // All 0xFF means "boot from ota_0"

@@ -1,6 +1,7 @@
 #include "ota_validator.h"
 #include <stdatomic.h>
 #include "esp_ota_ops.h"
+#include "esp_app_format.h"
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "nv_config.h"
@@ -30,12 +31,27 @@ static void timer_callback(void *arg)
     mark_valid_internal("sustained stratum");
 }
 
+static bool other_slot_has_valid_app(void)
+{
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    if (running == NULL) return false;
+    const esp_partition_t *other = esp_ota_get_next_update_partition(running);
+    if (other == NULL) return false;
+    esp_app_desc_t desc;
+    return esp_ota_get_partition_description(other, &desc) == ESP_OK;
+}
+
 void ota_validator_start(void)
 {
     esp_ota_img_states_t ota_state;
     const esp_partition_t *running = esp_ota_get_running_partition();
     if (esp_ota_get_state_partition(running, &ota_state) == ESP_OK) {
         if (ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
+            if (!other_slot_has_valid_app()) {
+                ESP_LOGW(TAG, "other OTA slot lacks a valid app — rollback target unsafe, marking valid immediately");
+                mark_valid_internal("rollback-unsafe preflight");
+                return;
+            }
             s_pending = true;
             ESP_LOGI(TAG, "OTA image pending verification");
         }

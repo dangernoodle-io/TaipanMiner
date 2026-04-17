@@ -43,6 +43,10 @@ For clangd-based C/C++ IntelliSense (e.g. via the `esp-idf-clangd` Claude Code p
 | `bitaxe-601` | Bitaxe 601 Gamma | BM1370 | USB CDC |
 | `bitaxe-403` | Bitaxe 403 | BM1368 | USB CDC |
 
+### Platform policy
+
+**Exposed serial is a hard prerequisite.** Do not add support for boards without accessible UART or USB-CDC pins. A soft-lock on a bad OTA is unrecoverable without serial, and vendor-preflashed units with `SECURE_DOWNLOAD_MODE` burned in make serial itself useless — compounding the risk. The BITDSK N8-T attempt (see `ouroboros` KB) confirmed this the hard way.
+
 ### Adding a new board
 
 1. **Board header** — create `components/board/include/boards/<board>.h` with pin definitions

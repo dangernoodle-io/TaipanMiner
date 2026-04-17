@@ -56,7 +56,7 @@ static esp_err_t ensure_server_started(void)
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_open_sockets = 7;
     config.lru_purge_enable = true;
-    config.max_uri_handlers = 20;
+    config.max_uri_handlers = 32;
     config.stack_size = 6144;
     config.recv_wait_timeout = 30;
     config.send_wait_timeout = 30;

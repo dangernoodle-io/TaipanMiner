@@ -13,4 +13,7 @@ esp_err_t emc2101_read_temp(float *temp_c);
 // Set fan PWM duty cycle (0-63).
 esp_err_t emc2101_set_fan_duty(uint8_t duty_0_63);
 
+// Read fan speed in RPM. Returns -1 on I2C error or stalled fan.
+int emc2101_read_rpm(void);
+
 #endif // ASIC_BM1370 || ASIC_BM1368

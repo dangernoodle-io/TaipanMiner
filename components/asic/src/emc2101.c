@@ -11,6 +11,8 @@ static const char *TAG = "emc2101";
 #define REG_EXTERNAL_MSB    0x01
 #define REG_CONFIG           0x03
 #define REG_EXTERNAL_LSB    0x10
+#define REG_TACH_LSB        0x46
+#define REG_TACH_MSB        0x47
 #define REG_FAN_CONFIG      0x4A
 #define REG_FAN_SETTING     0x4C
 
@@ -69,6 +71,16 @@ esp_err_t emc2101_set_fan_duty(uint8_t duty_0_63)
 {
     if (duty_0_63 > 63) duty_0_63 = 63;
     return reg_write(REG_FAN_SETTING, duty_0_63);
+}
+
+int emc2101_read_rpm(void)
+{
+    uint8_t lsb, msb;
+    if (reg_read(REG_TACH_LSB, &lsb) != ESP_OK) return -1;
+    if (reg_read(REG_TACH_MSB, &msb) != ESP_OK) return -1;
+    uint16_t tach = (uint16_t)lsb | ((uint16_t)msb << 8);
+    if (tach == 0xFFFF) return -1;
+    return 5400000 / tach;
 }
 
 #endif // ASIC_BM1370 || ASIC_BM1368

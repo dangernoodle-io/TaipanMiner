@@ -154,6 +154,7 @@ typedef struct {
     int                 vcore_mv;
     int                 icore_ma;
     int                 pcore_mw;
+    int                 fan_rpm;
 #endif
     uint32_t            hw_shares;
     double              pool_difficulty;

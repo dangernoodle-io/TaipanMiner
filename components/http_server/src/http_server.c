@@ -302,6 +302,32 @@ static esp_err_t power_handler(httpd_req_t *req)
     cJSON_Delete(root);
     return ESP_OK;
 }
+
+static esp_err_t fan_handler(httpd_req_t *req)
+{
+    set_common_headers(req);
+    int fan_rpm = -1;
+
+    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        fan_rpm = mining_stats.fan_rpm;
+        xSemaphoreGive(mining_stats.mutex);
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    if (fan_rpm >= 0) {
+        cJSON_AddNumberToObject(root, "rpm", fan_rpm);
+    } else {
+        cJSON_AddNullToObject(root, "rpm");
+    }
+    cJSON_AddNumberToObject(root, "duty_pct", 100);
+
+    char *json = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, strlen(json));
+    free(json);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
 #endif // ASIC_CHIP
 
 static esp_err_t version_handler(httpd_req_t *req)
@@ -962,6 +988,8 @@ void http_server_switch_to_mining(void)
 #ifdef ASIC_CHIP
     httpd_uri_t power_uri = { .uri = "/api/power", .method = HTTP_GET, .handler = power_handler };
     httpd_register_uri_handler(s_server, &power_uri);
+    httpd_uri_t fan_uri = { .uri = "/api/fan", .method = HTTP_GET, .handler = fan_handler };
+    httpd_register_uri_handler(s_server, &fan_uri);
 #endif
 }
 
@@ -1032,6 +1060,8 @@ esp_err_t http_server_start(void)
 #ifdef ASIC_CHIP
     httpd_uri_t power_uri = { .uri = "/api/power", .method = HTTP_GET, .handler = power_handler };
     httpd_register_uri_handler(s_server, &power_uri);
+    httpd_uri_t fan_uri = { .uri = "/api/fan", .method = HTTP_GET, .handler = fan_handler };
+    httpd_register_uri_handler(s_server, &fan_uri);
 #endif
 
     ESP_LOGI(TAG, "HTTP server started on port %d", 80);

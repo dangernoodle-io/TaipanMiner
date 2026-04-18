@@ -115,7 +115,7 @@ For clangd-based C/C++ IntelliSense (via the `espidf-clangd-lsp` Claude Code plu
 
 ### Web UI
 
-- Mining-mode SPA: `mining.html` + `mining.js` at `/`, four tabs (Info, Status, Settings, Update)
+- Mining-mode SPA: `mining.html` + `mining.js` at `/`, five tabs: Diagnostics, Info, Settings, Status, Health (bitaxe-only), Update
 - Provisioning-mode: `prov_form.html` at `/`, `prov_save.html` at `/save`
 - `theme.css` shared between both modes (dark navy/gold design system)
 - `scripts/embed_html.py` pre-build: gzip-compresses web assets → C byte arrays in `src/*_gz.c`

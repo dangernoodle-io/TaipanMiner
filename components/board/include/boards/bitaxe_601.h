@@ -39,3 +39,10 @@
 #define BM1370_CHIP_COUNT       1      // number of BM1370 chips in chain
 #define BM1370_JOB_INTERVAL_MS  500    // job dispatch interval (ms) — keeps ASIC fed
 #define I2C_BUS_NUM             0      // I2C master bus number
+
+// Board overhead beyond the ASIC core rail (MCU, regulators, LEDs, OLED).
+// Matches AxeOS FAMILY_GAMMA.power_offset so /api/power reports whole-board draw.
+#define BOARD_POWER_OFFSET_MW   5000
+
+// Nominal input voltage (5V rail)
+#define BOARD_NOMINAL_VIN_MV    5000

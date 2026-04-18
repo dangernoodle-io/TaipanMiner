@@ -3,6 +3,7 @@ fetch('/api/version').then(r=>r.text()).then(v=>{document.getElementById('ver').
 
 var infoLoaded = false;
 var settingsLoaded = false;
+var hasPowerCap = false;
 
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
@@ -25,8 +26,7 @@ document.querySelectorAll('.tab').forEach(tab => {
         document.getElementById('i-cores').textContent = d.cores;
         document.getElementById('i-mac').textContent = d.mac;
         if (d.ssid) document.getElementById('i-ssid').textContent = d.ssid;
-        if (d.free_heap !== undefined) {
-          document.getElementById('i-heap').textContent = fmtBytes(d.free_heap) + ' / ' + fmtBytes(d.total_heap);
+        if (d.flash_size !== undefined) {
           document.getElementById('i-flash').textContent = fmtBytes(d.app_size) + ' / ' + fmtBytes(d.flash_size);
         }
         if (d.reset_reason) document.getElementById('i-reset').textContent = d.reset_reason;
@@ -38,6 +38,11 @@ document.querySelectorAll('.tab').forEach(tab => {
 
     if (tab.dataset.view === 'settings' && !settingsLoaded) {
       loadSettings();
+    }
+
+    if (tab.dataset.view === 'health') {
+      refreshPower();
+      refreshFan();
     }
   });
 });
@@ -91,12 +96,73 @@ function fmtBytes(b) {
   return b + ' B';
 }
 
+function fmtOpt(v, fn, fallback) {
+  if (fallback === undefined) fallback = '--';
+  return (v == null) ? fallback : fn(v);
+}
+
+function probeHealthCapability() {
+  fetch('/api/power').then(function(res) {
+    if (res.ok) {
+      hasPowerCap = true;
+      document.getElementById('health-fan-section').style.display = '';
+      document.getElementById('health-power-section').style.display = '';
+      document.getElementById('health-asic-row').style.display = '';
+      document.getElementById('health-board-row').style.display = '';
+      document.getElementById('health-vr-row').style.display = '';
+    } else {
+      document.getElementById('health-esp-row').style.display = '';
+    }
+  }).catch(function() {
+    document.getElementById('health-esp-row').style.display = '';
+  });
+}
+
+function refreshPower() {
+  if (!hasPowerCap) return;
+  fetch('/api/power').then(function(r) { return r.json(); }).then(function(d) {
+    document.getElementById('health-vcore').textContent = fmtOpt(d.vcore_mv, function(v) { return (v/1000).toFixed(3) + ' V'; });
+    document.getElementById('health-icore').textContent = fmtOpt(d.icore_ma, function(v) { return (v/1000).toFixed(2) + ' A'; });
+    document.getElementById('health-pcore').textContent = fmtOpt(d.pcore_mw, function(v) { return (v/1000).toFixed(2) + ' W'; });
+    document.getElementById('health-eff').textContent = fmtOpt(d.efficiency_jth, function(v) { return v.toFixed(2) + ' J/TH'; });
+    var vinEl = document.getElementById('health-vin');
+    vinEl.textContent = fmtOpt(d.vin_mv, function(v) { return (v/1000).toFixed(2) + ' V'; });
+    if (d.vin_low) {
+      vinEl.style.color = 'var(--err)';
+    } else {
+      vinEl.style.color = '';
+    }
+    document.getElementById('health-board-temp').textContent = fmtOpt(d.board_temp_c, function(v) { return v.toFixed(1) + '\u00B0C'; });
+    document.getElementById('health-vr-temp').textContent = fmtOpt(d.vr_temp_c, function(v) { return v.toFixed(0) + '\u00B0C'; });
+  }).catch(function() {});
+}
+
+function refreshFan() {
+  if (!hasPowerCap) return;
+  fetch('/api/fan').then(function(r) { return r.json(); }).then(function(d) {
+    document.getElementById('health-rpm').textContent = fmtOpt(d.rpm, function(v) { return v + ' RPM'; });
+    document.getElementById('health-duty').textContent = fmtOpt(d.duty_pct, function(v) { return v + '%'; });
+  }).catch(function() {});
+}
+
 function refreshStats() {
   fetch('/api/stats').then(r=>r.json()).then(d => {
     document.getElementById('s-hashrate').textContent = fmtHash(d.hashrate);
     document.getElementById('s-hashrate-avg').textContent = fmtHash(d.hashrate_avg);
-    var temp = (d.asic_temp_c != null) ? d.asic_temp_c : d.temp_c;
-    document.getElementById('s-temp').textContent = temp.toFixed(1) + '\u00B0C';
+    if (hasPowerCap) {
+      if (d.asic_temp_c != null) {
+        document.getElementById('health-temp').textContent = d.asic_temp_c.toFixed(1) + '\u00B0C';
+      }
+    } else if (d.temp_c != null) {
+      document.getElementById('health-esp-temp').textContent = d.temp_c.toFixed(1) + '\u00B0C';
+    }
+    if (d.rssi_dbm != null) {
+      var bars = d.rssi_dbm >= -55 ? 'excellent' : d.rssi_dbm >= -65 ? 'good' : d.rssi_dbm >= -75 ? 'fair' : 'weak';
+      document.getElementById('health-rssi').textContent = d.rssi_dbm + ' dBm (' + bars + ')';
+    }
+    if (d.free_heap != null && d.total_heap != null) {
+      document.getElementById('health-heap').textContent = fmtBytes(d.free_heap) + ' / ' + fmtBytes(d.total_heap);
+    }
     document.getElementById('s-uptime').textContent = fmtUptime(d.uptime_s);
     document.getElementById('s-shares').textContent = d.session_shares;
     document.getElementById('s-rejected').textContent = d.session_rejected;
@@ -115,13 +181,14 @@ function refreshStats() {
     document.getElementById('s-worker').textContent = d.worker;
     document.getElementById('s-pool').textContent = d.pool_host + ':' + d.pool_port;
     document.getElementById('s-pooldiff').textContent = d.pool_difficulty > 0 ? parseFloat(d.pool_difficulty.toFixed(4)) : '--';
-    document.getElementById('i-host').textContent = d.pool_host;
-    document.getElementById('i-port').textContent = d.pool_port;
-    document.getElementById('i-worker').textContent = d.worker;
-    if (d.wallet && d.wallet.length > 10) {
-      document.getElementById('i-wallet').textContent = d.wallet.slice(0,6) + '...' + d.wallet.slice(-4);
-    } else {
-      document.getElementById('i-wallet').textContent = d.wallet || '--';
+    var srEl = document.getElementById('s-sharesrate');
+    if (srEl) {
+      if (d.uptime_s > 60 && d.session_shares >= 0) {
+        var rate = d.session_shares * 3600 / d.uptime_s;
+        srEl.textContent = rate >= 10 ? rate.toFixed(0) : rate.toFixed(1);
+      } else {
+        srEl.textContent = '--';
+      }
     }
     document.getElementById('u-version').textContent = d.version;
     document.getElementById('u-board').textContent = d.board;
@@ -130,7 +197,12 @@ function refreshStats() {
 }
 
 refreshStats();
-setInterval(refreshStats, 5000);
+probeHealthCapability();
+setInterval(function() {
+  refreshStats();
+  refreshPower();
+  refreshFan();
+}, 5000);
 
 document.getElementById('otaCheckBtn').addEventListener('click', function() {
   var btn = document.getElementById('otaCheckBtn');

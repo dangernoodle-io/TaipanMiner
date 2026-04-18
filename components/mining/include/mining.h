@@ -150,12 +150,15 @@ typedef struct {
     double              asic_hashrate;
     hashrate_ema_t      asic_ema;
     uint32_t            asic_shares;
-    float               asic_temp_c;     // ASIC die temperature via EMC2101
+    float               asic_temp_c;     // ASIC die temperature via EMC2101 external diode
+    float               board_temp_c;    // Board/ambient temperature via EMC2101 internal sensor
     int                 vcore_mv;
     int                 icore_ma;
     int                 pcore_mw;
     int                 fan_rpm;
     int                 fan_duty_pct;
+    int                 vin_mv;          // Input voltage (5V rail) via TPS546
+    float               vr_temp_c;       // Voltage regulator die temperature via TPS546
 #endif
     uint32_t            hw_shares;
     double              pool_difficulty;

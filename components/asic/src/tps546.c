@@ -14,6 +14,8 @@ static const char *TAG = "tps546";
 #define PMBUS_VOUT_COMMAND 0x21
 #define PMBUS_READ_VOUT    0x8B
 #define PMBUS_READ_IOUT    0x8C
+#define PMBUS_READ_VIN     0x88
+#define PMBUS_READ_TEMPERATURE_1 0x8D
 
 // OPERATION values
 #define OPERATION_ON  0x80
@@ -119,6 +121,24 @@ int tps546_read_iout_ma(void)
         return -1;
     }
     return tps546_slinear11_to_ma(raw);
+}
+
+int tps546_read_vin_mv(void)
+{
+    uint16_t raw;
+    if (pmbus_read_word(PMBUS_READ_VIN, &raw) != ESP_OK) {
+        return -1;
+    }
+    return tps546_slinear11_to_mv(raw);
+}
+
+int tps546_read_temp_c(void)
+{
+    uint16_t raw;
+    if (pmbus_read_word(PMBUS_READ_TEMPERATURE_1, &raw) != ESP_OK) {
+        return -1;
+    }
+    return tps546_slinear11_to_c_int(raw);
 }
 
 #endif // ASIC_BM1370 || ASIC_BM1368

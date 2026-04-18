@@ -39,3 +39,10 @@
 #define BM1368_DEFAULT_FREQ_MHZ 490    // initial PLL target frequency (MHz)
 #define BM1368_CHIP_COUNT       1      // number of BM1368 chips in chain
 #define BM1368_JOB_INTERVAL_MS  500    // job dispatch interval (ms) — keeps ASIC fed
+
+// Board overhead beyond the ASIC core rail (MCU, regulators, LEDs, OLED).
+// Matches AxeOS FAMILY_SUPRA.power_offset so /api/power reports whole-board draw.
+#define BOARD_POWER_OFFSET_MW   5000
+
+// Nominal input voltage (5V rail)
+#define BOARD_NOMINAL_VIN_MV    5000

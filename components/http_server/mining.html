@@ -16,6 +16,7 @@
 
   <nav class='tabs'>
     <button class='tab' data-view='diagnostics'>Diagnostics</button>
+    <button class='tab' data-view='health'>Health</button>
     <button class='tab' data-view='info'>Info</button>
     <button class='tab' data-view='settings'>Settings</button>
     <button class='tab active' data-view='status'>Status</button>
@@ -62,8 +63,8 @@
         <div class='stat-label'>Last Share</div>
       </div>
       <div class='stat-item'>
-        <div class='stat-value' id='s-temp'>--</div>
-        <div class='stat-label'>Temperature</div>
+        <div class='stat-value' id='s-sharesrate'>--</div>
+        <div class='stat-label'>Shares / Hour</div>
       </div>
       <div class='stat-item'>
         <div class='stat-value' id='s-uptime'>--</div>
@@ -74,6 +75,34 @@
       <span id='s-worker'>--</span>
       <span id='s-pool'>--</span>
       <span>diff: <span id='s-pooldiff'>--</span></span>
+    </div>
+  </div>
+
+  <div id='health' class='view'>
+    <div class='section' id='health-fan-section' style='display:none'>
+      <h2>Fan</h2>
+      <div class='info-row'><span class='info-key'>Fan Speed</span><span class='info-val' id='health-duty'>--</span></div>
+      <div class='info-row'><span class='info-key'>Fan RPM</span><span class='info-val' id='health-rpm'>--</span></div>
+    </div>
+    <div class='section'>
+      <h2>Heat</h2>
+      <div class='info-row' id='health-esp-row' style='display:none'><span class='info-key'>ESP32 Temperature</span><span class='info-val' id='health-esp-temp'>--</span></div>
+      <div class='info-row' id='health-asic-row' style='display:none'><span class='info-key'>ASIC Temperature</span><span class='info-val' id='health-temp'>--</span></div>
+      <div class='info-row' id='health-board-row' style='display:none'><span class='info-key'>Board Temperature</span><span class='info-val' id='health-board-temp'>--</span></div>
+      <div class='info-row' id='health-vr-row' style='display:none'><span class='info-key'>VR Temperature</span><span class='info-val' id='health-vr-temp'>--</span></div>
+    </div>
+    <div class='section'>
+      <h2>System</h2>
+      <div class='info-row'><span class='info-key'>WiFi Signal</span><span class='info-val' id='health-rssi'>--</span></div>
+      <div class='info-row'><span class='info-key'>Free Memory</span><span class='info-val' id='health-heap'>--</span></div>
+    </div>
+    <div class='section' id='health-power-section' style='display:none'>
+      <h2>Power</h2>
+      <div class='info-row'><span class='info-key'>ASIC Voltage</span><span class='info-val' id='health-vcore'>--</span></div>
+      <div class='info-row'><span class='info-key'>ASIC Current</span><span class='info-val' id='health-icore'>--</span></div>
+      <div class='info-row'><span class='info-key'>Input Voltage</span><span class='info-val' id='health-vin'>--</span></div>
+      <div class='info-row'><span class='info-key'>Power</span><span class='info-val' id='health-pcore'>--</span></div>
+      <div class='info-row'><span class='info-key'>Efficiency</span><span class='info-val' id='health-eff'>--</span></div>
     </div>
   </div>
 
@@ -88,7 +117,7 @@
         <div class='info-row'><span class='info-key'>Pool Password</span><span class='info-val' id='sv-poolpass'>--</span></div>
       </div>
       <div class='section'>
-        <h2>Settings</h2>
+        <h2>Display</h2>
         <div class='info-row'><span class='info-key'>Screen</span><span class='info-val' id='sv-display-text'>--</span></div>
         <div class='info-row'><span class='info-key'>OTA Skip Check</span><span class='info-val' id='sv-otaskip-text'>--</span></div>
       </div>
@@ -123,7 +152,7 @@
         </div>
       </div>
       <div class='section'>
-        <h2>Settings</h2>
+        <h2>Display</h2>
         <div class='info-row'>
           <span class='info-key'>Screen</span>
           <label class='toggle'>
@@ -166,13 +195,6 @@
 
   <div id='info' class='view'>
     <div class='section'>
-      <h2>Pool</h2>
-      <div class='info-row'><span class='info-key'>Host</span><span class='info-val' id='i-host'>--</span></div>
-      <div class='info-row'><span class='info-key'>Port</span><span class='info-val' id='i-port'>--</span></div>
-      <div class='info-row'><span class='info-key'>Worker</span><span class='info-val' id='i-worker'>--</span></div>
-      <div class='info-row'><span class='info-key'>Wallet</span><span class='info-val' id='i-wallet'>--</span></div>
-    </div>
-    <div class='section'>
       <h2>Device</h2>
       <div class='info-row'><span class='info-key'>Board</span><span class='info-val' id='i-board'>--</span></div>
       <div class='info-row'><span class='info-key'>Version</span><span class='info-val' id='i-version'>--</span></div>
@@ -180,7 +202,6 @@
       <div class='info-row'><span class='info-key'>Cores</span><span class='info-val' id='i-cores'>--</span></div>
       <div class='info-row'><span class='info-key'>MAC</span><span class='info-val' id='i-mac'>--</span></div>
       <div class='info-row'><span class='info-key'>SSID</span><span class='info-val' id='i-ssid'>--</span></div>
-      <div class='info-row'><span class='info-key'>Memory</span><span class='info-val' id='i-heap'>--</span></div>
       <div class='info-row'><span class='info-key'>Flash</span><span class='info-val' id='i-flash'>--</span></div>
       <div class='info-row'><span class='info-key'>Reset Reason</span><span class='info-val' id='i-reset'>--</span></div>
       <div class='info-row'><span class='info-key'>WDT Resets</span><span class='info-val' id='i-wdt'>--</span></div>

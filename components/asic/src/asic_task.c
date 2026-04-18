@@ -403,15 +403,22 @@ void asic_mining_task(void *arg)
             {
                 int v = tps546_read_vout_mv();
                 int i = tps546_read_iout_ma();
-                int p = (v >= 0 && i >= 0) ? (int)((int64_t)v * i / 1000) : -1;
+                int p = (v >= 0 && i >= 0) ? (int)((int64_t)v * i / 1000) + BOARD_POWER_OFFSET_MW : -1;
+                int vin = tps546_read_vin_mv();
+                int vr_temp = tps546_read_temp_c();
                 int rpm = emc2101_read_rpm();
                 int duty = emc2101_get_duty_pct();
+                float board_t = -1.0f;
+                if (emc2101_read_internal_temp(&board_t) != ESP_OK) board_t = -1.0f;
                 if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                     mining_stats.vcore_mv = v;
                     mining_stats.icore_ma = i;
                     mining_stats.pcore_mw = p;
+                    mining_stats.vin_mv = vin;
+                    mining_stats.vr_temp_c = (vr_temp >= 0) ? (float)vr_temp : -1.0f;
                     mining_stats.fan_rpm = rpm;
                     mining_stats.fan_duty_pct = duty;
+                    mining_stats.board_temp_c = board_t;
                     xSemaphoreGive(mining_stats.mutex);
                 }
             }

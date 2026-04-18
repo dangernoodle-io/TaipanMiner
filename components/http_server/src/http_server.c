@@ -9,6 +9,7 @@
 #include "esp_mac.h"
 #include "esp_flash.h"
 #include "esp_heap_caps.h"
+#include "esp_wifi.h"
 #include "esp_system.h"
 #include "nvs.h"
 #include "board.h"
@@ -190,7 +191,7 @@ static esp_err_t stats_handler(httpd_req_t *req)
     uint32_t session_shares = 0, session_rejected = 0;
     int64_t last_share_us = 0, session_start_us = 0;
     mining_lifetime_t lifetime = {0};
-#ifdef ASIC_CHIP
+#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
     double asic_rate = 0, asic_ema = 0;
     uint32_t asic_shares = 0;
     float asic_temp = 0;
@@ -208,7 +209,7 @@ static esp_err_t stats_handler(httpd_req_t *req)
         session_start_us = mining_stats.session.start_us;
         best_diff = mining_stats.session.best_diff;
         lifetime = mining_stats.lifetime;
-#ifdef ASIC_CHIP
+#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
         asic_rate = mining_stats.asic_hashrate;
         asic_ema = mining_stats.asic_ema.value;
         asic_shares = mining_stats.asic_shares;
@@ -238,12 +239,20 @@ static esp_err_t stats_handler(httpd_req_t *req)
     cJSON_AddStringToObject(root, "worker", nv_config_worker_name());
     cJSON_AddStringToObject(root, "wallet", nv_config_wallet_addr());
     cJSON_AddNumberToObject(root, "uptime_s", (double)uptime_s);
+    cJSON_AddNumberToObject(root, "free_heap", (double)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    cJSON_AddNumberToObject(root, "total_heap", (double)heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
+    wifi_ap_record_t ap_info;
+    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+        cJSON_AddNumberToObject(root, "rssi_dbm", ap_info.rssi);
+    } else {
+        cJSON_AddNullToObject(root, "rssi_dbm");
+    }
     cJSON_AddStringToObject(root, "version", app->version);
     cJSON_AddStringToObject(root, "build_date", app->date);
     cJSON_AddStringToObject(root, "build_time", app->time);
     cJSON_AddStringToObject(root, "board", BOARD_NAME);
     cJSON_AddBoolToObject(root, "display_en", nv_config_display_enabled());
-#ifdef ASIC_CHIP
+#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
     cJSON_AddNumberToObject(root, "asic_hashrate", asic_rate);
     cJSON_AddNumberToObject(root, "asic_hashrate_avg", asic_ema);
     cJSON_AddNumberToObject(root, "asic_shares", asic_shares);
@@ -258,18 +267,23 @@ static esp_err_t stats_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-#ifdef ASIC_CHIP
+#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
 static esp_err_t power_handler(httpd_req_t *req)
 {
     set_common_headers(req);
     int vcore_mv = -1, icore_ma = -1, pcore_mw = -1;
+    int vin_mv = -1;
+    float board_temp_c = -1.0f, vr_temp_c = -1.0f;
     double asic_hashrate = 0;
 
     if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         vcore_mv = mining_stats.vcore_mv;
         icore_ma = mining_stats.icore_ma;
         pcore_mw = mining_stats.pcore_mw;
+        vin_mv = mining_stats.vin_mv;
         asic_hashrate = mining_stats.asic_hashrate;
+        board_temp_c = mining_stats.board_temp_c;
+        vr_temp_c = mining_stats.vr_temp_c;
         xSemaphoreGive(mining_stats.mutex);
     }
 
@@ -293,6 +307,27 @@ static esp_err_t power_handler(httpd_req_t *req)
         cJSON_AddNumberToObject(root, "efficiency_jth", (pcore_mw / 1000.0) / (asic_hashrate / 1e12));
     } else {
         cJSON_AddNullToObject(root, "efficiency_jth");
+    }
+    if (vin_mv >= 0) {
+        cJSON_AddNumberToObject(root, "vin_mv", vin_mv);
+    } else {
+        cJSON_AddNullToObject(root, "vin_mv");
+    }
+    if (vin_mv >= 0) {
+        bool vin_low = (vin_mv < (BOARD_NOMINAL_VIN_MV + 500) * 87 / 100);
+        cJSON_AddBoolToObject(root, "vin_low", vin_low);
+    } else {
+        cJSON_AddNullToObject(root, "vin_low");
+    }
+    if (board_temp_c >= 0.0f) {
+        cJSON_AddNumberToObject(root, "board_temp_c", (double)board_temp_c);
+    } else {
+        cJSON_AddNullToObject(root, "board_temp_c");
+    }
+    if (vr_temp_c >= 0.0f) {
+        cJSON_AddNumberToObject(root, "vr_temp_c", (double)vr_temp_c);
+    } else {
+        cJSON_AddNullToObject(root, "vr_temp_c");
     }
 
     char *json = cJSON_PrintUnformatted(root);
@@ -334,7 +369,7 @@ static esp_err_t fan_handler(httpd_req_t *req)
     cJSON_Delete(root);
     return ESP_OK;
 }
-#endif // ASIC_CHIP
+#endif // ASIC_BM1370 || ASIC_BM1368
 
 static esp_err_t version_handler(httpd_req_t *req)
 {
@@ -991,7 +1026,7 @@ void http_server_switch_to_mining(void)
     httpd_register_uri_handler(s_server, &settings_post_uri);
     httpd_register_uri_handler(s_server, &settings_patch_uri);
 
-#ifdef ASIC_CHIP
+#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
     httpd_uri_t power_uri = { .uri = "/api/power", .method = HTTP_GET, .handler = power_handler };
     httpd_register_uri_handler(s_server, &power_uri);
     httpd_uri_t fan_uri = { .uri = "/api/fan", .method = HTTP_GET, .handler = fan_handler };
@@ -1063,7 +1098,7 @@ esp_err_t http_server_start(void)
     httpd_register_uri_handler(s_server, &settings_post_uri);
     httpd_register_uri_handler(s_server, &settings_patch_uri);
 
-#ifdef ASIC_CHIP
+#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
     httpd_uri_t power_uri = { .uri = "/api/power", .method = HTTP_GET, .handler = power_handler };
     httpd_register_uri_handler(s_server, &power_uri);
     httpd_uri_t fan_uri = { .uri = "/api/fan", .method = HTTP_GET, .handler = fan_handler };

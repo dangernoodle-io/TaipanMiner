@@ -8,32 +8,32 @@ void test_curve_below_lower_bound(void) {
 
 // At lower bound exactly
 void test_curve_at_lower_bound(void) {
-    TEST_ASSERT_EQUAL_INT(30, emc2101_duty_for_temp_c(40.0f));
+    TEST_ASSERT_EQUAL_INT(30, emc2101_duty_for_temp_c(45.0f));
 }
 
-// Midpoint of 40–60°C segment (50°C → 30 + 10*1.5 = 45%)
+// Midpoint of 45–70°C segment (57.5°C → 30 + 12.5*1.0 = 42%)
 void test_curve_mid_segment_one(void) {
-    TEST_ASSERT_EQUAL_INT(45, emc2101_duty_for_temp_c(50.0f));
+    TEST_ASSERT_EQUAL_INT(42, emc2101_duty_for_temp_c(57.5f));
 }
 
-// At 60°C boundary → 60%
+// At 70°C boundary → 55%
 void test_curve_at_segment_boundary(void) {
-    TEST_ASSERT_EQUAL_INT(60, emc2101_duty_for_temp_c(60.0f));
+    TEST_ASSERT_EQUAL_INT(55, emc2101_duty_for_temp_c(70.0f));
 }
 
-// Midpoint of 60–75°C segment (67.5°C → 60 + 7.5*(40/15) = 60 + 20 = 80%)
+// Midpoint of 70–85°C segment (77.5°C → 55 + 7.5*3.0 = 77%)
 void test_curve_mid_segment_two(void) {
-    TEST_ASSERT_EQUAL_INT(80, emc2101_duty_for_temp_c(67.5f));
+    TEST_ASSERT_EQUAL_INT(77, emc2101_duty_for_temp_c(77.5f));
 }
 
 // At upper bound exactly → 100%
 void test_curve_at_upper_bound(void) {
-    TEST_ASSERT_EQUAL_INT(100, emc2101_duty_for_temp_c(75.0f));
+    TEST_ASSERT_EQUAL_INT(100, emc2101_duty_for_temp_c(85.0f));
 }
 
 // Above upper bound → 100%
 void test_curve_above_upper_bound(void) {
-    TEST_ASSERT_EQUAL_INT(100, emc2101_duty_for_temp_c(80.0f));
+    TEST_ASSERT_EQUAL_INT(100, emc2101_duty_for_temp_c(90.0f));
 }
 
 // Negative temperature → minimum duty (fail-safe low: hardware is cold)
@@ -48,7 +48,7 @@ void test_curve_very_high_temp(void) {
 
 // Monotonic non-decreasing across key boundary points
 void test_curve_monotonic(void) {
-    float points[] = {35.0f, 40.0f, 50.0f, 60.0f, 67.5f, 75.0f, 80.0f};
+    float points[] = {35.0f, 45.0f, 57.5f, 70.0f, 77.5f, 85.0f, 90.0f};
     int n = (int)(sizeof(points) / sizeof(points[0]));
     int prev = emc2101_duty_for_temp_c(points[0]);
     for (int i = 1; i < n; i++) {

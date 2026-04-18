@@ -7,8 +7,12 @@
 // Initialize EMC2101 for external diode temp + fan PWM.
 esp_err_t emc2101_init(i2c_master_bus_handle_t bus, uint8_t addr);
 
-// Read external diode temperature in degrees Celsius.
+// Read external diode temperature (ASIC die, via BM1370's temp diode) in degrees Celsius.
 esp_err_t emc2101_read_temp(float *temp_c);
+
+// Read EMC2101 internal (chip) temperature in degrees Celsius.
+// Reflects board/ambient temp near the fan controller (1 degC resolution).
+esp_err_t emc2101_read_internal_temp(float *temp_c);
 
 // Set fan PWM duty cycle (0-63).
 esp_err_t emc2101_set_fan_duty(uint8_t duty_0_63);

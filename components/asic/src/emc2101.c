@@ -72,6 +72,14 @@ esp_err_t emc2101_read_temp(float *temp_c)
     return ESP_OK;
 }
 
+esp_err_t emc2101_read_internal_temp(float *temp_c)
+{
+    uint8_t val;
+    ESP_RETURN_ON_ERROR(reg_read(REG_INTERNAL_TEMP, &val), TAG, "read internal");
+    *temp_c = (float)(int8_t)val;  // signed 8-bit, 1 degC resolution
+    return ESP_OK;
+}
+
 esp_err_t emc2101_set_fan_duty(uint8_t duty_0_63)
 {
     if (duty_0_63 > 63) duty_0_63 = 63;

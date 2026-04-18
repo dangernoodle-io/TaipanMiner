@@ -1,6 +1,6 @@
 PIO ?= pio
 
-.PHONY: help check test coverage build clean monitor compile-db
+.PHONY: help check test coverage build clean monitor compile-db lsp-%
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_%-]+:.*##' $(MAKEFILE_LIST) | sort | \
@@ -25,6 +25,10 @@ compile-db: ## Generate compile_commands.json for all boards (clangd LSP)
 	$(PIO) run -t compiledb -e bitaxe-601
 	$(PIO) run -t compiledb -e bitaxe-403
 	$(PIO) run -t compiledb -e tdongle-s3
+
+lsp-%: ## Switch clangd to <env> (e.g. make lsp-bitaxe-601) — generates DB and updates symlink
+	$(PIO) run -t compiledb -e $*
+	bash $$(ls -d $$HOME/.cloak/profiles/dangernoodle/plugins/cache/dangernoodle-marketplace/espidf-clangd-lsp* 2>/dev/null | head -1)/scripts/compile-db-refresh.sh --variant $* --force
 
 flash-%: ## Flash specific env (e.g. make flash-bitaxe-601)
 	$(PIO) run -e $* -t upload

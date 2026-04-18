@@ -29,12 +29,13 @@ Then create `~/.platformio/penv/.espidf-5.5.3/pio-idf-venv.json` with the correc
 
 ### Editor / LSP setup
 
-For clangd-based C/C++ IntelliSense (e.g. via the `esp-idf-clangd` Claude Code plugin):
+For clangd-based C/C++ IntelliSense (via the `espidf-clangd-lsp` Claude Code plugin):
 
-1. Run `make compile-db` once to generate `compile_commands.json` for every board. Re-run only when `platformio.ini` or toolchain versions change.
-2. Copy `.clangd.example` to `.clangd` (gitignored, per-developer).
-3. Uncomment the `CompilationDatabase:` line matching the board you're actively developing.
-4. The example already includes a `CompileFlags.Remove` block that strips Xtensa-only GCC flags clangd doesn't understand — freshly-copied `.clangd` files are quiet out of the box.
+1. Install the plugin: `/plugin install espidf-clangd-lsp@dangernoodle-marketplace`.
+2. Build any board: `make build-bitaxe-601` (or any env). The plugin's Stop-hook generates `.pio/build/<env>/compile_commands.json` and symlinks it to `compile_commands.json` at the project root. Restart clangd.
+3. To switch active board: build a different env, run `/set-active-board <env>`, or `make lsp-<env>` (e.g. `make lsp-tdongle-s3`).
+4. `.clangd` (committed) strips Xtensa-only GCC flags that confuse clang.
+5. Cross-board correctness still requires `make build` / CI — clangd only sees one board at a time.
 
 ## Boards
 
@@ -58,7 +59,7 @@ For clangd-based C/C++ IntelliSense (e.g. via the `esp-idf-clangd` Claude Code p
 6. **CI/release** — add the env name to the matrix arrays in `ci.yml` and `release.yml`
 7. **Miner config** — define `g_miner_config` in the appropriate source file; if the board uses a novel hash engine, implement a `hash_backend_t`
 8. **default_envs** — add the env to `default_envs` in `platformio.ini`
-9. **LSP** — add a `pio run -t compiledb -e <env>` line to the `compile-db` target in `Makefile`, and add a matching `# CompilationDatabase: .pio/build/<env>` line to `.clangd.example`
+9. **LSP** — add a `pio run -t compiledb -e <env>` line to the `compile-db` target in `Makefile`
 
 ## Project layout
 

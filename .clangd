@@ -1,0 +1,14 @@
+# Active board's compile_commands.json is auto-symlinked at the project root by the
+# espidf-clangd-lsp plugin (most-recently-built variant, or run `/set-active-board <env>`).
+# Build any board (`pio run -e <env>`) or use `make lsp-<env>` to update the symlink.
+
+CompileFlags:
+  Remove:
+    - -mlongcalls
+    - -mtext-section-literals
+    - -fstrict-volatile-bitfields
+    - -fno-tree-switch-conversion
+    - -fno-shrink-wrap
+  Add:
+    - -Wno-unknown-warning-option
+    - -Wno-unknown-attributes

@@ -1,5 +1,5 @@
 #pragma once
-#ifdef ASIC_BM1370
+#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
 
 #include "esp_err.h"
 #include "driver/i2c_master.h"
@@ -11,4 +11,4 @@ esp_err_t tps546_init(i2c_master_bus_handle_t bus, uint8_t addr, uint16_t target
 // Change output voltage (after init).
 esp_err_t tps546_set_voltage_mv(uint16_t target_mv);
 
-#endif
+#endif // ASIC_BM1370 || ASIC_BM1368

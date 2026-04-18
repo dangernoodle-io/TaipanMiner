@@ -4,7 +4,7 @@
 #include "asic_proto.h"
 #include "asic_internal.h"
 #include "bm1368.h"
-#include "ds4432.h"
+#include "tps546.h"
 #include "pll.h"
 #include "board.h"
 #include "mining.h"
@@ -154,16 +154,15 @@ static esp_err_t bm1368_chip_init(void)
 }
 
 // --- Voltage regulator wrapper ---
-static esp_err_t ds4432_vreg_init(i2c_master_bus_handle_t bus, uint16_t target_mv)
+static esp_err_t tps546_vreg_init(i2c_master_bus_handle_t bus, uint16_t target_mv)
 {
-    ESP_RETURN_ON_ERROR(ds4432_init(bus, DS4432_I2C_ADDR), TAG, "ds4432_init");
-    return ds4432_set_voltage_mv(target_mv);
+    return tps546_init(bus, TPS546_I2C_ADDR, target_mv);
 }
 
 // --- Ops struct and global ---
 static const asic_chip_ops_t s_bm1368_ops = {
     .chip_init       = bm1368_chip_init,
-    .vreg_init       = ds4432_vreg_init,
+    .vreg_init       = tps546_vreg_init,
     .fb_min          = BM1368_FB_MIN,
     .fb_max          = BM1368_FB_MAX,
     .default_mv      = BM1368_DEFAULT_MV,

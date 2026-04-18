@@ -107,6 +107,7 @@ function probeHealthCapability() {
       hasPowerCap = true;
       document.getElementById('health-fan-section').style.display = '';
       document.getElementById('health-power-section').style.display = '';
+      document.getElementById('health-perf-section').style.display = '';
       document.getElementById('health-asic-row').style.display = '';
       document.getElementById('health-board-row').style.display = '';
       document.getElementById('health-vr-row').style.display = '';
@@ -193,6 +194,15 @@ function refreshStats() {
     document.getElementById('u-version').textContent = d.version;
     document.getElementById('u-board').textContent = d.board;
     document.getElementById('u-build').textContent = d.build_date + ' ' + d.build_time;
+    var ft = document.getElementById('health-freq-target');
+    if (ft) ft.textContent = (d.asic_freq_configured_mhz != null && d.asic_freq_configured_mhz > 0) ? d.asic_freq_configured_mhz.toFixed(0) + ' MHz' : '--';
+    var fe = document.getElementById('health-freq-effective');
+    if (fe) fe.textContent = (d.asic_freq_effective_mhz != null && d.asic_freq_effective_mhz > 0) ? d.asic_freq_effective_mhz.toFixed(1) + ' MHz' : '--';
+    var fexp = document.getElementById('health-freq-expected');
+    if (fexp && d.asic_freq_configured_mhz > 0 && d.asic_small_cores > 0 && d.asic_count > 0) {
+      var exp_ghs = d.asic_freq_configured_mhz * d.asic_small_cores * d.asic_count / 1000;
+      fexp.textContent = fmtHash(exp_ghs * 1e9);
+    }
   }).catch(()=>{});
 }
 

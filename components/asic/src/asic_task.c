@@ -438,6 +438,14 @@ void asic_mining_task(void *arg)
                 mining_stats_update_ema(&mining_stats.asic_ema, hashrate, (int64_t)now * (1000000 / configTICK_RATE_HZ));
                 mining_stats.hw_hashrate = hashrate;
                 mining_stats_update_ema(&mining_stats.hw_ema, hashrate, (int64_t)now * (1000000 / configTICK_RATE_HZ));
+
+                // Compute effective frequency from EMA
+                if (mining_stats.asic_ema.value > 0) {
+                    // hashrate EMA is in H/s — convert to MH/s, then divide by core count
+                    double effective_mhz = (mining_stats.asic_ema.value / 1e6) / (BOARD_SMALL_CORES * BOARD_ASIC_COUNT);
+                    mining_stats.asic_freq_effective_mhz = (float)effective_mhz;
+                }
+
                 shares = mining_stats.asic_shares;
                 temp = mining_stats.asic_temp_c;
                 xSemaphoreGive(mining_stats.mutex);

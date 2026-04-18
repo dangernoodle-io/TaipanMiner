@@ -1,4 +1,7 @@
 #include "mining.h"
+#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
+#include "board.h"
+#endif
 #include "sha256.h"
 #include "stratum.h"
 #include "work.h"
@@ -93,6 +96,12 @@ void mining_stats_init(void)
     mining_stats.board_temp_c = -1.0f;
     mining_stats.vin_mv = -1;
     mining_stats.vr_temp_c = -1.0f;
+#ifdef ASIC_BM1370
+    mining_stats.asic_freq_configured_mhz = (float)BM1370_DEFAULT_FREQ_MHZ;
+#else
+    mining_stats.asic_freq_configured_mhz = (float)BM1368_DEFAULT_FREQ_MHZ;
+#endif
+    mining_stats.asic_freq_effective_mhz = -1.0f;
 #endif
 
     mining_stats_load_lifetime();

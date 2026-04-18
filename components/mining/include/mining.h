@@ -159,6 +159,8 @@ typedef struct {
     int                 fan_duty_pct;
     int                 vin_mv;          // Input voltage (5V rail) via TPS546
     float               vr_temp_c;       // Voltage regulator die temperature via TPS546
+    float               asic_freq_configured_mhz;
+    float               asic_freq_effective_mhz;
 #endif
     uint32_t            hw_shares;
     double              pool_difficulty;

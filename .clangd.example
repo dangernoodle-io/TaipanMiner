@@ -14,3 +14,12 @@ CompileFlags:
   # CompilationDatabase: .pio/build/bitaxe-601
   # CompilationDatabase: .pio/build/bitaxe-403
   # CompilationDatabase: .pio/build/tdongle-s3
+  Remove:
+    - -mlongcalls
+    - -mtext-section-literals
+    - -fstrict-volatile-bitfields
+    - -fno-tree-switch-conversion
+    - -fno-shrink-wrap
+  Add:
+    - -Wno-unknown-warning-option
+    - -Wno-unknown-attributes

@@ -34,6 +34,7 @@ For clangd-based C/C++ IntelliSense (e.g. via the `esp-idf-clangd` Claude Code p
 1. Run `make compile-db` once to generate `compile_commands.json` for every board. Re-run only when `platformio.ini` or toolchain versions change.
 2. Copy `.clangd.example` to `.clangd` (gitignored, per-developer).
 3. Uncomment the `CompilationDatabase:` line matching the board you're actively developing.
+4. The example already includes a `CompileFlags.Remove` block that strips Xtensa-only GCC flags clangd doesn't understand — freshly-copied `.clangd` files are quiet out of the box.
 
 ## Boards
 

@@ -195,6 +195,7 @@ static esp_err_t stats_handler(httpd_req_t *req)
     double asic_rate = 0, asic_ema = 0;
     uint32_t asic_shares = 0;
     float asic_temp = 0;
+    float asic_freq_cfg = -1.0f, asic_freq_eff = -1.0f;
 #endif
 
     if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -214,6 +215,8 @@ static esp_err_t stats_handler(httpd_req_t *req)
         asic_ema = mining_stats.asic_ema.value;
         asic_shares = mining_stats.asic_shares;
         asic_temp = mining_stats.asic_temp_c;
+        asic_freq_cfg = mining_stats.asic_freq_configured_mhz;
+        asic_freq_eff = mining_stats.asic_freq_effective_mhz;
 #endif
         xSemaphoreGive(mining_stats.mutex);
     }
@@ -257,6 +260,18 @@ static esp_err_t stats_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "asic_hashrate_avg", asic_ema);
     cJSON_AddNumberToObject(root, "asic_shares", asic_shares);
     cJSON_AddNumberToObject(root, "asic_temp_c", (double)asic_temp);
+    if (asic_freq_cfg >= 0) {
+        cJSON_AddNumberToObject(root, "asic_freq_configured_mhz", (double)asic_freq_cfg);
+    } else {
+        cJSON_AddNullToObject(root, "asic_freq_configured_mhz");
+    }
+    if (asic_freq_eff >= 0) {
+        cJSON_AddNumberToObject(root, "asic_freq_effective_mhz", (double)asic_freq_eff);
+    } else {
+        cJSON_AddNullToObject(root, "asic_freq_effective_mhz");
+    }
+    cJSON_AddNumberToObject(root, "asic_small_cores", BOARD_SMALL_CORES);
+    cJSON_AddNumberToObject(root, "asic_count", BOARD_ASIC_COUNT);
 #endif
 
     char *json = cJSON_PrintUnformatted(root);

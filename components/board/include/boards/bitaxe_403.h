@@ -46,3 +46,7 @@
 
 // Nominal input voltage (5V rail)
 #define BOARD_NOMINAL_VIN_MV    5000
+
+// ASIC small cores and chip count for frequency tracking
+#define BOARD_SMALL_CORES       1276
+#define BOARD_ASIC_COUNT        1

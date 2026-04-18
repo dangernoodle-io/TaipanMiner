@@ -13,6 +13,12 @@ esp_err_t emc2101_read_temp(float *temp_c);
 // Set fan PWM duty cycle (0-63).
 esp_err_t emc2101_set_fan_duty(uint8_t duty_0_63);
 
+// Set fan duty as a percentage [0, 100]. Clamped. Caches the value for emc2101_get_duty_pct().
+void emc2101_set_duty_pct(int pct);
+
+// Return the last duty percentage set via emc2101_set_duty_pct(). Returns -1 if not yet set.
+int emc2101_get_duty_pct(void);
+
 // Read fan speed in RPM. Returns -1 on I2C error or stalled fan.
 int emc2101_read_rpm(void);
 

@@ -7,6 +7,7 @@
 #include "crc.h"
 #include "tps546.h"
 #include "emc2101.h"
+#include "emc2101_curve.h"
 #include "mining.h"
 #include "stratum.h"
 #include "work.h"
@@ -386,26 +387,31 @@ void asic_mining_task(void *arg)
         TickType_t now = xTaskGetTickCount();
         if (now - last_temp_tick >= pdMS_TO_TICKS(5000)) {
             float temp;
+            int new_duty;
             if (emc2101_read_temp(&temp) == ESP_OK) {
-                // Fan: always max until hysteresis is implemented
-                emc2101_set_fan_duty(63);
-
+                new_duty = emc2101_duty_for_temp_c(temp);
                 if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                     mining_stats.asic_temp_c = temp;
                     xSemaphoreGive(mining_stats.mutex);
                 }
+            } else {
+                // temp read failed — fail-safe to max cooling
+                new_duty = 100;
             }
+            emc2101_set_duty_pct(new_duty);
 
             {
                 int v = tps546_read_vout_mv();
                 int i = tps546_read_iout_ma();
                 int p = (v >= 0 && i >= 0) ? (int)((int64_t)v * i / 1000) : -1;
                 int rpm = emc2101_read_rpm();
+                int duty = emc2101_get_duty_pct();
                 if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                     mining_stats.vcore_mv = v;
                     mining_stats.icore_ma = i;
                     mining_stats.pcore_mw = p;
                     mining_stats.fan_rpm = rpm;
+                    mining_stats.fan_duty_pct = duty;
                     xSemaphoreGive(mining_stats.mutex);
                 }
             }

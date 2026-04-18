@@ -1,6 +1,7 @@
 #if defined(ASIC_BM1370) || defined(ASIC_BM1368)
 
 #include "emc2101.h"
+#include "emc2101_curve.h"
 #include "esp_log.h"
 #include "esp_check.h"
 
@@ -17,6 +18,7 @@ static const char *TAG = "emc2101";
 #define REG_FAN_SETTING     0x4C
 
 static i2c_master_dev_handle_t s_dev;
+static int s_duty_pct = -1;
 
 static esp_err_t reg_write(uint8_t reg, uint8_t val)
 {
@@ -43,6 +45,9 @@ esp_err_t emc2101_init(i2c_master_bus_handle_t bus, uint8_t addr)
 
     // Fan: direct PWM mode, enable driver, ~22.5kHz, 2 tach pulses/rev
     ESP_RETURN_ON_ERROR(reg_write(REG_FAN_CONFIG, 0x23), TAG, "fan config");
+
+    // Fail-safe: start at 100% until telemetry loop adjusts
+    emc2101_set_duty_pct(100);
 
     ESP_LOGI(TAG, "initialized");
     return ESP_OK;
@@ -71,6 +76,21 @@ esp_err_t emc2101_set_fan_duty(uint8_t duty_0_63)
 {
     if (duty_0_63 > 63) duty_0_63 = 63;
     return reg_write(REG_FAN_SETTING, duty_0_63);
+}
+
+void emc2101_set_duty_pct(int pct)
+{
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    // Map 0–100% → 0–63 raw (round to nearest)
+    uint8_t raw = (uint8_t)((pct * 63 + 50) / 100);
+    emc2101_set_fan_duty(raw);
+    s_duty_pct = pct;
+}
+
+int emc2101_get_duty_pct(void)
+{
+    return s_duty_pct;
 }
 
 int emc2101_read_rpm(void)

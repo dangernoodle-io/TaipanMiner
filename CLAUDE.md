@@ -119,7 +119,7 @@ For clangd-based C/C++ IntelliSense (e.g. via the `esp-idf-clangd` Claude Code p
 - `theme.css` shared between both modes (dark navy/gold design system)
 - `scripts/embed_html.py` pre-build: gzip-compresses web assets → C byte arrays in `src/*_gz.c`
 - To add a web asset: add file to `components/http_server/`, add to `embed_html.py` FILES, add `src/<name>_gz.c` to CMakeLists.txt SRCS, add extern + handler in `http_server.c`
-- API: `/api/stats` (polled every 5s), `/api/info` (device details), `/api/version`, `/api/ota/check`, `/api/power` (bitaxe-only — 404 on tdongle), `/api/fan` (bitaxe-only — 404 on tdongle)
+- API: `/api/stats` (polled every 5s), `/api/info` (device details), `/api/version`, `/api/ota/check`, `/api/power` (bitaxe-only — 404 on tdongle), `/api/fan` (bitaxe-only — 404 on tdongle; `duty_pct` reflects actual curve-controlled setting, null until first 5s telemetry tick)
 - OTA check suspends mining task to free heap for TLS handshake (~29 KB stack)
 
 ## Conventions

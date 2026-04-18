@@ -191,6 +191,18 @@ void test_slinear11_positive_exp_neg(void);
 void test_slinear11_negative_mantissa(void);
 void test_slinear11_zero_mantissa(void);
 
+// Forward declarations from test_emc2101_curve.c
+void test_curve_below_lower_bound(void);
+void test_curve_at_lower_bound(void);
+void test_curve_mid_segment_one(void);
+void test_curve_at_segment_boundary(void);
+void test_curve_mid_segment_two(void);
+void test_curve_at_upper_bound(void);
+void test_curve_above_upper_bound(void);
+void test_curve_negative_temp(void);
+void test_curve_very_high_temp(void);
+void test_curve_monotonic(void);
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -389,6 +401,18 @@ int main(void) {
     RUN_TEST(test_slinear11_positive_exp_neg);
     RUN_TEST(test_slinear11_negative_mantissa);
     RUN_TEST(test_slinear11_zero_mantissa);
+
+    // EMC2101 fan curve tests
+    RUN_TEST(test_curve_below_lower_bound);
+    RUN_TEST(test_curve_at_lower_bound);
+    RUN_TEST(test_curve_mid_segment_one);
+    RUN_TEST(test_curve_at_segment_boundary);
+    RUN_TEST(test_curve_mid_segment_two);
+    RUN_TEST(test_curve_at_upper_bound);
+    RUN_TEST(test_curve_above_upper_bound);
+    RUN_TEST(test_curve_negative_temp);
+    RUN_TEST(test_curve_very_high_temp);
+    RUN_TEST(test_curve_monotonic);
 
     return UNITY_END();
 }

@@ -89,6 +89,7 @@ void mining_stats_init(void)
     mining_stats.icore_ma = -1;
     mining_stats.pcore_mw = -1;
     mining_stats.fan_rpm = -1;
+    mining_stats.fan_duty_pct = -1;
 #endif
 
     mining_stats_load_lifetime();

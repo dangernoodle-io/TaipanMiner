@@ -307,9 +307,11 @@ static esp_err_t fan_handler(httpd_req_t *req)
 {
     set_common_headers(req);
     int fan_rpm = -1;
+    int fan_duty_pct = -1;
 
     if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         fan_rpm = mining_stats.fan_rpm;
+        fan_duty_pct = mining_stats.fan_duty_pct;
         xSemaphoreGive(mining_stats.mutex);
     }
 
@@ -319,7 +321,11 @@ static esp_err_t fan_handler(httpd_req_t *req)
     } else {
         cJSON_AddNullToObject(root, "rpm");
     }
-    cJSON_AddNumberToObject(root, "duty_pct", 100);
+    if (fan_duty_pct >= 0) {
+        cJSON_AddNumberToObject(root, "duty_pct", fan_duty_pct);
+    } else {
+        cJSON_AddNullToObject(root, "duty_pct");
+    }
 
     char *json = cJSON_PrintUnformatted(root);
     httpd_resp_set_type(req, "application/json");

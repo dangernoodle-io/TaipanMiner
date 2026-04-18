@@ -1,0 +1,23 @@
+# LSP configuration for clangd with ESP-IDF / PlatformIO
+#
+# Default: bitaxe-601. To switch boards, uncomment the desired
+# CompilationDatabase line and comment out bitaxe-601.
+# Use `git update-index --skip-worktree .clangd` to keep your local
+# override out of commits.
+#
+# Run `make compile-db` first (or `pio run -t compiledb -e <env>`
+# for a single board) so the compile DB exists.
+
+CompileFlags:
+  CompilationDatabase: .pio/build/bitaxe-601
+  # CompilationDatabase: .pio/build/bitaxe-403
+  # CompilationDatabase: .pio/build/tdongle-s3
+  Remove:
+    - -mlongcalls
+    - -mtext-section-literals
+    - -fstrict-volatile-bitfields
+    - -fno-tree-switch-conversion
+    - -fno-shrink-wrap
+  Add:
+    - -Wno-unknown-warning-option
+    - -Wno-unknown-attributes

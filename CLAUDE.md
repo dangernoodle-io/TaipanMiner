@@ -32,9 +32,8 @@ Then create `~/.platformio/penv/.espidf-5.5.3/pio-idf-venv.json` with the correc
 For clangd-based C/C++ IntelliSense (e.g. via the `esp-idf-clangd` Claude Code plugin):
 
 1. Run `make compile-db` once to generate `compile_commands.json` for every board. Re-run only when `platformio.ini` or toolchain versions change.
-2. Copy `.clangd.example` to `.clangd` (gitignored, per-developer).
-3. Uncomment the `CompilationDatabase:` line matching the board you're actively developing.
-4. The example already includes a `CompileFlags.Remove` block that strips Xtensa-only GCC flags clangd doesn't understand — freshly-copied `.clangd` files are quiet out of the box.
+2. `.clangd` is committed with bitaxe-601 as the default board. The file includes a `CompileFlags.Remove` block that strips Xtensa-only GCC flags clangd doesn't understand — LSP works out of the box.
+3. To switch boards locally, edit the `CompilationDatabase` line in `.clangd` to match your active development board, then run `git update-index --skip-worktree .clangd` to keep your override out of commits.
 
 ## Boards
 
@@ -58,7 +57,7 @@ For clangd-based C/C++ IntelliSense (e.g. via the `esp-idf-clangd` Claude Code p
 6. **CI/release** — add the env name to the matrix arrays in `ci.yml` and `release.yml`
 7. **Miner config** — define `g_miner_config` in the appropriate source file; if the board uses a novel hash engine, implement a `hash_backend_t`
 8. **default_envs** — add the env to `default_envs` in `platformio.ini`
-9. **LSP** — add a `pio run -t compiledb -e <env>` line to the `compile-db` target in `Makefile`, and add a matching `# CompilationDatabase: .pio/build/<env>` line to `.clangd.example`
+9. **LSP** — add a `pio run -t compiledb -e <env>` line to the `compile-db` target in `Makefile`, and add a matching `# CompilationDatabase: .pio/build/<env>` commented line to `.clangd`
 
 ## Project layout
 

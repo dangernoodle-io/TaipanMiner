@@ -16,8 +16,8 @@ except NameError:
     # Running standalone, not in PlatformIO SCons context
     pass
 
-HTML_DIR = os.path.join("components", "http_server")
-OUT_DIR = os.path.join("components", "http_server", "src")
+HTML_DIR = os.path.join("components", "taipan_web")
+OUT_DIR = os.path.join("components", "taipan_web", "src")
 
 FILES = [
     ("prov_form.html", "prov_form_html_gz"),

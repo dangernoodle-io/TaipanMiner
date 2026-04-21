@@ -7,8 +7,7 @@
 #include "sha256.h"
 #include "board.h"
 #include "ota_validator.h"
-
-bool wifi_prov_has_ip(void);
+#include "bb_wifi.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -197,7 +196,7 @@ static int stratum_connect(const char *host, uint16_t port)
     snprintf(port_str, sizeof(port_str), "%d", port);
 
     // Gate: skip DNS lookup if WiFi station has no IP yet
-    if (!wifi_prov_has_ip()) {
+    if (!bb_wifi_has_ip()) {
         static int64_t s_last_no_ip_log_us = 0;
         int64_t now_us = esp_timer_get_time();
         if (now_us - s_last_no_ip_log_us > 10000000) {  // 10s rate limit

@@ -1,5 +1,6 @@
 #include "taipan_web.h"
 #include "esp_http_server.h"
+#include "http_server.h"
 #include "esp_ota_ops.h"
 #include "esp_app_desc.h"
 #include "esp_app_format.h"
@@ -16,7 +17,9 @@
 #include "mining.h"
 #include "nv_config.h"
 #include "taipan_config.h"
-#include "wifi_prov.h"
+#include "bb_wifi.h"
+#include "bb_prov.h"
+#include "bb_mdns.h"
 #include "stratum.h"
 #include "cJSON.h"
 #include "freertos/task.h"
@@ -71,10 +74,11 @@ static esp_err_t preflight_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-esp_err_t taipan_web_register_preflight(httpd_handle_t server)
+bb_err_t taipan_web_register_preflight(bb_http_handle_t server)
 {
+    httpd_handle_t h = (httpd_handle_t)server;
     httpd_uri_t preflight = { .uri = "/*", .method = HTTP_OPTIONS, .handler = preflight_handler };
-    return httpd_register_uri_handler(server, &preflight);
+    return (bb_err_t)httpd_register_uri_handler(h, &preflight);
 }
 
 static esp_err_t prov_form_handler(httpd_req_t *req)
@@ -86,77 +90,37 @@ static esp_err_t prov_form_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-static esp_err_t prov_save_handler(httpd_req_t *req)
+static esp_err_t taipan_prov_save_cb(httpd_req_t *req, const char *body, int len)
 {
-    set_common_headers(req);
-    char body[512];
-
-    // Validate content length to prevent silent body truncation
-    if (req->content_len > sizeof(body) - 1) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Body too large");
-        return ESP_FAIL;
-    }
-    int len = httpd_req_recv(req, body, sizeof(body) - 1);
-    if (len <= 0) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body");
-        return ESP_FAIL;
-    }
-    body[len] = '\0';
-
-    // Parse URL-encoded fields
-    char ssid[32] = "", pass[64] = "";
+    (void)len;
     char pool_host[64] = "", wallet[64] = "", worker[32] = "";
     char pool_pass[64] = "";
     char port_str[8] = "";
 
-    url_decode_field(body, "ssid", ssid, sizeof(ssid));
-    url_decode_field(body, "pass", pass, sizeof(pass));
-    url_decode_field(body, "pool_host", pool_host, sizeof(pool_host));
-    url_decode_field(body, "pool_port", port_str, sizeof(port_str));
-    url_decode_field(body, "wallet", wallet, sizeof(wallet));
-    url_decode_field(body, "worker", worker, sizeof(worker));
-    url_decode_field(body, "pool_pass", pool_pass, sizeof(pool_pass));
+    bb_url_decode_field(body, "pool_host", pool_host, sizeof(pool_host));
+    bb_url_decode_field(body, "pool_port", port_str, sizeof(port_str));
+    bb_url_decode_field(body, "wallet", wallet, sizeof(wallet));
+    bb_url_decode_field(body, "worker", worker, sizeof(worker));
+    bb_url_decode_field(body, "pool_pass", pool_pass, sizeof(pool_pass));
 
-    if (ssid[0] == '\0' || pool_host[0] == '\0' || wallet[0] == '\0' || worker[0] == '\0') {
+    if (pool_host[0] == '\0' || wallet[0] == '\0' || worker[0] == '\0') {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "All fields required");
         return ESP_FAIL;
     }
-
     uint16_t port = (uint16_t)strtoul(port_str, NULL, 10);
     if (port == 0) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Valid port required");
         return ESP_FAIL;
     }
-
-    esp_err_t err = bb_nv_config_set_wifi(ssid, pass);
-    if (err != ESP_OK) {
+    if (taipan_config_set_pool(pool_host, port, wallet, worker, pool_pass) != ESP_OK) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save config");
         return ESP_FAIL;
     }
 
-    err = taipan_config_set_pool(pool_host, port, wallet, worker, pool_pass);
-    if (err != ESP_OK) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save config");
-        return ESP_FAIL;
-    }
-
+    set_common_headers(req);
     httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
     httpd_resp_set_type(req, "text/html");
     httpd_resp_send(req, (const char *)prov_save_html_gz, prov_save_html_gz_len);
-
-    // Signal provisioning complete
-    extern EventGroupHandle_t g_prov_event_group;
-    xEventGroupSetBits(g_prov_event_group, BIT0);
-
-    return ESP_OK;
-}
-
-static esp_err_t prov_redirect_handler(httpd_req_t *req)
-{
-    set_common_headers(req);
-    httpd_resp_set_status(req, "302 Found");
-    httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
-    httpd_resp_send(req, NULL, 0);
     return ESP_OK;
 }
 
@@ -450,24 +414,24 @@ static esp_err_t info_handler(httpd_req_t *req)
     cJSON *network = cJSON_CreateObject();
 
     int8_t rssi = 0;
-    wifi_prov_get_rssi(&rssi);
+    bb_wifi_get_rssi(&rssi);
     cJSON_AddNumberToObject(network, "rssi", (double)rssi);
 
     char ip[16] = "0.0.0.0";
-    wifi_prov_get_ip_str(ip, sizeof(ip));
+    bb_wifi_get_ip_str(ip, sizeof(ip));
     cJSON_AddStringToObject(network, "ip", ip);
 
     uint8_t disc_reason = 0;
     int64_t disc_age_us = 0;
-    wifi_prov_get_disconnect(&disc_reason, &disc_age_us);
+    bb_wifi_get_disconnect(&disc_reason, &disc_age_us);
     cJSON_AddNumberToObject(network, "disc_reason", (double)disc_reason);
     uint32_t disc_age_s = (uint32_t)(disc_age_us / 1000000);
     cJSON_AddNumberToObject(network, "disc_age_s", (double)disc_age_s);
 
-    int retry_count = wifi_prov_get_retry_count();
+    int retry_count = bb_wifi_get_retry_count();
     cJSON_AddNumberToObject(network, "retry_count", (double)retry_count);
 
-    bool mdns = wifi_prov_mdns_started();
+    bool mdns = bb_mdns_started();
     cJSON_AddBoolToObject(network, "mdns", mdns);
 
     bool strat = stratum_is_connected();
@@ -817,12 +781,12 @@ static esp_err_t scan_handler(httpd_req_t *req)
     set_common_headers(req);
 
     // Trigger a background scan for next request
-    wifi_scan_start_async();
+    bb_wifi_scan_start_async();
 
     // Return cached results immediately
-    wifi_scan_ap_t aps[WIFI_SCAN_MAX];
+    bb_wifi_ap_t aps[WIFI_SCAN_MAX];
     memset(aps, 0, sizeof(aps));
-    int count = wifi_scan_get_cached(aps, WIFI_SCAN_MAX);
+    int count = bb_wifi_scan_get_cached(aps, WIFI_SCAN_MAX);
 
     cJSON *arr = cJSON_CreateArray();
     for (int i = 0; i < count; i++) {
@@ -841,52 +805,43 @@ static esp_err_t scan_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-esp_err_t taipan_web_register_prov_routes(httpd_handle_t server)
+bb_err_t taipan_web_register_prov_routes(bb_http_handle_t server)
 {
+    httpd_handle_t h = (httpd_handle_t)server;
     httpd_uri_t prov_form = { .uri = "/", .method = HTTP_GET, .handler = prov_form_handler };
-    httpd_uri_t prov_save = { .uri = "/save", .method = HTTP_POST, .handler = prov_save_handler };
     httpd_uri_t scan_uri = { .uri = "/api/scan", .method = HTTP_GET, .handler = scan_handler };
     httpd_uri_t version_uri = { .uri = "/api/version", .method = HTTP_GET, .handler = version_handler };
     httpd_uri_t info_uri = { .uri = "/api/info", .method = HTTP_GET, .handler = info_handler };
     httpd_uri_t theme_uri = { .uri = "/theme.css", .method = HTTP_GET, .handler = theme_handler };
     httpd_uri_t logo_uri = { .uri = "/logo.svg", .method = HTTP_GET, .handler = logo_handler };
     httpd_uri_t favicon_uri = { .uri = "/favicon.ico", .method = HTTP_GET, .handler = favicon_handler };
-    httpd_uri_t prov_redirect = { .uri = "/*", .method = HTTP_GET, .handler = prov_redirect_handler };
 
-    httpd_register_uri_handler(server, &prov_form);
-    httpd_register_uri_handler(server, &prov_save);
-    httpd_register_uri_handler(server, &scan_uri);
-    httpd_register_uri_handler(server, &version_uri);
-    httpd_register_uri_handler(server, &info_uri);
-    httpd_register_uri_handler(server, &theme_uri);
-    httpd_register_uri_handler(server, &logo_uri);
-    httpd_register_uri_handler(server, &favicon_uri);
-    httpd_register_uri_handler(server, &prov_redirect);
+    bb_prov_set_save_callback(taipan_prov_save_cb);
+    httpd_register_uri_handler(h, &prov_form);
+    httpd_register_uri_handler(h, &scan_uri);
+    httpd_register_uri_handler(h, &version_uri);
+    httpd_register_uri_handler(h, &info_uri);
+    httpd_register_uri_handler(h, &theme_uri);
+    httpd_register_uri_handler(h, &logo_uri);
+    httpd_register_uri_handler(h, &favicon_uri);
 
     // Pre-populate scan cache with initial background scan
-    wifi_scan_start_async();
+    bb_wifi_scan_start_async();
 
     ESP_LOGI(TAG, "provisioning routes registered");
-    return ESP_OK;
+    return BB_OK;
 }
 
-esp_err_t taipan_web_unregister_prov_routes(httpd_handle_t server)
+bb_err_t taipan_web_register_mining_routes(bb_http_handle_t server)
 {
-    httpd_unregister_uri_handler(server, "/", HTTP_GET);
-    httpd_unregister_uri_handler(server, "/save", HTTP_POST);
-    httpd_unregister_uri_handler(server, "/api/scan", HTTP_GET);
-    httpd_unregister_uri_handler(server, "/*", HTTP_GET);
-    return ESP_OK;
-}
+    httpd_handle_t h = (httpd_handle_t)server;
 
-esp_err_t taipan_web_register_mining_routes(httpd_handle_t server)
-{
     // Cache WDT reset count — only changes on boot
     {
-        nvs_handle_t h;
-        if (nvs_open("taipanminer", NVS_READONLY, &h) == ESP_OK) {
-            nvs_get_u32(h, "wdt_resets", &s_wdt_resets);
-            nvs_close(h);
+        nvs_handle_t nvs_h;
+        if (nvs_open("taipanminer", NVS_READONLY, &nvs_h) == ESP_OK) {
+            nvs_get_u32(nvs_h, "wdt_resets", &s_wdt_resets);
+            nvs_close(nvs_h);
         }
     }
 
@@ -899,41 +854,41 @@ esp_err_t taipan_web_register_mining_routes(httpd_handle_t server)
     httpd_uri_t logo_uri = { .uri = "/logo.svg", .method = HTTP_GET, .handler = logo_handler };
     httpd_uri_t favicon_uri = { .uri = "/favicon.ico", .method = HTTP_GET, .handler = favicon_handler };
 
-    httpd_register_uri_handler(server, &status_uri);
-    httpd_register_uri_handler(server, &stats_uri);
-    httpd_register_uri_handler(server, &mining_js_uri);
-    httpd_register_uri_handler(server, &version_uri);
-    httpd_register_uri_handler(server, &info_uri);
-    httpd_register_uri_handler(server, &theme_uri);
-    httpd_register_uri_handler(server, &logo_uri);
-    httpd_register_uri_handler(server, &favicon_uri);
-    bb_ota_pull_register_handler((bb_http_handle_t)server);
-    bb_ota_push_register_handler((bb_http_handle_t)server);
+    httpd_register_uri_handler(h, &status_uri);
+    httpd_register_uri_handler(h, &stats_uri);
+    httpd_register_uri_handler(h, &mining_js_uri);
+    httpd_register_uri_handler(h, &version_uri);
+    httpd_register_uri_handler(h, &info_uri);
+    httpd_register_uri_handler(h, &theme_uri);
+    httpd_register_uri_handler(h, &logo_uri);
+    httpd_register_uri_handler(h, &favicon_uri);
+    bb_ota_pull_register_handler(server);
+    bb_ota_push_register_handler(server);
 
     httpd_uri_t ota_mark_valid_uri = { .uri = "/api/ota/mark-valid", .method = HTTP_POST, .handler = ota_mark_valid_handler };
-    httpd_register_uri_handler(server, &ota_mark_valid_uri);
+    httpd_register_uri_handler(h, &ota_mark_valid_uri);
 
     httpd_uri_t logs_status_uri = { .uri = "/api/logs/status", .method = HTTP_GET, .handler = logs_status_handler };
     httpd_uri_t logs_uri = { .uri = "/api/logs", .method = HTTP_GET, .handler = logs_handler };
     httpd_uri_t reboot_uri = { .uri = "/api/reboot", .method = HTTP_POST, .handler = reboot_handler };
-    httpd_register_uri_handler(server, &logs_status_uri);
-    httpd_register_uri_handler(server, &logs_uri);
-    httpd_register_uri_handler(server, &reboot_uri);
+    httpd_register_uri_handler(h, &logs_status_uri);
+    httpd_register_uri_handler(h, &logs_uri);
+    httpd_register_uri_handler(h, &reboot_uri);
 
     httpd_uri_t settings_get_uri = { .uri = "/api/settings", .method = HTTP_GET, .handler = settings_get_handler };
     httpd_uri_t settings_post_uri = { .uri = "/api/settings", .method = HTTP_POST, .handler = settings_post_handler };
     httpd_uri_t settings_patch_uri = { .uri = "/api/settings", .method = HTTP_PATCH, .handler = settings_patch_handler };
-    httpd_register_uri_handler(server, &settings_get_uri);
-    httpd_register_uri_handler(server, &settings_post_uri);
-    httpd_register_uri_handler(server, &settings_patch_uri);
+    httpd_register_uri_handler(h, &settings_get_uri);
+    httpd_register_uri_handler(h, &settings_post_uri);
+    httpd_register_uri_handler(h, &settings_patch_uri);
 
 #if defined(ASIC_BM1370) || defined(ASIC_BM1368)
     httpd_uri_t power_uri = { .uri = "/api/power", .method = HTTP_GET, .handler = power_handler };
-    httpd_register_uri_handler(server, &power_uri);
+    httpd_register_uri_handler(h, &power_uri);
     httpd_uri_t fan_uri = { .uri = "/api/fan", .method = HTTP_GET, .handler = fan_handler };
-    httpd_register_uri_handler(server, &fan_uri);
+    httpd_register_uri_handler(h, &fan_uri);
 #endif
 
     ESP_LOGI(TAG, "mining routes registered");
-    return ESP_OK;
+    return BB_OK;
 }

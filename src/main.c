@@ -340,7 +340,12 @@ void app_main(void)
         }
 
         ESP_ERROR_CHECK(bb_prov_start_ap());
-        ESP_ERROR_CHECK(bb_prov_start(taipan_web_register_prov_routes));
+        {
+            size_t n;
+            const bb_http_asset_t *assets = taipan_web_prov_assets(&n);
+            ESP_ERROR_CHECK(bb_prov_start(assets, n));
+        }
+        ESP_ERROR_CHECK(taipan_web_finish_prov_setup(bb_http_server_get_handle()));
 
         // Show provisioning info on display + solid blue LED
         char ap_ssid[32];
@@ -361,8 +366,9 @@ void app_main(void)
                 bb_nv_config_set_provisioned();
                 bb_nv_config_reset_boot_count();
                 connected = true;
-                // Switch HTTP server from provisioning to mining mode
-                bb_prov_switch_to_normal(taipan_web_register_mining_routes);
+                // Stop provisioning and switch to mining mode
+                bb_prov_stop();
+                ESP_ERROR_CHECK(taipan_web_register_mining_routes(bb_http_server_get_handle()));
             } else {
                 ESP_LOGW(TAG, "STA connect failed, re-entering provisioning");
                 // Reinitialize AP for retry

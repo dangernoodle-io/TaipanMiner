@@ -64,11 +64,30 @@ For clangd-based C/C++ IntelliSense (via the `espidf-clangd-lsp` Claude Code plu
 ## Project layout
 
 - `src/` — app entry point, version
-- `components/` — ESP-IDF components (mining, stratum, board, asic, display, wifi_prov, http_server, led, nv_config, ota_pull)
+- `components/` — ESP-IDF components:
+  - Local: `mining`, `stratum`, `board`, `asic`, `display`, `led`, `ota_validator`, `taipan_config`, `taipan_web`
+  - From breadboard: `log_stream`, `nv_config`, `ota_pull`, `ota_push`, `http_server`, `bb_wifi`, `bb_prov`, `bb_mdns`
 - `components/board/include/boards/` — per-board pin/peripheral headers
 - `sdkconfig/` — hand-authored sdkconfig deltas per board
 - `test/test_host/` — host-based unit tests (run without hardware via native env)
 - `test/test_device/` — on-device integration tests
+
+## Breadboard dependency
+
+TaipanMiner consumes shared infrastructure components from the breadboard library:
+
+- **Pattern**: `EXTRA_COMPONENT_DIRS += $(BREADBOARD_COMPONENTS_DIR)` in CMakeLists.txt includes breadboard components in the build.
+- **Namespace isolation**: `BB_NV_CONFIG_NAMESPACE="taipanminer"` (compile-define) preserves NVS key compatibility with the old TaipanMiner-local NVS layout.
+- **Components consumed**:
+  - `log_stream` — logging middleware
+  - `nv_config` — NVS configuration layer (TaipanMiner wraps via `taipan_config`)
+  - `ota_pull` — remote OTA fetch + signature validation
+  - `ota_push` — HTTP upload OTA receiver
+  - `http_server` — HTTP server base with standard URI registration
+  - `bb_wifi` — WiFi STA/AP, reconnect logic
+  - `bb_prov` — provisioning state machine, event distribution
+  - `bb_mdns` — mDNS advertisement
+- **Display** remains local (three panel drivers; raw-bitmap API incompatible with breadboard's LVGL design).
 
 ## Hardware
 
@@ -118,9 +137,10 @@ For clangd-based C/C++ IntelliSense (via the `espidf-clangd-lsp` Claude Code plu
 - Mining-mode SPA: `mining.html` + `mining.js` at `/`, five tabs: Diagnostics, Info, Settings, Status, Health (bitaxe-only), Update
 - Provisioning-mode: `prov_form.html` at `/`, `prov_save.html` at `/save`
 - `theme.css` shared between both modes (dark navy/gold design system)
-- `scripts/embed_html.py` pre-build: gzip-compresses web assets → C byte arrays in `src/*_gz.c`
-- To add a web asset: add file to `components/http_server/`, add to `embed_html.py` FILES, add `src/<name>_gz.c` to CMakeLists.txt SRCS, add extern + handler in `http_server.c`
-- API: `/api/stats` (polled every 5s), `/api/info` (device details), `/api/version`, `/api/ota/check`, `/api/power` (bitaxe-only — 404 on tdongle), `/api/fan` (bitaxe-only — 404 on tdongle; `duty_pct` reflects actual curve-controlled setting, null until first 5s telemetry tick)
+- Web assets: embedded in `components/taipan_web/` and pre-built via `scripts/embed_html.py` gzip-compression into `src/*_gz.c`
+- To add a web asset: add file to `components/taipan_web/`, add to `embed_html.py` FILES list, add `src/<name>_gz.c` to CMakeLists.txt SRCS, register handler in `components/taipan_web/src/routes.c`
+- HTTP routes dispatched via `bb_http_server` (breadboard) with TaipanMiner-specific handlers in `taipan_web`
+- API: `/api/stats` (polled every 5s), `/api/info` (device details), `/api/version`, `/api/ota/check`, `/api/ota/upload`, `/api/ota/update`, `/api/power` (bitaxe-only — 404 on tdongle), `/api/fan` (bitaxe-only — 404 on tdongle; `duty_pct` reflects actual curve-controlled setting, null until first 5s telemetry tick), `/api/logs/status`, `/api/logs`
 - OTA check suspends mining task to free heap for TLS handshake (~29 KB stack)
 
 ## Conventions

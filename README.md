@@ -44,6 +44,8 @@ curl -X POST http://taipanminer-<worker>.local/api/ota/update
 
 Requires [PlatformIO](https://platformio.org/).
 
+TaipanMiner consumes shared infrastructure (WiFi, provisioning, HTTP server, OTA, logging, NVS) from the [breadboard](https://github.com/dangernoodle-io/breadboard) library. The CMakeLists.txt uses `EXTRA_COMPONENT_DIRS` to include breadboard components at build time.
+
 ```bash
 make build              # build all boards
 make test               # run host unit tests

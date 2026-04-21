@@ -2,6 +2,7 @@
 #include "esp_http_server.h"
 #include "bb_http.h"
 #include "bb_info.h"
+#include "bb_json.h"
 #include "esp_ota_ops.h"
 #include "esp_app_desc.h"
 #include "esp_app_format.h"
@@ -56,16 +57,22 @@ extern const unsigned int favicon_svg_gz_len;
 
 static uint32_t s_wdt_resets = 0;
 
-static void set_common_headers(httpd_req_t *req)
+static void set_common_headers(bb_http_request_t *req)
+{
+    bb_http_resp_set_header(req, "Connection", "close");
+    bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
+    bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
+}
+
+// ============================================================================
+// PREFLIGHT (OPTIONS) — KEPT RAW: NOT YET MIGRATED (backlog B1-43)
+// ============================================================================
+
+static esp_err_t preflight_handler(httpd_req_t *req)
 {
     httpd_resp_set_hdr(req, "Connection", "close");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Private-Network", "true");
-}
-
-static esp_err_t preflight_handler(httpd_req_t *req)
-{
-    set_common_headers(req);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
     httpd_resp_set_status(req, "204 No Content");
@@ -80,14 +87,9 @@ bb_err_t taipan_web_register_preflight(bb_http_handle_t server)
     return (bb_err_t)httpd_register_uri_handler(h, &preflight);
 }
 
-static esp_err_t prov_form_handler(httpd_req_t *req)
-{
-    set_common_headers(req);
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, (const char *)prov_form_html_gz, prov_form_html_gz_len);
-    return ESP_OK;
-}
+// ============================================================================
+// PROVISIONING SAVE CALLBACK — KEPT RAW (uses esp_http_server API)
+// ============================================================================
 
 static esp_err_t taipan_prov_save_cb(httpd_req_t *req, const char *body, int len)
 {
@@ -116,23 +118,20 @@ static esp_err_t taipan_prov_save_cb(httpd_req_t *req, const char *body, int len
         return ESP_FAIL;
     }
 
-    set_common_headers(req);
+    httpd_resp_set_hdr(req, "Connection", "close");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Private-Network", "true");
     httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
     httpd_resp_set_type(req, "text/html");
     httpd_resp_send(req, (const char *)prov_save_html_gz, prov_save_html_gz_len);
     return ESP_OK;
 }
 
-static esp_err_t status_handler(httpd_req_t *req)
-{
-    set_common_headers(req);
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, (const char *)mining_html_gz, mining_html_gz_len);
-    return ESP_OK;
-}
+// ============================================================================
+// PORTABLE HANDLERS (migrated to bb_http API)
+// ============================================================================
 
-static esp_err_t stats_handler(httpd_req_t *req)
+static bb_err_t stats_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
     double hw_rate = 0, hw_ema = 0;
@@ -227,15 +226,15 @@ static esp_err_t stats_handler(httpd_req_t *req)
 #endif
 
     char *json = cJSON_PrintUnformatted(root);
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, json, strlen(json));
+    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
     free(json);
     cJSON_Delete(root);
-    return ESP_OK;
+    return rc;
 }
 
 #if defined(ASIC_BM1370) || defined(ASIC_BM1368)
-static esp_err_t power_handler(httpd_req_t *req)
+static bb_err_t power_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
     int vcore_mv = -1, icore_ma = -1, pcore_mw = -1;
@@ -298,14 +297,14 @@ static esp_err_t power_handler(httpd_req_t *req)
     }
 
     char *json = cJSON_PrintUnformatted(root);
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, json, strlen(json));
+    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
     free(json);
     cJSON_Delete(root);
-    return ESP_OK;
+    return rc;
 }
 
-static esp_err_t fan_handler(httpd_req_t *req)
+static bb_err_t fan_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
     int fan_rpm = -1;
@@ -330,16 +329,15 @@ static esp_err_t fan_handler(httpd_req_t *req)
     }
 
     char *json = cJSON_PrintUnformatted(root);
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, json, strlen(json));
+    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
     free(json);
     cJSON_Delete(root);
-    return ESP_OK;
+    return rc;
 }
 #endif // ASIC_BM1370 || ASIC_BM1368
 
-
-static esp_err_t ota_mark_valid_handler(httpd_req_t *req)
+static bb_err_t ota_mark_valid_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
     esp_err_t err = ota_validator_mark_valid_manual();
@@ -347,77 +345,45 @@ static esp_err_t ota_mark_valid_handler(httpd_req_t *req)
     cJSON *root = cJSON_CreateObject();
 
     if (err == ESP_OK) {
-        httpd_resp_set_status(req, "200 OK");
+        bb_http_resp_set_status(req, 200);
         cJSON_AddBoolToObject(root, "validated", true);
     } else if (err == ESP_ERR_INVALID_STATE) {
-        httpd_resp_set_status(req, "409 Conflict");
+        bb_http_resp_set_status(req, 409);
         cJSON_AddStringToObject(root, "error", "not pending");
     } else {
-        httpd_resp_set_status(req, "500 Internal Server Error");
+        bb_http_resp_set_status(req, 500);
         cJSON_AddStringToObject(root, "error", "mark_valid failed");
     }
 
     char *json = cJSON_PrintUnformatted(root);
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, json, strlen(json));
+    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
     free(json);
     cJSON_Delete(root);
-    return ESP_OK;
+    return rc;
 }
 
-static esp_err_t logo_handler(httpd_req_t *req)
+static void taipan_info_extender(bb_json_t root)
 {
-    set_common_headers(req);
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_set_type(req, "image/svg+xml");
-    httpd_resp_send(req, (const char *)logo_svg_gz, logo_svg_gz_len);
-    return ESP_OK;
-}
+    // On ESP-IDF, bb_json_t is cJSON* underneath; cast to use cJSON API
+    // (per plan: cJSON → bb_json migration is backlog item B4, not in step 6)
+    cJSON *json_root = (cJSON *)root;
 
-static esp_err_t theme_handler(httpd_req_t *req)
-{
-    set_common_headers(req);
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_set_type(req, "text/css");
-    httpd_resp_send(req, (const char *)theme_css_gz, theme_css_gz_len);
-    return ESP_OK;
-}
-
-static esp_err_t mining_js_handler(httpd_req_t *req)
-{
-    set_common_headers(req);
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_set_type(req, "application/javascript");
-    httpd_resp_send(req, (const char *)mining_js_gz, mining_js_gz_len);
-    return ESP_OK;
-}
-
-static esp_err_t favicon_handler(httpd_req_t *req)
-{
-    httpd_resp_set_type(req, "image/svg+xml");
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    set_common_headers(req);
-    httpd_resp_send(req, (const char *)favicon_svg_gz, favicon_svg_gz_len);
-    return ESP_OK;
-}
-
-static void taipan_info_extender(cJSON *root)
-{
-    cJSON_AddStringToObject(root, "worker_name", taipan_config_worker_name());
+    cJSON_AddStringToObject(json_root, "worker_name", taipan_config_worker_name());
 
     const char *ssid = bb_nv_config_wifi_ssid();
-    if (ssid) cJSON_AddStringToObject(root, "ssid", ssid);
+    if (ssid) cJSON_AddStringToObject(json_root, "ssid", ssid);
 
-    cJSON_AddBoolToObject(root, "validated", !ota_validator_is_pending());
-    cJSON_AddNumberToObject(root, "wdt_resets", s_wdt_resets);
+    cJSON_AddBoolToObject(json_root, "validated", !ota_validator_is_pending());
+    cJSON_AddNumberToObject(json_root, "wdt_resets", s_wdt_resets);
 
     time_t now = time(NULL);
     if (now > 1700000000) {
         int64_t uptime_s = esp_timer_get_time() / 1000000LL;
-        cJSON_AddNumberToObject(root, "boot_time", (double)(now - uptime_s));
+        cJSON_AddNumberToObject(json_root, "boot_time", (double)(now - uptime_s));
     }
 
-    cJSON *network = cJSON_GetObjectItem(root, "network");
+    cJSON *network = cJSON_GetObjectItem(json_root, "network");
     if (network) {
         cJSON_AddBoolToObject(network, "mdns", bb_mdns_started());
         cJSON_AddBoolToObject(network, "stratum", stratum_is_connected());
@@ -431,7 +397,7 @@ bb_err_t taipan_web_register_info_extender(void)
     return bb_info_register_extender(taipan_info_extender);
 }
 
-static esp_err_t settings_get_handler(httpd_req_t *req)
+static bb_err_t settings_get_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
     cJSON *root = cJSON_CreateObject();
@@ -444,17 +410,159 @@ static esp_err_t settings_get_handler(httpd_req_t *req)
     cJSON_AddBoolToObject(root, "ota_skip_check", bb_nv_config_ota_skip_check());
 
     char *json = cJSON_PrintUnformatted(root);
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, json, strlen(json));
+    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
     free(json);
     cJSON_Delete(root);
-    return ESP_OK;
+    return rc;
 }
 
 // Shared helper for POST (full) and PATCH (partial) settings
-static esp_err_t apply_settings(httpd_req_t *req, bool partial)
+// NOTE: PATCH handler is registered via raw httpd_* for now (backlog B1-43)
+static bb_err_t apply_settings(bb_http_request_t *req, bool partial)
 {
     set_common_headers(req);
+    char body[512];
+
+    int body_len = bb_http_req_body_len(req);
+    if (body_len > sizeof(body) - 1) {
+        bb_http_resp_set_status(req, 400);
+        bb_http_resp_set_header(req, "Content-Type", "text/plain");
+        static const char *msg = "Body too large";
+        return bb_http_resp_send(req, msg, strlen(msg));
+    }
+    int len = bb_http_req_recv(req, body, sizeof(body) - 1);
+    if (len <= 0) {
+        bb_http_resp_set_status(req, 400);
+        bb_http_resp_set_header(req, "Content-Type", "text/plain");
+        static const char *msg = "Empty body";
+        return bb_http_resp_send(req, msg, strlen(msg));
+    }
+    body[len] = '\0';
+
+    cJSON *root = cJSON_Parse(body);
+    if (!root) {
+        bb_http_resp_set_status(req, 400);
+        bb_http_resp_set_header(req, "Content-Type", "text/plain");
+        static const char *msg = "Invalid JSON";
+        return bb_http_resp_send(req, msg, strlen(msg));
+    }
+
+    // Extract fields — use current values as defaults for PATCH
+    const char *pool_host = taipan_config_pool_host();
+    uint16_t pool_port = taipan_config_pool_port();
+    const char *wallet = taipan_config_wallet_addr();
+    const char *worker = taipan_config_worker_name();
+    const char *pool_pass = taipan_config_pool_pass();
+    bool reboot_required = false;
+
+    cJSON *j;
+
+    j = cJSON_GetObjectItem(root, "pool_host");
+    if (j && cJSON_IsString(j)) { pool_host = j->valuestring; }
+    else if (!partial) { if (!j) { cJSON_Delete(root); bb_http_resp_set_status(req, 400); bb_http_resp_set_header(req, "Content-Type", "text/plain"); bb_http_resp_send(req, "pool_host required", 18); return BB_ERR_INVALID_ARG; } }
+
+    j = cJSON_GetObjectItem(root, "pool_port");
+    if (j && cJSON_IsNumber(j)) { pool_port = (uint16_t)j->valuedouble; }
+    else if (!partial) { if (!j) { cJSON_Delete(root); bb_http_resp_set_status(req, 400); bb_http_resp_set_header(req, "Content-Type", "text/plain"); bb_http_resp_send(req, "pool_port required", 18); return BB_ERR_INVALID_ARG; } }
+
+    j = cJSON_GetObjectItem(root, "wallet");
+    if (j && cJSON_IsString(j)) { wallet = j->valuestring; }
+    else if (!partial) { if (!j) { cJSON_Delete(root); bb_http_resp_set_status(req, 400); bb_http_resp_set_header(req, "Content-Type", "text/plain"); bb_http_resp_send(req, "wallet required", 15); return BB_ERR_INVALID_ARG; } }
+
+    j = cJSON_GetObjectItem(root, "worker");
+    if (j && cJSON_IsString(j)) { worker = j->valuestring; }
+    else if (!partial) { if (!j) { cJSON_Delete(root); bb_http_resp_set_status(req, 400); bb_http_resp_set_header(req, "Content-Type", "text/plain"); bb_http_resp_send(req, "worker required", 15); return BB_ERR_INVALID_ARG; } }
+
+    j = cJSON_GetObjectItem(root, "pool_pass");
+    if (j && cJSON_IsString(j)) { pool_pass = j->valuestring; }
+    // pool_pass is optional even for POST
+
+    // Compare against current values to determine if reboot is needed
+    if (strcmp(pool_host, taipan_config_pool_host()) != 0 ||
+        pool_port != taipan_config_pool_port() ||
+        strcmp(wallet, taipan_config_wallet_addr()) != 0 ||
+        strcmp(worker, taipan_config_worker_name()) != 0 ||
+        strcmp(pool_pass, taipan_config_pool_pass()) != 0) {
+        reboot_required = true;
+    }
+
+    // Validate
+    if (pool_host[0] == '\0' || wallet[0] == '\0' || worker[0] == '\0') {
+        cJSON_Delete(root);
+        bb_http_resp_set_status(req, 400);
+        bb_http_resp_set_header(req, "Content-Type", "text/plain");
+        static const char *msg = "pool_host, wallet, worker must not be empty";
+        return bb_http_resp_send(req, msg, strlen(msg));
+    }
+    if (pool_port == 0) {
+        cJSON_Delete(root);
+        bb_http_resp_set_status(req, 400);
+        bb_http_resp_set_header(req, "Content-Type", "text/plain");
+        static const char *msg = "pool_port must be > 0";
+        return bb_http_resp_send(req, msg, strlen(msg));
+    }
+
+    // Save mining config if any mining field was provided
+    if (reboot_required) {
+        esp_err_t err = taipan_config_set_pool(pool_host, pool_port, wallet, worker, pool_pass);
+        if (err != ESP_OK) {
+            cJSON_Delete(root);
+            bb_http_resp_set_status(req, 500);
+            bb_http_resp_set_header(req, "Content-Type", "text/plain");
+            static const char *msg = "Failed to save config";
+            return bb_http_resp_send(req, msg, strlen(msg));
+        }
+    }
+
+    // Handle display_en separately (takes effect immediately, no reboot needed)
+    j = cJSON_GetObjectItem(root, "display_en");
+    if (j && cJSON_IsBool(j)) {
+        esp_err_t err = bb_nv_config_set_display_enabled(cJSON_IsTrue(j));
+        if (err != ESP_OK) {
+            cJSON_Delete(root);
+            bb_http_resp_set_status(req, 500);
+            bb_http_resp_set_header(req, "Content-Type", "text/plain");
+            static const char *msg = "Failed to save display setting";
+            return bb_http_resp_send(req, msg, strlen(msg));
+        }
+    }
+
+    j = cJSON_GetObjectItem(root, "ota_skip_check");
+    if (j && cJSON_IsBool(j)) {
+        esp_err_t err = bb_nv_config_set_ota_skip_check(cJSON_IsTrue(j));
+        if (err != ESP_OK) {
+            cJSON_Delete(root);
+            bb_http_resp_set_status(req, 500);
+            bb_http_resp_set_header(req, "Content-Type", "text/plain");
+            static const char *msg = "Failed to save ota_skip_check";
+            return bb_http_resp_send(req, msg, strlen(msg));
+        }
+    }
+
+    cJSON_Delete(root);
+
+    // Response
+    char resp[64];
+    snprintf(resp, sizeof(resp), "{\"status\":\"saved\",\"reboot_required\":%s}",
+             reboot_required ? "true" : "false");
+    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    return bb_http_resp_send(req, resp, strlen(resp));
+}
+
+static bb_err_t settings_post_handler(bb_http_request_t *req)
+{
+    return apply_settings(req, false);
+}
+
+// ============================================================================
+// PATCH HANDLER — KEPT RAW (not yet in bb_http portable API)
+// ============================================================================
+
+static esp_err_t settings_patch_handler(httpd_req_t *req)
+{
+    // Inline the apply_settings logic but with httpd_* API
+    set_common_headers((bb_http_request_t *)req);  // shared header helper works with cast
     char body[512];
 
     if (req->content_len > sizeof(body) - 1) {
@@ -486,23 +594,18 @@ static esp_err_t apply_settings(httpd_req_t *req, bool partial)
 
     j = cJSON_GetObjectItem(root, "pool_host");
     if (j && cJSON_IsString(j)) { pool_host = j->valuestring; }
-    else if (!partial) { if (!j) { cJSON_Delete(root); httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "pool_host required"); return ESP_FAIL; } }
 
     j = cJSON_GetObjectItem(root, "pool_port");
     if (j && cJSON_IsNumber(j)) { pool_port = (uint16_t)j->valuedouble; }
-    else if (!partial) { if (!j) { cJSON_Delete(root); httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "pool_port required"); return ESP_FAIL; } }
 
     j = cJSON_GetObjectItem(root, "wallet");
     if (j && cJSON_IsString(j)) { wallet = j->valuestring; }
-    else if (!partial) { if (!j) { cJSON_Delete(root); httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "wallet required"); return ESP_FAIL; } }
 
     j = cJSON_GetObjectItem(root, "worker");
     if (j && cJSON_IsString(j)) { worker = j->valuestring; }
-    else if (!partial) { if (!j) { cJSON_Delete(root); httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "worker required"); return ESP_FAIL; } }
 
     j = cJSON_GetObjectItem(root, "pool_pass");
     if (j && cJSON_IsString(j)) { pool_pass = j->valuestring; }
-    // pool_pass is optional even for POST
 
     // Compare against current values to determine if reboot is needed
     if (strcmp(pool_host, taipan_config_pool_host()) != 0 ||
@@ -551,8 +654,7 @@ static esp_err_t apply_settings(httpd_req_t *req, bool partial)
         esp_err_t err = bb_nv_config_set_ota_skip_check(cJSON_IsTrue(j));
         if (err != ESP_OK) {
             cJSON_Delete(root);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                                "Failed to save ota_skip_check");
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save ota_skip_check");
             return ESP_FAIL;
         }
     }
@@ -568,42 +670,77 @@ static esp_err_t apply_settings(httpd_req_t *req, bool partial)
     return ESP_OK;
 }
 
-static esp_err_t settings_post_handler(httpd_req_t *req)
+// ============================================================================
+// REGISTRATION
+// ============================================================================
+
+void taipan_web_install_prov_save_cb(void)
 {
-    return apply_settings(req, false);
-}
-
-static esp_err_t settings_patch_handler(httpd_req_t *req)
-{
-    return apply_settings(req, true);
-}
-
-
-bb_err_t taipan_web_register_prov_routes(bb_http_handle_t server)
-{
-    httpd_handle_t h = (httpd_handle_t)server;
-    httpd_uri_t prov_form = { .uri = "/", .method = HTTP_GET, .handler = prov_form_handler };
-    httpd_uri_t theme_uri = { .uri = "/theme.css", .method = HTTP_GET, .handler = theme_handler };
-    httpd_uri_t logo_uri = { .uri = "/logo.svg", .method = HTTP_GET, .handler = logo_handler };
-    httpd_uri_t favicon_uri = { .uri = "/favicon.ico", .method = HTTP_GET, .handler = favicon_handler };
-
     bb_prov_set_save_callback(taipan_prov_save_cb);
-    httpd_register_uri_handler(h, &prov_form);
-    httpd_register_uri_handler(h, &theme_uri);
-    httpd_register_uri_handler(h, &logo_uri);
-    httpd_register_uri_handler(h, &favicon_uri);
+}
 
+bb_err_t taipan_web_finish_prov_setup(bb_http_handle_t server)
+{
     bb_http_register_common_routes(server);
     bb_info_register_routes(server);
-
     ESP_LOGI(TAG, "provisioning routes registered");
     return BB_OK;
 }
 
+static bb_http_asset_t s_prov_assets[] = {
+    { "/",            "text/html",     "gzip", NULL, 0  },
+    { "/theme.css",   "text/css",      "gzip", NULL, 0  },
+    { "/logo.svg",    "image/svg+xml", "gzip", NULL, 0  },
+    { "/favicon.ico", "image/svg+xml", "gzip", NULL, 0  },
+};
+
+const bb_http_asset_t *taipan_web_prov_assets(size_t *n)
+{
+    // Initialize asset data on first call
+    static bool initialized = false;
+    if (!initialized) {
+        s_prov_assets[0].data = prov_form_html_gz;
+        s_prov_assets[0].len = prov_form_html_gz_len;
+        s_prov_assets[1].data = theme_css_gz;
+        s_prov_assets[1].len = theme_css_gz_len;
+        s_prov_assets[2].data = logo_svg_gz;
+        s_prov_assets[2].len = logo_svg_gz_len;
+        s_prov_assets[3].data = favicon_svg_gz;
+        s_prov_assets[3].len = favicon_svg_gz_len;
+        initialized = true;
+    }
+    *n = sizeof(s_prov_assets) / sizeof(s_prov_assets[0]);
+    return s_prov_assets;
+}
+
+static bb_http_asset_t s_mining_assets[] = {
+    { "/",            "text/html",       "gzip", NULL, 0    },
+    { "/mining.js",   "application/javascript", "gzip", NULL, 0    },
+    { "/theme.css",   "text/css",        "gzip", NULL, 0      },
+    { "/logo.svg",    "image/svg+xml",   "gzip", NULL, 0       },
+    { "/favicon.ico", "image/svg+xml",   "gzip", NULL, 0    },
+};
+
+static void init_mining_assets(void)
+{
+    static bool initialized = false;
+    if (!initialized) {
+        s_mining_assets[0].data = mining_html_gz;
+        s_mining_assets[0].len = mining_html_gz_len;
+        s_mining_assets[1].data = mining_js_gz;
+        s_mining_assets[1].len = mining_js_gz_len;
+        s_mining_assets[2].data = theme_css_gz;
+        s_mining_assets[2].len = theme_css_gz_len;
+        s_mining_assets[3].data = logo_svg_gz;
+        s_mining_assets[3].len = logo_svg_gz_len;
+        s_mining_assets[4].data = favicon_svg_gz;
+        s_mining_assets[4].len = favicon_svg_gz_len;
+        initialized = true;
+    }
+}
+
 bb_err_t taipan_web_register_mining_routes(bb_http_handle_t server)
 {
-    httpd_handle_t h = (httpd_handle_t)server;
-
     // Cache WDT reset count — only changes on boot
     {
         nvs_handle_t nvs_h;
@@ -613,36 +750,38 @@ bb_err_t taipan_web_register_mining_routes(bb_http_handle_t server)
         }
     }
 
-    httpd_uri_t status_uri = { .uri = "/", .method = HTTP_GET, .handler = status_handler };
-    httpd_uri_t stats_uri = { .uri = "/api/stats", .method = HTTP_GET, .handler = stats_handler };
-    httpd_uri_t mining_js_uri = { .uri = "/mining.js", .method = HTTP_GET, .handler = mining_js_handler };
-    httpd_uri_t theme_uri = { .uri = "/theme.css", .method = HTTP_GET, .handler = theme_handler };
-    httpd_uri_t logo_uri = { .uri = "/logo.svg", .method = HTTP_GET, .handler = logo_handler };
-    httpd_uri_t favicon_uri = { .uri = "/favicon.ico", .method = HTTP_GET, .handler = favicon_handler };
+    // Initialize and register static assets
+    init_mining_assets();
+    bb_http_register_assets(server, s_mining_assets, sizeof(s_mining_assets)/sizeof(s_mining_assets[0]));
 
-    httpd_register_uri_handler(h, &status_uri);
-    httpd_register_uri_handler(h, &stats_uri);
-    httpd_register_uri_handler(h, &mining_js_uri);
-    httpd_register_uri_handler(h, &theme_uri);
-    httpd_register_uri_handler(h, &logo_uri);
-    httpd_register_uri_handler(h, &favicon_uri);
+    // Register dynamic handlers (portable bb_http)
+    bb_err_t rc;
+    rc = bb_http_register_route(server, BB_HTTP_GET, "/api/stats", stats_handler);
+    if (rc != BB_OK) return rc;
 
-    httpd_uri_t ota_mark_valid_uri = { .uri = "/api/ota/mark-valid", .method = HTTP_POST, .handler = ota_mark_valid_handler };
-    httpd_register_uri_handler(h, &ota_mark_valid_uri);
+    rc = bb_http_register_route(server, BB_HTTP_POST, "/api/ota/mark-valid", ota_mark_valid_handler);
+    if (rc != BB_OK) return rc;
 
-    httpd_uri_t settings_get_uri = { .uri = "/api/settings", .method = HTTP_GET, .handler = settings_get_handler };
-    httpd_uri_t settings_post_uri = { .uri = "/api/settings", .method = HTTP_POST, .handler = settings_post_handler };
-    httpd_uri_t settings_patch_uri = { .uri = "/api/settings", .method = HTTP_PATCH, .handler = settings_patch_handler };
-    httpd_register_uri_handler(h, &settings_get_uri);
-    httpd_register_uri_handler(h, &settings_post_uri);
-    httpd_register_uri_handler(h, &settings_patch_uri);
+    rc = bb_http_register_route(server, BB_HTTP_GET, "/api/settings", settings_get_handler);
+    if (rc != BB_OK) return rc;
+
+    rc = bb_http_register_route(server, BB_HTTP_POST, "/api/settings", settings_post_handler);
+    if (rc != BB_OK) return rc;
 
 #if defined(ASIC_BM1370) || defined(ASIC_BM1368)
-    httpd_uri_t power_uri = { .uri = "/api/power", .method = HTTP_GET, .handler = power_handler };
-    httpd_register_uri_handler(h, &power_uri);
-    httpd_uri_t fan_uri = { .uri = "/api/fan", .method = HTTP_GET, .handler = fan_handler };
-    httpd_register_uri_handler(h, &fan_uri);
+    rc = bb_http_register_route(server, BB_HTTP_GET, "/api/power", power_handler);
+    if (rc != BB_OK) return rc;
+
+    rc = bb_http_register_route(server, BB_HTTP_GET, "/api/fan", fan_handler);
+    if (rc != BB_OK) return rc;
 #endif
+
+    // Register PATCH handler via raw httpd_* (not yet in bb_http portable API)
+    {
+        httpd_handle_t h = (httpd_handle_t)server;
+        httpd_uri_t settings_patch_uri = { .uri = "/api/settings", .method = HTTP_PATCH, .handler = settings_patch_handler };
+        httpd_register_uri_handler(h, &settings_patch_uri);
+    }
 
     bb_ota_pull_register_handler(server);
     bb_ota_push_register_handler(server);

@@ -1,19 +1,12 @@
 cmake_minimum_required(VERSION 3.16.0)
 
-set(_BB_COMPONENTS "${CMAKE_CURRENT_SOURCE_DIR}/.breadboard/components")
 list(APPEND EXTRA_COMPONENT_DIRS
     "components"  # Local components take precedence
-    "${_BB_COMPONENTS}/bb_log"
-    "${_BB_COMPONENTS}/bb_ota_pull"
-    "${_BB_COMPONENTS}/bb_ota_push"
-    "${_BB_COMPONENTS}/bb_wifi"
-    "${_BB_COMPONENTS}/bb_prov"
-    "${_BB_COMPONENTS}/bb_mdns"
-    "${_BB_COMPONENTS}/bb_http"
-    "${_BB_COMPONENTS}/bb_nv"
-    "${_BB_COMPONENTS}/bb_info"
-    "${_BB_COMPONENTS}/bb_board"
+    "${CMAKE_CURRENT_SOURCE_DIR}/.breadboard/components"
 )
+
+# bb_display is P4-only (requires esp_lcd_ek79007); TM uses its local display/ component
+set(EXCLUDE_COMPONENTS bb_display)
 
 # Override breadboard's nv_config namespace to "taipanminer" for on-device compatibility
 # (compile-time define; breadboard's nv_config.c checks `#ifndef BB_NV_CONFIG_NAMESPACE`)

@@ -10,6 +10,7 @@
 #include "work.h"
 #include "stratum.h"
 #include "nv_config.h"
+#include "taipan_config.h"
 #include "http_server.h"
 #include "display.h"
 #include "led.h"
@@ -197,7 +198,7 @@ void app_main(void)
     esp_log_level_set("esp_netif_handlers", ESP_LOG_WARN);
     esp_log_level_set("esp-x509-crt-bundle", ESP_LOG_WARN);
 
-    ESP_ERROR_CHECK(log_stream_init());
+    ESP_ERROR_CHECK(bb_log_stream_init());
 
     // Initialize NVS (required by WiFi)
     esp_err_t ret = nvs_flash_init();
@@ -208,29 +209,30 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     // Load config from NVS (falls back to defaults)
-    ESP_ERROR_CHECK(nv_config_init());
+    ESP_ERROR_CHECK(bb_nv_config_init());
+    ESP_ERROR_CHECK(taipan_config_init());
     log_reset_reason();
     ota_validator_start();
     ESP_ERROR_CHECK(led_init());
 
     // Boot failure counter — incremented only on WiFi timeout restart (wifi_prov.c),
     // not on every boot, so flash/power-cycle doesn't trigger AP fallback.
-    uint8_t boot_cnt = nv_config_boot_count();
-    if (boot_cnt >= NV_CONFIG_BOOT_FAIL_THRESHOLD && nv_config_is_provisioned()) {
+    uint8_t boot_cnt = bb_nv_config_boot_count();
+    if (boot_cnt >= BB_NV_CONFIG_BOOT_FAIL_THRESHOLD && bb_nv_config_is_provisioned()) {
         ESP_LOGW(TAG, "boot_count=%" PRIu8 " >= %d: clearing provisioning for AP fallback",
-                 boot_cnt, NV_CONFIG_BOOT_FAIL_THRESHOLD);
-        nv_config_clear_wifi();
-        nv_config_clear_provisioned();
-        nv_config_reset_boot_count();
+                 boot_cnt, BB_NV_CONFIG_BOOT_FAIL_THRESHOLD);
+        bb_nv_config_clear_wifi();
+        bb_nv_config_clear_provisioned();
+        bb_nv_config_reset_boot_count();
     } else if (boot_cnt > 1) {
         ESP_LOGW(TAG, "boot_count=%" PRIu8 " (%d until AP fallback)",
-                 boot_cnt, NV_CONFIG_BOOT_FAIL_THRESHOLD - boot_cnt);
+                 boot_cnt, BB_NV_CONFIG_BOOT_FAIL_THRESHOLD - boot_cnt);
     }
 
 #ifdef ASIC_BM1370
     // Initialize ASIC before WiFi — freq ramp takes ~8s, runs while WiFi isn't needed yet.
     // Skip if not provisioned (will enter AP mode instead).
-    if (nv_config_is_provisioned()) {
+    if (bb_nv_config_is_provisioned()) {
         ESP_ERROR_CHECK(asic_init());
     }
 #endif
@@ -241,7 +243,7 @@ void app_main(void)
     ESP_ERROR_CHECK(display_show_splash());
     vTaskDelay(pdMS_TO_TICKS(2000));
 
-    if (!nv_config_is_provisioned()) {
+    if (!bb_nv_config_is_provisioned()) {
         ESP_LOGI(TAG, "entering provisioning mode");
         ESP_ERROR_CHECK(wifi_init_ap());
         ESP_ERROR_CHECK(http_server_start_prov());
@@ -264,8 +266,8 @@ void app_main(void)
                 ESP_ERROR_CHECK(display_off());
                 ESP_ERROR_CHECK(led_off());
                 ESP_LOGI(TAG, "provisioning complete");
-                nv_config_set_provisioned();
-                nv_config_reset_boot_count();
+                bb_nv_config_set_provisioned();
+                bb_nv_config_reset_boot_count();
                 connected = true;
             } else {
                 ESP_LOGW(TAG, "STA connect failed, re-entering provisioning");

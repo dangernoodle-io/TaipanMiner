@@ -169,15 +169,6 @@ void test_hash_to_difficulty_easy(void);
 void test_hash_to_difficulty_six_zeros(void);
 void test_best_diff_only_increases(void);
 
-// Forward declarations from test_log_stream.c
-void test_log_stream_format_basic(void);
-void test_log_stream_format_truncation(void);
-void test_log_stream_format_empty(void);
-void test_log_stream_format_null_buf(void);
-void test_log_stream_format_null_fmt(void);
-void test_log_stream_format_int(void);
-void test_log_stream_format_size_one(void);
-
 // Forward declarations from test_bm1368.c
 void test_bm1368_pll_fb_range(void);
 void test_bm1368_pll_490mhz(void);
@@ -379,15 +370,6 @@ int main(void) {
     RUN_TEST(test_is_target_valid_diff1);
     RUN_TEST(test_is_target_valid_diff512);
     RUN_TEST(test_is_target_valid_diff_001);
-
-    // Log stream tests
-    RUN_TEST(test_log_stream_format_basic);
-    RUN_TEST(test_log_stream_format_truncation);
-    RUN_TEST(test_log_stream_format_empty);
-    RUN_TEST(test_log_stream_format_null_buf);
-    RUN_TEST(test_log_stream_format_null_fmt);
-    RUN_TEST(test_log_stream_format_int);
-    RUN_TEST(test_log_stream_format_size_one);
 
     // BM1368 tests
     RUN_TEST(test_bm1368_pll_fb_range);

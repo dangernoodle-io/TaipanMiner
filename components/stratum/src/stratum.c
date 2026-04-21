@@ -1,6 +1,7 @@
 #include "stratum.h"
 #include "stratum_utils.h"
 #include "nv_config.h"
+#include "taipan_config.h"
 #include "mining.h"
 #include "work.h"
 #include "sha256.h"
@@ -594,11 +595,11 @@ void stratum_task(void *arg)
 
     for (;;) {
         // Read config
-        const char *pool_host = nv_config_pool_host();
-        uint16_t pool_port = nv_config_pool_port();
-        s_wallet_addr = nv_config_wallet_addr();
-        s_worker_name = nv_config_worker_name();
-        const char *pool_pass = nv_config_pool_pass();
+        const char *pool_host = taipan_config_pool_host();
+        uint16_t pool_port = taipan_config_pool_port();
+        s_wallet_addr = taipan_config_wallet_addr();
+        s_worker_name = taipan_config_worker_name();
+        const char *pool_pass = taipan_config_pool_pass();
 
         ESP_LOGI(TAG, "connecting to %s:%u wallet=%s worker=%s",
                  pool_host, pool_port, s_wallet_addr, s_worker_name);

@@ -1,5 +1,6 @@
 #include "wifi_prov.h"
 #include "nv_config.h"
+#include "taipan_config.h"
 #include "stratum.h"
 #include "wifi_reconn.h"
 #include <string.h>
@@ -57,7 +58,7 @@ static void reconnect_timer_cb(void *arg)
 
 static void mdns_build_hostname(char *out, size_t out_size)
 {
-    const char *worker = nv_config_worker_name();
+    const char *worker = taipan_config_worker_name();
     char sanitized[64] = "";
 
     if (worker && worker[0] != '\0') {
@@ -248,7 +249,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         if (wifi_reconn_is_active()) {
             wifi_reconn_on_got_ip();
         }
-        nv_config_reset_boot_count();
+        bb_nv_config_reset_boot_count();
         if (s_wifi_event_group) {
             xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
         }
@@ -304,14 +305,14 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
     }
 
     wifi_config_t wifi_config = {0};
-    strncpy((char *)wifi_config.sta.ssid, nv_config_wifi_ssid(), sizeof(wifi_config.sta.ssid));
-    strncpy((char *)wifi_config.sta.password, nv_config_wifi_pass(), sizeof(wifi_config.sta.password));
+    strncpy((char *)wifi_config.sta.ssid, bb_nv_config_wifi_ssid(), sizeof(wifi_config.sta.ssid));
+    strncpy((char *)wifi_config.sta.password, bb_nv_config_wifi_pass(), sizeof(wifi_config.sta.password));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
     esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
 
-    ESP_LOGI(TAG, "connecting to %s", nv_config_wifi_ssid());
+    ESP_LOGI(TAG, "connecting to %s", bb_nv_config_wifi_ssid());
     EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
                                            pdFALSE, pdFALSE, pdMS_TO_TICKS(60000));
 
@@ -336,7 +337,7 @@ static esp_err_t wifi_connect_sta(bool restart_on_timeout)
 
         if (restart_on_timeout) {
             ESP_LOGE(TAG, "WiFi connection timeout after 60s, restarting");
-            nv_config_increment_boot_count();
+            bb_nv_config_increment_boot_count();
             esp_restart();
         } else {
             ESP_LOGE(TAG, "WiFi connection timeout after 60s");

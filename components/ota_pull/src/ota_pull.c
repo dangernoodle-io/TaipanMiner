@@ -301,7 +301,7 @@ static void ota_worker_task(void *arg)
     const esp_app_desc_t *running = esp_app_get_description();
     if (strncmp(img_desc.project_name, running->project_name,
                 sizeof(img_desc.project_name)) != 0) {
-        if (nv_config_ota_skip_check()) {
+        if (bb_nv_config_ota_skip_check()) {
             ESP_LOGW(TAG, "board mismatch IGNORED (ota_skip_check): got '%s', expected '%s'",
                      img_desc.project_name, running->project_name);
         } else {

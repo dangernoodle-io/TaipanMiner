@@ -107,7 +107,7 @@ static void handle_disconnect(uint8_t reason, reconn_state_t *state, uint32_t *b
     if (should_reboot()) {
         ESP_LOGE(TAG, "persistent disconnect for >5min (reason=%u, handshake=%d, generic=%d), rebooting",
                  reason, s_handshake_fail_count, s_generic_fail_count);
-        nv_config_increment_boot_count();
+        bb_nv_config_increment_boot_count();
         esp_restart();
     }
 

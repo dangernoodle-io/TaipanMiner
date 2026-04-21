@@ -13,3 +13,4 @@ src/partition_fixup_data.c
 components/http_server/src/*_gz.c
 .code-graph/
 /compile_commands.json
+.breadboard/

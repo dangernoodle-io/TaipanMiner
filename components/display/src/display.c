@@ -420,7 +420,7 @@ static esp_err_t show_status_st7735(const display_status_t *status)
     }
     snprintf(net_text[0], 21, "%s", net_state);
     // Line 1: SSID and RSSI
-    const char *ssid = nv_config_wifi_ssid();
+    const char *ssid = bb_nv_config_wifi_ssid();
     snprintf(net_text[1], 21, "%-13.13s%4ddBm", ssid ? ssid : "?", status->rssi);
     // Line 2: IP address
     snprintf(net_text[2], 21, "%s", status->ip);
@@ -720,7 +720,7 @@ esp_err_t display_show_status(const display_status_t *status)
 {
     static bool s_was_off = false;
 
-    if (!nv_config_display_enabled()) {
+    if (!bb_nv_config_display_enabled()) {
         if (!s_was_off) {
             display_off();
             s_was_off = true;

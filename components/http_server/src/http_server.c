@@ -15,6 +15,7 @@
 #include "board.h"
 #include "mining.h"
 #include "nv_config.h"
+#include "taipan_config.h"
 #include "wifi_prov.h"
 #include "stratum.h"
 #include "cJSON.h"
@@ -139,13 +140,13 @@ static esp_err_t prov_save_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    esp_err_t err = nv_config_set_wifi(ssid, pass);
+    esp_err_t err = bb_nv_config_set_wifi(ssid, pass);
     if (err != ESP_OK) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save config");
         return ESP_FAIL;
     }
 
-    err = nv_config_set_config(pool_host, port, wallet, worker, pool_pass);
+    err = taipan_config_set_pool(pool_host, port, wallet, worker, pool_pass);
     if (err != ESP_OK) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save config");
         return ESP_FAIL;
@@ -237,10 +238,10 @@ static esp_err_t stats_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "last_share_ago_s", (double)last_share_ago_s);
     cJSON_AddNumberToObject(root, "lifetime_shares", lifetime.total_shares);
     cJSON_AddNumberToObject(root, "best_diff", best_diff);
-    cJSON_AddStringToObject(root, "pool_host", nv_config_pool_host());
-    cJSON_AddNumberToObject(root, "pool_port", nv_config_pool_port());
-    cJSON_AddStringToObject(root, "worker", nv_config_worker_name());
-    cJSON_AddStringToObject(root, "wallet", nv_config_wallet_addr());
+    cJSON_AddStringToObject(root, "pool_host", taipan_config_pool_host());
+    cJSON_AddNumberToObject(root, "pool_port", taipan_config_pool_port());
+    cJSON_AddStringToObject(root, "worker", taipan_config_worker_name());
+    cJSON_AddStringToObject(root, "wallet", taipan_config_wallet_addr());
     cJSON_AddNumberToObject(root, "uptime_s", (double)uptime_s);
     cJSON_AddNumberToObject(root, "free_heap", (double)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     cJSON_AddNumberToObject(root, "total_heap", (double)heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
@@ -254,7 +255,7 @@ static esp_err_t stats_handler(httpd_req_t *req)
     cJSON_AddStringToObject(root, "build_date", app->date);
     cJSON_AddStringToObject(root, "build_time", app->time);
     cJSON_AddStringToObject(root, "board", BOARD_NAME);
-    cJSON_AddBoolToObject(root, "display_en", nv_config_display_enabled());
+    cJSON_AddBoolToObject(root, "display_en", bb_nv_config_display_enabled());
 #if defined(ASIC_BM1370) || defined(ASIC_BM1368)
     cJSON_AddNumberToObject(root, "asic_hashrate", asic_rate);
     cJSON_AddNumberToObject(root, "asic_hashrate_avg", asic_ema);
@@ -417,8 +418,8 @@ static esp_err_t info_handler(httpd_req_t *req)
     snprintf(mac_str, sizeof(mac_str), "%02x:%02x:%02x:%02x:%02x:%02x",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     cJSON_AddStringToObject(root, "mac", mac_str);
-    cJSON_AddStringToObject(root, "worker_name", nv_config_worker_name());
-    cJSON_AddStringToObject(root, "ssid", nv_config_wifi_ssid());
+    cJSON_AddStringToObject(root, "worker_name", taipan_config_worker_name());
+    cJSON_AddStringToObject(root, "ssid", bb_nv_config_wifi_ssid());
 
     cJSON_AddNumberToObject(root, "total_heap", (double)heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
     cJSON_AddNumberToObject(root, "free_heap", (double)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
@@ -612,7 +613,7 @@ static esp_err_t ota_upload_handler(httpd_req_t *req)
 
             if (strncmp(incoming->project_name, running->project_name,
                         sizeof(incoming->project_name)) != 0) {
-                if (nv_config_ota_skip_check()) {
+                if (bb_nv_config_ota_skip_check()) {
                     ESP_LOGW(TAG, "OTA board mismatch IGNORED (ota_skip_check): "
                              "firmware is for '%s', this device is '%s'",
                              incoming->project_name, running->project_name);
@@ -693,7 +694,7 @@ static void s_sse_task(void *arg)
     char frame[220];
 
     while (err == ESP_OK && !s_sse_stop) {
-        size_t n = log_stream_drain(line, sizeof(line), pdMS_TO_TICKS(500));
+        size_t n = bb_log_stream_drain(line, sizeof(line), 500);
         if (n == 0) continue;
         while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r'))
             line[--n] = '\0';
@@ -765,7 +766,7 @@ static esp_err_t logs_status_handler(httpd_req_t *req)
     set_common_headers(req);
     httpd_resp_set_type(req, "application/json");
     char buf[96];
-    uint32_t dropped = log_stream_dropped_lines();
+    uint32_t dropped = bb_log_stream_dropped_lines();
     if (s_sse_client_type == 0) {
         snprintf(buf, sizeof(buf), "{\"active\":false,\"client\":null,\"dropped\":%" PRIu32 "}", dropped);
     } else {
@@ -791,13 +792,13 @@ static esp_err_t settings_get_handler(httpd_req_t *req)
 {
     set_common_headers(req);
     cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "pool_host", nv_config_pool_host());
-    cJSON_AddNumberToObject(root, "pool_port", nv_config_pool_port());
-    cJSON_AddStringToObject(root, "wallet", nv_config_wallet_addr());
-    cJSON_AddStringToObject(root, "worker", nv_config_worker_name());
-    cJSON_AddStringToObject(root, "pool_pass", nv_config_pool_pass());
-    cJSON_AddBoolToObject(root, "display_en", nv_config_display_enabled());
-    cJSON_AddBoolToObject(root, "ota_skip_check", nv_config_ota_skip_check());
+    cJSON_AddStringToObject(root, "pool_host", taipan_config_pool_host());
+    cJSON_AddNumberToObject(root, "pool_port", taipan_config_pool_port());
+    cJSON_AddStringToObject(root, "wallet", taipan_config_wallet_addr());
+    cJSON_AddStringToObject(root, "worker", taipan_config_worker_name());
+    cJSON_AddStringToObject(root, "pool_pass", taipan_config_pool_pass());
+    cJSON_AddBoolToObject(root, "display_en", bb_nv_config_display_enabled());
+    cJSON_AddBoolToObject(root, "ota_skip_check", bb_nv_config_ota_skip_check());
 
     char *json = cJSON_PrintUnformatted(root);
     httpd_resp_set_type(req, "application/json");
@@ -831,11 +832,11 @@ static esp_err_t apply_settings(httpd_req_t *req, bool partial)
     }
 
     // Extract fields — use current values as defaults for PATCH
-    const char *pool_host = nv_config_pool_host();
-    uint16_t pool_port = nv_config_pool_port();
-    const char *wallet = nv_config_wallet_addr();
-    const char *worker = nv_config_worker_name();
-    const char *pool_pass = nv_config_pool_pass();
+    const char *pool_host = taipan_config_pool_host();
+    uint16_t pool_port = taipan_config_pool_port();
+    const char *wallet = taipan_config_wallet_addr();
+    const char *worker = taipan_config_worker_name();
+    const char *pool_pass = taipan_config_pool_pass();
     bool reboot_required = false;
 
     cJSON *j;
@@ -861,11 +862,11 @@ static esp_err_t apply_settings(httpd_req_t *req, bool partial)
     // pool_pass is optional even for POST
 
     // Compare against current values to determine if reboot is needed
-    if (strcmp(pool_host, nv_config_pool_host()) != 0 ||
-        pool_port != nv_config_pool_port() ||
-        strcmp(wallet, nv_config_wallet_addr()) != 0 ||
-        strcmp(worker, nv_config_worker_name()) != 0 ||
-        strcmp(pool_pass, nv_config_pool_pass()) != 0) {
+    if (strcmp(pool_host, taipan_config_pool_host()) != 0 ||
+        pool_port != taipan_config_pool_port() ||
+        strcmp(wallet, taipan_config_wallet_addr()) != 0 ||
+        strcmp(worker, taipan_config_worker_name()) != 0 ||
+        strcmp(pool_pass, taipan_config_pool_pass()) != 0) {
         reboot_required = true;
     }
 
@@ -883,7 +884,7 @@ static esp_err_t apply_settings(httpd_req_t *req, bool partial)
 
     // Save mining config if any mining field was provided
     if (reboot_required) {
-        esp_err_t err = nv_config_set_config(pool_host, pool_port, wallet, worker, pool_pass);
+        esp_err_t err = taipan_config_set_pool(pool_host, pool_port, wallet, worker, pool_pass);
         if (err != ESP_OK) {
             cJSON_Delete(root);
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save config");
@@ -894,7 +895,7 @@ static esp_err_t apply_settings(httpd_req_t *req, bool partial)
     // Handle display_en separately (takes effect immediately, no reboot needed)
     j = cJSON_GetObjectItem(root, "display_en");
     if (j && cJSON_IsBool(j)) {
-        esp_err_t err = nv_config_set_display_enabled(cJSON_IsTrue(j));
+        esp_err_t err = bb_nv_config_set_display_enabled(cJSON_IsTrue(j));
         if (err != ESP_OK) {
             cJSON_Delete(root);
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save display setting");
@@ -904,7 +905,7 @@ static esp_err_t apply_settings(httpd_req_t *req, bool partial)
 
     j = cJSON_GetObjectItem(root, "ota_skip_check");
     if (j && cJSON_IsBool(j)) {
-        esp_err_t err = nv_config_set_ota_skip_check(cJSON_IsTrue(j));
+        esp_err_t err = bb_nv_config_set_ota_skip_check(cJSON_IsTrue(j));
         if (err != ESP_OK) {
             cJSON_Delete(root);
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,

@@ -21,7 +21,7 @@ static void mark_valid_internal(const char *reason)
     }
 
     esp_ota_mark_app_valid_cancel_rollback();
-    nv_config_reset_boot_count();
+    bb_nv_config_reset_boot_count();
     ESP_LOGW(TAG, "firmware validated via %s", reason);
 }
 

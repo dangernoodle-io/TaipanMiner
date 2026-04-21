@@ -5,13 +5,16 @@
 #include "esp_system.h"
 #include "nvs.h"
 #include "esp_sntp.h"
-#include "wifi_prov.h"
+#include "bb_wifi.h"
+#include "bb_prov.h"
+#include "bb_mdns.h"
+#include "http_server.h"
 #include "mining.h"
 #include "work.h"
 #include "stratum.h"
 #include "nv_config.h"
 #include "taipan_config.h"
-#include "http_server.h"
+#include "taipan_web.h"
 #include "display.h"
 #include "led.h"
 #include "esp_ota_ops.h"
@@ -91,7 +94,7 @@ static void start_mining(void)
     ESP_ERROR_CHECK(esp_timer_start_periodic(s_stats_timer, 10ULL * 60 * 1000000));
 
     // Register WiFi kick callback for zombie-state recovery
-    stratum_set_wifi_kick_cb(wifi_force_reassociate);
+    stratum_set_wifi_kick_cb(bb_wifi_force_reassociate);
 
     // Start stratum task on Core 0
     xTaskCreatePinnedToCore(stratum_task, "stratum", 8192, NULL, 5, NULL, 0);
@@ -134,14 +137,14 @@ static void display_status_task(void *arg)
 
             // Populate network diagnostics (lock-free getters)
             int8_t rssi = 0;
-            wifi_prov_get_rssi(&rssi);
+            bb_wifi_get_rssi(&rssi);
             status.rssi = rssi;
-            wifi_prov_get_ip_str(status.ip, sizeof(status.ip));
+            bb_wifi_get_ip_str(status.ip, sizeof(status.ip));
             int64_t age_us = 0;
-            wifi_prov_get_disconnect(&status.wifi_disc_reason, &age_us);
+            bb_wifi_get_disconnect(&status.wifi_disc_reason, &age_us);
             status.wifi_disc_age_s = (uint32_t)(age_us / 1000000);
-            status.wifi_retry_count = wifi_prov_get_retry_count();
-            status.mdns_ok = wifi_prov_mdns_started();
+            status.wifi_retry_count = bb_wifi_get_retry_count();
+            status.mdns_ok = bb_mdns_started();
             status.stratum_ok = stratum_is_connected();
             status.stratum_reconnect_ms = stratum_get_reconnect_delay_ms();
             status.stratum_fail_count = stratum_get_connect_fail_count();
@@ -149,6 +152,80 @@ static void display_status_task(void *arg)
         tick++;
 
         display_show_status(&status);
+    }
+}
+
+static void build_mdns_hostname(char *out, size_t out_size)
+{
+    if (out_size < 1) {
+        return;
+    }
+
+    // Start with "taipanminer" prefix
+    const char *prefix = "taipanminer";
+    size_t prefix_len = strlen(prefix);
+
+    // Get worker name from config
+    const char *worker_raw = taipan_config_worker_name();
+
+    // If no worker name or empty, just use the prefix
+    if (!worker_raw || !*worker_raw) {
+        snprintf(out, out_size, "%s", prefix);
+        return;
+    }
+
+    // Sanitize: lowercase [a-z0-9], replace other chars with '-'
+    char sanitized[128];
+    size_t san_len = 0;
+    for (const char *p = worker_raw; *p && san_len < sizeof(sanitized) - 1; p++) {
+        char c = *p;
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+            sanitized[san_len++] = c;
+        } else if (c >= 'A' && c <= 'Z') {
+            // Convert uppercase to lowercase
+            sanitized[san_len++] = c - ('A' - 'a');
+        } else {
+            // Replace other chars with '-'
+            sanitized[san_len++] = '-';
+        }
+    }
+    sanitized[san_len] = '\0';
+
+    // Collapse consecutive '-'
+    char collapsed[128];
+    size_t col_len = 0;
+    for (size_t i = 0; i < san_len && col_len < sizeof(collapsed) - 1; i++) {
+        if (sanitized[i] == '-' && col_len > 0 && collapsed[col_len - 1] == '-') {
+            continue; // Skip consecutive '-'
+        }
+        collapsed[col_len++] = sanitized[i];
+    }
+    collapsed[col_len] = '\0';
+
+    // Trim leading and trailing '-'
+    size_t trim_start = 0;
+    while (trim_start < col_len && collapsed[trim_start] == '-') {
+        trim_start++;
+    }
+    size_t trim_end = col_len;
+    while (trim_end > trim_start && collapsed[trim_end - 1] == '-') {
+        trim_end--;
+    }
+
+    size_t worker_len = trim_end - trim_start;
+    // Build final hostname: prefix + "-" + worker, cap at 63 chars per RFC 1035
+    size_t max_out = (out_size > 63) ? 63 : (out_size - 1);
+    size_t sep_len = (worker_len > 0) ? 1 : 0; // "-" separator if we have a worker
+    size_t available = max_out - prefix_len - sep_len;
+
+    if (worker_len > available) {
+        worker_len = available;
+    }
+
+    if (worker_len > 0) {
+        snprintf(out, out_size, "%s-%.*s", prefix, (int)worker_len, &collapsed[trim_start]);
+    } else {
+        snprintf(out, out_size, "%s", prefix);
     }
 }
 
@@ -194,8 +271,8 @@ void app_main(void)
              app->project_name, app->version, app->date, app->time, app->idf_ver);
 
     // Suppress noisy wifi debug logs (before wifi_init)
-    esp_log_level_set("wifi", ESP_LOG_WARN);
-    esp_log_level_set("wifi_init", ESP_LOG_WARN);
+    esp_log_level_set("wifi", ESP_LOG_INFO);
+    esp_log_level_set("wifi_init", ESP_LOG_INFO);
     esp_log_level_set("phy_init", ESP_LOG_WARN);
     esp_log_level_set("esp_netif_handlers", ESP_LOG_WARN);
     esp_log_level_set("esp-x509-crt-bundle", ESP_LOG_WARN);
@@ -247,41 +324,60 @@ void app_main(void)
 
     if (!bb_nv_config_is_provisioned()) {
         ESP_LOGI(TAG, "entering provisioning mode");
-        ESP_ERROR_CHECK(wifi_init_ap());
-        ESP_ERROR_CHECK(http_server_start_prov());
+        // Configure provisioning before AP start
+        bb_prov_set_ap_ssid_prefix("TaipanMiner-");
+        bb_prov_set_ap_password("taipanminer");
+        bb_mdns_set_service_type("_taipanminer");
+        bb_mdns_set_instance_name("TaipanMiner");
+        {
+            char hn[64];
+            build_mdns_hostname(hn, sizeof(hn));
+            bb_mdns_set_hostname(hn);
+        }
+
+        ESP_ERROR_CHECK(bb_prov_start_ap());
+        ESP_ERROR_CHECK(bb_prov_start(taipan_web_register_prov_routes));
 
         // Show provisioning info on display + solid blue LED
         char ap_ssid[32];
-        wifi_prov_get_ap_ssid(ap_ssid, sizeof(ap_ssid));
+        bb_prov_get_ap_ssid(ap_ssid, sizeof(ap_ssid));
         ESP_ERROR_CHECK(display_show_prov(ap_ssid, "taipanminer"));
         ESP_ERROR_CHECK(led_set_color(0, 0, 38));
 
         bool connected = false;
         while (!connected) {
-            xEventGroupWaitBits(g_prov_event_group, PROV_DONE_BIT,
-                                pdTRUE, pdFALSE, portMAX_DELAY);
+            bb_prov_wait_done(UINT32_MAX);
 
-            wifi_stop_ap();
+            bb_prov_stop_ap();
 
-            esp_err_t err = wifi_init_sta();
+            esp_err_t err = bb_wifi_init_sta();
             if (err == ESP_OK) {
-                ESP_ERROR_CHECK(display_off());
                 ESP_ERROR_CHECK(led_off());
                 ESP_LOGI(TAG, "provisioning complete");
                 bb_nv_config_set_provisioned();
                 bb_nv_config_reset_boot_count();
                 connected = true;
+                // Switch HTTP server from provisioning to mining mode
+                bb_prov_switch_to_normal(taipan_web_register_mining_routes);
             } else {
                 ESP_LOGW(TAG, "STA connect failed, re-entering provisioning");
-                ESP_ERROR_CHECK(wifi_init_ap());
+                // Reinitialize AP for retry
+                ESP_ERROR_CHECK(bb_prov_start_ap());
             }
         }
-
-        http_server_switch_to_mining();
     } else {
         // Normal boot: connect to saved WiFi
-        ESP_ERROR_CHECK(wifi_init());
-        ESP_ERROR_CHECK(http_server_start());
+        bb_mdns_set_service_type("_taipanminer");
+        bb_mdns_set_instance_name("TaipanMiner");
+        {
+            char hn[64];
+            build_mdns_hostname(hn, sizeof(hn));
+            bb_mdns_set_hostname(hn);
+        }
+        bb_mdns_init();
+        ESP_ERROR_CHECK(bb_wifi_init());
+        ESP_ERROR_CHECK(bb_http_server_ensure_started());
+        ESP_ERROR_CHECK(taipan_web_register_mining_routes(bb_http_server_get_handle()));
     }
 
     // Sync time via SNTP (UTC)

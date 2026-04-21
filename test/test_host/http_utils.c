@@ -1,11 +1,10 @@
-#include "http_server.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
 // Extract a field from URL-encoded body: "field=value&..."
 // Handles %XX decoding and + as space
-void url_decode_field(const char *body, const char *field, char *out, size_t out_size)
+void bb_url_decode_field(const char *body, const char *field, char *out, size_t out_size)
 {
     out[0] = '\0';
     // Find "field=" in body

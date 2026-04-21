@@ -2,6 +2,9 @@
 
 #include <stddef.h>
 
+// Breadboard HTTP server compatibility types
+typedef void *bb_http_handle_t;
+
 #ifdef ESP_PLATFORM
 #include "esp_err.h"
 

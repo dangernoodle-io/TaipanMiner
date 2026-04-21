@@ -19,6 +19,8 @@
 #include "partition_fixup.h"
 #include "log_stream.h"
 #include "ota_validator.h"
+#include "ota_pull.h"
+#include "ota_push.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #ifdef ASIC_BM1370
@@ -284,6 +286,16 @@ void app_main(void)
 
     // Sync time via SNTP (UTC)
     sntp_init_time();
+
+    // Initialize OTA pull with breadboard component
+    bb_ota_pull_set_releases_url("https://api.github.com/repos/dangernoodle-io/TaipanMiner/releases/latest");
+    bb_ota_pull_set_firmware_board("taipanminer-" FIRMWARE_BOARD);
+    bb_ota_pull_set_hooks(mining_pause, mining_resume);
+    bb_ota_pull_set_skip_check_cb(bb_nv_config_ota_skip_check);
+
+    // Initialize OTA push with breadboard component
+    bb_ota_push_set_hooks(mining_pause, mining_resume);
+    bb_ota_push_set_skip_check_cb(bb_nv_config_ota_skip_check);
 
     // Start mining
     start_mining();

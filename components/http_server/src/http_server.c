@@ -28,6 +28,7 @@
 #include <sys/socket.h>
 #include <inttypes.h>
 #include "ota_pull.h"
+#include "ota_push.h"
 #include "ota_validator.h"
 #include "log_stream.h"
 
@@ -563,113 +564,6 @@ static esp_err_t favicon_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-static esp_err_t ota_upload_handler(httpd_req_t *req)
-{
-    set_common_headers(req);
-    const esp_partition_t *partition = esp_ota_get_next_update_partition(NULL);
-    if (!partition) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No OTA partition");
-        return ESP_FAIL;
-    }
-
-    esp_ota_handle_t ota_handle;
-    esp_err_t err = esp_ota_begin(partition, OTA_SIZE_UNKNOWN, &ota_handle);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_ota_begin failed: %s", esp_err_to_name(err));
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA begin failed");
-        return ESP_FAIL;
-    }
-
-    ESP_LOGI(TAG, "OTA started, receiving %d bytes to partition '%s' at 0x%"PRIx32,
-             req->content_len, partition->label, partition->address);
-
-    char buf[1024];
-    int received = 0;
-    int timeout_count = 0;
-    while (received < req->content_len) {
-        int ret = httpd_req_recv(req, buf, sizeof(buf) < (req->content_len - received) ? sizeof(buf) : (req->content_len - received));
-        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
-            if (++timeout_count > 30) {  // 30 consecutive timeouts ~ 30s
-                ESP_LOGE(TAG, "OTA upload timeout after %d retries", timeout_count);
-                esp_ota_abort(ota_handle);
-                httpd_resp_send_err(req, HTTPD_408_REQ_TIMEOUT, "Upload timeout");
-                return ESP_FAIL;
-            }
-            continue;
-        }
-        timeout_count = 0;  // reset on successful recv
-        if (ret <= 0) {
-            ESP_LOGE(TAG, "OTA receive error at %d/%d", received, req->content_len);
-            esp_ota_abort(ota_handle);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Receive failed");
-            return ESP_FAIL;
-        }
-
-        if (received == 0 && ret >= (int)(sizeof(esp_image_header_t) +
-            sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t))) {
-            const esp_app_desc_t *incoming = (const esp_app_desc_t *)
-                (buf + sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t));
-            const esp_app_desc_t *running = esp_app_get_description();
-
-            if (strncmp(incoming->project_name, running->project_name,
-                        sizeof(incoming->project_name)) != 0) {
-                if (bb_nv_config_ota_skip_check()) {
-                    ESP_LOGW(TAG, "OTA board mismatch IGNORED (ota_skip_check): "
-                             "firmware is for '%s', this device is '%s'",
-                             incoming->project_name, running->project_name);
-                } else {
-                    ESP_LOGE(TAG, "OTA rejected: firmware is for '%s', this device is '%s'",
-                             incoming->project_name, running->project_name);
-                    esp_ota_abort(ota_handle);
-                    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Firmware board mismatch");
-                    return ESP_FAIL;
-                }
-            }
-            ESP_LOGI(TAG, "OTA board check passed: %s", incoming->project_name);
-        }
-
-        err = esp_ota_write(ota_handle, buf, ret);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "esp_ota_write failed: %s", esp_err_to_name(err));
-            esp_ota_abort(ota_handle);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA write failed");
-            return ESP_FAIL;
-        }
-
-        received += ret;
-    }
-
-    ESP_LOGI(TAG, "OTA receive complete (%d bytes), validating", received);
-
-    // Pause mining cooperatively — avoids deadlock on SHA peripheral lock
-    mining_pause();
-
-    err = esp_ota_end(ota_handle);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_ota_end failed: %s (0x%x)", esp_err_to_name(err), err);
-        // Resume mining on OTA failure
-        mining_resume();
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA end failed");
-        return ESP_FAIL;
-    }
-
-    err = esp_ota_set_boot_partition(partition);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_ota_set_boot_partition failed: %s", esp_err_to_name(err));
-        // Resume mining on set_boot_partition failure
-        mining_resume();
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Set boot partition failed");
-        return ESP_FAIL;
-    }
-
-    ESP_LOGI(TAG, "OTA complete, rebooting");
-    httpd_resp_sendstr(req, "OTA complete. Rebooting...");
-
-    vTaskDelay(pdMS_TO_TICKS(500));
-    esp_restart();
-    return ESP_OK;  // unreachable
-}
-
 static volatile int s_sse_client_type = 0;  // 0=none, 1=browser, 2=external
 static volatile bool s_sse_stop = false;
 static volatile TaskHandle_t s_sse_task_handle = NULL;
@@ -1017,13 +911,12 @@ void http_server_switch_to_mining(void)
     httpd_uri_t status_uri = { .uri = "/", .method = HTTP_GET, .handler = status_handler };
     httpd_uri_t stats_uri = { .uri = "/api/stats", .method = HTTP_GET, .handler = stats_handler };
     httpd_uri_t mining_js_uri = { .uri = "/mining.js", .method = HTTP_GET, .handler = mining_js_handler };
-    httpd_uri_t ota_upload_uri = { .uri = "/api/ota/upload", .method = HTTP_POST, .handler = ota_upload_handler };
 
     httpd_register_uri_handler(s_server, &status_uri);
     httpd_register_uri_handler(s_server, &stats_uri);
     httpd_register_uri_handler(s_server, &mining_js_uri);
-    httpd_register_uri_handler(s_server, &ota_upload_uri);
-    ota_pull_register_handler(s_server);
+    bb_ota_pull_register_handler((bb_http_handle_t)s_server);
+    bb_ota_push_register_handler((bb_http_handle_t)s_server);
 
     httpd_uri_t ota_mark_valid_uri = { .uri = "/api/ota/mark-valid", .method = HTTP_POST, .handler = ota_mark_valid_handler };
     httpd_register_uri_handler(s_server, &ota_mark_valid_uri);
@@ -1073,9 +966,6 @@ esp_err_t http_server_start(void)
     httpd_uri_t mining_js_uri = {
         .uri = "/mining.js", .method = HTTP_GET, .handler = mining_js_handler
     };
-    httpd_uri_t ota_upload_uri = {
-        .uri = "/api/ota/upload", .method = HTTP_POST, .handler = ota_upload_handler
-    };
     httpd_uri_t theme_uri = {
         .uri = "/theme.css", .method = HTTP_GET, .handler = theme_handler
     };
@@ -1092,10 +982,10 @@ esp_err_t http_server_start(void)
     httpd_register_uri_handler(s_server, &info_uri);
     httpd_register_uri_handler(s_server, &favicon_uri);
     httpd_register_uri_handler(s_server, &mining_js_uri);
-    httpd_register_uri_handler(s_server, &ota_upload_uri);
     httpd_register_uri_handler(s_server, &theme_uri);
     httpd_register_uri_handler(s_server, &logo_uri);
-    ota_pull_register_handler(s_server);
+    bb_ota_pull_register_handler((bb_http_handle_t)s_server);
+    bb_ota_push_register_handler((bb_http_handle_t)s_server);
 
     httpd_uri_t ota_mark_valid_uri = { .uri = "/api/ota/mark-valid", .method = HTTP_POST, .handler = ota_mark_valid_handler };
     httpd_register_uri_handler(s_server, &ota_mark_valid_uri);

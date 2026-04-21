@@ -3,11 +3,14 @@ cmake_minimum_required(VERSION 3.16.0)
 set(_BB_COMPONENTS "${CMAKE_CURRENT_SOURCE_DIR}/.breadboard/components")
 list(APPEND EXTRA_COMPONENT_DIRS
     "${_BB_COMPONENTS}/log_stream"
+    "${_BB_COMPONENTS}/ota_pull"
+    "${_BB_COMPONENTS}/ota_push"
 )
 
 # Override breadboard's nv_config namespace to "taipanminer" for on-device compatibility
 # (compile-time define; breadboard's nv_config.c checks `#ifndef BB_NV_CONFIG_NAMESPACE`)
 add_compile_definitions(BB_NV_CONFIG_NAMESPACE="taipanminer")
+add_compile_definitions(FIRMWARE_BOARD="${FIRMWARE_BOARD}")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 

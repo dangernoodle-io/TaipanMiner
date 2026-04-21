@@ -137,8 +137,8 @@ TaipanMiner consumes shared infrastructure components from the breadboard librar
 - Mining-mode SPA: `mining.html` + `mining.js` at `/`, five tabs: Diagnostics, Info, Settings, Status, Health (bitaxe-only), Update
 - Provisioning-mode: `prov_form.html` at `/`, `prov_save.html` at `/save`
 - `theme.css` shared between both modes (dark navy/gold design system)
-- Web assets: embedded in `components/taipan_web/` and pre-built via `scripts/embed_html.py` gzip-compression into `src/*_gz.c`
-- To add a web asset: add file to `components/taipan_web/`, add to `embed_html.py` FILES list, add `src/<name>_gz.c` to CMakeLists.txt SRCS, register handler in `components/taipan_web/src/routes.c`
+- Web assets: embedded in `components/taipan_web/` via breadboard's `bb_embed_assets()` CMake helper (gzip-compression + C source generation)
+- To add a web asset: add file to `components/taipan_web/`, add a `<file>:<symbol>` pair to the ASSETS list in `components/taipan_web/CMakeLists.txt`, register handler in `components/taipan_web/src/routes.c`
 - HTTP routes dispatched via `bb_http_server` (breadboard) with TaipanMiner-specific handlers in `taipan_web`
 - API: `/api/stats` (polled every 5s), `/api/info` (device details), `/api/version`, `/api/ota/check`, `/api/ota/upload`, `/api/ota/update`, `/api/power` (bitaxe-only — 404 on tdongle), `/api/fan` (bitaxe-only — 404 on tdongle; `duty_pct` reflects actual curve-controlled setting, null until first 5s telemetry tick), `/api/logs/status`, `/api/logs`
 - OTA check suspends mining task to free heap for TLS handshake (~29 KB stack)

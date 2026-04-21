@@ -1,6 +1,6 @@
 #include "stratum.h"
 #include "stratum_utils.h"
-#include "nv_config.h"
+#include "bb_nv.h"
 #include "taipan_config.h"
 #include "mining.h"
 #include "work.h"

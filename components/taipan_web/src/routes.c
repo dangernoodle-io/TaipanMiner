@@ -1,6 +1,6 @@
 #include "taipan_web.h"
 #include "esp_http_server.h"
-#include "http_server.h"
+#include "bb_http.h"
 #include "esp_ota_ops.h"
 #include "esp_app_desc.h"
 #include "esp_app_format.h"
@@ -15,7 +15,7 @@
 #include "nvs.h"
 #include "board.h"
 #include "mining.h"
-#include "nv_config.h"
+#include "bb_nv.h"
 #include "taipan_config.h"
 #include "bb_wifi.h"
 #include "bb_prov.h"
@@ -30,10 +30,10 @@
 #include <time.h>
 #include <sys/socket.h>
 #include <inttypes.h>
-#include "ota_pull.h"
-#include "ota_push.h"
+#include "bb_ota_pull.h"
+#include "bb_ota_push.h"
 #include "ota_validator.h"
-#include "log_stream.h"
+#include "bb_log.h"
 
 static const char *TAG = "web";
 

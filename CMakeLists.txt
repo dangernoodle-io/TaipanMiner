@@ -3,13 +3,14 @@ cmake_minimum_required(VERSION 3.16.0)
 set(_BB_COMPONENTS "${CMAKE_CURRENT_SOURCE_DIR}/.breadboard/components")
 list(APPEND EXTRA_COMPONENT_DIRS
     "components"  # Local components take precedence
-    "${_BB_COMPONENTS}/log_stream"
-    "${_BB_COMPONENTS}/ota_pull"
-    "${_BB_COMPONENTS}/ota_push"
+    "${_BB_COMPONENTS}/bb_log"
+    "${_BB_COMPONENTS}/bb_ota_pull"
+    "${_BB_COMPONENTS}/bb_ota_push"
     "${_BB_COMPONENTS}/bb_wifi"
     "${_BB_COMPONENTS}/bb_prov"
     "${_BB_COMPONENTS}/bb_mdns"
-    "${_BB_COMPONENTS}/http_server"
+    "${_BB_COMPONENTS}/bb_http"
+    "${_BB_COMPONENTS}/bb_nv"
 )
 
 # Override breadboard's nv_config namespace to "taipanminer" for on-device compatibility

@@ -4,7 +4,7 @@
 
 #ifdef ESP_PLATFORM
 #include "esp_err.h"
-#include "http_server.h"
+#include "bb_http.h"
 
 // Register provisioning UI routes (called by bb_prov_start)
 // Takes bb_http_handle_t and returns bb_err_t, matching bb_http_app_routes_fn signature

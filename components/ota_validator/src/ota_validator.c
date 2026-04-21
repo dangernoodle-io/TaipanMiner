@@ -4,7 +4,7 @@
 #include "esp_app_format.h"
 #include "esp_timer.h"
 #include "esp_log.h"
-#include "nv_config.h"
+#include "bb_nv.h"
 
 static const char *TAG = "ota_validator";
 

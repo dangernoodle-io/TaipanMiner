@@ -9,7 +9,7 @@
 #include "driver/gpio.h"
 #include "esp_lcd_panel_ops.h"
 #include "font8x16.h"
-#include "nv_config.h"
+#include "bb_nv.h"
 
 #include <string.h>
 #include <stdbool.h>

@@ -1,7 +1,7 @@
 #include "taipan_config.h"
 #include <string.h>
-#include "nv_config.h"
-#include "log_stream.h"
+#include "bb_nv.h"
+#include "bb_log.h"
 
 #define TAIPAN_NS "taipanminer"
 

@@ -101,10 +101,10 @@ void ota_validator_on_share_accepted(void)
     mark_valid_internal("first share");
 }
 
-esp_err_t ota_validator_mark_valid_manual(void)
+bb_err_t ota_validator_mark_valid_manual(void)
 {
     if (!s_pending || atomic_load(&s_marked_valid)) {
-        return ESP_ERR_INVALID_STATE;
+        return BB_ERR_INVALID_STATE;
     }
 
     if (s_timer != NULL) {
@@ -114,7 +114,7 @@ esp_err_t ota_validator_mark_valid_manual(void)
     }
 
     mark_valid_internal("manual override");
-    return ESP_OK;
+    return BB_OK;
 }
 
 bool ota_validator_is_pending(void)

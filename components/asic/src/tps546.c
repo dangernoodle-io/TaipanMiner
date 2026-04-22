@@ -54,7 +54,7 @@ static uint16_t mv_to_ulinear16(uint16_t mv)
     return (uint16_t)((uint32_t)mv * (1U << shift) / 1000);
 }
 
-esp_err_t tps546_init(i2c_master_bus_handle_t bus, uint8_t addr, uint16_t target_mv)
+bb_err_t tps546_init(i2c_master_bus_handle_t bus, uint8_t addr, uint16_t target_mv)
 {
     // Add device to I2C bus
     i2c_device_config_t dev_cfg = {
@@ -84,15 +84,15 @@ esp_err_t tps546_init(i2c_master_bus_handle_t bus, uint8_t addr, uint16_t target
     ESP_RETURN_ON_ERROR(pmbus_write_byte(PMBUS_OPERATION, OPERATION_ON), TAG, "power on");
     ESP_LOGI(TAG, "powered on at %u mV", target_mv);
 
-    return ESP_OK;
+    return BB_OK;
 }
 
-esp_err_t tps546_set_voltage_mv(uint16_t target_mv)
+bb_err_t tps546_set_voltage_mv(uint16_t target_mv)
 {
     uint16_t code = mv_to_ulinear16(target_mv);
     ESP_RETURN_ON_ERROR(pmbus_write_word(PMBUS_VOUT_COMMAND, code), TAG, "set VOUT");
     ESP_LOGI(TAG, "VOUT_COMMAND=0x%04X (%u mV)", code, target_mv);
-    return ESP_OK;
+    return BB_OK;
 }
 
 static esp_err_t pmbus_read_word(uint8_t reg, uint16_t *val)

@@ -641,7 +641,7 @@ static esp_err_t show_status_ssd1306(const display_status_t *status)
 
 // --- Public API ---
 
-esp_err_t display_init(void)
+bb_err_t display_init(void)
 {
     ESP_LOGI(TAG, "initializing display");
 
@@ -653,10 +653,10 @@ esp_err_t display_init(void)
     ESP_LOGW(TAG, "no display configured for this board");
 #endif
 
-    return ESP_OK;
+    return BB_OK;
 }
 
-esp_err_t display_clear(uint16_t color)
+bb_err_t display_clear(uint16_t color)
 {
 #if defined(BOARD_TDONGLE_S3)
     return clear_st7735(color);
@@ -664,11 +664,11 @@ esp_err_t display_clear(uint16_t color)
     return clear_ssd1306(color);
 #else
     (void)color;
-    return ESP_OK;
+    return BB_OK;
 #endif
 }
 
-esp_err_t display_draw_text(int x, int y, const char *text, uint16_t fg, uint16_t bg)
+bb_err_t display_draw_text(int x, int y, const char *text, uint16_t fg, uint16_t bg)
 {
 #if defined(BOARD_TDONGLE_S3)
     return draw_text_st7735(x, y, text, fg, bg, false);
@@ -677,22 +677,22 @@ esp_err_t display_draw_text(int x, int y, const char *text, uint16_t fg, uint16_
     return draw_text_ssd1306(x, y, text);
 #else
     (void)x; (void)y; (void)text; (void)fg; (void)bg;
-    return ESP_OK;
+    return BB_OK;
 #endif
 }
 
-esp_err_t display_show_splash(void)
+bb_err_t display_show_splash(void)
 {
 #if defined(BOARD_TDONGLE_S3)
     return show_splash_st7735();
 #elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_403)
     return show_splash_ssd1306();
 #else
-    return ESP_OK;
+    return BB_OK;
 #endif
 }
 
-esp_err_t display_show_prov(const char *ssid, const char *password)
+bb_err_t display_show_prov(const char *ssid, const char *password)
 {
 #if defined(BOARD_TDONGLE_S3)
     return show_prov_st7735(ssid, password);
@@ -700,11 +700,11 @@ esp_err_t display_show_prov(const char *ssid, const char *password)
     return show_prov_ssd1306(ssid, password);
 #else
     (void)ssid; (void)password;
-    return ESP_OK;
+    return BB_OK;
 #endif
 }
 
-esp_err_t display_off(void)
+bb_err_t display_off(void)
 {
 #if defined(BOARD_TDONGLE_S3)
     ESP_RETURN_ON_ERROR(clear_st7735(DISPLAY_COLOR_BLACK), TAG, "clear");
@@ -713,10 +713,10 @@ esp_err_t display_off(void)
     ESP_RETURN_ON_ERROR(clear_ssd1306(0x00), TAG, "clear");
     esp_lcd_panel_disp_on_off(s_panel, false);
 #endif
-    return ESP_OK;
+    return BB_OK;
 }
 
-esp_err_t display_show_status(const display_status_t *status)
+bb_err_t display_show_status(const display_status_t *status)
 {
     static bool s_was_off = false;
 
@@ -725,7 +725,7 @@ esp_err_t display_show_status(const display_status_t *status)
             display_off();
             s_was_off = true;
         }
-        return ESP_OK;
+        return BB_OK;
     }
     if (s_was_off) {
 #if defined(BOARD_TDONGLE_S3)
@@ -742,7 +742,7 @@ esp_err_t display_show_status(const display_status_t *status)
     return show_status_ssd1306(status);
 #else
     (void)status;
-    return ESP_OK;
+    return BB_OK;
 #endif
 }
 

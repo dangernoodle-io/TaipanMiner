@@ -2,7 +2,7 @@
 
 #ifdef ESP_PLATFORM
 
-#include "esp_err.h"
+#include "bb_nv.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -33,12 +33,12 @@ typedef struct {
     int      stratum_fail_count;
 } display_status_t;
 
-esp_err_t display_init(void);
-esp_err_t display_clear(uint16_t color);
-esp_err_t display_draw_text(int x, int y, const char *text, uint16_t fg, uint16_t bg);
-esp_err_t display_show_splash(void);
-esp_err_t display_show_prov(const char *ssid, const char *password);
-esp_err_t display_off(void);
-esp_err_t display_show_status(const display_status_t *status);
+bb_err_t display_init(void);
+bb_err_t display_clear(uint16_t color);
+bb_err_t display_draw_text(int x, int y, const char *text, uint16_t fg, uint16_t bg);
+bb_err_t display_show_splash(void);
+bb_err_t display_show_prov(const char *ssid, const char *password);
+bb_err_t display_off(void);
+bb_err_t display_show_status(const display_status_t *status);
 
 #endif

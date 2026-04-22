@@ -31,7 +31,7 @@ static esp_err_t reg_read(uint8_t reg, uint8_t *val)
     return i2c_master_transmit_receive(s_dev, &reg, 1, val, 1, 100);
 }
 
-esp_err_t emc2101_init(i2c_master_bus_handle_t bus, uint8_t addr)
+bb_err_t emc2101_init(i2c_master_bus_handle_t bus, uint8_t addr)
 {
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
@@ -50,10 +50,10 @@ esp_err_t emc2101_init(i2c_master_bus_handle_t bus, uint8_t addr)
     emc2101_set_duty_pct(100);
 
     ESP_LOGI(TAG, "initialized");
-    return ESP_OK;
+    return BB_OK;
 }
 
-esp_err_t emc2101_read_temp(float *temp_c)
+bb_err_t emc2101_read_temp(float *temp_c)
 {
     uint8_t msb, lsb;
     ESP_RETURN_ON_ERROR(reg_read(REG_EXTERNAL_MSB, &msb), TAG, "read MSB");
@@ -69,18 +69,18 @@ esp_err_t emc2101_read_temp(float *temp_c)
     }
 
     *temp_c = (float)signed_val / 8.0f;  // 0.125°C resolution
-    return ESP_OK;
+    return BB_OK;
 }
 
-esp_err_t emc2101_read_internal_temp(float *temp_c)
+bb_err_t emc2101_read_internal_temp(float *temp_c)
 {
     uint8_t val;
     ESP_RETURN_ON_ERROR(reg_read(REG_INTERNAL_TEMP, &val), TAG, "read internal");
     *temp_c = (float)(int8_t)val;  // signed 8-bit, 1 degC resolution
-    return ESP_OK;
+    return BB_OK;
 }
 
-esp_err_t emc2101_set_fan_duty(uint8_t duty_0_63)
+bb_err_t emc2101_set_fan_duty(uint8_t duty_0_63)
 {
     if (duty_0_63 > 63) duty_0_63 = 63;
     return reg_write(REG_FAN_SETTING, duty_0_63);

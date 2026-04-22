@@ -102,7 +102,7 @@ void set_ticket_mask(double difficulty)
 }
 
 // --- asic_init ---
-esp_err_t asic_init(void)
+bb_err_t asic_init(void)
 {
     ESP_LOGI(TAG, "initializing ASIC subsystem");
 
@@ -183,7 +183,7 @@ esp_err_t asic_init(void)
     memset(s_job_table, 0, sizeof(s_job_table));
 
     ESP_LOGI(TAG, "ASIC subsystem ready");
-    return ESP_OK;
+    return BB_OK;
 }
 
 // --- Mining task ---

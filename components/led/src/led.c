@@ -54,7 +54,7 @@ static void s_write_apa102_frame(uint8_t r, uint8_t g, uint8_t b) {
     s_write_byte(0xFF);
 }
 
-esp_err_t led_init(void) {
+bb_err_t led_init(void) {
     s_clk_pin = PIN_LED_CLK;
     s_din_pin = PIN_LED_DIN;
 
@@ -73,36 +73,36 @@ esp_err_t led_init(void) {
     ESP_RETURN_ON_ERROR(gpio_set_level(s_clk_pin, 0), TAG, "failed to set CLK low");
     ESP_RETURN_ON_ERROR(gpio_set_level(s_din_pin, 0), TAG, "failed to set DIN low");
 
-    return ESP_OK;
+    return BB_OK;
 }
 
-esp_err_t led_set_color(uint8_t r, uint8_t g, uint8_t b) {
+bb_err_t led_set_color(uint8_t r, uint8_t g, uint8_t b) {
     s_write_apa102_frame(r, g, b);
-    return ESP_OK;
+    return BB_OK;
 }
 
-esp_err_t led_off(void) {
+bb_err_t led_off(void) {
     s_write_apa102_frame(0, 0, 0);
-    return ESP_OK;
+    return BB_OK;
 }
 
 #else
 
 // BOARD_BITAXE_601 and unknown boards: no-op stubs
 
-esp_err_t led_init(void) {
-    return ESP_OK;
+bb_err_t led_init(void) {
+    return BB_OK;
 }
 
-esp_err_t led_set_color(uint8_t r, uint8_t g, uint8_t b) {
+bb_err_t led_set_color(uint8_t r, uint8_t g, uint8_t b) {
     (void)r;
     (void)g;
     (void)b;
-    return ESP_OK;
+    return BB_OK;
 }
 
-esp_err_t led_off(void) {
-    return ESP_OK;
+bb_err_t led_off(void) {
+    return BB_OK;
 }
 
 #endif

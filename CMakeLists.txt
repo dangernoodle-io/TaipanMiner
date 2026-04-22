@@ -15,6 +15,11 @@ add_compile_definitions(FIRMWARE_BOARD="${FIRMWARE_BOARD}")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
+# bb_hw (from breadboard v0.11.0+) resolves BB_HW_BOARD_HEADER relative to the
+# compiling TU's include path. Inject TM's per-board headers globally so that
+# bb_mdns/bb_wifi/etc. (in breadboard) can pick them up when expanding bb_hw.h.
+idf_build_set_property(COMPILE_OPTIONS "-I${CMAKE_SOURCE_DIR}/components/board/include" APPEND)
+
 if(DEFINED ENV{CI})
     execute_process(
         COMMAND git describe --tags --always --dirty

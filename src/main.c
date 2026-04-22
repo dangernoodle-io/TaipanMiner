@@ -321,6 +321,9 @@ void app_main(void)
     ESP_ERROR_CHECK(display_show_splash());
     vTaskDelay(pdMS_TO_TICKS(2000));
 
+    // Set CORS methods before HTTP server starts (required for PATCH support)
+    bb_http_set_cors_methods("GET, POST, PATCH, OPTIONS");
+
     if (!bb_nv_config_is_provisioned()) {
         ESP_LOGI(TAG, "entering provisioning mode");
         // Configure provisioning before AP start

@@ -1,5 +1,4 @@
 #include "taipan_web.h"
-#include "esp_http_server.h"
 #include "bb_http.h"
 #include "bb_info.h"
 #include "bb_json.h"
@@ -63,34 +62,12 @@ static void set_common_headers(bb_http_request_t *req)
     bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
 }
 
-// ============================================================================
-// PREFLIGHT (OPTIONS) — KEPT RAW: NOT YET MIGRATED (backlog B1-43)
-// ============================================================================
-
-static esp_err_t preflight_handler(httpd_req_t *req)
-{
-    httpd_resp_set_hdr(req, "Connection", "close");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Private-Network", "true");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
-    httpd_resp_set_status(req, "204 No Content");
-    httpd_resp_send(req, NULL, 0);
-    return ESP_OK;
-}
-
-bb_err_t taipan_web_register_preflight(bb_http_handle_t server)
-{
-    httpd_handle_t h = (httpd_handle_t)server;
-    httpd_uri_t preflight = { .uri = "/*", .method = HTTP_OPTIONS, .handler = preflight_handler };
-    return (bb_err_t)httpd_register_uri_handler(h, &preflight);
-}
 
 // ============================================================================
-// PROVISIONING SAVE CALLBACK — KEPT RAW (uses esp_http_server API)
+// PROVISIONING SAVE CALLBACK
 // ============================================================================
 
-static esp_err_t taipan_prov_save_cb(httpd_req_t *req, const char *body, int len)
+static bb_err_t taipan_prov_save_cb(bb_http_request_t *req, const char *body, int len)
 {
     (void)len;
     char pool_host[64] = "", wallet[64] = "", worker[32] = "";
@@ -104,26 +81,26 @@ static esp_err_t taipan_prov_save_cb(httpd_req_t *req, const char *body, int len
     bb_url_decode_field(body, "pool_pass", pool_pass, sizeof(pool_pass));
 
     if (pool_host[0] == '\0' || wallet[0] == '\0' || worker[0] == '\0') {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "All fields required");
-        return ESP_FAIL;
+        bb_http_resp_send_err(req, 400, "All fields required");
+        return BB_ERR_INVALID_ARG;
     }
     uint16_t port = (uint16_t)strtoul(port_str, NULL, 10);
     if (port == 0) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Valid port required");
-        return ESP_FAIL;
+        bb_http_resp_send_err(req, 400, "Valid port required");
+        return BB_ERR_INVALID_ARG;
     }
     if (taipan_config_set_pool(pool_host, port, wallet, worker, pool_pass) != ESP_OK) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save config");
-        return ESP_FAIL;
+        bb_http_resp_send_err(req, 500, "Failed to save config");
+        return BB_ERR_INVALID_ARG;
     }
 
-    httpd_resp_set_hdr(req, "Connection", "close");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Private-Network", "true");
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, (const char *)prov_save_html_gz, prov_save_html_gz_len);
-    return ESP_OK;
+    bb_http_resp_set_header(req, "Connection", "close");
+    bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
+    bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
+    bb_http_resp_set_header(req, "Content-Encoding", "gzip");
+    bb_http_resp_set_header(req, "Content-Type", "text/html");
+    bb_http_resp_send(req, (const char *)prov_save_html_gz, prov_save_html_gz_len);
+    return BB_OK;
 }
 
 // ============================================================================
@@ -417,7 +394,6 @@ static bb_err_t settings_get_handler(bb_http_request_t *req)
 }
 
 // Shared helper for POST (full) and PATCH (partial) settings
-// NOTE: PATCH handler is registered via raw httpd_* for now (backlog B1-43)
 static bb_err_t apply_settings(bb_http_request_t *req, bool partial)
 {
     set_common_headers(req);
@@ -555,30 +531,31 @@ static bb_err_t settings_post_handler(bb_http_request_t *req)
 }
 
 // ============================================================================
-// PATCH HANDLER — KEPT RAW (not yet in bb_http portable API)
+// PATCH HANDLER
 // ============================================================================
 
-static esp_err_t settings_patch_handler(httpd_req_t *req)
+static bb_err_t settings_patch_handler(bb_http_request_t *req)
 {
-    // Inline the apply_settings logic but with httpd_* API
-    set_common_headers((bb_http_request_t *)req);  // shared header helper works with cast
+    // Inline the apply_settings logic with bb_http_* API
+    set_common_headers(req);
     char body[512];
 
-    if (req->content_len > sizeof(body) - 1) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Body too large");
-        return ESP_FAIL;
+    int body_len = bb_http_req_body_len(req);
+    if (body_len > sizeof(body) - 1) {
+        bb_http_resp_send_err(req, 400, "Body too large");
+        return BB_ERR_INVALID_ARG;
     }
-    int len = httpd_req_recv(req, body, sizeof(body) - 1);
+    int len = bb_http_req_recv(req, body, sizeof(body) - 1);
     if (len <= 0) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body");
-        return ESP_FAIL;
+        bb_http_resp_send_err(req, 400, "Empty body");
+        return BB_ERR_INVALID_ARG;
     }
     body[len] = '\0';
 
     cJSON *root = cJSON_Parse(body);
     if (!root) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
-        return ESP_FAIL;
+        bb_http_resp_send_err(req, 400, "Invalid JSON");
+        return BB_ERR_INVALID_ARG;
     }
 
     // Extract fields — use current values as defaults for PATCH
@@ -618,13 +595,13 @@ static esp_err_t settings_patch_handler(httpd_req_t *req)
     // Validate
     if (pool_host[0] == '\0' || wallet[0] == '\0' || worker[0] == '\0') {
         cJSON_Delete(root);
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "pool_host, wallet, worker must not be empty");
-        return ESP_FAIL;
+        bb_http_resp_send_err(req, 400, "pool_host, wallet, worker must not be empty");
+        return BB_ERR_INVALID_ARG;
     }
     if (pool_port == 0) {
         cJSON_Delete(root);
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "pool_port must be > 0");
-        return ESP_FAIL;
+        bb_http_resp_send_err(req, 400, "pool_port must be > 0");
+        return BB_ERR_INVALID_ARG;
     }
 
     // Save mining config if any mining field was provided
@@ -632,8 +609,8 @@ static esp_err_t settings_patch_handler(httpd_req_t *req)
         esp_err_t err = taipan_config_set_pool(pool_host, pool_port, wallet, worker, pool_pass);
         if (err != ESP_OK) {
             cJSON_Delete(root);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save config");
-            return ESP_FAIL;
+            bb_http_resp_send_err(req, 500, "Failed to save config");
+            return BB_ERR_INVALID_ARG;
         }
     }
 
@@ -643,8 +620,8 @@ static esp_err_t settings_patch_handler(httpd_req_t *req)
         esp_err_t err = bb_nv_config_set_display_enabled(cJSON_IsTrue(j));
         if (err != ESP_OK) {
             cJSON_Delete(root);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save display setting");
-            return ESP_FAIL;
+            bb_http_resp_send_err(req, 500, "Failed to save display setting");
+            return BB_ERR_INVALID_ARG;
         }
     }
 
@@ -653,8 +630,8 @@ static esp_err_t settings_patch_handler(httpd_req_t *req)
         esp_err_t err = bb_nv_config_set_ota_skip_check(cJSON_IsTrue(j));
         if (err != ESP_OK) {
             cJSON_Delete(root);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save ota_skip_check");
-            return ESP_FAIL;
+            bb_http_resp_send_err(req, 500, "Failed to save ota_skip_check");
+            return BB_ERR_INVALID_ARG;
         }
     }
 
@@ -664,9 +641,8 @@ static esp_err_t settings_patch_handler(httpd_req_t *req)
     char resp[64];
     snprintf(resp, sizeof(resp), "{\"status\":\"saved\",\"reboot_required\":%s}",
              reboot_required ? "true" : "false");
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, resp);
-    return ESP_OK;
+    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    return bb_http_resp_send(req, resp, strlen(resp));
 }
 
 // ============================================================================
@@ -769,12 +745,8 @@ bb_err_t taipan_web_register_mining_routes(bb_http_handle_t server)
     if (rc != BB_OK) return rc;
 #endif
 
-    // Register PATCH handler via raw httpd_* (not yet in bb_http portable API)
-    {
-        httpd_handle_t h = (httpd_handle_t)server;
-        httpd_uri_t settings_patch_uri = { .uri = "/api/settings", .method = HTTP_PATCH, .handler = settings_patch_handler };
-        httpd_register_uri_handler(h, &settings_patch_uri);
-    }
+    rc = bb_http_register_route(server, BB_HTTP_PATCH, "/api/settings", settings_patch_handler);
+    if (rc != BB_OK) return rc;
 
     bb_ota_pull_register_handler(server);
     bb_ota_push_register_handler(server);

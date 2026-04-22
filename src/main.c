@@ -112,15 +112,16 @@ static void display_status_task(void *arg)
 
         if (tick % 100 == 0) {
             if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-                status.hashrate = mining_stats.hw_ema.value;
-                status.temp_c = mining_stats.temp_c;
-                status.shares = mining_stats.session.shares;
-                status.rejected = mining_stats.session.rejected;
-                status.uptime_us = esp_timer_get_time() - mining_stats.session.start_us;
 #ifdef ASIC_BM1370
                 status.hashrate = mining_stats.asic_ema.value;
                 status.temp_c = mining_stats.asic_temp_c;
+#else
+                status.hashrate = mining_stats.hw_ema.value;
+                status.temp_c = mining_stats.temp_c;
 #endif
+                status.shares = mining_stats.session.shares;
+                status.rejected = mining_stats.session.rejected;
+                status.uptime_us = esp_timer_get_time() - mining_stats.session.start_us;
                 xSemaphoreGive(mining_stats.mutex);
             }
 

@@ -4,7 +4,6 @@
 #include <string.h>
 #include "esp_flash.h"
 #include "esp_ota_ops.h"
-#include "esp_log.h"
 #include "esp_system.h"
 #include "bb_log.h"
 
@@ -27,6 +26,7 @@ extern const unsigned int g_partitions_bin_len;
 // Stack-allocated buffer would exceed main task stack (3584B), so static allocation is necessary
 static uint8_t s_buf[4096];
 
+// cppcheck-suppress unusedFunction ; called from src/main.c (cross-TU)
 void partition_fixup_check(void)
 {
     // Stub build (first compile before partitions.bin exists): skip

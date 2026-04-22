@@ -24,7 +24,7 @@
 #include "freertos/semphr.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "cJSON.h"
+#include "bb_json.h"
 
 static const char *TAG = "stratum";
 
@@ -264,13 +264,13 @@ static int stratum_connect(const char *host, uint16_t port)
 }
 
 // Handle mining.configure response
-static void handle_configure_result(cJSON *result)
+static void handle_configure_result(bb_json_t result)
 {
-    cJSON *vr = cJSON_GetObjectItem(result, "version-rolling");
-    if (cJSON_IsTrue(vr)) {
-        cJSON *mask_j = cJSON_GetObjectItem(result, "version-rolling.mask");
-        if (mask_j && mask_j->valuestring) {
-            s_version_mask = (uint32_t)strtoul(mask_j->valuestring, NULL, 16);
+    bb_json_t vr = bb_json_obj_get_item(result, "version-rolling");
+    if (bb_json_item_is_true(vr)) {
+        bb_json_t mask_j = bb_json_obj_get_item(result, "version-rolling.mask");
+        if (mask_j && bb_json_item_is_string(mask_j)) {
+            s_version_mask = (uint32_t)strtoul(bb_json_item_get_string(mask_j), NULL, 16);
             bb_log_i(TAG, "version rolling enabled, mask=0x%08" PRIx32, s_version_mask);
         }
     }
@@ -340,24 +340,24 @@ static bool build_work(mining_work_t *work)
 }
 
 // Handle mining.notify
-static void handle_notify(cJSON *params)
+static void handle_notify(bb_json_t params)
 {
-    cJSON *arr = params;
-    if (!cJSON_IsArray(arr) || cJSON_GetArraySize(arr) < 9) {
+    bb_json_t arr = params;
+    if (!bb_json_item_is_array(arr) || bb_json_arr_size(arr) < 9) {
         bb_log_w(TAG, "invalid notify params");
         return;
     }
 
     // Parse job fields
-    cJSON *job_id_j = cJSON_GetArrayItem(arr, 0);
-    cJSON *prevhash_j = cJSON_GetArrayItem(arr, 1);
-    cJSON *coinb1_j = cJSON_GetArrayItem(arr, 2);
-    cJSON *coinb2_j = cJSON_GetArrayItem(arr, 3);
-    cJSON *merkle_j = cJSON_GetArrayItem(arr, 4);
-    cJSON *version_j = cJSON_GetArrayItem(arr, 5);
-    cJSON *nbits_j = cJSON_GetArrayItem(arr, 6);
-    cJSON *ntime_j = cJSON_GetArrayItem(arr, 7);
-    cJSON *clean_j = cJSON_GetArrayItem(arr, 8);
+    bb_json_t job_id_j = bb_json_arr_get_item(arr, 0);
+    bb_json_t prevhash_j = bb_json_arr_get_item(arr, 1);
+    bb_json_t coinb1_j = bb_json_arr_get_item(arr, 2);
+    bb_json_t coinb2_j = bb_json_arr_get_item(arr, 3);
+    bb_json_t merkle_j = bb_json_arr_get_item(arr, 4);
+    bb_json_t version_j = bb_json_arr_get_item(arr, 5);
+    bb_json_t nbits_j = bb_json_arr_get_item(arr, 6);
+    bb_json_t ntime_j = bb_json_arr_get_item(arr, 7);
+    bb_json_t clean_j = bb_json_arr_get_item(arr, 8);
 
     if (!job_id_j || !prevhash_j || !coinb1_j || !coinb2_j ||
         !merkle_j || !version_j || !nbits_j || !ntime_j) {
@@ -366,46 +366,46 @@ static void handle_notify(cJSON *params)
     }
 
     // Check that all string fields are actually strings
-    if (!job_id_j->valuestring || !prevhash_j->valuestring ||
-        !coinb1_j->valuestring || !coinb2_j->valuestring ||
-        !version_j->valuestring || !nbits_j->valuestring || !ntime_j->valuestring) {
+    if (!bb_json_item_is_string(job_id_j) || !bb_json_item_is_string(prevhash_j) ||
+        !bb_json_item_is_string(coinb1_j) || !bb_json_item_is_string(coinb2_j) ||
+        !bb_json_item_is_string(version_j) || !bb_json_item_is_string(nbits_j) || !bb_json_item_is_string(ntime_j)) {
         bb_log_w(TAG, "notify fields have wrong type");
         return;
     }
 
     // Copy job_id
-    strncpy(s_job.job_id, job_id_j->valuestring, sizeof(s_job.job_id) - 1);
+    strncpy(s_job.job_id, bb_json_item_get_string(job_id_j), sizeof(s_job.job_id) - 1);
     s_job.job_id[sizeof(s_job.job_id) - 1] = '\0';
 
     // Decode prevhash (stratum format: 8 groups of 4 bytes, each reversed)
-    decode_stratum_prevhash(prevhash_j->valuestring, s_job.prevhash);
+    decode_stratum_prevhash(bb_json_item_get_string(prevhash_j), s_job.prevhash);
 
     // Decode coinb1
-    s_job.coinb1_len = hex_to_bytes(coinb1_j->valuestring, s_job.coinb1, MAX_COINB1_SIZE);
+    s_job.coinb1_len = hex_to_bytes(bb_json_item_get_string(coinb1_j), s_job.coinb1, MAX_COINB1_SIZE);
 
     // Decode coinb2
-    s_job.coinb2_len = hex_to_bytes(coinb2_j->valuestring, s_job.coinb2, MAX_COINB2_SIZE);
+    s_job.coinb2_len = hex_to_bytes(bb_json_item_get_string(coinb2_j), s_job.coinb2, MAX_COINB2_SIZE);
 
     // Decode merkle branches
     s_job.merkle_count = 0;
-    int branch_count = cJSON_GetArraySize(merkle_j);
+    int branch_count = bb_json_arr_size(merkle_j);
     for (int i = 0; i < branch_count && i < MAX_MERKLE_BRANCHES; i++) {
-        cJSON *branch = cJSON_GetArrayItem(merkle_j, i);
-        if (branch && branch->valuestring) {
-            hex_to_bytes(branch->valuestring, s_job.merkle_branches[i], 32);
+        bb_json_t branch = bb_json_arr_get_item(merkle_j, i);
+        if (branch && bb_json_item_is_string(branch)) {
+            hex_to_bytes(bb_json_item_get_string(branch), s_job.merkle_branches[i], 32);
             s_job.merkle_count++;
         }
     }
 
     // Parse version, nbits, ntime (hex strings → uint32)
-    s_job.version = (uint32_t)strtoul(version_j->valuestring, NULL, 16);
-    s_job.nbits = (uint32_t)strtoul(nbits_j->valuestring, NULL, 16);
-    s_job.ntime = (uint32_t)strtoul(ntime_j->valuestring, NULL, 16);
-    s_job.clean_jobs = clean_j ? cJSON_IsTrue(clean_j) : false;
+    s_job.version = (uint32_t)strtoul(bb_json_item_get_string(version_j), NULL, 16);
+    s_job.nbits = (uint32_t)strtoul(bb_json_item_get_string(nbits_j), NULL, 16);
+    s_job.ntime = (uint32_t)strtoul(bb_json_item_get_string(ntime_j), NULL, 16);
+    s_job.clean_jobs = clean_j ? bb_json_item_is_true(clean_j) : false;
 
     bb_log_i(TAG, "notify: job=%s clean=%d ver=%s ntime=%s nbits=%s",
              s_job.job_id, s_job.clean_jobs,
-             version_j->valuestring, ntime_j->valuestring, nbits_j->valuestring);
+             bb_json_item_get_string(version_j), bb_json_item_get_string(ntime_j), bb_json_item_get_string(nbits_j));
 
     s_extranonce2 = 0;
     mining_work_t work;
@@ -424,14 +424,14 @@ static void handle_notify(cJSON *params)
 }
 
 // Handle mining.set_difficulty
-static void handle_set_difficulty(cJSON *params)
+static void handle_set_difficulty(bb_json_t params)
 {
-    if (!cJSON_IsArray(params) || cJSON_GetArraySize(params) < 1) {
+    if (!bb_json_item_is_array(params) || bb_json_arr_size(params) < 1) {
         return;
     }
-    cJSON *diff = cJSON_GetArrayItem(params, 0);
-    if (cJSON_IsNumber(diff)) {
-        s_difficulty = diff->valuedouble;
+    bb_json_t diff = bb_json_arr_get_item(params, 0);
+    if (bb_json_item_is_number(diff)) {
+        s_difficulty = bb_json_item_get_double(diff);
         bb_log_i(TAG, "difficulty set to %.4f", s_difficulty);
 
         // Re-dispatch work with updated target — mark clean to invalidate
@@ -446,27 +446,27 @@ static void handle_set_difficulty(cJSON *params)
 }
 
 // Handle subscribe response
-static int handle_subscribe_result(cJSON *result)
+static int handle_subscribe_result(bb_json_t result)
 {
-    if (!cJSON_IsArray(result) || cJSON_GetArraySize(result) < 3) {
+    if (!bb_json_item_is_array(result) || bb_json_arr_size(result) < 3) {
         bb_log_e(TAG, "invalid subscribe result");
         return -1;
     }
 
     // result[1] = extranonce1 (hex string)
-    cJSON *en1 = cJSON_GetArrayItem(result, 1);
-    if (!en1 || !en1->valuestring) {
+    bb_json_t en1 = bb_json_arr_get_item(result, 1);
+    if (!en1 || !bb_json_item_is_string(en1)) {
         bb_log_e(TAG, "no extranonce1");
         return -1;
     }
-    strncpy(s_extranonce1_hex, en1->valuestring, sizeof(s_extranonce1_hex) - 1);
+    strncpy(s_extranonce1_hex, bb_json_item_get_string(en1), sizeof(s_extranonce1_hex) - 1);
     s_extranonce1_hex[sizeof(s_extranonce1_hex) - 1] = '\0';
     s_extranonce1_len = hex_to_bytes(s_extranonce1_hex, s_extranonce1, MAX_EXTRANONCE1_SIZE);
 
     // result[2] = extranonce2_size
-    cJSON *en2sz = cJSON_GetArrayItem(result, 2);
-    if (cJSON_IsNumber(en2sz)) {
-        s_extranonce2_size = en2sz->valueint;
+    bb_json_t en2sz = bb_json_arr_get_item(result, 2);
+    if (bb_json_item_is_number(en2sz)) {
+        s_extranonce2_size = bb_json_item_get_int(en2sz);
     }
 
     bb_log_i(TAG, "subscribed: en1=%s en2_size=%d", s_extranonce1_hex, s_extranonce2_size);
@@ -496,7 +496,7 @@ static int submit_share(mining_result_t *result)
 // Process one JSON message from pool
 static void process_message(const char *line)
 {
-    cJSON *json = cJSON_Parse(line);
+    bb_json_t json = bb_json_parse(line, 0);
     if (!json) {
         bb_log_w(TAG, "invalid JSON");
         return;
@@ -504,24 +504,25 @@ static void process_message(const char *line)
 
     bb_log_d(TAG, "<< %s", line);
 
-    cJSON *method = cJSON_GetObjectItem(json, "method");
-    cJSON *id_item = cJSON_GetObjectItem(json, "id");
-    cJSON *result_item = cJSON_GetObjectItem(json, "result");
-    cJSON *params = cJSON_GetObjectItem(json, "params");
-    cJSON *error_item = cJSON_GetObjectItem(json, "error");
+    bb_json_t method = bb_json_obj_get_item(json, "method");
+    bb_json_t id_item = bb_json_obj_get_item(json, "id");
+    bb_json_t result_item = bb_json_obj_get_item(json, "result");
+    bb_json_t params = bb_json_obj_get_item(json, "params");
+    bb_json_t error_item = bb_json_obj_get_item(json, "error");
 
-    if (method && method->valuestring) {
+    if (method && bb_json_item_is_string(method)) {
         // Server notification
-        if (strcmp(method->valuestring, "mining.notify") == 0) {
+        const char *method_str = bb_json_item_get_string(method);
+        if (strcmp(method_str, "mining.notify") == 0) {
             handle_notify(params);
-        } else if (strcmp(method->valuestring, "mining.set_difficulty") == 0) {
+        } else if (strcmp(method_str, "mining.set_difficulty") == 0) {
             handle_set_difficulty(params);
         } else {
-            bb_log_d(TAG, "unhandled method: %s", method->valuestring);
+            bb_log_d(TAG, "unhandled method: %s", method_str);
         }
-    } else if (id_item && cJSON_IsNumber(id_item)) {
+    } else if (id_item && bb_json_item_is_number(id_item)) {
         // Response to our request
-        int id = id_item->valueint;
+        int id = bb_json_item_get_int(id_item);
         if (id == s_subscribe_id) {
             // Subscribe response
             if (result_item) {
@@ -529,22 +530,22 @@ static void process_message(const char *line)
             }
         } else if (id == s_authorize_id) {
             // Authorize response
-            if (result_item && cJSON_IsTrue(result_item)) {
+            if (result_item && bb_json_item_is_true(result_item)) {
                 bb_log_i(TAG, "authorized");
                 ota_validator_on_stratum_authorized();
             } else {
                 bb_log_e(TAG, "authorization failed");
-                if (error_item && !cJSON_IsNull(error_item)) {
-                    char *err_str = cJSON_PrintUnformatted(error_item);
+                if (error_item && !bb_json_item_is_null(error_item)) {
+                    char *err_str = bb_json_item_serialize(error_item);
                     if (err_str) {
                         bb_log_e(TAG, "error: %s", err_str);
-                        free(err_str);
+                        bb_json_free_str(err_str);
                     }
                 }
             }
         } else if (id == s_configure_id) {
             // Configure response (BIP 320 version rolling) — non-fatal
-            if (result_item && cJSON_IsObject(result_item)) {
+            if (result_item && bb_json_item_is_object(result_item)) {
                 handle_configure_result(result_item);
             } else {
                 bb_log_w(TAG, "pool does not support mining.configure, version rolling disabled");
@@ -553,17 +554,17 @@ static void process_message(const char *line)
             bb_log_d(TAG, "keepalive ack id=%d", id);
         } else {
             // Submit response or other
-            if (error_item && !cJSON_IsNull(error_item)) {
-                char *err_str = cJSON_PrintUnformatted(error_item);
+            if (error_item && !bb_json_item_is_null(error_item)) {
+                char *err_str = bb_json_item_serialize(error_item);
                 if (err_str) {
                     bb_log_e(TAG, "share rejected: %s", err_str);
-                    free(err_str);
+                    bb_json_free_str(err_str);
                 }
                 if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                     mining_stats.session.rejected++;
                     xSemaphoreGive(mining_stats.mutex);
                 }
-            } else if (result_item && cJSON_IsTrue(result_item)) {
+            } else if (result_item && bb_json_item_is_true(result_item)) {
                 bb_log_i(TAG, "share accepted");
                 ota_validator_on_share_accepted();
                 int64_t now_us = esp_timer_get_time();
@@ -584,7 +585,7 @@ static void process_message(const char *line)
         }
     }
 
-    cJSON_Delete(json);
+    bb_json_free(json);
 }
 
 void stratum_task(void *arg)

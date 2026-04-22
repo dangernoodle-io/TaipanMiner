@@ -21,7 +21,6 @@
 #include "bb_prov.h"
 #include "bb_mdns.h"
 #include "stratum.h"
-#include "cJSON.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
 #include <stdio.h>
@@ -153,59 +152,59 @@ static bb_err_t stats_handler(bb_http_request_t *req)
     int64_t uptime_s = (session_start_us > 0) ? (now_us - session_start_us) / 1000000 : 0;
     int64_t last_share_ago_s = (last_share_us > 0) ? (now_us - last_share_us) / 1000000 : -1;
 
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddNumberToObject(root, "hashrate", hw_rate);
-    cJSON_AddNumberToObject(root, "hashrate_avg", hw_ema);
-    cJSON_AddNumberToObject(root, "temp_c", (double)temp);
-    cJSON_AddNumberToObject(root, "shares", hw_shares);
-    cJSON_AddNumberToObject(root, "pool_difficulty", pool_diff);
-    cJSON_AddNumberToObject(root, "session_shares", session_shares);
-    cJSON_AddNumberToObject(root, "session_rejected", session_rejected);
-    cJSON_AddNumberToObject(root, "last_share_ago_s", (double)last_share_ago_s);
-    cJSON_AddNumberToObject(root, "lifetime_shares", lifetime.total_shares);
-    cJSON_AddNumberToObject(root, "best_diff", best_diff);
-    cJSON_AddStringToObject(root, "pool_host", taipan_config_pool_host());
-    cJSON_AddNumberToObject(root, "pool_port", taipan_config_pool_port());
-    cJSON_AddStringToObject(root, "worker", taipan_config_worker_name());
-    cJSON_AddStringToObject(root, "wallet", taipan_config_wallet_addr());
-    cJSON_AddNumberToObject(root, "uptime_s", (double)uptime_s);
-    cJSON_AddNumberToObject(root, "free_heap", (double)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
-    cJSON_AddNumberToObject(root, "total_heap", (double)heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
+    bb_json_t root = bb_json_obj_new();
+    bb_json_obj_set_number(root, "hashrate", hw_rate);
+    bb_json_obj_set_number(root, "hashrate_avg", hw_ema);
+    bb_json_obj_set_number(root, "temp_c", (double)temp);
+    bb_json_obj_set_number(root, "shares", hw_shares);
+    bb_json_obj_set_number(root, "pool_difficulty", pool_diff);
+    bb_json_obj_set_number(root, "session_shares", session_shares);
+    bb_json_obj_set_number(root, "session_rejected", session_rejected);
+    bb_json_obj_set_number(root, "last_share_ago_s", (double)last_share_ago_s);
+    bb_json_obj_set_number(root, "lifetime_shares", lifetime.total_shares);
+    bb_json_obj_set_number(root, "best_diff", best_diff);
+    bb_json_obj_set_string(root, "pool_host", taipan_config_pool_host());
+    bb_json_obj_set_number(root, "pool_port", taipan_config_pool_port());
+    bb_json_obj_set_string(root, "worker", taipan_config_worker_name());
+    bb_json_obj_set_string(root, "wallet", taipan_config_wallet_addr());
+    bb_json_obj_set_number(root, "uptime_s", (double)uptime_s);
+    bb_json_obj_set_number(root, "free_heap", (double)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    bb_json_obj_set_number(root, "total_heap", (double)heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
     wifi_ap_record_t ap_info;
     if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
-        cJSON_AddNumberToObject(root, "rssi_dbm", ap_info.rssi);
+        bb_json_obj_set_number(root, "rssi_dbm", ap_info.rssi);
     } else {
-        cJSON_AddNullToObject(root, "rssi_dbm");
+        bb_json_obj_set_null(root, "rssi_dbm");
     }
-    cJSON_AddStringToObject(root, "version", app->version);
-    cJSON_AddStringToObject(root, "build_date", app->date);
-    cJSON_AddStringToObject(root, "build_time", app->time);
-    cJSON_AddStringToObject(root, "board", BOARD_NAME);
-    cJSON_AddBoolToObject(root, "display_en", bb_nv_config_display_enabled());
+    bb_json_obj_set_string(root, "version", app->version);
+    bb_json_obj_set_string(root, "build_date", app->date);
+    bb_json_obj_set_string(root, "build_time", app->time);
+    bb_json_obj_set_string(root, "board", BOARD_NAME);
+    bb_json_obj_set_bool(root, "display_en", bb_nv_config_display_enabled());
 #if defined(ASIC_BM1370) || defined(ASIC_BM1368)
-    cJSON_AddNumberToObject(root, "asic_hashrate", asic_rate);
-    cJSON_AddNumberToObject(root, "asic_hashrate_avg", asic_ema);
-    cJSON_AddNumberToObject(root, "asic_shares", asic_shares);
-    cJSON_AddNumberToObject(root, "asic_temp_c", (double)asic_temp);
+    bb_json_obj_set_number(root, "asic_hashrate", asic_rate);
+    bb_json_obj_set_number(root, "asic_hashrate_avg", asic_ema);
+    bb_json_obj_set_number(root, "asic_shares", asic_shares);
+    bb_json_obj_set_number(root, "asic_temp_c", (double)asic_temp);
     if (asic_freq_cfg >= 0) {
-        cJSON_AddNumberToObject(root, "asic_freq_configured_mhz", (double)asic_freq_cfg);
+        bb_json_obj_set_number(root, "asic_freq_configured_mhz", (double)asic_freq_cfg);
     } else {
-        cJSON_AddNullToObject(root, "asic_freq_configured_mhz");
+        bb_json_obj_set_null(root, "asic_freq_configured_mhz");
     }
     if (asic_freq_eff >= 0) {
-        cJSON_AddNumberToObject(root, "asic_freq_effective_mhz", (double)asic_freq_eff);
+        bb_json_obj_set_number(root, "asic_freq_effective_mhz", (double)asic_freq_eff);
     } else {
-        cJSON_AddNullToObject(root, "asic_freq_effective_mhz");
+        bb_json_obj_set_null(root, "asic_freq_effective_mhz");
     }
-    cJSON_AddNumberToObject(root, "asic_small_cores", BOARD_SMALL_CORES);
-    cJSON_AddNumberToObject(root, "asic_count", BOARD_ASIC_COUNT);
+    bb_json_obj_set_number(root, "asic_small_cores", BOARD_SMALL_CORES);
+    bb_json_obj_set_number(root, "asic_count", BOARD_ASIC_COUNT);
 #endif
 
-    char *json = cJSON_PrintUnformatted(root);
+    char *json = bb_json_serialize(root);
     bb_http_resp_set_header(req, "Content-Type", "application/json");
     bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
-    free(json);
-    cJSON_Delete(root);
+    bb_json_free_str(json);
+    bb_json_free(root);
     return rc;
 }
 
@@ -229,54 +228,54 @@ static bb_err_t power_handler(bb_http_request_t *req)
         xSemaphoreGive(mining_stats.mutex);
     }
 
-    cJSON *root = cJSON_CreateObject();
+    bb_json_t root = bb_json_obj_new();
     if (vcore_mv >= 0) {
-        cJSON_AddNumberToObject(root, "vcore_mv", vcore_mv);
+        bb_json_obj_set_number(root, "vcore_mv", vcore_mv);
     } else {
-        cJSON_AddNullToObject(root, "vcore_mv");
+        bb_json_obj_set_null(root, "vcore_mv");
     }
     if (icore_ma >= 0) {
-        cJSON_AddNumberToObject(root, "icore_ma", icore_ma);
+        bb_json_obj_set_number(root, "icore_ma", icore_ma);
     } else {
-        cJSON_AddNullToObject(root, "icore_ma");
+        bb_json_obj_set_null(root, "icore_ma");
     }
     if (pcore_mw >= 0) {
-        cJSON_AddNumberToObject(root, "pcore_mw", pcore_mw);
+        bb_json_obj_set_number(root, "pcore_mw", pcore_mw);
     } else {
-        cJSON_AddNullToObject(root, "pcore_mw");
+        bb_json_obj_set_null(root, "pcore_mw");
     }
     if (pcore_mw > 0 && asic_hashrate > 0) {
-        cJSON_AddNumberToObject(root, "efficiency_jth", (pcore_mw / 1000.0) / (asic_hashrate / 1e12));
+        bb_json_obj_set_number(root, "efficiency_jth", (pcore_mw / 1000.0) / (asic_hashrate / 1e12));
     } else {
-        cJSON_AddNullToObject(root, "efficiency_jth");
+        bb_json_obj_set_null(root, "efficiency_jth");
     }
     if (vin_mv >= 0) {
-        cJSON_AddNumberToObject(root, "vin_mv", vin_mv);
+        bb_json_obj_set_number(root, "vin_mv", vin_mv);
     } else {
-        cJSON_AddNullToObject(root, "vin_mv");
+        bb_json_obj_set_null(root, "vin_mv");
     }
     if (vin_mv >= 0) {
         bool vin_low = (vin_mv < (BOARD_NOMINAL_VIN_MV + 500) * 87 / 100);
-        cJSON_AddBoolToObject(root, "vin_low", vin_low);
+        bb_json_obj_set_bool(root, "vin_low", vin_low);
     } else {
-        cJSON_AddNullToObject(root, "vin_low");
+        bb_json_obj_set_null(root, "vin_low");
     }
     if (board_temp_c >= 0.0f) {
-        cJSON_AddNumberToObject(root, "board_temp_c", (double)board_temp_c);
+        bb_json_obj_set_number(root, "board_temp_c", (double)board_temp_c);
     } else {
-        cJSON_AddNullToObject(root, "board_temp_c");
+        bb_json_obj_set_null(root, "board_temp_c");
     }
     if (vr_temp_c >= 0.0f) {
-        cJSON_AddNumberToObject(root, "vr_temp_c", (double)vr_temp_c);
+        bb_json_obj_set_number(root, "vr_temp_c", (double)vr_temp_c);
     } else {
-        cJSON_AddNullToObject(root, "vr_temp_c");
+        bb_json_obj_set_null(root, "vr_temp_c");
     }
 
-    char *json = cJSON_PrintUnformatted(root);
+    char *json = bb_json_serialize(root);
     bb_http_resp_set_header(req, "Content-Type", "application/json");
     bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
-    free(json);
-    cJSON_Delete(root);
+    bb_json_free_str(json);
+    bb_json_free(root);
     return rc;
 }
 
@@ -292,23 +291,23 @@ static bb_err_t fan_handler(bb_http_request_t *req)
         xSemaphoreGive(mining_stats.mutex);
     }
 
-    cJSON *root = cJSON_CreateObject();
+    bb_json_t root = bb_json_obj_new();
     if (fan_rpm >= 0) {
-        cJSON_AddNumberToObject(root, "rpm", fan_rpm);
+        bb_json_obj_set_number(root, "rpm", fan_rpm);
     } else {
-        cJSON_AddNullToObject(root, "rpm");
+        bb_json_obj_set_null(root, "rpm");
     }
     if (fan_duty_pct >= 0) {
-        cJSON_AddNumberToObject(root, "duty_pct", fan_duty_pct);
+        bb_json_obj_set_number(root, "duty_pct", fan_duty_pct);
     } else {
-        cJSON_AddNullToObject(root, "duty_pct");
+        bb_json_obj_set_null(root, "duty_pct");
     }
 
-    char *json = cJSON_PrintUnformatted(root);
+    char *json = bb_json_serialize(root);
     bb_http_resp_set_header(req, "Content-Type", "application/json");
     bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
-    free(json);
-    cJSON_Delete(root);
+    bb_json_free_str(json);
+    bb_json_free(root);
     return rc;
 }
 #endif // ASIC_BM1370 || ASIC_BM1368
@@ -318,53 +317,49 @@ static bb_err_t ota_mark_valid_handler(bb_http_request_t *req)
     set_common_headers(req);
     esp_err_t err = ota_validator_mark_valid_manual();
 
-    cJSON *root = cJSON_CreateObject();
+    bb_json_t root = bb_json_obj_new();
 
     if (err == ESP_OK) {
         bb_http_resp_set_status(req, 200);
-        cJSON_AddBoolToObject(root, "validated", true);
+        bb_json_obj_set_bool(root, "validated", true);
     } else if (err == ESP_ERR_INVALID_STATE) {
         bb_http_resp_set_status(req, 409);
-        cJSON_AddStringToObject(root, "error", "not pending");
+        bb_json_obj_set_string(root, "error", "not pending");
     } else {
         bb_http_resp_set_status(req, 500);
-        cJSON_AddStringToObject(root, "error", "mark_valid failed");
+        bb_json_obj_set_string(root, "error", "mark_valid failed");
     }
 
-    char *json = cJSON_PrintUnformatted(root);
+    char *json = bb_json_serialize(root);
     bb_http_resp_set_header(req, "Content-Type", "application/json");
     bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
-    free(json);
-    cJSON_Delete(root);
+    bb_json_free_str(json);
+    bb_json_free(root);
     return rc;
 }
 
 static void taipan_info_extender(bb_json_t root)
 {
-    // On ESP-IDF, bb_json_t is cJSON* underneath; cast to use cJSON API
-    // (per plan: cJSON → bb_json migration is backlog item B4, not in step 6)
-    cJSON *json_root = (cJSON *)root;
-
-    cJSON_AddStringToObject(json_root, "worker_name", taipan_config_worker_name());
+    bb_json_obj_set_string(root, "worker_name", taipan_config_worker_name());
 
     const char *ssid = bb_nv_config_wifi_ssid();
-    if (ssid) cJSON_AddStringToObject(json_root, "ssid", ssid);
+    if (ssid) bb_json_obj_set_string(root, "ssid", ssid);
 
-    cJSON_AddBoolToObject(json_root, "validated", !ota_validator_is_pending());
-    cJSON_AddNumberToObject(json_root, "wdt_resets", s_wdt_resets);
+    bb_json_obj_set_bool(root, "validated", !ota_validator_is_pending());
+    bb_json_obj_set_number(root, "wdt_resets", s_wdt_resets);
 
     time_t now = time(NULL);
     if (now > 1700000000) {
         int64_t uptime_s = esp_timer_get_time() / 1000000LL;
-        cJSON_AddNumberToObject(json_root, "boot_time", (double)(now - uptime_s));
+        bb_json_obj_set_number(root, "boot_time", (double)(now - uptime_s));
     }
 
-    cJSON *network = cJSON_GetObjectItem(json_root, "network");
+    bb_json_t network = bb_json_obj_get_item(root, "network");
     if (network) {
-        cJSON_AddBoolToObject(network, "mdns", bb_mdns_started());
-        cJSON_AddBoolToObject(network, "stratum", stratum_is_connected());
-        cJSON_AddNumberToObject(network, "stratum_reconnect_ms", stratum_get_reconnect_delay_ms());
-        cJSON_AddNumberToObject(network, "stratum_fail_count", stratum_get_connect_fail_count());
+        bb_json_obj_set_bool(network, "mdns", bb_mdns_started());
+        bb_json_obj_set_bool(network, "stratum", stratum_is_connected());
+        bb_json_obj_set_number(network, "stratum_reconnect_ms", stratum_get_reconnect_delay_ms());
+        bb_json_obj_set_number(network, "stratum_fail_count", stratum_get_connect_fail_count());
     }
 }
 
@@ -376,20 +371,20 @@ bb_err_t taipan_web_register_info_extender(void)
 static bb_err_t settings_get_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "pool_host", taipan_config_pool_host());
-    cJSON_AddNumberToObject(root, "pool_port", taipan_config_pool_port());
-    cJSON_AddStringToObject(root, "wallet", taipan_config_wallet_addr());
-    cJSON_AddStringToObject(root, "worker", taipan_config_worker_name());
-    cJSON_AddStringToObject(root, "pool_pass", taipan_config_pool_pass());
-    cJSON_AddBoolToObject(root, "display_en", bb_nv_config_display_enabled());
-    cJSON_AddBoolToObject(root, "ota_skip_check", bb_nv_config_ota_skip_check());
+    bb_json_t root = bb_json_obj_new();
+    bb_json_obj_set_string(root, "pool_host", taipan_config_pool_host());
+    bb_json_obj_set_number(root, "pool_port", taipan_config_pool_port());
+    bb_json_obj_set_string(root, "wallet", taipan_config_wallet_addr());
+    bb_json_obj_set_string(root, "worker", taipan_config_worker_name());
+    bb_json_obj_set_string(root, "pool_pass", taipan_config_pool_pass());
+    bb_json_obj_set_bool(root, "display_en", bb_nv_config_display_enabled());
+    bb_json_obj_set_bool(root, "ota_skip_check", bb_nv_config_ota_skip_check());
 
-    char *json = cJSON_PrintUnformatted(root);
+    char *json = bb_json_serialize(root);
     bb_http_resp_set_header(req, "Content-Type", "application/json");
     bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
-    free(json);
-    cJSON_Delete(root);
+    bb_json_free_str(json);
+    bb_json_free(root);
     return rc;
 }
 
@@ -415,7 +410,7 @@ static bb_err_t apply_settings(bb_http_request_t *req, bool partial)
     }
     body[len] = '\0';
 
-    cJSON *root = cJSON_Parse(body);
+    bb_json_t root = bb_json_parse(body, 0);
     if (!root) {
         bb_http_resp_set_status(req, 400);
         bb_http_resp_set_header(req, "Content-Type", "text/plain");
@@ -431,26 +426,26 @@ static bb_err_t apply_settings(bb_http_request_t *req, bool partial)
     const char *pool_pass = taipan_config_pool_pass();
     bool reboot_required = false;
 
-    cJSON *j;
+    bb_json_t j;
 
-    j = cJSON_GetObjectItem(root, "pool_host");
-    if (j && cJSON_IsString(j)) { pool_host = j->valuestring; }
-    else if (!partial) { if (!j) { cJSON_Delete(root); bb_http_resp_set_status(req, 400); bb_http_resp_set_header(req, "Content-Type", "text/plain"); bb_http_resp_send(req, "pool_host required", 18); return BB_ERR_INVALID_ARG; } }
+    j = bb_json_obj_get_item(root, "pool_host");
+    if (j && bb_json_item_is_string(j)) { pool_host = bb_json_item_get_string(j); }
+    else if (!partial) { if (!j) { bb_json_free(root); bb_http_resp_set_status(req, 400); bb_http_resp_set_header(req, "Content-Type", "text/plain"); bb_http_resp_send(req, "pool_host required", 18); return BB_ERR_INVALID_ARG; } }
 
-    j = cJSON_GetObjectItem(root, "pool_port");
-    if (j && cJSON_IsNumber(j)) { pool_port = (uint16_t)j->valuedouble; }
-    else if (!partial) { if (!j) { cJSON_Delete(root); bb_http_resp_set_status(req, 400); bb_http_resp_set_header(req, "Content-Type", "text/plain"); bb_http_resp_send(req, "pool_port required", 18); return BB_ERR_INVALID_ARG; } }
+    j = bb_json_obj_get_item(root, "pool_port");
+    if (j && bb_json_item_is_number(j)) { pool_port = (uint16_t)bb_json_item_get_double(j); }
+    else if (!partial) { if (!j) { bb_json_free(root); bb_http_resp_set_status(req, 400); bb_http_resp_set_header(req, "Content-Type", "text/plain"); bb_http_resp_send(req, "pool_port required", 18); return BB_ERR_INVALID_ARG; } }
 
-    j = cJSON_GetObjectItem(root, "wallet");
-    if (j && cJSON_IsString(j)) { wallet = j->valuestring; }
-    else if (!partial) { if (!j) { cJSON_Delete(root); bb_http_resp_set_status(req, 400); bb_http_resp_set_header(req, "Content-Type", "text/plain"); bb_http_resp_send(req, "wallet required", 15); return BB_ERR_INVALID_ARG; } }
+    j = bb_json_obj_get_item(root, "wallet");
+    if (j && bb_json_item_is_string(j)) { wallet = bb_json_item_get_string(j); }
+    else if (!partial) { if (!j) { bb_json_free(root); bb_http_resp_set_status(req, 400); bb_http_resp_set_header(req, "Content-Type", "text/plain"); bb_http_resp_send(req, "wallet required", 15); return BB_ERR_INVALID_ARG; } }
 
-    j = cJSON_GetObjectItem(root, "worker");
-    if (j && cJSON_IsString(j)) { worker = j->valuestring; }
-    else if (!partial) { if (!j) { cJSON_Delete(root); bb_http_resp_set_status(req, 400); bb_http_resp_set_header(req, "Content-Type", "text/plain"); bb_http_resp_send(req, "worker required", 15); return BB_ERR_INVALID_ARG; } }
+    j = bb_json_obj_get_item(root, "worker");
+    if (j && bb_json_item_is_string(j)) { worker = bb_json_item_get_string(j); }
+    else if (!partial) { if (!j) { bb_json_free(root); bb_http_resp_set_status(req, 400); bb_http_resp_set_header(req, "Content-Type", "text/plain"); bb_http_resp_send(req, "worker required", 15); return BB_ERR_INVALID_ARG; } }
 
-    j = cJSON_GetObjectItem(root, "pool_pass");
-    if (j && cJSON_IsString(j)) { pool_pass = j->valuestring; }
+    j = bb_json_obj_get_item(root, "pool_pass");
+    if (j && bb_json_item_is_string(j)) { pool_pass = bb_json_item_get_string(j); }
     // pool_pass is optional even for POST
 
     // Compare against current values to determine if reboot is needed
@@ -464,14 +459,14 @@ static bb_err_t apply_settings(bb_http_request_t *req, bool partial)
 
     // Validate
     if (pool_host[0] == '\0' || wallet[0] == '\0' || worker[0] == '\0') {
-        cJSON_Delete(root);
+        bb_json_free(root);
         bb_http_resp_set_status(req, 400);
         bb_http_resp_set_header(req, "Content-Type", "text/plain");
         static const char *msg = "pool_host, wallet, worker must not be empty";
         return bb_http_resp_send(req, msg, strlen(msg));
     }
     if (pool_port == 0) {
-        cJSON_Delete(root);
+        bb_json_free(root);
         bb_http_resp_set_status(req, 400);
         bb_http_resp_set_header(req, "Content-Type", "text/plain");
         static const char *msg = "pool_port must be > 0";
@@ -482,7 +477,7 @@ static bb_err_t apply_settings(bb_http_request_t *req, bool partial)
     if (reboot_required) {
         esp_err_t err = taipan_config_set_pool(pool_host, pool_port, wallet, worker, pool_pass);
         if (err != ESP_OK) {
-            cJSON_Delete(root);
+            bb_json_free(root);
             bb_http_resp_set_status(req, 500);
             bb_http_resp_set_header(req, "Content-Type", "text/plain");
             static const char *msg = "Failed to save config";
@@ -491,31 +486,35 @@ static bb_err_t apply_settings(bb_http_request_t *req, bool partial)
     }
 
     // Handle display_en separately (takes effect immediately, no reboot needed)
-    j = cJSON_GetObjectItem(root, "display_en");
-    if (j && cJSON_IsBool(j)) {
-        esp_err_t err = bb_nv_config_set_display_enabled(cJSON_IsTrue(j));
-        if (err != ESP_OK) {
-            cJSON_Delete(root);
-            bb_http_resp_set_status(req, 500);
-            bb_http_resp_set_header(req, "Content-Type", "text/plain");
-            static const char *msg = "Failed to save display setting";
-            return bb_http_resp_send(req, msg, strlen(msg));
+    {
+        bool display_val = false;
+        if (bb_json_obj_get_bool(root, "display_en", &display_val)) {
+            esp_err_t err = bb_nv_config_set_display_enabled(display_val);
+            if (err != ESP_OK) {
+                bb_json_free(root);
+                bb_http_resp_set_status(req, 500);
+                bb_http_resp_set_header(req, "Content-Type", "text/plain");
+                static const char *msg = "Failed to save display setting";
+                return bb_http_resp_send(req, msg, strlen(msg));
+            }
         }
     }
 
-    j = cJSON_GetObjectItem(root, "ota_skip_check");
-    if (j && cJSON_IsBool(j)) {
-        esp_err_t err = bb_nv_config_set_ota_skip_check(cJSON_IsTrue(j));
-        if (err != ESP_OK) {
-            cJSON_Delete(root);
-            bb_http_resp_set_status(req, 500);
-            bb_http_resp_set_header(req, "Content-Type", "text/plain");
-            static const char *msg = "Failed to save ota_skip_check";
-            return bb_http_resp_send(req, msg, strlen(msg));
+    {
+        bool skip_val = false;
+        if (bb_json_obj_get_bool(root, "ota_skip_check", &skip_val)) {
+            esp_err_t err = bb_nv_config_set_ota_skip_check(skip_val);
+            if (err != ESP_OK) {
+                bb_json_free(root);
+                bb_http_resp_set_status(req, 500);
+                bb_http_resp_set_header(req, "Content-Type", "text/plain");
+                static const char *msg = "Failed to save ota_skip_check";
+                return bb_http_resp_send(req, msg, strlen(msg));
+            }
         }
     }
 
-    cJSON_Delete(root);
+    bb_json_free(root);
 
     // Response
     char resp[64];
@@ -552,7 +551,7 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
     }
     body[len] = '\0';
 
-    cJSON *root = cJSON_Parse(body);
+    bb_json_t root = bb_json_parse(body, 0);
     if (!root) {
         bb_http_resp_send_err(req, 400, "Invalid JSON");
         return BB_ERR_INVALID_ARG;
@@ -566,22 +565,22 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
     const char *pool_pass = taipan_config_pool_pass();
     bool reboot_required = false;
 
-    cJSON *j;
+    bb_json_t j;
 
-    j = cJSON_GetObjectItem(root, "pool_host");
-    if (j && cJSON_IsString(j)) { pool_host = j->valuestring; }
+    j = bb_json_obj_get_item(root, "pool_host");
+    if (j && bb_json_item_is_string(j)) { pool_host = bb_json_item_get_string(j); }
 
-    j = cJSON_GetObjectItem(root, "pool_port");
-    if (j && cJSON_IsNumber(j)) { pool_port = (uint16_t)j->valuedouble; }
+    j = bb_json_obj_get_item(root, "pool_port");
+    if (j && bb_json_item_is_number(j)) { pool_port = (uint16_t)bb_json_item_get_double(j); }
 
-    j = cJSON_GetObjectItem(root, "wallet");
-    if (j && cJSON_IsString(j)) { wallet = j->valuestring; }
+    j = bb_json_obj_get_item(root, "wallet");
+    if (j && bb_json_item_is_string(j)) { wallet = bb_json_item_get_string(j); }
 
-    j = cJSON_GetObjectItem(root, "worker");
-    if (j && cJSON_IsString(j)) { worker = j->valuestring; }
+    j = bb_json_obj_get_item(root, "worker");
+    if (j && bb_json_item_is_string(j)) { worker = bb_json_item_get_string(j); }
 
-    j = cJSON_GetObjectItem(root, "pool_pass");
-    if (j && cJSON_IsString(j)) { pool_pass = j->valuestring; }
+    j = bb_json_obj_get_item(root, "pool_pass");
+    if (j && bb_json_item_is_string(j)) { pool_pass = bb_json_item_get_string(j); }
 
     // Compare against current values to determine if reboot is needed
     if (strcmp(pool_host, taipan_config_pool_host()) != 0 ||
@@ -594,12 +593,12 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
 
     // Validate
     if (pool_host[0] == '\0' || wallet[0] == '\0' || worker[0] == '\0') {
-        cJSON_Delete(root);
+        bb_json_free(root);
         bb_http_resp_send_err(req, 400, "pool_host, wallet, worker must not be empty");
         return BB_ERR_INVALID_ARG;
     }
     if (pool_port == 0) {
-        cJSON_Delete(root);
+        bb_json_free(root);
         bb_http_resp_send_err(req, 400, "pool_port must be > 0");
         return BB_ERR_INVALID_ARG;
     }
@@ -608,34 +607,38 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
     if (reboot_required) {
         esp_err_t err = taipan_config_set_pool(pool_host, pool_port, wallet, worker, pool_pass);
         if (err != ESP_OK) {
-            cJSON_Delete(root);
+            bb_json_free(root);
             bb_http_resp_send_err(req, 500, "Failed to save config");
             return BB_ERR_INVALID_ARG;
         }
     }
 
     // Handle display_en separately (takes effect immediately, no reboot needed)
-    j = cJSON_GetObjectItem(root, "display_en");
-    if (j && cJSON_IsBool(j)) {
-        esp_err_t err = bb_nv_config_set_display_enabled(cJSON_IsTrue(j));
-        if (err != ESP_OK) {
-            cJSON_Delete(root);
-            bb_http_resp_send_err(req, 500, "Failed to save display setting");
-            return BB_ERR_INVALID_ARG;
+    {
+        bool display_val = false;
+        if (bb_json_obj_get_bool(root, "display_en", &display_val)) {
+            esp_err_t err = bb_nv_config_set_display_enabled(display_val);
+            if (err != ESP_OK) {
+                bb_json_free(root);
+                bb_http_resp_send_err(req, 500, "Failed to save display setting");
+                return BB_ERR_INVALID_ARG;
+            }
         }
     }
 
-    j = cJSON_GetObjectItem(root, "ota_skip_check");
-    if (j && cJSON_IsBool(j)) {
-        esp_err_t err = bb_nv_config_set_ota_skip_check(cJSON_IsTrue(j));
-        if (err != ESP_OK) {
-            cJSON_Delete(root);
-            bb_http_resp_send_err(req, 500, "Failed to save ota_skip_check");
-            return BB_ERR_INVALID_ARG;
+    {
+        bool skip_val = false;
+        if (bb_json_obj_get_bool(root, "ota_skip_check", &skip_val)) {
+            esp_err_t err = bb_nv_config_set_ota_skip_check(skip_val);
+            if (err != ESP_OK) {
+                bb_json_free(root);
+                bb_http_resp_send_err(req, 500, "Failed to save ota_skip_check");
+                return BB_ERR_INVALID_ARG;
+            }
         }
     }
 
-    cJSON_Delete(root);
+    bb_json_free(root);
 
     // Response
     char resp[64];

@@ -31,7 +31,7 @@
 #include <inttypes.h>
 #include "bb_ota_pull.h"
 #include "bb_ota_push.h"
-#include "ota_validator.h"
+#include "bb_ota_validator.h"
 #include "bb_log.h"
 #include "bb_board.h"
 
@@ -312,32 +312,6 @@ static bb_err_t fan_handler(bb_http_request_t *req)
 }
 #endif // ASIC_BM1370 || ASIC_BM1368
 
-static bb_err_t ota_mark_valid_handler(bb_http_request_t *req)
-{
-    set_common_headers(req);
-    esp_err_t err = ota_validator_mark_valid_manual();
-
-    bb_json_t root = bb_json_obj_new();
-
-    if (err == ESP_OK) {
-        bb_http_resp_set_status(req, 200);
-        bb_json_obj_set_bool(root, "validated", true);
-    } else if (err == ESP_ERR_INVALID_STATE) {
-        bb_http_resp_set_status(req, 409);
-        bb_json_obj_set_string(root, "error", "not pending");
-    } else {
-        bb_http_resp_set_status(req, 500);
-        bb_json_obj_set_string(root, "error", "mark_valid failed");
-    }
-
-    char *json = bb_json_serialize(root);
-    bb_http_resp_set_header(req, "Content-Type", "application/json");
-    bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
-    bb_json_free_str(json);
-    bb_json_free(root);
-    return rc;
-}
-
 static void taipan_info_extender(bb_json_t root)
 {
     bb_json_obj_set_string(root, "worker_name", taipan_config_worker_name());
@@ -345,7 +319,7 @@ static void taipan_info_extender(bb_json_t root)
     const char *ssid = bb_nv_config_wifi_ssid();
     if (ssid) bb_json_obj_set_string(root, "ssid", ssid);
 
-    bb_json_obj_set_bool(root, "validated", !ota_validator_is_pending());
+    bb_json_obj_set_bool(root, "validated", !bb_ota_is_pending());
     bb_json_obj_set_number(root, "wdt_resets", s_wdt_resets);
 
     time_t now = time(NULL);
@@ -657,14 +631,6 @@ void taipan_web_install_prov_save_cb(void)
     bb_prov_set_save_callback(taipan_prov_save_cb);
 }
 
-bb_err_t taipan_web_finish_prov_setup(bb_http_handle_t server)
-{
-    bb_http_register_common_routes(server);
-    bb_info_register_routes(server);
-    bb_log_i(TAG, "provisioning routes registered");
-    return BB_OK;
-}
-
 static bb_http_asset_t s_prov_assets[] = {
     { "/",            "text/html",     "gzip", NULL, 0  },
     { "/theme.css",   "text/css",      "gzip", NULL, 0  },
@@ -726,12 +692,12 @@ bb_err_t taipan_web_register_mining_routes(bb_http_handle_t server)
     init_mining_assets();
     bb_http_register_assets(server, s_mining_assets, sizeof(s_mining_assets)/sizeof(s_mining_assets[0]));
 
+    // Initialize breadboard's OTA validator (registers /api/ota/mark-valid handler)
+    bb_ota_validator_init(server);
+
     // Register dynamic handlers (portable bb_http)
     bb_err_t rc;
     rc = bb_http_register_route(server, BB_HTTP_GET, "/api/stats", stats_handler);
-    if (rc != BB_OK) return rc;
-
-    rc = bb_http_register_route(server, BB_HTTP_POST, "/api/ota/mark-valid", ota_mark_valid_handler);
     if (rc != BB_OK) return rc;
 
     rc = bb_http_register_route(server, BB_HTTP_GET, "/api/settings", settings_get_handler);

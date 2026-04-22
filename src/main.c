@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <inttypes.h>
-#include "esp_log.h"
 #include "bb_wifi.h"
 #include "bb_prov.h"
 #include "bb_mdns.h"
@@ -19,7 +18,6 @@
 #include "esp_timer.h"
 #include "partition_fixup.h"
 #include "bb_log.h"
-#include "ota_validator.h"
 #include "bb_ota_pull.h"
 #include "bb_ota_push.h"
 #include "freertos/FreeRTOS.h"
@@ -172,10 +170,13 @@ void app_main(void)
              app->project_name, app->version, app->date, app->time, app->idf_ver);
 
     // Suppress noisy framework log tags (before wifi_init)
-    bb_log_level_set("wifi", BB_LOG_LEVEL_INFO);
-    bb_log_level_set("wifi_init", BB_LOG_LEVEL_INFO);
+    bb_log_level_set("wifi", BB_LOG_LEVEL_WARN);
+    bb_log_level_set("wifi_init", BB_LOG_LEVEL_WARN);
+    bb_log_level_set("net80211", BB_LOG_LEVEL_WARN);
+    bb_log_level_set("pp", BB_LOG_LEVEL_WARN);
     bb_log_level_set("phy_init", BB_LOG_LEVEL_WARN);
     bb_log_level_set("esp_netif_handlers", BB_LOG_LEVEL_WARN);
+    bb_log_level_set("esp_netif_lwip", BB_LOG_LEVEL_WARN);
     bb_log_level_set("esp-x509-crt-bundle", BB_LOG_LEVEL_WARN);
 
     // Register TM-owned tags so they appear in GET /api/log/level discovery
@@ -207,7 +208,6 @@ void app_main(void)
     ESP_ERROR_CHECK(bb_nv_config_init());
     ESP_ERROR_CHECK(taipan_config_init());
     log_reset_reason();
-    ota_validator_start();
     ESP_ERROR_CHECK(led_init());
 
     // Boot failure counter — incremented only on WiFi timeout restart (wifi_prov.c),
@@ -259,12 +259,12 @@ void app_main(void)
         }
 
         ESP_ERROR_CHECK(bb_prov_start_ap());
+        taipan_web_install_prov_save_cb();
         {
             size_t n;
             const bb_http_asset_t *assets = taipan_web_prov_assets(&n);
-            ESP_ERROR_CHECK(bb_prov_start(assets, n));
+            ESP_ERROR_CHECK(bb_prov_start(assets, n, NULL));
         }
-        ESP_ERROR_CHECK(taipan_web_finish_prov_setup(bb_http_server_get_handle()));
 
         // Show provisioning info on display + solid blue LED
         char ap_ssid[32];

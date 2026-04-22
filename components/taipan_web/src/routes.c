@@ -658,7 +658,7 @@ bb_err_t taipan_web_finish_prov_setup(bb_http_handle_t server)
 {
     bb_http_register_common_routes(server);
     bb_info_register_routes(server);
-    ESP_LOGI(TAG, "provisioning routes registered");
+    bb_log_i(TAG, "provisioning routes registered");
     return BB_OK;
 }
 
@@ -757,6 +757,6 @@ bb_err_t taipan_web_register_mining_routes(bb_http_handle_t server)
     bb_board_register_routes(server);
     bb_log_stream_register_routes(server);
 
-    ESP_LOGI(TAG, "mining routes registered");
+    bb_log_i(TAG, "mining routes registered");
     return BB_OK;
 }

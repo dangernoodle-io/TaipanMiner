@@ -4,6 +4,7 @@
 #include "esp_app_format.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "bb_log.h"
 #include "bb_nv.h"
 
 static const char *TAG = "ota_validator";
@@ -22,7 +23,7 @@ static void mark_valid_internal(const char *reason)
 
     esp_ota_mark_app_valid_cancel_rollback();
     bb_nv_config_reset_boot_count();
-    ESP_LOGW(TAG, "firmware validated via %s", reason);
+    bb_log_w(TAG, "firmware validated via %s", reason);
 }
 
 static void timer_callback(void *arg)
@@ -48,12 +49,12 @@ void ota_validator_start(void)
     if (esp_ota_get_state_partition(running, &ota_state) == ESP_OK) {
         if (ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
             if (!other_slot_has_valid_app()) {
-                ESP_LOGW(TAG, "other OTA slot lacks a valid app — rollback target unsafe, marking valid immediately");
+                bb_log_w(TAG, "other OTA slot lacks a valid app — rollback target unsafe, marking valid immediately");
                 mark_valid_internal("rollback-unsafe preflight");
                 return;
             }
             s_pending = true;
-            ESP_LOGI(TAG, "OTA image pending verification");
+            bb_log_i(TAG, "OTA image pending verification");
         }
     }
 }
@@ -81,7 +82,7 @@ void ota_validator_on_stratum_authorized(void)
 
     if (esp_timer_create(&timer_args, &s_timer) == ESP_OK) {
         esp_timer_start_once(s_timer, OTA_VALIDATOR_TIMEOUT_US);
-        ESP_LOGI(TAG, "15-minute mark-valid timer started");
+        bb_log_i(TAG, "15-minute mark-valid timer started");
     }
 }
 

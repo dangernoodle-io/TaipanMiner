@@ -8,6 +8,7 @@
 #include "board.h"
 #include "ota_validator.h"
 #include "bb_wifi.h"
+#include "bb_log.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -70,13 +71,13 @@ static int stratum_send(const char *msg)
     while (total < len) {
         int sent = send(s_sock, msg + total, len - total, 0);
         if (sent < 0) {
-            ESP_LOGE(TAG, "send error: %d", errno);
+            bb_log_e(TAG, "send error: %d", errno);
             return -1;
         }
         total += sent;
     }
     s_last_tx_tick = xTaskGetTickCount();
-    ESP_LOGD(TAG, ">> %s", msg);
+    bb_log_d(TAG, ">> %s", msg);
     return 0;
 }
 
@@ -150,7 +151,7 @@ static int stratum_readline(char *out, int max_len, int timeout_ms)
 
     int space = sizeof(s_linebuf) - s_linebuf_len - 1;
     if (space <= 0) {
-        ESP_LOGW(TAG, "line buffer overflow, discarding");
+        bb_log_w(TAG, "line buffer overflow, discarding");
         s_linebuf_len = 0;
         return 0;
     }
@@ -160,11 +161,11 @@ static int stratum_readline(char *out, int max_len, int timeout_ms)
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             return 0;  // timeout, no data
         }
-        ESP_LOGE(TAG, "recv error: %d", errno);
+        bb_log_e(TAG, "recv error: %d", errno);
         return -1;
     }
     if (n == 0) {
-        ESP_LOGW(TAG, "connection closed");
+        bb_log_w(TAG, "connection closed");
         return -1;
     }
 
@@ -200,7 +201,7 @@ static int stratum_connect(const char *host, uint16_t port)
         static int64_t s_last_no_ip_log_us = 0;
         int64_t now_us = esp_timer_get_time();
         if (now_us - s_last_no_ip_log_us > 10000000) {  // 10s rate limit
-            ESP_LOGW(TAG, "no IP yet, deferring DNS lookup");
+            bb_log_w(TAG, "no IP yet, deferring DNS lookup");
             s_last_no_ip_log_us = now_us;
         }
         return -1;
@@ -214,14 +215,14 @@ static int stratum_connect(const char *host, uint16_t port)
 
     int err = getaddrinfo(host, port_str, &hints, &res);
     if (err != 0 || res == NULL) {
-        ESP_LOGE(TAG, "DNS lookup failed: %d", err);
+        bb_log_e(TAG, "DNS lookup failed: %d", err);
         if (res) freeaddrinfo(res);
         return -1;
     }
 
     s_sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
     if (s_sock < 0) {
-        ESP_LOGE(TAG, "socket failed: %d", errno);
+        bb_log_e(TAG, "socket failed: %d", errno);
         freeaddrinfo(res);
         return -1;
     }
@@ -231,7 +232,7 @@ static int stratum_connect(const char *host, uint16_t port)
     setsockopt(s_sock, SOL_SOCKET, SO_SNDTIMEO, &conn_tv, sizeof(conn_tv));
 
     if (connect(s_sock, res->ai_addr, res->ai_addrlen) != 0) {
-        ESP_LOGE(TAG, "connect failed: %d", errno);
+        bb_log_e(TAG, "connect failed: %d", errno);
         close(s_sock);
         s_sock = -1;
         freeaddrinfo(res);
@@ -258,7 +259,7 @@ static int stratum_connect(const char *host, uint16_t port)
     s_msg_id = 1;
     s_rcvtimeo_ms = -1;
 
-    ESP_LOGI(TAG, "connected to %s:%d", host, port);
+    bb_log_i(TAG, "connected to %s:%d", host, port);
     return 0;
 }
 
@@ -270,7 +271,7 @@ static void handle_configure_result(cJSON *result)
         cJSON *mask_j = cJSON_GetObjectItem(result, "version-rolling.mask");
         if (mask_j && mask_j->valuestring) {
             s_version_mask = (uint32_t)strtoul(mask_j->valuestring, NULL, 16);
-            ESP_LOGI(TAG, "version rolling enabled, mask=0x%08" PRIx32, s_version_mask);
+            bb_log_i(TAG, "version rolling enabled, mask=0x%08" PRIx32, s_version_mask);
         }
     }
 }
@@ -301,7 +302,7 @@ static bool build_work(mining_work_t *work)
 
     char cb_hex[65];
     bytes_to_hex(coinbase_hash, 32, cb_hex);
-    ESP_LOGD(TAG, "coinbase_hash: %s", cb_hex);
+    bb_log_d(TAG, "coinbase_hash: %s", cb_hex);
 
     // Build merkle root
     uint8_t merkle_root[32];
@@ -309,7 +310,7 @@ static bool build_work(mining_work_t *work)
 
     char mr_hex[65];
     bytes_to_hex(merkle_root, 32, mr_hex);
-    ESP_LOGD(TAG, "merkle_root: %s", mr_hex);
+    bb_log_d(TAG, "merkle_root: %s", mr_hex);
 
     // Serialize header
     serialize_header(s_job.version, s_job.prevhash, merkle_root,
@@ -320,11 +321,11 @@ static bool build_work(mining_work_t *work)
     work->difficulty = s_difficulty;
 
     if (!is_target_valid(work->target)) {
-        ESP_LOGE(TAG, "build_work: invalid target for diff=%.6f, dropping work", s_difficulty);
+        bb_log_e(TAG, "build_work: invalid target for diff=%.6f, dropping work", s_difficulty);
         return false;
     }
 
-    ESP_LOGD(TAG, "build_work: diff=%.6f target=%02x%02x%02x%02x %02x%02x%02x%02x",
+    bb_log_d(TAG, "build_work: diff=%.6f target=%02x%02x%02x%02x %02x%02x%02x%02x",
              s_difficulty,
              work->target[31], work->target[30], work->target[29], work->target[28],
              work->target[27], work->target[26], work->target[25], work->target[24]);
@@ -343,7 +344,7 @@ static void handle_notify(cJSON *params)
 {
     cJSON *arr = params;
     if (!cJSON_IsArray(arr) || cJSON_GetArraySize(arr) < 9) {
-        ESP_LOGW(TAG, "invalid notify params");
+        bb_log_w(TAG, "invalid notify params");
         return;
     }
 
@@ -360,7 +361,7 @@ static void handle_notify(cJSON *params)
 
     if (!job_id_j || !prevhash_j || !coinb1_j || !coinb2_j ||
         !merkle_j || !version_j || !nbits_j || !ntime_j) {
-        ESP_LOGW(TAG, "missing notify fields");
+        bb_log_w(TAG, "missing notify fields");
         return;
     }
 
@@ -368,7 +369,7 @@ static void handle_notify(cJSON *params)
     if (!job_id_j->valuestring || !prevhash_j->valuestring ||
         !coinb1_j->valuestring || !coinb2_j->valuestring ||
         !version_j->valuestring || !nbits_j->valuestring || !ntime_j->valuestring) {
-        ESP_LOGW(TAG, "notify fields have wrong type");
+        bb_log_w(TAG, "notify fields have wrong type");
         return;
     }
 
@@ -402,7 +403,7 @@ static void handle_notify(cJSON *params)
     s_job.ntime = (uint32_t)strtoul(ntime_j->valuestring, NULL, 16);
     s_job.clean_jobs = clean_j ? cJSON_IsTrue(clean_j) : false;
 
-    ESP_LOGI(TAG, "notify: job=%s clean=%d ver=%s ntime=%s nbits=%s",
+    bb_log_i(TAG, "notify: job=%s clean=%d ver=%s ntime=%s nbits=%s",
              s_job.job_id, s_job.clean_jobs,
              version_j->valuestring, ntime_j->valuestring, nbits_j->valuestring);
 
@@ -413,7 +414,7 @@ static void handle_notify(cJSON *params)
     // Debug: dump first 80 bytes of header as hex
     char hdr_hex[161];
     bytes_to_hex(work.header, 80, hdr_hex);
-    ESP_LOGD(TAG, "header: %s", hdr_hex);
+    bb_log_d(TAG, "header: %s", hdr_hex);
     work.clean = s_job.clean_jobs;
 
     xQueueOverwrite(work_queue, &work);
@@ -431,7 +432,7 @@ static void handle_set_difficulty(cJSON *params)
     cJSON *diff = cJSON_GetArrayItem(params, 0);
     if (cJSON_IsNumber(diff)) {
         s_difficulty = diff->valuedouble;
-        ESP_LOGI(TAG, "difficulty set to %.4f", s_difficulty);
+        bb_log_i(TAG, "difficulty set to %.4f", s_difficulty);
 
         // Re-dispatch work with updated target — mark clean to invalidate
         // stale job table entries that carry the old (easier) target
@@ -448,14 +449,14 @@ static void handle_set_difficulty(cJSON *params)
 static int handle_subscribe_result(cJSON *result)
 {
     if (!cJSON_IsArray(result) || cJSON_GetArraySize(result) < 3) {
-        ESP_LOGE(TAG, "invalid subscribe result");
+        bb_log_e(TAG, "invalid subscribe result");
         return -1;
     }
 
     // result[1] = extranonce1 (hex string)
     cJSON *en1 = cJSON_GetArrayItem(result, 1);
     if (!en1 || !en1->valuestring) {
-        ESP_LOGE(TAG, "no extranonce1");
+        bb_log_e(TAG, "no extranonce1");
         return -1;
     }
     strncpy(s_extranonce1_hex, en1->valuestring, sizeof(s_extranonce1_hex) - 1);
@@ -468,7 +469,7 @@ static int handle_subscribe_result(cJSON *result)
         s_extranonce2_size = en2sz->valueint;
     }
 
-    ESP_LOGI(TAG, "subscribed: en1=%s en2_size=%d", s_extranonce1_hex, s_extranonce2_size);
+    bb_log_i(TAG, "subscribed: en1=%s en2_size=%d", s_extranonce1_hex, s_extranonce2_size);
     return 0;
 }
 
@@ -484,7 +485,7 @@ static int submit_share(mining_result_t *result)
         return -1;
     }
 
-    ESP_LOGI(TAG, "submit: %s", params);
+    bb_log_i(TAG, "submit: %s", params);
     int rc = stratum_request("mining.submit", params);
     if (rc >= 0) {
         s_last_share_tick = xTaskGetTickCount();
@@ -497,11 +498,11 @@ static void process_message(const char *line)
 {
     cJSON *json = cJSON_Parse(line);
     if (!json) {
-        ESP_LOGW(TAG, "invalid JSON");
+        bb_log_w(TAG, "invalid JSON");
         return;
     }
 
-    ESP_LOGD(TAG, "<< %s", line);
+    bb_log_d(TAG, "<< %s", line);
 
     cJSON *method = cJSON_GetObjectItem(json, "method");
     cJSON *id_item = cJSON_GetObjectItem(json, "id");
@@ -516,7 +517,7 @@ static void process_message(const char *line)
         } else if (strcmp(method->valuestring, "mining.set_difficulty") == 0) {
             handle_set_difficulty(params);
         } else {
-            ESP_LOGD(TAG, "unhandled method: %s", method->valuestring);
+            bb_log_d(TAG, "unhandled method: %s", method->valuestring);
         }
     } else if (id_item && cJSON_IsNumber(id_item)) {
         // Response to our request
@@ -529,14 +530,14 @@ static void process_message(const char *line)
         } else if (id == s_authorize_id) {
             // Authorize response
             if (result_item && cJSON_IsTrue(result_item)) {
-                ESP_LOGI(TAG, "authorized");
+                bb_log_i(TAG, "authorized");
                 ota_validator_on_stratum_authorized();
             } else {
-                ESP_LOGE(TAG, "authorization failed");
+                bb_log_e(TAG, "authorization failed");
                 if (error_item && !cJSON_IsNull(error_item)) {
                     char *err_str = cJSON_PrintUnformatted(error_item);
                     if (err_str) {
-                        ESP_LOGE(TAG, "error: %s", err_str);
+                        bb_log_e(TAG, "error: %s", err_str);
                         free(err_str);
                     }
                 }
@@ -546,16 +547,16 @@ static void process_message(const char *line)
             if (result_item && cJSON_IsObject(result_item)) {
                 handle_configure_result(result_item);
             } else {
-                ESP_LOGW(TAG, "pool does not support mining.configure, version rolling disabled");
+                bb_log_w(TAG, "pool does not support mining.configure, version rolling disabled");
             }
         } else if (s_keepalive_id != 0 && id == s_keepalive_id) {
-            ESP_LOGD(TAG, "keepalive ack id=%d", id);
+            bb_log_d(TAG, "keepalive ack id=%d", id);
         } else {
             // Submit response or other
             if (error_item && !cJSON_IsNull(error_item)) {
                 char *err_str = cJSON_PrintUnformatted(error_item);
                 if (err_str) {
-                    ESP_LOGE(TAG, "share rejected: %s", err_str);
+                    bb_log_e(TAG, "share rejected: %s", err_str);
                     free(err_str);
                 }
                 if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -563,7 +564,7 @@ static void process_message(const char *line)
                     xSemaphoreGive(mining_stats.mutex);
                 }
             } else if (result_item && cJSON_IsTrue(result_item)) {
-                ESP_LOGI(TAG, "share accepted");
+                bb_log_i(TAG, "share accepted");
                 ota_validator_on_share_accepted();
                 int64_t now_us = esp_timer_get_time();
                 mining_lifetime_t lt_snap = {0};
@@ -590,7 +591,7 @@ void stratum_task(void *arg)
 {
     static char line[4096];
 
-    ESP_LOGI(TAG, "stratum task started");
+    bb_log_i(TAG, "stratum task started");
 
     for (;;) {
         // Read config
@@ -600,17 +601,17 @@ void stratum_task(void *arg)
         s_worker_name = taipan_config_worker_name();
         const char *pool_pass = taipan_config_pool_pass();
 
-        ESP_LOGI(TAG, "connecting to %s:%u wallet=%s worker=%s",
+        bb_log_i(TAG, "connecting to %s:%u wallet=%s worker=%s",
                  pool_host, pool_port, s_wallet_addr, s_worker_name);
 
         // Connect
         if (stratum_connect(pool_host, pool_port) != 0) {
             s_connect_fail_count++;
-            ESP_LOGW(TAG, "connect failed (%d/%d), reconnecting in %" PRIu32 "ms",
+            bb_log_w(TAG, "connect failed (%d/%d), reconnecting in %" PRIu32 "ms",
                      s_connect_fail_count, STRATUM_WIFI_KICK_THRESHOLD,
                      s_reconnect_delay_ms);
             if (s_connect_fail_count >= STRATUM_WIFI_KICK_THRESHOLD && s_wifi_kick_cb) {
-                ESP_LOGW(TAG, "forcing WiFi reassociation after %d consecutive failures",
+                bb_log_w(TAG, "forcing WiFi reassociation after %d consecutive failures",
                          s_connect_fail_count);
                 s_connect_fail_count = 0;
                 s_reconnect_delay_ms = 5000;
@@ -629,7 +630,7 @@ void stratum_task(void *arg)
             "{\"version-rolling.mask\":\"1fffe000\","
             "\"version-rolling.min-bit-count\":13}]");
         if (s_configure_id < 0) {
-            ESP_LOGW(TAG, "configure send failed, skipping version rolling");
+            bb_log_w(TAG, "configure send failed, skipping version rolling");
             s_configure_id = 0;
         }
 
@@ -651,7 +652,7 @@ void stratum_task(void *arg)
         }
 
         if (s_extranonce1_len == 0) {
-            ESP_LOGE(TAG, "subscribe timeout");
+            bb_log_e(TAG, "subscribe timeout");
             goto reconnect;
         }
 
@@ -663,7 +664,7 @@ void stratum_task(void *arg)
                      s_wallet_addr, s_worker_name,
                      pool_pass);
             if (n < 0 || n >= (int)sizeof(auth_params)) {
-                ESP_LOGE(TAG, "auth params truncated");
+                bb_log_e(TAG, "auth params truncated");
                 goto reconnect;
             }
             s_authorize_id = stratum_request("mining.authorize", auth_params);
@@ -686,7 +687,7 @@ void stratum_task(void *arg)
             }
         }
         if (!job_received) {
-            ESP_LOGW(TAG, "no job received during handshake, continuing to main loop");
+            bb_log_w(TAG, "no job received during handshake, continuing to main loop");
         }
 
         s_stratum_connected = true;
@@ -716,14 +717,14 @@ void stratum_task(void *arg)
             // External reconnect request (e.g. IP loss)
             if (s_reconnect_requested) {
                 s_reconnect_requested = false;
-                ESP_LOGW(TAG, "reconnect requested externally");
+                bb_log_w(TAG, "reconnect requested externally");
                 break;
             }
 
             // Reconnect if no new pool job received for 5 minutes
             if (s_last_pool_job_tick != 0 &&
                 (xTaskGetTickCount() - s_last_pool_job_tick) >= pdMS_TO_TICKS(300000)) {
-                ESP_LOGW(TAG, "no new job for 5 minutes, reconnecting");
+                bb_log_w(TAG, "no new job for 5 minutes, reconnecting");
                 break;
             }
 
@@ -732,7 +733,7 @@ void stratum_task(void *arg)
                 TickType_t share_ref = s_last_share_tick ? s_last_share_tick : s_session_start_tick;
                 if (share_ref != 0 &&
                     (xTaskGetTickCount() - share_ref) >= pdMS_TO_TICKS(1800000)) {
-                    ESP_LOGW(TAG, "no share submitted in 30 minutes, reconnecting");
+                    bb_log_w(TAG, "no share submitted in 30 minutes, reconnecting");
                     break;
                 }
             }
@@ -756,12 +757,12 @@ void stratum_task(void *arg)
                 TickType_t now = xTaskGetTickCount();
                 if (s_last_tx_tick != 0 &&
                     (now - s_last_tx_tick) >= pdMS_TO_TICKS(90000)) {
-                    ESP_LOGD(TAG, "sending keepalive ping");
+                    bb_log_d(TAG, "sending keepalive ping");
                     char params[32];
                     snprintf(params, sizeof(params), "[%.4f]", s_difficulty);
                     int kid = stratum_request("mining.suggest_difficulty", params);
                     if (kid < 0) {
-                        ESP_LOGW(TAG, "keepalive send failed, reconnecting");
+                        bb_log_w(TAG, "keepalive send failed, reconnecting");
                         break;
                     }
                     s_keepalive_id = kid;
@@ -791,7 +792,7 @@ reconnect:
             mining_result_t stale;
             while (xQueueReceive(result_queue, &stale, 0) == pdTRUE) {}
         }
-        ESP_LOGW(TAG, "reconnecting in %" PRIu32 "ms", s_reconnect_delay_ms);
+        bb_log_w(TAG, "reconnecting in %" PRIu32 "ms", s_reconnect_delay_ms);
         vTaskDelay(pdMS_TO_TICKS(s_reconnect_delay_ms));
         if (s_reconnect_delay_ms < 60000) s_reconnect_delay_ms *= 2;
     }

@@ -10,6 +10,7 @@
 #include "esp_lcd_panel_ops.h"
 #include "font8x16.h"
 #include "bb_nv.h"
+#include "bb_log.h"
 
 #include <string.h>
 #include <stdbool.h>
@@ -154,7 +155,7 @@ static esp_err_t init_st7735(void)
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(s_panel, true));
 
     gpio_set_level(PIN_LCD_BL, 0);  // active-low: 0 = on
-    ESP_LOGI(TAG, "ST7735 ready (%dx%d)", LCD_WIDTH, LCD_HEIGHT);
+    bb_log_i(TAG, "ST7735 ready (%dx%d)", LCD_WIDTH, LCD_HEIGHT);
     return ESP_OK;
 }
 
@@ -469,7 +470,7 @@ static esp_err_t init_ssd1306(void)
 #ifdef HAS_I2C
     if (i2c_bus == NULL) {
         if (!board_gpio_valid(PIN_I2C_SDA, "I2C_SDA") || !board_gpio_valid(PIN_I2C_SCL, "I2C_SCL")) {
-            ESP_LOGW(TAG, "I2C GPIO validation failed, skipping display init");
+            bb_log_w(TAG, "I2C GPIO validation failed, skipping display init");
             return ESP_OK;
         }
         i2c_master_bus_config_t bus_cfg = {
@@ -482,11 +483,11 @@ static esp_err_t init_ssd1306(void)
         };
         ESP_RETURN_ON_ERROR(i2c_new_master_bus(&bus_cfg, &i2c_bus), TAG, "i2c bus");
         asic_set_i2c_bus(i2c_bus);
-        ESP_LOGI(TAG, "I2C bus created by display (no ASIC init)");
+        bb_log_i(TAG, "I2C bus created by display (no ASIC init)");
     }
 #else
     if (i2c_bus == NULL) {
-        ESP_LOGW(TAG, "HAS_I2C undefined, cannot initialize display");
+        bb_log_w(TAG, "HAS_I2C undefined, cannot initialize display");
         return ESP_OK;
     }
 #endif
@@ -518,7 +519,7 @@ static esp_err_t init_ssd1306(void)
     ESP_ERROR_CHECK(esp_lcd_panel_init(s_panel));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(s_panel, true));
 
-    ESP_LOGI(TAG, "SSD1306 ready (%dx%d)", OLED_WIDTH, OLED_HEIGHT);
+    bb_log_i(TAG, "SSD1306 ready (%dx%d)", OLED_WIDTH, OLED_HEIGHT);
     return ESP_OK;
 }
 
@@ -643,14 +644,14 @@ static esp_err_t show_status_ssd1306(const display_status_t *status)
 
 bb_err_t display_init(void)
 {
-    ESP_LOGI(TAG, "initializing display");
+    bb_log_i(TAG, "initializing display");
 
 #if defined(BOARD_TDONGLE_S3)
     ESP_RETURN_ON_ERROR(init_st7735(), TAG, "st7735 init");
 #elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_403)
     ESP_RETURN_ON_ERROR(init_ssd1306(), TAG, "ssd1306 init");
 #else
-    ESP_LOGW(TAG, "no display configured for this board");
+    bb_log_w(TAG, "no display configured for this board");
 #endif
 
     return BB_OK;

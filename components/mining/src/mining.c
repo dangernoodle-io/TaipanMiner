@@ -5,6 +5,7 @@
 #include "sha256.h"
 #include "stratum.h"
 #include "work.h"
+#include "bb_log.h"
 #include <string.h>
 #include <stdio.h>
 #include <inttypes.h>
@@ -58,7 +59,7 @@ void mining_stats_load_lifetime(void)
 
     nvs_close(h);
 
-    ESP_LOGI(TAG, "loaded lifetime stats: shares=%" PRIu32 " hashes=%" PRIu64,
+    bb_log_i(TAG, "loaded lifetime stats: shares=%" PRIu32 " hashes=%" PRIu64,
              mining_stats.lifetime.total_shares, (uint64_t)mining_stats.lifetime.total_hashes);
 }
 
@@ -66,7 +67,7 @@ void mining_stats_save_lifetime(const mining_lifetime_t *snapshot)
 {
     nvs_handle_t h;
     if (nvs_open("taipanminer", NVS_READWRITE, &h) != ESP_OK) {
-        ESP_LOGE(TAG, "failed to open NVS for stats save");
+        bb_log_e(TAG, "failed to open NVS for stats save");
         return;
     }
 
@@ -325,12 +326,12 @@ bool mine_nonce_range(hash_backend_t *backend,
             // Sanity check: target/difficulty must be valid and share must meet pool diff
             if (work->difficulty < 0.001 || !is_target_valid(work->target) ||
                 share_diff < work->difficulty * 0.5) {
-                ESP_LOGE(TAG, "share sanity fail: share_diff=%.4f pool_diff=%.4f, skipping",
+                bb_log_e(TAG, "share sanity fail: share_diff=%.4f pool_diff=%.4f, skipping",
                          share_diff, work->difficulty);
                 continue;
             }
 
-            ESP_LOGI(TAG, "share found! (nonce=%08" PRIx32 ")", nonce);
+            bb_log_i(TAG, "share found! (nonce=%08" PRIx32 ")", nonce);
 
             if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                 if (share_diff > mining_stats.session.best_diff) {
@@ -340,9 +341,9 @@ bool mine_nonce_range(hash_backend_t *backend,
             }
 
             if (!stratum_is_connected()) {
-                ESP_LOGD(TAG, "stratum disconnected, discarding share");
+                bb_log_d(TAG, "stratum disconnected, discarding share");
             } else if (xQueueSend(result_queue, &result, 0) != pdTRUE) {
-                ESP_LOGW(TAG, "result queue full, share dropped");
+                bb_log_w(TAG, "result queue full, share dropped");
             }
 #endif
             if (result_out) {
@@ -365,7 +366,7 @@ bool mine_nonce_range(hash_backend_t *backend,
             if (xQueuePeek(work_queue, &new_work, 0) == pdTRUE &&
                 new_work.work_seq != work->work_seq) {
                 memcpy(work, &new_work, sizeof(*work));
-                ESP_LOGI(TAG, "new job (%s)", work->job_id);
+                bb_log_i(TAG, "new job (%s)", work->job_id);
                 build_block2(block2, work->header);
                 sha256_hw_acquire();
                 backend->prepare_job(backend, work, block2);
@@ -390,7 +391,7 @@ bool mine_nonce_range(hash_backend_t *backend,
                         shares = mining_stats.hw_shares;
                         xSemaphoreGive(mining_stats.mutex);
                     }
-                    ESP_LOGI(TAG, "hw: %.1f kH/s | shares: %" PRIu32, hashrate / 1000.0, shares);
+                    bb_log_i(TAG, "hw: %.1f kH/s | shares: %" PRIu32, hashrate / 1000.0, shares);
                 }
 
                 {
@@ -437,12 +438,12 @@ void mining_pause_init(void)
 bool mining_pause(void)
 {
     if (xSemaphoreTake(s_pause_mutex, pdMS_TO_TICKS(30000)) != pdTRUE) {
-        ESP_LOGW(TAG, "mining pause mutex timeout — another caller holds pause");
+        bb_log_w(TAG, "mining pause mutex timeout — another caller holds pause");
         return false;
     }
     s_pause_requested = true;
     if (xSemaphoreTake(s_pause_ack, pdMS_TO_TICKS(5000)) != pdTRUE) {
-        ESP_LOGW(TAG, "mining pause acknowledge timeout, resetting state");
+        bb_log_w(TAG, "mining pause acknowledge timeout, resetting state");
         s_pause_requested = false;
         xSemaphoreGive(s_pause_mutex);
         return false;
@@ -462,14 +463,14 @@ void mining_resume(void)
 bool mining_pause_check(void)
 {
     if (!s_pause_requested) return false;
-    ESP_LOGI(TAG, "mining paused for maintenance");
+    bb_log_i(TAG, "mining paused for maintenance");
     s_pause_active = true;
     xSemaphoreGive(s_pause_ack);
     if (xSemaphoreTake(s_pause_done, pdMS_TO_TICKS(30000)) != pdTRUE) {
-        ESP_LOGE(TAG, "mining resume timeout, resuming anyway");
+        bb_log_e(TAG, "mining resume timeout, resuming anyway");
     }
     s_pause_active = false;
-    ESP_LOGI(TAG, "mining resumed (stack high water: %" PRIu32 ")",
+    bb_log_i(TAG, "mining resumed (stack high water: %" PRIu32 ")",
              (uint32_t)uxTaskGetStackHighWaterMark(NULL));
     return true;
 }
@@ -491,7 +492,7 @@ void mining_task(void *arg)
     // this task is CPU-bound on core 1 by design. Feed at each yield point.
     esp_task_wdt_add(NULL);
 
-    ESP_LOGI(TAG, "mining task started");
+    bb_log_i(TAG, "mining task started");
 
     sha256_hw_acquire();
 
@@ -506,7 +507,7 @@ void mining_task(void *arg)
         }
 
         if (!is_target_valid(work.target)) {
-            ESP_LOGW(TAG, "invalid target from queue, waiting for fresh work");
+            bb_log_w(TAG, "invalid target from queue, waiting for fresh work");
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
@@ -517,7 +518,7 @@ void mining_task(void *arg)
             xSemaphoreGive(mining_stats.mutex);
         }
 
-        ESP_LOGI(TAG, "new job (%s)", work.job_id);
+        bb_log_i(TAG, "new job (%s)", work.job_id);
 
         uint32_t base_version = work.version;
         uint32_t ver_bits = 0;
@@ -546,10 +547,10 @@ void mining_task(void *arg)
             if (work.version_mask == 0) break;
             ver_bits = next_version_roll(ver_bits, work.version_mask);
             if (ver_bits == 0) break;
-            ESP_LOGI(TAG, "rolling version: mask=%08" PRIx32 " bits=%08" PRIx32, work.version_mask, ver_bits);
+            bb_log_i(TAG, "rolling version: mask=%08" PRIx32 " bits=%08" PRIx32, work.version_mask, ver_bits);
         }
 
-        ESP_LOGW(TAG, "exhausted nonce range for job %s", work.job_id);
+        bb_log_w(TAG, "exhausted nonce range for job %s", work.job_id);
     }
 }
 

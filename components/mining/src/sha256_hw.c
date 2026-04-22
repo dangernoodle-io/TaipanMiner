@@ -6,6 +6,7 @@
 #include "esp_crypto_lock.h"
 #include "esp_crypto_periph_clk.h"
 #include "esp_attr.h"
+#include "bb_log.h"
 
 // ESP32-S3 SHA hardware stores registers as raw bytes in memory-mapped IO.
 // On the LE Xtensa core, reading/writing uint32_t gives the native LE
@@ -253,16 +254,16 @@ bool sha256_hw_verify_text_preserved(void)
     for (int i = 0; i < 16; i++) {
         uint32_t actual = SHA_TEXT_REG[i];
         if (actual != original[i]) {
-            ESP_LOGW(TAG, "SHA_TEXT[%d] modified: wrote 0x%08" PRIx32 ", read 0x%08" PRIx32,
+            bb_log_w(TAG, "SHA_TEXT[%d] modified: wrote 0x%08" PRIx32 ", read 0x%08" PRIx32,
                      i, original[i], actual);
             preserved = false;
         }
     }
 
     if (preserved) {
-        ESP_LOGI(TAG, "SHA_TEXT registers preserved after SHA_START");
+        bb_log_i(TAG, "SHA_TEXT registers preserved after SHA_START");
     } else {
-        ESP_LOGW(TAG, "SHA_TEXT registers NOT preserved — per-nonce write reduction not possible");
+        bb_log_w(TAG, "SHA_TEXT registers NOT preserved — per-nonce write reduction not possible");
     }
 
     return preserved;
@@ -302,17 +303,17 @@ void sha256_hw_bench_pass2(uint32_t iterations)
     }
     int64_t elapsed_continue = esp_timer_get_time() - start;
 
-    ESP_LOGI(TAG, "pass2 bench (%"PRIu32" iterations):", iterations);
-    ESP_LOGI(TAG, "  SHA_START:       %"PRId64" us (%.2f us/op)",
+    bb_log_i(TAG, "pass2 bench (%"PRIu32" iterations):", iterations);
+    bb_log_i(TAG, "  SHA_START:       %"PRId64" us (%.2f us/op)",
              elapsed_start, (double)elapsed_start / iterations);
-    ESP_LOGI(TAG, "  SHA_CONTINUE+H0: %"PRId64" us (%.2f us/op)",
+    bb_log_i(TAG, "  SHA_CONTINUE+H0: %"PRId64" us (%.2f us/op)",
              elapsed_continue, (double)elapsed_continue / iterations);
 
     if (elapsed_continue < elapsed_start) {
-        ESP_LOGI(TAG, "  CONTINUE is %.1f%% faster",
+        bb_log_i(TAG, "  CONTINUE is %.1f%% faster",
                  (1.0 - (double)elapsed_continue / elapsed_start) * 100.0);
     } else {
-        ESP_LOGI(TAG, "  START is %.1f%% faster (or equal) — keep current approach",
+        bb_log_i(TAG, "  START is %.1f%% faster (or equal) — keep current approach",
                  (1.0 - (double)elapsed_start / elapsed_continue) * 100.0);
     }
 }

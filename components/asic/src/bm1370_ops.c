@@ -9,6 +9,7 @@
 #include "board.h"
 #include "mining.h"
 #include "esp_log.h"
+#include "bb_log.h"
 #include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -23,7 +24,7 @@ static void set_pll_freq(float freq_mhz)
     uint8_t vdo = pll_vdo_scale(&pll);
     uint8_t postdiv = pll_postdiv_byte(&pll);
     write_reg(BM1370_REG_PLL, vdo, (uint8_t)pll.fb_div, pll.refdiv, postdiv);
-    ESP_LOGD(TAG, "PLL: target=%.1f actual=%.1f fb=%u ref=%u p1=%u p2=%u",
+    bb_log_d(TAG, "PLL: target=%.1f actual=%.1f fb=%u ref=%u p1=%u p2=%u",
              freq_mhz, pll.actual_mhz, pll.fb_div, pll.refdiv, pll.post1, pll.post2);
 }
 
@@ -51,15 +52,15 @@ static esp_err_t bm1370_chip_init(void)
         if (rx[0] != ASIC_PREAMBLE_RX_0 || rx[1] != ASIC_PREAMBLE_RX_1) break;
         // Check chip ID in response bytes 2-3 (big-endian)
         uint16_t chip_id = ((uint16_t)rx[2] << 8) | rx[3];
-        ESP_LOGI(TAG, "chip %d: ID=0x%04X", chip_count, chip_id);
+        bb_log_i(TAG, "chip %d: ID=0x%04X", chip_count, chip_id);
         chip_count++;
     }
 
     if (chip_count == 0) {
-        ESP_LOGE(TAG, "no BM1370 chips detected");
+        bb_log_e(TAG, "no BM1370 chips detected");
         return ESP_ERR_NOT_FOUND;
     }
-    ESP_LOGI(TAG, "detected %d chip(s)", chip_count);
+    bb_log_i(TAG, "detected %d chip(s)", chip_count);
 
     // Step 3: Version mask x1 more
     write_reg(BM1370_REG_VERSION, 0x90, 0x00, 0xFF, 0xFF);
@@ -124,12 +125,12 @@ static esp_err_t bm1370_chip_init(void)
     uart_wait_tx_done(ASIC_UART_NUM, pdMS_TO_TICKS(100));
     ESP_ERROR_CHECK(uart_set_baudrate(ASIC_UART_NUM, ASIC_BAUD_FAST));
     uart_flush(ASIC_UART_NUM);
-    ESP_LOGI(TAG, "baud switched to %d", ASIC_BAUD_FAST);
+    bb_log_i(TAG, "baud switched to %d", ASIC_BAUD_FAST);
     vTaskDelay(pdMS_TO_TICKS(10));
 
     // Step 14: Frequency ramp from 6.25 to target
     float target_freq = (float)BM1370_DEFAULT_FREQ_MHZ;
-    ESP_LOGI(TAG, "ramping frequency to %.1f MHz", target_freq);
+    bb_log_i(TAG, "ramping frequency to %.1f MHz", target_freq);
     for (float freq = 6.25f; freq <= target_freq; freq += 6.25f) {
         set_pll_freq(freq);
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -146,7 +147,7 @@ static esp_err_t bm1370_chip_init(void)
     set_ticket_mask(ASIC_TICKET_DIFF);
     vTaskDelay(pdMS_TO_TICKS(5));
 
-    ESP_LOGI(TAG, "BM1370 init complete");
+    bb_log_i(TAG, "BM1370 init complete");
     return ESP_OK;
 }
 

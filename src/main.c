@@ -107,7 +107,7 @@ static void start_mining(void)
 #endif
                             g_miner_config.core);
 
-    ESP_LOGI(TAG, "all tasks started");
+    bb_log_i(TAG, "all tasks started");
 }
 
 static void display_status_task(void *arg)
@@ -242,15 +242,15 @@ static void log_reset_reason(void)
     default:                reason_str = "unknown"; break;
     }
 
-    ESP_LOGI(TAG, "reset reason: %s", reason_str);
+    bb_log_i(TAG, "reset reason: %s", reason_str);
 
     if (reason == ESP_RST_TASK_WDT || reason == ESP_RST_WDT || reason == ESP_RST_PANIC) {
-        ESP_LOGW(TAG, "abnormal reset detected (%s)", reason_str);
+        bb_log_w(TAG, "abnormal reset detected (%s)", reason_str);
         uint32_t wdt_count = 0;
         bb_nv_get_u32("taipanminer", "wdt_resets", &wdt_count, 0);
         wdt_count++;
         if (bb_nv_set_u32("taipanminer", "wdt_resets", wdt_count) == BB_OK) {
-            ESP_LOGW(TAG, "abnormal reset count: %" PRIu32, wdt_count);
+            bb_log_w(TAG, "abnormal reset count: %" PRIu32, wdt_count);
         }
     }
 }
@@ -261,7 +261,7 @@ void app_main(void)
     partition_fixup_check();
 
     const esp_app_desc_t *app = esp_app_get_description();
-    ESP_LOGI(TAG, "%s v%s (%s %s, IDF %s) starting...",
+    bb_log_i(TAG, "%s v%s (%s %s, IDF %s) starting...",
              app->project_name, app->version, app->date, app->time, app->idf_ver);
 
     // Suppress noisy wifi debug logs (before wifi_init)
@@ -291,13 +291,13 @@ void app_main(void)
     ESP_ERROR_CHECK(taipan_web_register_info_extender());
 
     if (boot_cnt >= BB_NV_CONFIG_BOOT_FAIL_THRESHOLD && bb_nv_config_is_provisioned()) {
-        ESP_LOGW(TAG, "boot_count=%" PRIu8 " >= %d: clearing provisioning for AP fallback",
+        bb_log_w(TAG, "boot_count=%" PRIu8 " >= %d: clearing provisioning for AP fallback",
                  boot_cnt, BB_NV_CONFIG_BOOT_FAIL_THRESHOLD);
         bb_nv_config_clear_wifi();
         bb_nv_config_clear_provisioned();
         bb_nv_config_reset_boot_count();
     } else if (boot_cnt > 1) {
-        ESP_LOGW(TAG, "boot_count=%" PRIu8 " (%d until AP fallback)",
+        bb_log_w(TAG, "boot_count=%" PRIu8 " (%d until AP fallback)",
                  boot_cnt, BB_NV_CONFIG_BOOT_FAIL_THRESHOLD - boot_cnt);
     }
 
@@ -319,7 +319,7 @@ void app_main(void)
     bb_http_set_cors_methods("GET, POST, PATCH, OPTIONS");
 
     if (!bb_nv_config_is_provisioned()) {
-        ESP_LOGI(TAG, "entering provisioning mode");
+        bb_log_i(TAG, "entering provisioning mode");
         // Configure provisioning before AP start
         bb_prov_set_ap_ssid_prefix("TaipanMiner-");
         bb_prov_set_ap_password("taipanminer");
@@ -354,7 +354,7 @@ void app_main(void)
             esp_err_t err = bb_wifi_init_sta();
             if (err == ESP_OK) {
                 ESP_ERROR_CHECK(led_off());
-                ESP_LOGI(TAG, "provisioning complete");
+                bb_log_i(TAG, "provisioning complete");
                 bb_nv_config_set_provisioned();
                 bb_nv_config_reset_boot_count();
                 connected = true;
@@ -362,7 +362,7 @@ void app_main(void)
                 bb_prov_stop();
                 ESP_ERROR_CHECK(taipan_web_register_mining_routes(bb_http_server_get_handle()));
             } else {
-                ESP_LOGW(TAG, "STA connect failed, re-entering provisioning");
+                bb_log_w(TAG, "STA connect failed, re-entering provisioning");
                 // Reinitialize AP for retry
                 ESP_ERROR_CHECK(bb_prov_start_ap());
             }

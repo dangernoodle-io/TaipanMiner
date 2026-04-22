@@ -3,6 +3,7 @@
 #include "emc2101.h"
 #include "emc2101_curve.h"
 #include "esp_log.h"
+#include "bb_log.h"
 #include "esp_check.h"
 
 static const char *TAG = "emc2101";
@@ -49,7 +50,7 @@ bb_err_t emc2101_init(i2c_master_bus_handle_t bus, uint8_t addr)
     // Fail-safe: start at 100% until telemetry loop adjusts
     emc2101_set_duty_pct(100);
 
-    ESP_LOGI(TAG, "initialized");
+    bb_log_i(TAG, "initialized");
     return BB_OK;
 }
 

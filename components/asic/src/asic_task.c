@@ -16,6 +16,7 @@
 #include "board_gpio.h"
 
 #include "esp_log.h"
+#include "bb_log.h"
 #include "esp_check.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -97,14 +98,14 @@ void set_ticket_mask(double difficulty)
     asic_difficulty_to_mask(difficulty, mask);
     write_reg(ASIC_REG_TICKET_MASK, mask[0], mask[1], mask[2], mask[3]);
     s_current_asic_diff = difficulty;
-    ESP_LOGI(TAG, "ticket mask: diff=%.0f bytes=%02x%02x%02x%02x",
+    bb_log_i(TAG, "ticket mask: diff=%.0f bytes=%02x%02x%02x%02x",
              difficulty, mask[0], mask[1], mask[2], mask[3]);
 }
 
 // --- asic_init ---
 bb_err_t asic_init(void)
 {
-    ESP_LOGI(TAG, "initializing ASIC subsystem");
+    bb_log_i(TAG, "initializing ASIC subsystem");
 
     // 1. UART init
     uart_config_t uart_cfg = {
@@ -119,27 +120,27 @@ bb_err_t asic_init(void)
     ESP_RETURN_ON_ERROR(uart_set_pin(ASIC_UART_NUM, PIN_ASIC_TX, PIN_ASIC_RX,
                                       UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE), TAG, "uart pins");
     ESP_RETURN_ON_ERROR(uart_driver_install(ASIC_UART_NUM, 2048, 2048, 0, NULL, 0), TAG, "uart install");
-    ESP_LOGI(TAG, "UART%d ready at %d baud", ASIC_UART_NUM, ASIC_BAUD_INIT);
+    bb_log_i(TAG, "UART%d ready at %d baud", ASIC_UART_NUM, ASIC_BAUD_INIT);
 
     // 2. GPIO: power enable + reset
     gpio_set_direction(PIN_ASIC_EN, GPIO_MODE_OUTPUT);
     gpio_set_level(PIN_ASIC_EN, 1);
-    ESP_LOGI(TAG, "ASIC EN=1 (power on)");
+    bb_log_i(TAG, "ASIC EN=1 (power on)");
 
     gpio_set_direction(PIN_ASIC_RST, GPIO_MODE_OUTPUT);
     gpio_set_level(PIN_ASIC_RST, 0);
     vTaskDelay(pdMS_TO_TICKS(100));
     gpio_set_level(PIN_ASIC_RST, 1);
     vTaskDelay(pdMS_TO_TICKS(100));
-    ESP_LOGI(TAG, "ASIC reset complete");
+    bb_log_i(TAG, "ASIC reset complete");
 
     // 3. I2C bus
 #ifdef HAS_I2C
     if (s_i2c_bus != NULL) {
-        ESP_LOGI(TAG, "I2C bus already initialized");
+        bb_log_i(TAG, "I2C bus already initialized");
     } else {
         if (!board_gpio_valid(PIN_I2C_SDA, "I2C_SDA") || !board_gpio_valid(PIN_I2C_SCL, "I2C_SCL")) {
-            ESP_LOGW(TAG, "I2C GPIO validation failed, skipping I2C init");
+            bb_log_w(TAG, "I2C GPIO validation failed, skipping I2C init");
         } else {
             i2c_master_bus_config_t bus_cfg = {
                 .i2c_port = I2C_BUS_NUM,
@@ -153,7 +154,7 @@ bb_err_t asic_init(void)
         }
     }
     if (s_i2c_bus != NULL) {
-        ESP_LOGI(TAG, "I2C bus ready (SDA=%d SCL=%d)", PIN_I2C_SDA, PIN_I2C_SCL);
+        bb_log_i(TAG, "I2C bus ready (SDA=%d SCL=%d)", PIN_I2C_SDA, PIN_I2C_SCL);
     }
 
     // 4. Voltage regulator
@@ -161,7 +162,7 @@ bb_err_t asic_init(void)
         ESP_RETURN_ON_ERROR(g_chip_ops->vreg_init(s_i2c_bus, g_chip_ops->default_mv), TAG, "vreg");
         vTaskDelay(pdMS_TO_TICKS(50));
     } else {
-        ESP_LOGW(TAG, "I2C bus not available, skipping voltage regulator init");
+        bb_log_w(TAG, "I2C bus not available, skipping voltage regulator init");
     }
 
     // 5. EMC2101 temp sensor + fan
@@ -169,10 +170,10 @@ bb_err_t asic_init(void)
         ESP_RETURN_ON_ERROR(emc2101_init(s_i2c_bus, EMC2101_I2C_ADDR), TAG, "emc2101");
         ESP_RETURN_ON_ERROR(emc2101_set_fan_duty(63), TAG, "fan on");  // max
     } else {
-        ESP_LOGW(TAG, "I2C bus not available, skipping EMC2101 init");
+        bb_log_w(TAG, "I2C bus not available, skipping EMC2101 init");
     }
 #else
-    ESP_LOGW(TAG, "HAS_I2C undefined, skipping I2C init");
+    bb_log_w(TAG, "HAS_I2C undefined, skipping I2C init");
 #endif
 
     // 6. Chip init sequence
@@ -182,14 +183,14 @@ bb_err_t asic_init(void)
     s_next_job_id = 0;
     memset(s_job_table, 0, sizeof(s_job_table));
 
-    ESP_LOGI(TAG, "ASIC subsystem ready");
+    bb_log_i(TAG, "ASIC subsystem ready");
     return BB_OK;
 }
 
 // --- Mining task ---
 void asic_mining_task(void *arg)
 {
-    ESP_LOGI(TAG, "ASIC mining task started");
+    bb_log_i(TAG, "ASIC mining task started");
     esp_task_wdt_add(NULL);
 
     mining_work_t work;
@@ -206,7 +207,7 @@ void asic_mining_task(void *arg)
         }
 
         if (!is_target_valid(work.target)) {
-            ESP_LOGW(TAG, "invalid target from queue, waiting for fresh work");
+            bb_log_w(TAG, "invalid target from queue, waiting for fresh work");
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
@@ -245,7 +246,7 @@ void asic_mining_task(void *arg)
                 xSemaphoreGive(mining_stats.mutex);
             }
 
-            ESP_LOGD(TAG, "job dispatched (id=%u hw_id=%u)", 0, s_next_job_id);
+            bb_log_d(TAG, "job dispatched (id=%u hw_id=%u)", 0, s_next_job_id);
         }
 
         // 3. Try to read nonce response
@@ -254,32 +255,32 @@ void asic_mining_task(void *arg)
         if (n == ASIC_NONCE_LEN) {
             asic_nonce_t nonce;
             if (!asic_parse_nonce(rx, n, &nonce)) {
-                ESP_LOGW(TAG, "bad preamble: %02X %02X", rx[0], rx[1]);
+                bb_log_w(TAG, "bad preamble: %02X %02X", rx[0], rx[1]);
                 uart_flush(ASIC_UART_NUM);
                 continue;
             }
 
             uint8_t crc_val = crc5(rx + 2, 9);
-            ESP_LOGD(TAG, "rx: %02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X crc5=%u flags=%02X",
+            bb_log_d(TAG, "rx: %02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X crc5=%u flags=%02X",
                      rx[0],rx[1],rx[2],rx[3],rx[4],rx[5],rx[6],rx[7],rx[8],rx[9],rx[10],
                      crc_val, nonce.crc_flags);
 
             // CRC5 check
             if (crc_val != 0) {
-                ESP_LOGW(TAG, "nonce CRC5 failed (got %u)", crc_val);
+                bb_log_w(TAG, "nonce CRC5 failed (got %u)", crc_val);
                 continue;
             }
 
             // Check if job response (bit 7 of crc_flags)
             if (!(nonce.crc_flags & 0x80)) {
-                ESP_LOGD(TAG, "command response, skipping");
+                bb_log_d(TAG, "command response, skipping");
                 continue;
             }
 
             // Decode job ID and look up
             uint8_t real_job_id = asic_decode_job_id(&nonce);
             if (real_job_id >= ASIC_JOB_ID_MOD || s_job_table[real_job_id].job_id[0] == '\0') {
-                ESP_LOGW(TAG, "nonce for unknown job_id=%u", real_job_id);
+                bb_log_w(TAG, "nonce for unknown job_id=%u", real_job_id);
                 continue;
             }
 
@@ -338,7 +339,7 @@ void asic_mining_task(void *arg)
             // Sanity check: target/difficulty must be valid and share must meet pool diff
             if (orig->difficulty < 0.001 || !is_target_valid(orig->target) ||
                 share_diff < orig->difficulty * 0.5) {
-                ESP_LOGE(TAG, "share sanity fail: share_diff=%.4f pool_diff=%.4f, skipping",
+                bb_log_e(TAG, "share sanity fail: share_diff=%.4f pool_diff=%.4f, skipping",
                          share_diff, orig->difficulty);
                 continue;
             }
@@ -353,7 +354,7 @@ void asic_mining_task(void *arg)
             uint32_t rolled_ver = (ver_bits != 0 && orig->version_mask != 0)
                 ? (orig->version & ~orig->version_mask) | (ver_bits & orig->version_mask)
                 : orig->version;
-            ESP_LOGI(TAG, "share: job=%u ver=%08" PRIx32 " n=%02X%02X%02X%02X",
+            bb_log_i(TAG, "share: job=%u ver=%08" PRIx32 " n=%02X%02X%02X%02X",
                      real_job_id, rolled_ver,
                      nonce.nonce[0], nonce.nonce[1], nonce.nonce[2], nonce.nonce[3]);
 
@@ -377,9 +378,9 @@ void asic_mining_task(void *arg)
             }
 
             if (!stratum_is_connected()) {
-                ESP_LOGD(TAG, "stratum disconnected, discarding share");
+                bb_log_d(TAG, "stratum disconnected, discarding share");
             } else if (xQueueSend(result_queue, &result, 0) != pdTRUE) {
-                ESP_LOGW(TAG, "result queue full, share dropped");
+                bb_log_w(TAG, "result queue full, share dropped");
             }
         }
 
@@ -463,7 +464,7 @@ void asic_mining_task(void *arg)
                 }
             }
 
-            ESP_LOGI(TAG, "asic: %.1f GH/s | temp: %.1f C | shares: %" PRIu32 " | sha pass/fail: %" PRIu32 "/%" PRIu32,
+            bb_log_i(TAG, "asic: %.1f GH/s | temp: %.1f C | shares: %" PRIu32 " | sha pass/fail: %" PRIu32 "/%" PRIu32,
                      hashrate / 1e9, temp, shares, s_sha_pass, s_sha_fail);
             nonces_since_log = 0;
             last_hashrate_tick = now;

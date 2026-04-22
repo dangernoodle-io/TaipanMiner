@@ -3,6 +3,7 @@
 #include "tps546.h"
 #include "tps546_decode.h"
 #include "esp_log.h"
+#include "bb_log.h"
 #include "esp_check.h"
 #include <string.h>
 
@@ -73,16 +74,16 @@ bb_err_t tps546_init(i2c_master_bus_handle_t bus, uint8_t addr, uint16_t target_
     if (s_vout_n & 0x10) {
         s_vout_n |= 0xE0;  // sign-extend from bit 4
     }
-    ESP_LOGI(TAG, "VOUT_MODE=0x%02X exponent=%d", vout_mode, s_vout_n);
+    bb_log_i(TAG, "VOUT_MODE=0x%02X exponent=%d", vout_mode, s_vout_n);
 
     // Set output voltage
     uint16_t code = mv_to_ulinear16(target_mv);
     ESP_RETURN_ON_ERROR(pmbus_write_word(PMBUS_VOUT_COMMAND, code), TAG, "set VOUT");
-    ESP_LOGI(TAG, "VOUT_COMMAND=0x%04X (%u mV)", code, target_mv);
+    bb_log_i(TAG, "VOUT_COMMAND=0x%04X (%u mV)", code, target_mv);
 
     // Power on
     ESP_RETURN_ON_ERROR(pmbus_write_byte(PMBUS_OPERATION, OPERATION_ON), TAG, "power on");
-    ESP_LOGI(TAG, "powered on at %u mV", target_mv);
+    bb_log_i(TAG, "powered on at %u mV", target_mv);
 
     return BB_OK;
 }
@@ -91,7 +92,7 @@ bb_err_t tps546_set_voltage_mv(uint16_t target_mv)
 {
     uint16_t code = mv_to_ulinear16(target_mv);
     ESP_RETURN_ON_ERROR(pmbus_write_word(PMBUS_VOUT_COMMAND, code), TAG, "set VOUT");
-    ESP_LOGI(TAG, "VOUT_COMMAND=0x%04X (%u mV)", code, target_mv);
+    bb_log_i(TAG, "VOUT_COMMAND=0x%04X (%u mV)", code, target_mv);
     return BB_OK;
 }
 

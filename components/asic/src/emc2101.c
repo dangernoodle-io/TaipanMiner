@@ -1,4 +1,5 @@
-#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
+#include "asic_chip.h"
+#ifdef ASIC_CHIP
 
 #include "emc2101.h"
 #include "emc2101_curve.h"

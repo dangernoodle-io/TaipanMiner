@@ -22,14 +22,15 @@
 #include "bb_ota_push.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#ifdef ASIC_BM1370
+#include "asic_chip.h"
+#ifdef ASIC_CHIP
 #include "asic.h"
 #endif
 
 static const char *TAG = "taipanminer";
 
 // Mining task handles (for suspend/resume during OTA verification)
-#ifdef ASIC_BM1370
+#ifdef ASIC_CHIP
 TaskHandle_t asic_task_handle = NULL;
 #else
 TaskHandle_t mining_hw_task_handle = NULL;
@@ -91,7 +92,7 @@ static void start_mining(void)
     // Start miner task (board-specific config from g_miner_config)
     xTaskCreatePinnedToCore(g_miner_config.task_fn, g_miner_config.name,
                             g_miner_config.stack_size, NULL, g_miner_config.priority,
-#ifdef ASIC_BM1370
+#ifdef ASIC_CHIP
                             &asic_task_handle,
 #else
                             &mining_hw_task_handle,
@@ -112,7 +113,7 @@ static void display_status_task(void *arg)
 
         if (tick % 100 == 0) {
             if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-#ifdef ASIC_BM1370
+#ifdef ASIC_CHIP
                 status.hashrate = mining_stats.asic_ema.value;
                 status.temp_c = mining_stats.asic_temp_c;
 #else
@@ -191,12 +192,15 @@ void app_main(void)
     bb_log_tag_register("partition_fixup", BB_LOG_LEVEL_INFO);
     bb_log_tag_register("taipan_config", BB_LOG_LEVEL_INFO);
     bb_log_tag_register("web", BB_LOG_LEVEL_INFO);
-#ifdef ASIC_BM1370
+#ifdef ASIC_CHIP
     bb_log_tag_register("asic", BB_LOG_LEVEL_INFO);
-    bb_log_tag_register("bm1370", BB_LOG_LEVEL_INFO);
     bb_log_tag_register("emc2101", BB_LOG_LEVEL_INFO);
     bb_log_tag_register("tps546", BB_LOG_LEVEL_INFO);
-#else
+#endif
+#ifdef ASIC_BM1370
+    bb_log_tag_register("bm1370", BB_LOG_LEVEL_INFO);
+#endif
+#ifdef ASIC_BM1368
     bb_log_tag_register("bm1368", BB_LOG_LEVEL_INFO);
 #endif
 
@@ -229,7 +233,7 @@ void app_main(void)
                  boot_cnt, BB_NV_CONFIG_BOOT_FAIL_THRESHOLD - boot_cnt);
     }
 
-#ifdef ASIC_BM1370
+#ifdef ASIC_CHIP
     // Initialize ASIC before WiFi — freq ramp takes ~8s, runs while WiFi isn't needed yet.
     // Skip if not provisioned (will enter AP mode instead).
     if (bb_nv_config_is_provisioned()) {

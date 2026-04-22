@@ -1,5 +1,6 @@
 #pragma once
-#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
+#include "asic_chip.h"
+#ifdef ASIC_CHIP
 
 #include "bb_nv.h"
 #include "driver/i2c_master.h"

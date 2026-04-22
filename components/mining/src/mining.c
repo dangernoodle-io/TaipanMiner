@@ -1,5 +1,5 @@
 #include "mining.h"
-#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
+#ifdef ASIC_CHIP
 #include "board.h"
 #endif
 #include "sha256.h"
@@ -73,7 +73,7 @@ void mining_stats_init(void)
 {
     mining_stats.mutex = xSemaphoreCreateMutex();
     mining_stats.session.start_us = esp_timer_get_time();
-#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
+#ifdef ASIC_CHIP
     mining_stats.vcore_mv = -1;
     mining_stats.icore_ma = -1;
     mining_stats.pcore_mw = -1;
@@ -539,7 +539,7 @@ void mining_task(void *arg)
     }
 }
 
-#if !defined(ASIC_BM1370) && !defined(ASIC_BM1368)
+#ifndef ASIC_CHIP
 const miner_config_t g_miner_config = {
     .init = NULL,
     .task_fn = mining_task,

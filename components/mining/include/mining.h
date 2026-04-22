@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "asic_chip.h"
 #include "work.h"
 
 #ifdef ESP_PLATFORM
@@ -135,7 +136,7 @@ void mining_resume(void);
 bool mining_pause_check(void);
 
 // Mining task handles
-#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
+#ifdef ASIC_CHIP
 extern TaskHandle_t asic_task_handle;
 #else
 extern TaskHandle_t mining_hw_task_handle;
@@ -146,7 +147,7 @@ typedef struct {
     double              hw_hashrate;
     hashrate_ema_t      hw_ema;
     float               temp_c;          // ESP32-S3 die temperature
-#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
+#ifdef ASIC_CHIP
     double              asic_hashrate;
     hashrate_ema_t      asic_ema;
     uint32_t            asic_shares;

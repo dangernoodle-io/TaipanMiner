@@ -117,7 +117,7 @@ static bb_err_t stats_handler(bb_http_request_t *req)
     uint32_t session_shares = 0, session_rejected = 0;
     int64_t last_share_us = 0, session_start_us = 0;
     mining_lifetime_t lifetime = {0};
-#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
+#ifdef ASIC_CHIP
     double asic_rate = 0, asic_ema = 0;
     uint32_t asic_shares = 0;
     float asic_temp = 0;
@@ -136,7 +136,7 @@ static bb_err_t stats_handler(bb_http_request_t *req)
         session_start_us = mining_stats.session.start_us;
         best_diff = mining_stats.session.best_diff;
         lifetime = mining_stats.lifetime;
-#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
+#ifdef ASIC_CHIP
         asic_rate = mining_stats.asic_hashrate;
         asic_ema = mining_stats.asic_ema.value;
         asic_shares = mining_stats.asic_shares;
@@ -181,7 +181,7 @@ static bb_err_t stats_handler(bb_http_request_t *req)
     bb_json_obj_set_string(root, "build_time", app->time);
     bb_json_obj_set_string(root, "board", BOARD_NAME);
     bb_json_obj_set_bool(root, "display_en", bb_nv_config_display_enabled());
-#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
+#ifdef ASIC_CHIP
     bb_json_obj_set_number(root, "asic_hashrate", asic_rate);
     bb_json_obj_set_number(root, "asic_hashrate_avg", asic_ema);
     bb_json_obj_set_number(root, "asic_shares", asic_shares);
@@ -208,7 +208,7 @@ static bb_err_t stats_handler(bb_http_request_t *req)
     return rc;
 }
 
-#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
+#ifdef ASIC_CHIP
 static bb_err_t power_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
@@ -706,7 +706,7 @@ bb_err_t taipan_web_register_mining_routes(bb_http_handle_t server)
     rc = bb_http_register_route(server, BB_HTTP_POST, "/api/settings", settings_post_handler);
     if (rc != BB_OK) return rc;
 
-#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
+#ifdef ASIC_CHIP
     rc = bb_http_register_route(server, BB_HTTP_GET, "/api/power", power_handler);
     if (rc != BB_OK) return rc;
 

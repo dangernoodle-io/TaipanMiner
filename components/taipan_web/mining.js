@@ -420,8 +420,14 @@ document.getElementById('saveSettingsBtn').addEventListener('click', function() 
   if (otaSkip !== savedSettings.ota_skip_check) payload.ota_skip_check = otaSkip;
 
   if (Object.keys(payload).length === 0) {
-    document.getElementById('settings-edit').style.display = 'none';
-    document.getElementById('settings-view').style.display = 'block';
+    status.style.display = 'block';
+    status.textContent = 'No changes';
+    setTimeout(function() {
+      status.style.display = 'none';
+      status.textContent = '';
+      document.getElementById('settings-edit').style.display = 'none';
+      document.getElementById('settings-view').style.display = 'block';
+    }, 1500);
     return;
   }
 
@@ -438,12 +444,26 @@ document.getElementById('saveSettingsBtn').addEventListener('click', function() 
     return r.json();
   }).then(function(d) {
     if (d.reboot_required) {
+      // Keep the edit form visible so the user sees what was submitted; show a
+      // visible "Rebooting..." status with a live countdown, then reload once
+      // the device should be back up.
       status.style.display = 'block';
-      status.textContent = 'Settings saved. Rebooting...';
       btn.textContent = 'Rebooting...';
-      setTimeout(function() {
-        fetch('/api/reboot', { method: 'POST' });
-      }, 500);
+      btn.disabled = true;
+      settingsLoaded = false;
+      var secs = 3;
+      status.textContent = 'Settings saved. Rebooting in ' + secs + 's…';
+      var tick = setInterval(function() {
+        secs--;
+        if (secs > 0) {
+          status.textContent = 'Settings saved. Rebooting in ' + secs + 's…';
+        } else {
+          clearInterval(tick);
+          fetch('/api/reboot', { method: 'POST' });
+          status.textContent = 'Rebooting… reloading shortly';
+          setTimeout(function() { window.location.reload(); }, 6000);
+        }
+      }, 1000);
     } else {
       // Only display_en changed — no reboot needed
       status.style.display = 'block';

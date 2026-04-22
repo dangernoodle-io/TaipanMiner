@@ -1,12 +1,12 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include "esp_log.h"
-#include "esp_system.h"
-#include "esp_sntp.h"
 #include "bb_wifi.h"
 #include "bb_prov.h"
 #include "bb_mdns.h"
 #include "bb_http.h"
+#include "bb_ntp.h"
+#include "bb_system.h"
 #include "mining.h"
 #include "work.h"
 #include "stratum.h"
@@ -39,13 +39,6 @@ TaskHandle_t mining_hw_task_handle = NULL;
 
 static esp_timer_handle_t s_stats_timer = NULL;
 static TaskHandle_t s_stats_save_task = NULL;
-
-static void sntp_init_time(void)
-{
-    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    esp_sntp_setservername(0, "pool.ntp.org");
-    esp_sntp_init();
-}
 
 static void stats_save_task(void *arg)
 {
@@ -153,98 +146,12 @@ static void display_status_task(void *arg)
     }
 }
 
-static void build_mdns_hostname(char *out, size_t out_size)
-{
-    if (out_size < 1) {
-        return;
-    }
-
-    // Start with "taipanminer" prefix
-    const char *prefix = "taipanminer";
-    size_t prefix_len = strlen(prefix);
-
-    // Get worker name from config
-    const char *worker_raw = taipan_config_worker_name();
-
-    // If no worker name or empty, just use the prefix
-    if (!worker_raw || !*worker_raw) {
-        snprintf(out, out_size, "%s", prefix);
-        return;
-    }
-
-    // Sanitize: lowercase [a-z0-9], replace other chars with '-'
-    char sanitized[128];
-    size_t san_len = 0;
-    for (const char *p = worker_raw; *p && san_len < sizeof(sanitized) - 1; p++) {
-        char c = *p;
-        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
-            sanitized[san_len++] = c;
-        } else if (c >= 'A' && c <= 'Z') {
-            // Convert uppercase to lowercase
-            sanitized[san_len++] = c - ('A' - 'a');
-        } else {
-            // Replace other chars with '-'
-            sanitized[san_len++] = '-';
-        }
-    }
-    sanitized[san_len] = '\0';
-
-    // Collapse consecutive '-'
-    char collapsed[128];
-    size_t col_len = 0;
-    for (size_t i = 0; i < san_len && col_len < sizeof(collapsed) - 1; i++) {
-        if (sanitized[i] == '-' && col_len > 0 && collapsed[col_len - 1] == '-') {
-            continue; // Skip consecutive '-'
-        }
-        collapsed[col_len++] = sanitized[i];
-    }
-    collapsed[col_len] = '\0';
-
-    // Trim leading and trailing '-'
-    size_t trim_start = 0;
-    while (trim_start < col_len && collapsed[trim_start] == '-') {
-        trim_start++;
-    }
-    size_t trim_end = col_len;
-    while (trim_end > trim_start && collapsed[trim_end - 1] == '-') {
-        trim_end--;
-    }
-
-    size_t worker_len = trim_end - trim_start;
-    // Build final hostname: prefix + "-" + worker, cap at 63 chars per RFC 1035
-    size_t max_out = (out_size > 63) ? 63 : (out_size - 1);
-    size_t sep_len = (worker_len > 0) ? 1 : 0; // "-" separator if we have a worker
-    size_t available = max_out - prefix_len - sep_len;
-
-    if (worker_len > available) {
-        worker_len = available;
-    }
-
-    if (worker_len > 0) {
-        snprintf(out, out_size, "%s-%.*s", prefix, (int)worker_len, &collapsed[trim_start]);
-    } else {
-        snprintf(out, out_size, "%s", prefix);
-    }
-}
-
 static void log_reset_reason(void)
 {
-    esp_reset_reason_t reason = esp_reset_reason();
-    const char *reason_str;
-    switch (reason) {
-    case ESP_RST_POWERON:   reason_str = "power-on"; break;
-    case ESP_RST_SW:        reason_str = "software"; break;
-    case ESP_RST_PANIC:     reason_str = "panic"; break;
-    case ESP_RST_TASK_WDT:  reason_str = "task_wdt"; break;
-    case ESP_RST_WDT:       reason_str = "wdt"; break;
-    case ESP_RST_DEEPSLEEP: reason_str = "deep_sleep"; break;
-    case ESP_RST_BROWNOUT:  reason_str = "brownout"; break;
-    default:                reason_str = "unknown"; break;
-    }
-
+    const char *reason_str = bb_system_reset_reason_str(bb_system_get_reset_reason());
     bb_log_i(TAG, "reset reason: %s", reason_str);
 
-    if (reason == ESP_RST_TASK_WDT || reason == ESP_RST_WDT || reason == ESP_RST_PANIC) {
+    if (bb_system_is_abnormal_reset()) {
         bb_log_w(TAG, "abnormal reset detected (%s)", reason_str);
         uint32_t wdt_count = 0;
         bb_nv_get_u32("taipanminer", "wdt_resets", &wdt_count, 0);
@@ -264,12 +171,32 @@ void app_main(void)
     bb_log_i(TAG, "%s v%s (%s %s, IDF %s) starting...",
              app->project_name, app->version, app->date, app->time, app->idf_ver);
 
-    // Suppress noisy wifi debug logs (before wifi_init)
-    esp_log_level_set("wifi", ESP_LOG_INFO);
-    esp_log_level_set("wifi_init", ESP_LOG_INFO);
-    esp_log_level_set("phy_init", ESP_LOG_WARN);
-    esp_log_level_set("esp_netif_handlers", ESP_LOG_WARN);
-    esp_log_level_set("esp-x509-crt-bundle", ESP_LOG_WARN);
+    // Suppress noisy framework log tags (before wifi_init)
+    bb_log_level_set("wifi", BB_LOG_LEVEL_INFO);
+    bb_log_level_set("wifi_init", BB_LOG_LEVEL_INFO);
+    bb_log_level_set("phy_init", BB_LOG_LEVEL_WARN);
+    bb_log_level_set("esp_netif_handlers", BB_LOG_LEVEL_WARN);
+    bb_log_level_set("esp-x509-crt-bundle", BB_LOG_LEVEL_WARN);
+
+    // Register TM-owned tags so they appear in GET /api/log/level discovery
+    bb_log_tag_register("taipanminer", BB_LOG_LEVEL_INFO);
+    bb_log_tag_register("stratum", BB_LOG_LEVEL_INFO);
+    bb_log_tag_register("mining", BB_LOG_LEVEL_INFO);
+    bb_log_tag_register("sha256_hw", BB_LOG_LEVEL_INFO);
+    bb_log_tag_register("display", BB_LOG_LEVEL_INFO);
+    bb_log_tag_register("led", BB_LOG_LEVEL_INFO);
+    bb_log_tag_register("ota_validator", BB_LOG_LEVEL_INFO);
+    bb_log_tag_register("partition_fixup", BB_LOG_LEVEL_INFO);
+    bb_log_tag_register("taipan_config", BB_LOG_LEVEL_INFO);
+    bb_log_tag_register("web", BB_LOG_LEVEL_INFO);
+#ifdef ASIC_BM1370
+    bb_log_tag_register("asic", BB_LOG_LEVEL_INFO);
+    bb_log_tag_register("bm1370", BB_LOG_LEVEL_INFO);
+    bb_log_tag_register("emc2101", BB_LOG_LEVEL_INFO);
+    bb_log_tag_register("tps546", BB_LOG_LEVEL_INFO);
+#else
+    bb_log_tag_register("bm1368", BB_LOG_LEVEL_INFO);
+#endif
 
     ESP_ERROR_CHECK(bb_log_stream_init());
 
@@ -327,7 +254,7 @@ void app_main(void)
         bb_mdns_set_instance_name("TaipanMiner");
         {
             char hn[64];
-            build_mdns_hostname(hn, sizeof(hn));
+            bb_mdns_build_hostname("taipanminer", taipan_config_worker_name(), hn, sizeof(hn));
             bb_mdns_set_hostname(hn);
         }
 
@@ -373,7 +300,7 @@ void app_main(void)
         bb_mdns_set_instance_name("TaipanMiner");
         {
             char hn[64];
-            build_mdns_hostname(hn, sizeof(hn));
+            bb_mdns_build_hostname("taipanminer", taipan_config_worker_name(), hn, sizeof(hn));
             bb_mdns_set_hostname(hn);
         }
         bb_mdns_init();
@@ -383,7 +310,7 @@ void app_main(void)
     }
 
     // Sync time via SNTP (UTC)
-    sntp_init_time();
+    bb_ntp_start("pool.ntp.org");
 
     // Initialize OTA pull with breadboard component
     bb_ota_pull_set_releases_url("https://api.github.com/repos/dangernoodle-io/TaipanMiner/releases/latest");

@@ -295,10 +295,11 @@ void asic_mining_task(void *arg)
 
             // Check if job response (bit 7 of crc_flags)
             if (!(nonce.crc_flags & 0x80)) {
-                // Command response: reinterpret bytes per ESP-Miner's bm1370_asic_result_cmd_t
-                // rx[2..5] = value (LE u32), rx[6] = asic_address, rx[7] = register_address
-                uint32_t value = (uint32_t)rx[2] | ((uint32_t)rx[3] << 8) |
-                                 ((uint32_t)rx[4] << 16) | ((uint32_t)rx[5] << 24);
+                // Command response: reinterpret bytes per ESP-Miner's bm1370_asic_result_cmd_t.
+                // rx[2..5] = value (big-endian; ASIC returns network byte order — ntohl equivalent),
+                // rx[6] = asic_address, rx[7] = register_address
+                uint32_t value = ((uint32_t)rx[2] << 24) | ((uint32_t)rx[3] << 16) |
+                                 ((uint32_t)rx[4] << 8)  | (uint32_t)rx[5];
                 uint8_t asic_addr = rx[6];
                 uint8_t reg_addr  = rx[7];
 

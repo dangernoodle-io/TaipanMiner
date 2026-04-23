@@ -62,6 +62,8 @@ static uint32_t s_sha_fail;
 static struct {
     uint32_t total_val;        // last REG_TOTAL_COUNT read
     uint32_t error_val;        // last REG_ERROR_COUNT read
+    uint32_t total_val_base;   // counter value at first successful poll (post-ramp)
+    uint32_t error_val_base;
     uint64_t total_time_us;    // esp_timer_get_time() at last total_val
     uint64_t error_time_us;
     float    total_ghs;
@@ -390,7 +392,8 @@ void asic_mining_task(void *arg)
                 uint8_t asic_addr = rx[6];
                 uint8_t reg_addr  = rx[7];
 
-                uint8_t addr_interval = 256 / BOARD_ASIC_COUNT;
+                // Use uint16_t — 256/1=256 overflows uint8_t to 0 and divides by zero.
+                uint16_t addr_interval = 256 / BOARD_ASIC_COUNT;
                 int chip_idx = asic_addr / addr_interval;
                 if (chip_idx < 0 || chip_idx >= BOARD_ASIC_COUNT) {
                     continue;
@@ -409,6 +412,7 @@ void asic_mining_task(void *arg)
                         }
                     } else {
                         s_chip_meas[chip_idx].total_init = true;
+                        s_chip_meas[chip_idx].total_val_base = value;  // warmup baseline
                     }
                     s_chip_meas[chip_idx].total_val = value;
                     s_chip_meas[chip_idx].total_time_us = now_us;
@@ -422,6 +426,7 @@ void asic_mining_task(void *arg)
                         }
                     } else {
                         s_chip_meas[chip_idx].error_init = true;
+                        s_chip_meas[chip_idx].error_val_base = value;  // warmup baseline
                     }
                     s_chip_meas[chip_idx].error_val = value;
                     s_chip_meas[chip_idx].error_time_us = now_us;
@@ -694,7 +699,9 @@ void asic_mining_task(void *arg)
             for (int c = 0; c < BOARD_ASIC_COUNT; c++) {
                 bb_log_i(TAG, "chip %d: total_raw=%" PRIu32 " error_raw=%" PRIu32
                               " total_ghs=%.1f error_ghs=%.2f",
-                         c, s_chip_meas[c].total_val, s_chip_meas[c].error_val,
+                         c,
+                         s_chip_meas[c].total_val - s_chip_meas[c].total_val_base,
+                         s_chip_meas[c].error_val - s_chip_meas[c].error_val_base,
                          s_chip_meas[c].total_ghs, s_chip_meas[c].error_ghs);
             }
 
@@ -745,6 +752,9 @@ int asic_task_get_chip_telemetry(asic_chip_telemetry_t *out, int max_chips)
         for (int d = 0; d < 4; d++) {
             out[c].domain_ghs[d] = s_chip_meas[c].domain_ghs[d];
         }
+        // Baseline-subtracted: excludes counter activity from PLL ramp.
+        out[c].total_raw = s_chip_meas[c].total_val - s_chip_meas[c].total_val_base;
+        out[c].error_raw = s_chip_meas[c].error_val - s_chip_meas[c].error_val_base;
     }
     return n;
 }

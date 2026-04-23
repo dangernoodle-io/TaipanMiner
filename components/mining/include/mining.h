@@ -197,9 +197,12 @@ void mining_task(void *arg);
 // Per-chip telemetry snapshot for /api/stats (TA-192 phase 2).
 // Callers provide a buffer dimensioned by BOARD_ASIC_COUNT chips × 4 domains.
 typedef struct {
-    float total_ghs;
-    float error_ghs;
-    float domain_ghs[4];
+    float    total_ghs;
+    float    error_ghs;
+    float    domain_ghs[4];
+    // Raw BM1370 register values at last poll (diagnostic — see TA-198).
+    uint32_t total_raw;
+    uint32_t error_raw;
 } asic_chip_telemetry_t;
 
 // Fill `out[]` with current per-chip snapshot (BOARD_ASIC_COUNT entries).

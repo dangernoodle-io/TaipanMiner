@@ -242,6 +242,8 @@ static bb_err_t stats_handler(bb_http_request_t *req)
         bb_json_obj_set_number(chip_obj, "idx", c);
         bb_json_obj_set_number(chip_obj, "total_ghs", (double)chip_tel[c].total_ghs);
         bb_json_obj_set_number(chip_obj, "error_ghs", (double)chip_tel[c].error_ghs);
+        bb_json_obj_set_number(chip_obj, "total_raw", (double)chip_tel[c].total_raw);
+        bb_json_obj_set_number(chip_obj, "error_raw", (double)chip_tel[c].error_raw);
 
         bb_json_t domains_arr = bb_json_arr_new();
         for (int d = 0; d < 4; d++) {

@@ -31,8 +31,6 @@ static void set_pll_freq(float freq_mhz)
 // --- BM1370 chip init sequence ---
 static esp_err_t bm1370_chip_init(void)
 {
-    uint16_t addr_interval = 256 / BM1370_CHIP_COUNT;
-
     // Step 1: Set version mask x3
     for (int i = 0; i < 3; i++) {
         write_reg(BM1370_REG_VERSION, 0x90, 0x00, 0xFF, 0xFF);
@@ -61,6 +59,11 @@ static esp_err_t bm1370_chip_init(void)
         return ESP_ERR_NOT_FOUND;
     }
     bb_log_i(TAG, "detected %d chip(s)", chip_count);
+
+    // Address interval derived from DETECTED chip count (matches AxeOS). On a
+    // degraded boot where fewer chips respond than BM1370_CHIP_COUNT, this keeps
+    // SETADDR and subsequent per-chip writes targeting real chips only.
+    uint16_t addr_interval = 256 / chip_count;
 
     // Step 3: Version mask x1 more
     write_reg(BM1370_REG_VERSION, 0x90, 0x00, 0xFF, 0xFF);

@@ -42,7 +42,7 @@
 #define BM1370_DEFAULT_MV       1150   // TPS546 VOUT target (mV) — matches AxeOS Gamma Duo (BM1370XP) stock
 #define BM1370_DEFAULT_FREQ_MHZ 400    // initial PLL target frequency (MHz) — matches AxeOS Gamma Duo (BM1370XP) stock
 #define BM1370_CHIP_COUNT       2      // number of BM1370 chips in chain
-#define BM1370_JOB_INTERVAL_MS  500    // job dispatch interval (ms) — keeps ASIC fed
+#define BM1370_JOB_INTERVAL_MS  250    // job dispatch interval (ms); 500 / BM1370_CHIP_COUNT per AxeOS
 #define I2C_BUS_NUM             0      // I2C master bus number
 
 // Board overhead beyond the ASIC core rail (MCU, regulators, LEDs, OLED).

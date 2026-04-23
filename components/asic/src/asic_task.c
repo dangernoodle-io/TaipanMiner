@@ -749,6 +749,9 @@ int asic_task_get_chip_telemetry(asic_chip_telemetry_t *out, int max_chips)
     for (int c = 0; c < n; c++) {
         out[c].total_ghs = s_chip_meas[c].total_ghs;
         out[c].error_ghs = s_chip_meas[c].error_ghs;
+        out[c].hw_err_pct = (s_chip_meas[c].total_ghs > 0.001f)
+            ? (s_chip_meas[c].error_ghs / s_chip_meas[c].total_ghs * 100.0f)
+            : 0.0f;
         for (int d = 0; d < 4; d++) {
             out[c].domain_ghs[d] = s_chip_meas[c].domain_ghs[d];
         }

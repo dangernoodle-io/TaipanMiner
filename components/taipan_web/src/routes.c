@@ -242,6 +242,7 @@ static bb_err_t stats_handler(bb_http_request_t *req)
         bb_json_obj_set_number(chip_obj, "idx", c);
         bb_json_obj_set_number(chip_obj, "total_ghs", (double)chip_tel[c].total_ghs);
         bb_json_obj_set_number(chip_obj, "error_ghs", (double)chip_tel[c].error_ghs);
+        bb_json_obj_set_number(chip_obj, "hw_err_pct", (double)chip_tel[c].hw_err_pct);
         bb_json_obj_set_number(chip_obj, "total_raw", (double)chip_tel[c].total_raw);
         bb_json_obj_set_number(chip_obj, "error_raw", (double)chip_tel[c].error_raw);
 

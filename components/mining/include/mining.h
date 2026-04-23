@@ -199,6 +199,7 @@ void mining_task(void *arg);
 typedef struct {
     float    total_ghs;
     float    error_ghs;
+    float    hw_err_pct;       // point-sample error_ghs / total_ghs * 100
     float    domain_ghs[4];
     // Raw BM1370 register values at last poll (diagnostic — see TA-198).
     uint32_t total_raw;

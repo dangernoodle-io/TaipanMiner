@@ -363,6 +363,21 @@ bool mine_nonce_range(hash_backend_t *backend,
 
             sha256_hw_acquire();
 
+            // TA-199: pause check on Tier 1 cadence (256K nonces ≈ 1.1s at tdongle SW-mining
+            // speed) so the mining_pause() ACK timeout (5s) has headroom. Previously this lived
+            // inside the Tier 2 block (every 1M nonces ≈ 4.5s), which was right at the edge and
+            // failed under scheduling jitter — letting OTA run with mining still at full load.
+            sha256_hw_release();
+            if (mining_pause_check()) {
+                sha256_hw_acquire();
+                backend->prepare_job(backend, work, block2);
+                start_us = esp_timer_get_time();
+                hashes = 0;
+                nonce = params->nonce_start - 1;
+                continue;
+            }
+            sha256_hw_acquire();
+
             // Tier 2: full yield (every 1M nonces)
             if (((nonce + 1) & params->log_mask) == 0) {
                 int64_t elapsed_us = esp_timer_get_time() - start_us;
@@ -393,16 +408,7 @@ bool mine_nonce_range(hash_backend_t *backend,
                 sha256_hw_release();
                 esp_task_wdt_reset();
                 vTaskDelay(pdMS_TO_TICKS(5));
-                bool paused = mining_pause_check();
                 sha256_hw_acquire();
-
-                if (paused) {
-                    backend->prepare_job(backend, work, block2);
-                    start_us = esp_timer_get_time();
-                    hashes = 0;
-                    nonce = params->nonce_start - 1;
-                    continue;
-                }
             }
         }
 #endif

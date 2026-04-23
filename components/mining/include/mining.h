@@ -162,6 +162,8 @@ typedef struct {
     float               vr_temp_c;       // Voltage regulator die temperature via TPS546
     float               asic_freq_configured_mhz;
     float               asic_freq_effective_mhz;
+    float               asic_total_ghs;      // ASIC-reported total hashrate (sum across chips), from REG_TOTAL_COUNT
+    float               asic_hw_error_pct;   // HW error % from REG_ERROR_COUNT vs total
 #endif
     uint32_t            hw_shares;
     double              pool_difficulty;

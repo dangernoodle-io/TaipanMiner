@@ -22,3 +22,12 @@
 #define BM1370_REG_A8         0xA8
 #define BM1370_REG_MISC_SET   0xB9
 #define BM1370_REG_TICKET_MASK  0x14
+
+// Telemetry registers (ASIC_CMD_READ). Mirrors ESP-Miner's REGISTER_MAP.
+// Hash counters increment by 1 per 2^32 hashes (HASH_CNT_LSB).
+#define BM1370_REG_ERROR_COUNT    0x4C
+#define BM1370_REG_DOMAIN_0_COUNT 0x88
+#define BM1370_REG_DOMAIN_1_COUNT 0x89
+#define BM1370_REG_DOMAIN_2_COUNT 0x8A
+#define BM1370_REG_DOMAIN_3_COUNT 0x8B
+#define BM1370_REG_TOTAL_COUNT    0x8C

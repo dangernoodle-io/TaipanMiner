@@ -14,10 +14,12 @@
 #include "sha256.h"
 #include "board.h"
 #include "board_gpio.h"
+#include "bm1370.h"
 
 #include "esp_log.h"
 #include "bb_log.h"
 #include "esp_check.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -56,6 +58,18 @@ static uint8_t s_dedup_idx;
 static uint32_t s_sha_pass;
 static uint32_t s_sha_fail;
 
+// TA-192: per-chip register-derived telemetry (polled every 5s)
+static struct {
+    uint32_t total_val;        // last REG_TOTAL_COUNT read
+    uint32_t error_val;        // last REG_ERROR_COUNT read
+    uint64_t total_time_us;    // esp_timer_get_time() at last total_val
+    uint64_t error_time_us;
+    float    total_ghs;
+    float    error_ghs;
+    bool     total_init;
+    bool     error_init;
+} s_chip_meas[BOARD_ASIC_COUNT];
+
 // --- UART helpers ---
 int asic_uart_read(uint8_t *buf, size_t len, uint32_t timeout_ms)
 {
@@ -89,6 +103,13 @@ void write_reg_chip(uint8_t chip_addr, uint8_t reg, uint8_t d0, uint8_t d1, uint
 {
     uint8_t data[6] = {chip_addr, reg, d0, d1, d2, d3};
     send_cmd(ASIC_CMD_WRITE, ASIC_GROUP_SINGLE, data, 6);
+}
+
+// --- Register read (broadcast) — each chip responds with one cmd frame ---
+static void read_reg(uint8_t reg)
+{
+    uint8_t data[2] = {0x00, reg};
+    send_cmd(ASIC_CMD_READ, ASIC_GROUP_ALL, data, 2);
 }
 
 // --- Update ASIC ticket mask for dynamic pool difficulty ---
@@ -196,6 +217,7 @@ void asic_mining_task(void *arg)
     mining_work_t work;
     TickType_t last_temp_tick = 0;
     TickType_t last_hashrate_tick = xTaskGetTickCount();
+    TickType_t last_reg_poll = 0;
     uint32_t nonces_since_log = 0;
 
     for (;;) {
@@ -273,7 +295,49 @@ void asic_mining_task(void *arg)
 
             // Check if job response (bit 7 of crc_flags)
             if (!(nonce.crc_flags & 0x80)) {
-                bb_log_d(TAG, "command response, skipping");
+                // Command response: reinterpret bytes per ESP-Miner's bm1370_asic_result_cmd_t
+                // rx[2..5] = value (LE u32), rx[6] = asic_address, rx[7] = register_address
+                uint32_t value = (uint32_t)rx[2] | ((uint32_t)rx[3] << 8) |
+                                 ((uint32_t)rx[4] << 16) | ((uint32_t)rx[5] << 24);
+                uint8_t asic_addr = rx[6];
+                uint8_t reg_addr  = rx[7];
+
+                uint8_t addr_interval = 256 / BOARD_ASIC_COUNT;
+                int chip_idx = asic_addr / addr_interval;
+                if (chip_idx < 0 || chip_idx >= BOARD_ASIC_COUNT) {
+                    continue;
+                }
+
+                uint64_t now_us = esp_timer_get_time();
+                static const uint64_t HASH_CNT_LSB = 1ULL << 32;
+
+                if (reg_addr == BM1370_REG_TOTAL_COUNT) {
+                    if (s_chip_meas[chip_idx].total_init) {
+                        uint32_t delta = value - s_chip_meas[chip_idx].total_val;
+                        float seconds = (float)(now_us - s_chip_meas[chip_idx].total_time_us) / 1e6f;
+                        if (seconds > 0.001f) {
+                            s_chip_meas[chip_idx].total_ghs =
+                                (float)delta * (float)HASH_CNT_LSB / seconds / 1e9f;
+                        }
+                    } else {
+                        s_chip_meas[chip_idx].total_init = true;
+                    }
+                    s_chip_meas[chip_idx].total_val = value;
+                    s_chip_meas[chip_idx].total_time_us = now_us;
+                } else if (reg_addr == BM1370_REG_ERROR_COUNT) {
+                    if (s_chip_meas[chip_idx].error_init) {
+                        uint32_t delta = value - s_chip_meas[chip_idx].error_val;
+                        float seconds = (float)(now_us - s_chip_meas[chip_idx].error_time_us) / 1e6f;
+                        if (seconds > 0.001f) {
+                            s_chip_meas[chip_idx].error_ghs =
+                                (float)delta * (float)HASH_CNT_LSB / seconds / 1e9f;
+                        }
+                    } else {
+                        s_chip_meas[chip_idx].error_init = true;
+                    }
+                    s_chip_meas[chip_idx].error_val = value;
+                    s_chip_meas[chip_idx].error_time_us = now_us;
+                }
                 continue;
             }
 
@@ -427,6 +491,14 @@ void asic_mining_task(void *arg)
             last_temp_tick = now;
         }
 
+        // Every 5s: poll total + error counters for per-chip HW telemetry (TA-192)
+        if (now - last_reg_poll >= pdMS_TO_TICKS(5000)) {
+            read_reg(BM1370_REG_TOTAL_COUNT);
+            vTaskDelay(pdMS_TO_TICKS(10));
+            read_reg(BM1370_REG_ERROR_COUNT);
+            last_reg_poll = now;
+        }
+
         // 5. Periodic status log (~every 30s)
         if (now - last_hashrate_tick >= pdMS_TO_TICKS(30000)) {
             float elapsed_s = (float)(now - last_hashrate_tick) / (float)configTICK_RATE_HZ;
@@ -434,6 +506,8 @@ void asic_mining_task(void *arg)
             double hashrate = (elapsed_s > 0) ? (double)nonces_since_log * ASIC_TICKET_DIFF * 4294967296.0 / elapsed_s : 0;
             uint32_t shares = 0;
             float temp = 0;
+            float total_ghs_sum = 0.0f;
+            float asic_hw_error_pct = 0.0f;
             if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                 mining_stats.asic_hashrate = hashrate;
                 mining_stats_update_ema(&mining_stats.asic_ema, hashrate, (int64_t)now * (1000000 / configTICK_RATE_HZ));
@@ -446,6 +520,17 @@ void asic_mining_task(void *arg)
                     double effective_mhz = (mining_stats.asic_ema.value / 1e6) / (BOARD_SMALL_CORES * BOARD_ASIC_COUNT);
                     mining_stats.asic_freq_effective_mhz = (float)effective_mhz;
                 }
+
+                // Aggregate per-chip register telemetry (TA-192)
+                float error_ghs_sum = 0.0f;
+                for (int i = 0; i < BOARD_ASIC_COUNT; i++) {
+                    total_ghs_sum += s_chip_meas[i].total_ghs;
+                    error_ghs_sum += s_chip_meas[i].error_ghs;
+                }
+                mining_stats.asic_total_ghs = total_ghs_sum;
+                mining_stats.asic_hw_error_pct =
+                    (total_ghs_sum > 0.001f) ? (error_ghs_sum / total_ghs_sum * 100.0f) : 0.0f;
+                asic_hw_error_pct = mining_stats.asic_hw_error_pct;
 
                 shares = mining_stats.asic_shares;
                 temp = mining_stats.asic_temp_c;
@@ -464,8 +549,9 @@ void asic_mining_task(void *arg)
                 }
             }
 
-            bb_log_i(TAG, "asic: %.1f GH/s | temp: %.1f C | shares: %" PRIu32 " | sha pass/fail: %" PRIu32 "/%" PRIu32,
-                     hashrate / 1e9, temp, shares, s_sha_pass, s_sha_fail);
+            bb_log_i(TAG, "asic: %.1f GH/s (reported %.1f) | hw_err: %.2f%% | temp: %.1f C | shares: %" PRIu32 " | sha pass/fail: %" PRIu32 "/%" PRIu32,
+                     hashrate / 1e9, total_ghs_sum, asic_hw_error_pct,
+                     temp, shares, s_sha_pass, s_sha_fail);
             nonces_since_log = 0;
             last_hashrate_tick = now;
         }

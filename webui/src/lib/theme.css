@@ -1,0 +1,45 @@
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --input: #0f3460;
+  --border: #1a3a52;
+  --text: #e0e0e0;
+  --label: #b0b0b0;
+  --accent: #e5ad30;
+  --accent-dim: #a07e26;
+  --accent-hover: #f0c050;
+  --muted: #666;
+  --footer: #505050;
+  --danger: #e74c3c;
+  --warning: #f39c12;
+  --success: #4caf50;
+  --info: #3498db;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--accent-hover);
+}

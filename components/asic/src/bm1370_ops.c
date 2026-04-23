@@ -120,24 +120,26 @@ static esp_err_t bm1370_chip_init(void)
     write_reg(BM1370_REG_CORE_CTRL, 0x80, 0x00, 0x8D, 0xEE);
     vTaskDelay(pdMS_TO_TICKS(5));
 
-    // Step 13: Baud rate switch to 1 Mbps
-    write_reg(BM1370_REG_FAST_UART, 0x11, 0x30, 0x02, 0x00);
-    uart_wait_tx_done(ASIC_UART_NUM, pdMS_TO_TICKS(100));
-    ESP_ERROR_CHECK(uart_set_baudrate(ASIC_UART_NUM, ASIC_BAUD_FAST));
-    uart_flush(ASIC_UART_NUM);
-    bb_log_i(TAG, "baud switched to %d", ASIC_BAUD_FAST);
-    vTaskDelay(pdMS_TO_TICKS(10));
-
-    // Step 14: Frequency ramp from 6.25 to target
+    // Frequency ramp from 6.25 to target — must run at the initial 115200 baud.
+    // The ASIC's UART clock divider is derived from its PLL; switching to 1 Mbps
+    // before the PLL settles at target yields a malformed TX eye and UART errors
+    // at higher frequencies. See TA-190.
     float target_freq = (float)BM1370_DEFAULT_FREQ_MHZ;
     bb_log_i(TAG, "ramping frequency to %.1f MHz", target_freq);
     for (float freq = 6.25f; freq <= target_freq; freq += 6.25f) {
         set_pll_freq(freq);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
-    // Final set to exact target
     set_pll_freq(target_freq);
     vTaskDelay(pdMS_TO_TICKS(100));
+
+    // Baud switch to 1 Mbps — only after PLL is stable at target.
+    write_reg(BM1370_REG_FAST_UART, 0x11, 0x30, 0x02, 0x00);
+    uart_wait_tx_done(ASIC_UART_NUM, pdMS_TO_TICKS(100));
+    ESP_ERROR_CHECK(uart_set_baudrate(ASIC_UART_NUM, ASIC_BAUD_FAST));
+    uart_flush(ASIC_UART_NUM);
+    bb_log_i(TAG, "baud switched to %d", ASIC_BAUD_FAST);
+    vTaskDelay(pdMS_TO_TICKS(10));
 
     // Step 15: Hash counting register
     write_reg(BM1370_REG_HASH_COUNT, 0x00, 0x00, 0x1E, 0xB5);

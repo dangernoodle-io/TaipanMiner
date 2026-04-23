@@ -124,6 +124,8 @@ static bb_err_t stats_handler(bb_http_request_t *req)
     float asic_freq_cfg = -1.0f, asic_freq_eff = -1.0f;
     float asic_total_ghs = 0.0f;
     float asic_hw_error_pct = 0.0f;
+    float asic_total_ghs_1m = 0.0f, asic_total_ghs_10m = 0.0f, asic_total_ghs_1h = 0.0f;
+    float asic_hw_error_pct_1m = 0.0f, asic_hw_error_pct_10m = 0.0f, asic_hw_error_pct_1h = 0.0f;
     bool  asic_total_valid = false;
 #endif
 
@@ -148,6 +150,12 @@ static bb_err_t stats_handler(bb_http_request_t *req)
         asic_freq_eff = mining_stats.asic_freq_effective_mhz;
         asic_total_ghs = mining_stats.asic_total_ghs;
         asic_hw_error_pct = mining_stats.asic_hw_error_pct;
+        asic_total_ghs_1m = mining_stats.asic_total_ghs_1m;
+        asic_total_ghs_10m = mining_stats.asic_total_ghs_10m;
+        asic_total_ghs_1h = mining_stats.asic_total_ghs_1h;
+        asic_hw_error_pct_1m = mining_stats.asic_hw_error_pct_1m;
+        asic_hw_error_pct_10m = mining_stats.asic_hw_error_pct_10m;
+        asic_hw_error_pct_1h = mining_stats.asic_hw_error_pct_1h;
         asic_total_valid = (asic_total_ghs > 0.001f);
 #endif
         xSemaphoreGive(mining_stats.mutex);
@@ -207,9 +215,21 @@ static bb_err_t stats_handler(bb_http_request_t *req)
     if (asic_total_valid) {
         bb_json_obj_set_number(root, "asic_total_ghs", (double)asic_total_ghs);
         bb_json_obj_set_number(root, "asic_hw_error_pct", (double)asic_hw_error_pct);
+        bb_json_obj_set_number(root, "asic_total_ghs_1m", (double)asic_total_ghs_1m);
+        bb_json_obj_set_number(root, "asic_total_ghs_10m", (double)asic_total_ghs_10m);
+        bb_json_obj_set_number(root, "asic_total_ghs_1h", (double)asic_total_ghs_1h);
+        bb_json_obj_set_number(root, "asic_hw_error_pct_1m", (double)asic_hw_error_pct_1m);
+        bb_json_obj_set_number(root, "asic_hw_error_pct_10m", (double)asic_hw_error_pct_10m);
+        bb_json_obj_set_number(root, "asic_hw_error_pct_1h", (double)asic_hw_error_pct_1h);
     } else {
         bb_json_obj_set_null(root, "asic_total_ghs");
         bb_json_obj_set_null(root, "asic_hw_error_pct");
+        bb_json_obj_set_null(root, "asic_total_ghs_1m");
+        bb_json_obj_set_null(root, "asic_total_ghs_10m");
+        bb_json_obj_set_null(root, "asic_total_ghs_1h");
+        bb_json_obj_set_null(root, "asic_hw_error_pct_1m");
+        bb_json_obj_set_null(root, "asic_hw_error_pct_10m");
+        bb_json_obj_set_null(root, "asic_hw_error_pct_1h");
     }
 #endif
 

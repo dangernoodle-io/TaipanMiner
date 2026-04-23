@@ -25,6 +25,9 @@
 
 // EMC2101 fan/temperature controller
 #define EMC2101_I2C_ADDR   0x4C
+// BM1370 external diode calibration (matches AxeOS Gamma family)
+#define EMC2101_IDEALITY_FACTOR    0x24
+#define EMC2101_BETA_COMPENSATION  0x00
 
 // SSD1306 OLED display (0.91")
 #define SSD1306_I2C_ADDR   0x3C

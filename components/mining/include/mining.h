@@ -164,6 +164,12 @@ typedef struct {
     float               asic_freq_effective_mhz;
     float               asic_total_ghs;      // ASIC-reported total hashrate (sum across chips), from REG_TOTAL_COUNT
     float               asic_hw_error_pct;   // HW error % from REG_ERROR_COUNT vs total
+    float               asic_total_ghs_1m;   // Rolling 1m average of asic_total_ghs
+    float               asic_total_ghs_10m;  // Rolling 10m average of asic_total_ghs
+    float               asic_total_ghs_1h;   // Rolling 1h average of asic_total_ghs
+    float               asic_hw_error_pct_1m;  // Rolling 1m average of asic_hw_error_pct
+    float               asic_hw_error_pct_10m; // Rolling 10m average of asic_hw_error_pct
+    float               asic_hw_error_pct_1h;  // Rolling 1h average of asic_hw_error_pct
 #endif
     uint32_t            hw_shares;
     double              pool_difficulty;

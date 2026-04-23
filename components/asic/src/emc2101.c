@@ -6,18 +6,21 @@
 #include "esp_log.h"
 #include "bb_log.h"
 #include "esp_check.h"
+#include "board.h"
 
 static const char *TAG = "emc2101";
 
 // EMC2101 registers
-#define REG_INTERNAL_TEMP   0x00
-#define REG_EXTERNAL_MSB    0x01
+#define REG_INTERNAL_TEMP    0x00
+#define REG_EXTERNAL_MSB     0x01
 #define REG_CONFIG           0x03
-#define REG_EXTERNAL_LSB    0x10
-#define REG_TACH_LSB        0x46
-#define REG_TACH_MSB        0x47
-#define REG_FAN_CONFIG      0x4A
-#define REG_FAN_SETTING     0x4C
+#define REG_EXTERNAL_LSB     0x10
+#define REG_IDEALITY_FACTOR  0x17
+#define REG_BETA_COMPENSATION 0x18
+#define REG_TACH_LSB         0x46
+#define REG_TACH_MSB         0x47
+#define REG_FAN_CONFIG       0x4A
+#define REG_FAN_SETTING      0x4C
 
 static i2c_master_dev_handle_t s_dev;
 static int s_duty_pct = -1;
@@ -47,6 +50,15 @@ bb_err_t emc2101_init(i2c_master_bus_handle_t bus, uint8_t addr)
 
     // Fan: direct PWM mode, enable driver, ~22.5kHz, 2 tach pulses/rev
     ESP_RETURN_ON_ERROR(reg_write(REG_FAN_CONFIG, 0x23), TAG, "fan config");
+
+    // BM1370 thermal diode ideality + beta compensation (matches AxeOS for Gamma family).
+    // Without these, the EMC2101 reports systematically wrong die temp.
+#ifdef EMC2101_IDEALITY_FACTOR
+    ESP_RETURN_ON_ERROR(reg_write(REG_IDEALITY_FACTOR, EMC2101_IDEALITY_FACTOR), TAG, "ideality");
+#endif
+#ifdef EMC2101_BETA_COMPENSATION
+    ESP_RETURN_ON_ERROR(reg_write(REG_BETA_COMPENSATION, EMC2101_BETA_COMPENSATION), TAG, "beta");
+#endif
 
     // Fail-safe: start at 100% until telemetry loop adjusts
     emc2101_set_duty_pct(100);

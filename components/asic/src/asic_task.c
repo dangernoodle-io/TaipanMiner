@@ -70,6 +70,24 @@ static struct {
     bool     error_init;
 } s_chip_meas[BOARD_ASIC_COUNT];
 
+// TA-196: rolling-window averages mirroring ESP-Miner's hashrate_monitor_task.c
+#define ASIC_POLL_PERIOD_MS 5000
+#define ASIC_AVG_1M_SIZE    12  // 12 * 5s = 60s
+#define ASIC_AVG_10M_SIZE   10
+#define ASIC_AVG_1H_SIZE    6
+#define ASIC_AVG_DIV_10M    ASIC_AVG_1M_SIZE
+#define ASIC_AVG_DIV_1H     (ASIC_AVG_10M_SIZE * ASIC_AVG_DIV_10M)
+
+static unsigned long s_avg_poll_count;
+static float s_total_1m[ASIC_AVG_1M_SIZE];
+static float s_total_10m[ASIC_AVG_10M_SIZE];
+static float s_total_1h[ASIC_AVG_1H_SIZE];
+static float s_total_10m_prev, s_total_1h_prev;
+static float s_hw_err_1m[ASIC_AVG_1M_SIZE];
+static float s_hw_err_10m[ASIC_AVG_10M_SIZE];
+static float s_hw_err_1h[ASIC_AVG_1H_SIZE];
+static float s_hw_err_10m_prev, s_hw_err_1h_prev;
+
 // --- UART helpers ---
 int asic_uart_read(uint8_t *buf, size_t len, uint32_t timeout_ms)
 {
@@ -121,6 +139,69 @@ void set_ticket_mask(double difficulty)
     s_current_asic_diff = difficulty;
     bb_log_i(TAG, "ticket mask: diff=%.0f bytes=%02x%02x%02x%02x",
              difficulty, mask[0], mask[1], mask[2], mask[3]);
+}
+
+// TA-196: NaN-safe averaging helpers
+static float avg_nan_safe(const float *buf, size_t n)
+{
+    float sum = 0.0f;
+    int count = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (!isnanf(buf[i])) {
+            sum += buf[i];
+            count++;
+        }
+    }
+    return count > 0 ? sum / (float)count : 0.0f;
+}
+
+static void init_avg_buffers(void)
+{
+    s_avg_poll_count = 0;
+    for (int i = 0; i < ASIC_AVG_1M_SIZE; i++)  { s_total_1m[i]  = NAN; s_hw_err_1m[i]  = NAN; }
+    for (int i = 0; i < ASIC_AVG_10M_SIZE; i++) { s_total_10m[i] = NAN; s_hw_err_10m[i] = NAN; }
+    for (int i = 0; i < ASIC_AVG_1H_SIZE; i++)  { s_total_1h[i]  = NAN; s_hw_err_1h[i]  = NAN; }
+    s_total_10m_prev = NAN;
+    s_total_1h_prev  = NAN;
+    s_hw_err_10m_prev = NAN;
+    s_hw_err_1h_prev  = NAN;
+}
+
+// Progressive-blend averaging — matches ESP-Miner's update_hashrate_averages.
+// Does NOT increment s_avg_poll_count — caller does after both metrics update.
+static void update_metric_avg(float sample,
+                              float *buf_1m, float *buf_10m, float *buf_1h,
+                              float *prev_10m, float *prev_1h,
+                              float *out_1m, float *out_10m, float *out_1h)
+{
+    unsigned long pc = s_avg_poll_count;
+
+    buf_1m[pc % ASIC_AVG_1M_SIZE] = sample;
+    *out_1m = avg_nan_safe(buf_1m, ASIC_AVG_1M_SIZE);
+
+    int blend_10m = pc % ASIC_AVG_1M_SIZE;
+    if (blend_10m == 0) {
+        *prev_10m = buf_10m[(pc / ASIC_AVG_DIV_10M) % ASIC_AVG_10M_SIZE];
+    }
+    float v_10m = *out_1m;
+    if (!isnanf(*prev_10m)) {
+        float f = (blend_10m + 1.0f) / (float)ASIC_AVG_1M_SIZE;
+        v_10m = f * v_10m + (1.0f - f) * (*prev_10m);
+    }
+    buf_10m[(pc / ASIC_AVG_DIV_10M) % ASIC_AVG_10M_SIZE] = v_10m;
+    *out_10m = avg_nan_safe(buf_10m, ASIC_AVG_10M_SIZE);
+
+    int blend_1h = pc % ASIC_AVG_DIV_1H;
+    if (blend_1h == 0) {
+        *prev_1h = buf_1h[(pc / ASIC_AVG_DIV_1H) % ASIC_AVG_1H_SIZE];
+    }
+    float v_1h = *out_10m;
+    if (!isnanf(*prev_1h)) {
+        float f = (blend_1h + 1.0f) / (float)ASIC_AVG_DIV_1H;
+        v_1h = f * v_1h + (1.0f - f) * (*prev_1h);
+    }
+    buf_1h[(pc / ASIC_AVG_DIV_1H) % ASIC_AVG_1H_SIZE] = v_1h;
+    *out_1h = avg_nan_safe(buf_1h, ASIC_AVG_1H_SIZE);
 }
 
 // --- asic_init ---
@@ -203,6 +284,7 @@ bb_err_t asic_init(void)
     // Initialize state
     s_next_job_id = 0;
     memset(s_job_table, 0, sizeof(s_job_table));
+    init_avg_buffers();
 
     bb_log_i(TAG, "ASIC subsystem ready");
     return BB_OK;
@@ -492,11 +574,45 @@ void asic_mining_task(void *arg)
             last_temp_tick = now;
         }
 
-        // Every 5s: poll total + error counters for per-chip HW telemetry (TA-192)
-        if (now - last_reg_poll >= pdMS_TO_TICKS(5000)) {
+        // Every 5s: poll total + error counters for per-chip HW telemetry (TA-192) and compute rolling averages (TA-196)
+        if (now - last_reg_poll >= pdMS_TO_TICKS(ASIC_POLL_PERIOD_MS)) {
             read_reg(BM1370_REG_TOTAL_COUNT);
             vTaskDelay(pdMS_TO_TICKS(10));
             read_reg(BM1370_REG_ERROR_COUNT);
+            // Let responses settle before aggregating.
+            vTaskDelay(pdMS_TO_TICKS(100));
+
+            float total_sum = 0.0f, error_sum = 0.0f;
+            for (int i = 0; i < BOARD_ASIC_COUNT; i++) {
+                total_sum += s_chip_meas[i].total_ghs;
+                error_sum += s_chip_meas[i].error_ghs;
+            }
+            float hw_err_pct = (total_sum > 0.001f) ? (error_sum / total_sum * 100.0f) : 0.0f;
+
+            float t_1m = 0.0f, t_10m = 0.0f, t_1h = 0.0f;
+            float h_1m = 0.0f, h_10m = 0.0f, h_1h = 0.0f;
+            update_metric_avg(total_sum,
+                              s_total_1m, s_total_10m, s_total_1h,
+                              &s_total_10m_prev, &s_total_1h_prev,
+                              &t_1m, &t_10m, &t_1h);
+            update_metric_avg(hw_err_pct,
+                              s_hw_err_1m, s_hw_err_10m, s_hw_err_1h,
+                              &s_hw_err_10m_prev, &s_hw_err_1h_prev,
+                              &h_1m, &h_10m, &h_1h);
+            s_avg_poll_count++;
+
+            if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
+                mining_stats.asic_total_ghs = total_sum;
+                mining_stats.asic_hw_error_pct = hw_err_pct;
+                mining_stats.asic_total_ghs_1m = t_1m;
+                mining_stats.asic_total_ghs_10m = t_10m;
+                mining_stats.asic_total_ghs_1h = t_1h;
+                mining_stats.asic_hw_error_pct_1m = h_1m;
+                mining_stats.asic_hw_error_pct_10m = h_10m;
+                mining_stats.asic_hw_error_pct_1h = h_1h;
+                xSemaphoreGive(mining_stats.mutex);
+            }
+
             last_reg_poll = now;
         }
 
@@ -522,15 +638,8 @@ void asic_mining_task(void *arg)
                     mining_stats.asic_freq_effective_mhz = (float)effective_mhz;
                 }
 
-                // Aggregate per-chip register telemetry (TA-192)
-                float error_ghs_sum = 0.0f;
-                for (int i = 0; i < BOARD_ASIC_COUNT; i++) {
-                    total_ghs_sum += s_chip_meas[i].total_ghs;
-                    error_ghs_sum += s_chip_meas[i].error_ghs;
-                }
-                mining_stats.asic_total_ghs = total_ghs_sum;
-                mining_stats.asic_hw_error_pct =
-                    (total_ghs_sum > 0.001f) ? (error_ghs_sum / total_ghs_sum * 100.0f) : 0.0f;
+                // Read aggregated per-chip register telemetry (TA-192) — computed in 5s tick (TA-196)
+                total_ghs_sum = mining_stats.asic_total_ghs;
                 asic_hw_error_pct = mining_stats.asic_hw_error_pct;
 
                 shares = mining_stats.asic_shares;

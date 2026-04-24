@@ -12,6 +12,7 @@
   import Update from './pages/Update.svelte'
   import Diagnostics from './pages/Diagnostics.svelte'
   import Settings from './pages/Settings.svelte'
+  import History from './pages/History.svelte'
   import './lib/theme.css'
   import './App.css'
 
@@ -38,6 +39,8 @@
     <Diagnostics />
   {:else if $route === 'settings'}
     <Settings />
+  {:else if $route === 'history'}
+    <History />
   {:else}
     <Dashboard />
   {/if}

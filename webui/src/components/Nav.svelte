@@ -4,7 +4,7 @@
   const links: { id: Route; label: string; disabled?: boolean }[] = [
     { id: 'dashboard',   label: 'Dashboard' },
     { id: 'diagnostics', label: 'Diagnostics' },
-    { id: 'history',     label: 'History',     disabled: true },
+    { id: 'history',     label: 'History' },
     { id: 'pool',        label: 'Pool' },
     { id: 'settings',    label: 'Settings' },
     { id: 'system',      label: 'System' },

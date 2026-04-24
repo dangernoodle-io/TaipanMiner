@@ -17,6 +17,7 @@
     "svelte-check": "^3.8.5",
     "terser": "^5.46.2",
     "typescript": "^5.4.5",
+    "uplot": "^1.6.32",
     "vite": "^5.2.11"
   },
   "dependencies": {

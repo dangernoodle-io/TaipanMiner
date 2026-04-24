@@ -14,6 +14,7 @@ on:
 
 jobs:
   test:
+    needs: webui
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -26,6 +27,10 @@ jobs:
           path: ~/.platformio
           key: ${{ runner.os }}-pio-${{ hashFiles('**/platformio.ini') }}
           restore-keys: ${{ runner.os }}-pio-
+      - uses: actions/download-artifact@v4
+        with:
+          name: webui-dist
+          path: webui/dist
       - name: Install tools
         run: pip install platformio gcovr
       - name: Static analysis

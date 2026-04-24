@@ -95,6 +95,16 @@ static float s_hw_err_10m[ASIC_AVG_10M_SIZE];
 static float s_hw_err_1h[ASIC_AVG_1H_SIZE];
 static float s_hw_err_10m_prev, s_hw_err_1h_prev;
 
+// Register addresses for 5s polling loop
+static const uint8_t s_poll_regs[] = {
+    ASIC_REG_TOTAL_COUNT,
+    ASIC_REG_ERROR_COUNT,
+    ASIC_REG_DOMAIN_0_COUNT,
+    ASIC_REG_DOMAIN_1_COUNT,
+    ASIC_REG_DOMAIN_2_COUNT,
+    ASIC_REG_DOMAIN_3_COUNT,
+};
+
 // --- UART helpers ---
 int asic_uart_read(uint8_t *buf, size_t len, uint32_t timeout_ms)
 {
@@ -600,17 +610,11 @@ void asic_mining_task(void *arg)
 
         // Every 5s: poll total + error counters for per-chip HW telemetry (TA-192) and compute rolling averages (TA-196)
         if (now - last_reg_poll >= pdMS_TO_TICKS(ASIC_POLL_PERIOD_MS)) {
-            read_reg(ASIC_REG_TOTAL_COUNT);
-            vTaskDelay(pdMS_TO_TICKS(10));
-            read_reg(ASIC_REG_ERROR_COUNT);
-            vTaskDelay(pdMS_TO_TICKS(10));
-            read_reg(ASIC_REG_DOMAIN_0_COUNT);
-            vTaskDelay(pdMS_TO_TICKS(10));
-            read_reg(ASIC_REG_DOMAIN_1_COUNT);
-            vTaskDelay(pdMS_TO_TICKS(10));
-            read_reg(ASIC_REG_DOMAIN_2_COUNT);
-            vTaskDelay(pdMS_TO_TICKS(10));
-            read_reg(ASIC_REG_DOMAIN_3_COUNT);
+            for (size_t i = 0; i < sizeof(s_poll_regs); i++) {
+                read_reg(s_poll_regs[i]);
+                vTaskDelay(pdMS_TO_TICKS(10));
+                mining_pause_check();
+            }
             // Let responses settle before aggregating.
             vTaskDelay(pdMS_TO_TICKS(100));
 

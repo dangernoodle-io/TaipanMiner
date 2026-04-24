@@ -433,7 +433,11 @@ bool mining_pause(void)
         return false;
     }
     s_pause_requested = true;
-    if (xSemaphoreTake(s_pause_ack, pdMS_TO_TICKS(5000)) != pdTRUE) {
+    // 15s covers the worst-case chip_resume freq ramp (~10s on BM1370 at
+    // 650 MHz). Fix #1 (coalesce) should prevent most timeouts, but this is
+    // belt-and-suspenders for races where the pause arrives just inside the
+    // ramp window.
+    if (xSemaphoreTake(s_pause_ack, pdMS_TO_TICKS(15000)) != pdTRUE) {
         bb_log_w(TAG, "mining pause acknowledge timeout, resetting state");
         s_pause_requested = false;
         xSemaphoreGive(s_pause_mutex);

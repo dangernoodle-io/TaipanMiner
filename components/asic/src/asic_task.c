@@ -124,6 +124,9 @@ static const uint8_t s_poll_regs[] = {
     ASIC_REG_DOMAIN_3_COUNT,
 };
 
+// Pause/resume coalesce state
+static bool s_chip_quiesced = false;
+
 // --- UART helpers ---
 int asic_uart_read(uint8_t *buf, size_t len, uint32_t timeout_ms)
 {
@@ -339,10 +342,24 @@ void asic_mining_task(void *arg)
     uint32_t nonces_since_log = 0;
 
     for (;;) {
+        // Pause/resume coalescing. bb_ota_pull triggers a check-phase pause/resume
+        // immediately followed by an install-phase pause — during the ~8s freq
+        // ramp of chip_resume, asic_task can't call mining_pause_check, so the
+        // second pause's ACK window expires. Keep the chip in CMD_INACTIVE across
+        // rapid-fire cycles and only run the re-init ramp when we're truly clear.
         if (mining_pause_pending()) {
-            g_chip_ops->chip_quiesce();
+            if (!s_chip_quiesced) {
+                g_chip_ops->chip_quiesce();
+                s_chip_quiesced = true;
+            }
             mining_pause_check();
+            // loop back; if another pause is pending (rapid-fire check→install),
+            // the `if (mining_pause_pending())` check on the next iteration keeps
+            // us in the paused state without redundantly quiescing or prematurely
+            // running the ~8s chip_resume ramp.
+        } else if (s_chip_quiesced) {
             g_chip_ops->chip_resume();
+            s_chip_quiesced = false;
         }
 
         // 1. Peek for work

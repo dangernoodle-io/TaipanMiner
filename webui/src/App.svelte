@@ -9,6 +9,7 @@
   import LiveTitle from './components/LiveTitle.svelte'
   import Dashboard from './pages/Dashboard.svelte'
   import System from './pages/System.svelte'
+  import Pool from './pages/Pool.svelte'
   import './lib/theme.css'
   import './App.css'
 
@@ -28,6 +29,8 @@
 
   {#if $route === 'system'}
     <System />
+  {:else if $route === 'pool'}
+    <Pool />
   {:else}
     <Dashboard />
   {/if}

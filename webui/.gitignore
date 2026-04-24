@@ -5,3 +5,4 @@ dist
 .env.*.local
 *.pem
 .DS_Store
+.vite

@@ -1,29 +1,13 @@
 <script lang="ts">
   import { stats, connected } from '../lib/stores'
   import Sparkline from './Sparkline.svelte'
+  import { fmtDuration, fmtRelative } from '../lib/fmt'
 
   function fmtHashGhs(ghs: number | null): string {
     if (ghs === null) return '—'
     if (ghs >= 1000) return (ghs / 1000).toFixed(2) + ' TH/s'
     if (ghs >= 1) return ghs.toFixed(1) + ' GH/s'
     return (ghs * 1000).toFixed(1) + ' MH/s'
-  }
-
-  function fmtUptime(s: number): string {
-    if (s < 60) return `${Math.floor(s)}s`
-    if (s < 3600) return `${Math.floor(s / 60)}m ${Math.floor(s % 60)}s`
-    const h = Math.floor(s / 3600)
-    const m = Math.floor((s % 3600) / 60)
-    if (h < 24) return `${h}h ${m}m`
-    const d = Math.floor(h / 24)
-    return `${d}d ${h % 24}h`
-  }
-
-  function fmtLastShare(s: number | null): string {
-    if (s === null || s < 0) return '—'
-    if (s < 60) return `${Math.floor(s)}s ago`
-    if (s < 3600) return `${Math.floor(s / 60)}m ago`
-    return `${Math.floor(s / 3600)}h ago`
   }
 
   function fmtDiff(d: number): string {
@@ -103,7 +87,7 @@
         <div class="sl">shares/hr</div>
       </div>
       <div class="stat">
-        <div class="sv">{fmtLastShare($stats.last_share_ago_s)}</div>
+        <div class="sv">{fmtRelative($stats.last_share_ago_s)}</div>
         <div class="sl">last share</div>
       </div>
       <div class="stat">
@@ -111,7 +95,7 @@
         <div class="sl">best diff</div>
       </div>
       <div class="stat">
-        <div class="sv">{fmtUptime($stats.uptime_s)}</div>
+        <div class="sv">{fmtDuration($stats.uptime_s)}</div>
         <div class="sl">uptime</div>
       </div>
     </div>

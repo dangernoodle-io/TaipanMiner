@@ -51,20 +51,42 @@ export interface Stats {
   asic_chips?: Chip[]
 }
 
+export interface InfoNetwork {
+  ssid: string | null
+  bssid: string | null
+  rssi: number | null
+  ip: string | null
+  connected: boolean
+  disc_reason: number
+  disc_age_s: number
+  retry_count: number
+  mdns: boolean
+  stratum: boolean
+  stratum_reconnect_ms: number
+  stratum_fail_count: number
+}
+
 export interface Info {
   board: string
+  project_name: string
   version: string
   idf_version: string
+  build_date: string
+  build_time: string
+  chip_model: string
   cores: number
   mac: string
   ssid: string | null
   flash_size: number
   app_size: number
+  total_heap: number
+  free_heap: number
   reset_reason: string | null
   wdt_resets: number | null
   boot_time: number | null
   worker_name: string
   validated: boolean
+  network?: InfoNetwork
 }
 
 export interface Power {
@@ -82,7 +104,10 @@ export interface Fan {
   duty_pct: number | null
 }
 
-const baseUrl = import.meta.env.VITE_MINER_URL ?? ''
+// In dev, Vite proxies /api/* to VITE_MINER_URL (configured in vite.config.ts).
+// In production embed, the UI is same-origin with the firmware, so an empty
+// baseUrl keeps fetches relative.
+const baseUrl = ''
 
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${baseUrl}${path}`)
@@ -94,3 +119,8 @@ export const fetchStats = () => getJson<Stats>('/api/stats')
 export const fetchInfo  = () => getJson<Info>('/api/info')
 export const fetchPower = () => getJson<Power>('/api/power')
 export const fetchFan   = () => getJson<Fan>('/api/fan')
+
+export async function postReboot(): Promise<void> {
+  const res = await fetch(`${baseUrl}/api/reboot`, { method: 'POST' })
+  if (!res.ok) throw new Error(`reboot failed: ${res.status}`)
+}

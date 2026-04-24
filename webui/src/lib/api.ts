@@ -115,10 +115,31 @@ async function getJson<T>(path: string): Promise<T> {
   return res.json() as Promise<T>
 }
 
+export interface Settings {
+  pool_host: string
+  pool_port: number
+  wallet: string
+  worker: string
+  pool_pass: string
+  display_en?: boolean
+  ota_skip_check?: boolean
+}
+
 export const fetchStats = () => getJson<Stats>('/api/stats')
 export const fetchInfo  = () => getJson<Info>('/api/info')
 export const fetchPower = () => getJson<Power>('/api/power')
 export const fetchFan   = () => getJson<Fan>('/api/fan')
+export const fetchSettings = () => getJson<Settings>('/api/settings')
+
+export async function patchSettings(patch: Partial<Settings>): Promise<{ status: string; reboot_required: boolean }> {
+  const res = await fetch(`${baseUrl}/api/settings`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch)
+  })
+  if (!res.ok) throw new Error(`settings patch failed: ${res.status}`)
+  return res.json()
+}
 
 export async function postReboot(): Promise<void> {
   const res = await fetch(`${baseUrl}/api/reboot`, { method: 'POST' })

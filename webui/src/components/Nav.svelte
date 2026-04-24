@@ -5,7 +5,7 @@
     { id: 'dashboard',   label: 'Dashboard' },
     { id: 'diagnostics', label: 'Diagnostics', disabled: true },
     { id: 'history',     label: 'History',     disabled: true },
-    { id: 'pool',        label: 'Pool',        disabled: true },
+    { id: 'pool',        label: 'Pool' },
     { id: 'settings',    label: 'Settings',    disabled: true },
     { id: 'system',      label: 'System' },
     { id: 'update',      label: 'Update',      disabled: true }
@@ -29,14 +29,15 @@
 <style>
   nav {
     display: flex;
-    justify-content: center;
-    gap: 2px;
+    gap: 0;
     border-bottom: 1px solid var(--border);
     margin-bottom: 16px;
     overflow-x: auto;
   }
 
   .link {
+    flex: 1;
+    text-align: center;
     padding: 10px 14px;
     font-size: 12px;
     text-transform: uppercase;

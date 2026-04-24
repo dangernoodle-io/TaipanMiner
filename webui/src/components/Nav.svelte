@@ -6,7 +6,7 @@
     { id: 'diagnostics', label: 'Diagnostics' },
     { id: 'history',     label: 'History',     disabled: true },
     { id: 'pool',        label: 'Pool' },
-    { id: 'settings',    label: 'Settings',    disabled: true },
+    { id: 'settings',    label: 'Settings' },
     { id: 'system',      label: 'System' },
     { id: 'update',      label: 'Update' }
   ]

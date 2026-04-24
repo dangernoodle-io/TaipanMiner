@@ -11,7 +11,6 @@
 #include "esp_mac.h"
 #include "esp_flash.h"
 #include "esp_heap_caps.h"
-#include "esp_wifi.h"
 #include "esp_system.h"
 #include "board.h"
 #include "mining.h"
@@ -186,9 +185,9 @@ static bb_err_t stats_handler(bb_http_request_t *req)
     bb_json_obj_set_number(root, "uptime_s", (double)uptime_s);
     bb_json_obj_set_number(root, "free_heap", (double)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     bb_json_obj_set_number(root, "total_heap", (double)heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
-    wifi_ap_record_t ap_info;
-    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
-        bb_json_obj_set_number(root, "rssi_dbm", ap_info.rssi);
+    int8_t rssi = 0;
+    if (bb_wifi_get_rssi(&rssi) == ESP_OK) {
+        bb_json_obj_set_number(root, "rssi_dbm", (double)rssi);
     } else {
         bb_json_obj_set_null(root, "rssi_dbm");
     }

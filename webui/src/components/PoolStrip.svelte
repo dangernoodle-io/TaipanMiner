@@ -13,7 +13,7 @@
 
   <div class="center">
     {#if $stats}
-      worker <strong>{$stats.worker}</strong>
+      <strong>{$stats.worker}</strong>
     {/if}
   </div>
 

@@ -3,6 +3,7 @@
   import Hero from '../components/Hero.svelte'
   import ChipsCard from '../components/ChipsCard.svelte'
   import StatTile from '../components/StatTile.svelte'
+  import PoolStrip from '../components/PoolStrip.svelte'
 
   $: chips = $stats?.asic_chips ?? []
   $: expectedPerDomain = $stats?.asic_total_ghs && chips.length
@@ -14,6 +15,8 @@
       ? ($stats.asic_freq_configured_mhz * $stats.asic_small_cores * $stats.asic_count) / 1000
       : null
 </script>
+
+<div class="sticky-pool"><PoolStrip /></div>
 
 <div class="grid">
   <section class="card full">
@@ -83,6 +86,20 @@
 </div>
 
 <style>
+  .sticky-pool {
+    position: sticky;
+    top: 42px;
+    z-index: 15;
+    background: rgba(26, 26, 46, 0.92);
+    backdrop-filter: blur(8px);
+    margin: 0 -16px 14px;
+    padding: 8px 16px;
+  }
+
+  .sticky-pool :global(.pool-strip) {
+    margin-bottom: 0;
+  }
+
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));

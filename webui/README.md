@@ -47,3 +47,18 @@ For now, this runs standalone against any TaipanMiner device that exposes its `/
 - `npm run build` — optimize for production
 - `npm run preview` — local preview of production build
 - `npm run check` — TypeScript check
+
+## Bundle size budget
+
+Target: **≤ 100 KB gzipped total**.
+
+- Current baseline (Dashboard + System + Pool + Update, no charts): ~29 KB gzipped
+- Svelte runtime: ~10 KB gzipped (fixed cost)
+- Reserved for History page chart library (uPlot): ~20 KB gzipped
+- Headroom: ~40 KB for remaining pages (Settings, Diagnostics) and future features
+
+This is a soft budget, not a flash constraint — the `ota_0` app partition is ~1.9 MB with plenty of room. The budget keeps first-load time fast over weak WiFi.
+
+## Chart library choice
+
+**uPlot** is the selected chart library for the History tab when it lands. It's purpose-built for time-series, ~20 KB gzipped, and has no dependencies. Do not reach for Chart.js, ApexCharts, or D3 without a compelling reason.

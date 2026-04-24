@@ -8,7 +8,7 @@
     { id: 'pool',        label: 'Pool' },
     { id: 'settings',    label: 'Settings',    disabled: true },
     { id: 'system',      label: 'System' },
-    { id: 'update',      label: 'Update',      disabled: true }
+    { id: 'update',      label: 'Update' }
   ]
 </script>
 

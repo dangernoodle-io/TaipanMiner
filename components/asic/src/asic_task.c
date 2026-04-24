@@ -320,7 +320,11 @@ void asic_mining_task(void *arg)
     uint32_t nonces_since_log = 0;
 
     for (;;) {
-        mining_pause_check();
+        if (mining_pause_pending()) {
+            g_chip_ops->chip_quiesce();
+            mining_pause_check();
+            g_chip_ops->chip_resume();
+        }
 
         // 1. Peek for work
         if (xQueuePeek(work_queue, &work, pdMS_TO_TICKS(100)) != pdTRUE) {

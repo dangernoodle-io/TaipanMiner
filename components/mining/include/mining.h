@@ -134,6 +134,8 @@ bool mining_pause(void);
 void mining_resume(void);
 // Check if a pause has been requested and block until resumed; returns true if paused
 bool mining_pause_check(void);
+// Non-blocking query: returns true if a pause has been requested
+bool mining_pause_pending(void);
 
 // Mining task handles
 #ifdef ASIC_CHIP

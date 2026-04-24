@@ -154,6 +154,21 @@ static esp_err_t bm1368_chip_init(void)
     return ESP_OK;
 }
 
+static esp_err_t bm1368_chip_quiesce(void)
+{
+    bb_log_i(TAG, "quiescing BM1368 (CMD_INACTIVE)");
+    uint8_t inactive_data[2] = {0x00, 0x00};
+    send_cmd(ASIC_CMD_INACTIVE, ASIC_GROUP_ALL, inactive_data, 2);
+    vTaskDelay(pdMS_TO_TICKS(5));
+    return ESP_OK;
+}
+
+static esp_err_t bm1368_chip_resume(void)
+{
+    bb_log_i(TAG, "resuming BM1368 (re-init)");
+    return bm1368_chip_init();
+}
+
 // --- Voltage regulator wrapper ---
 static esp_err_t tps546_vreg_init(i2c_master_bus_handle_t bus, uint16_t target_mv)
 {
@@ -163,6 +178,8 @@ static esp_err_t tps546_vreg_init(i2c_master_bus_handle_t bus, uint16_t target_m
 // --- Ops struct and global ---
 static const asic_chip_ops_t s_bm1368_ops = {
     .chip_init       = bm1368_chip_init,
+    .chip_quiesce    = bm1368_chip_quiesce,
+    .chip_resume     = bm1368_chip_resume,
     .vreg_init       = tps546_vreg_init,
     .fb_min          = BM1368_FB_MIN,
     .fb_max          = BM1368_FB_MAX,

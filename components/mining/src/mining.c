@@ -451,6 +451,11 @@ void mining_resume(void)
     xSemaphoreGive(s_pause_mutex);
 }
 
+bool mining_pause_pending(void)
+{
+    return s_pause_requested;
+}
+
 bool mining_pause_check(void)
 {
     if (!s_pause_requested) return false;

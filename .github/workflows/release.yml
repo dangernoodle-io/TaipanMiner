@@ -70,13 +70,17 @@ jobs:
         run: make test
       - name: Build firmware
         run: make build-${{ matrix.env }}
-      - name: Rename binary
-        run: cp .pio/build/${{ matrix.env }}/firmware.bin taipanminer-${{ matrix.env }}.bin
+      - name: Stage release binaries
+        run: |
+          cp .pio/build/${{ matrix.env }}/firmware.bin taipanminer-${{ matrix.env }}.bin
+          cp .pio/build/${{ matrix.env }}/firmware.factory.bin taipanminer-${{ matrix.env }}-factory.bin
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: taipanminer-${{ matrix.env }}
-          path: taipanminer-${{ matrix.env }}.bin
+          path: |
+            taipanminer-${{ matrix.env }}.bin
+            taipanminer-${{ matrix.env }}-factory.bin
 
   release:
     needs: build
@@ -89,19 +93,39 @@ jobs:
           merge-multiple: true
       - name: Build release body
         run: |
-          echo "## Binaries" > release-body.md
-          echo "" >> release-body.md
-          echo "| File | Size |" >> release-body.md
-          echo "|------|------|" >> release-body.md
-          for f in taipanminer-*.bin; do
-            size=$(du -h "$f" | cut -f1)
-            echo "| \`$f\` | $size |" >> release-body.md
-          done
-          echo "" >> release-body.md
-          echo "## Flash" >> release-body.md
-          echo '```bash' >> release-body.md
-          echo "esptool.py --chip esp32s3 write_flash 0x0 taipanminer-<board>.bin" >> release-body.md
-          echo '```' >> release-body.md
+          {
+            echo "## Binaries"
+            echo ""
+            echo "Two variants per board:"
+            echo ""
+            echo "- \`taipanminer-<board>-factory.bin\` — full image (bootloader + partition table + ota_data_initial + app). Use for first-time flashing of a fresh device."
+            echo "- \`taipanminer-<board>.bin\` — app-only. Use for OTA updates or push to an already-flashed device."
+            echo ""
+            echo "| File | Size |"
+            echo "|------|------|"
+            for f in taipanminer-*.bin; do
+              size=$(du -h "$f" | cut -f1)
+              echo "| \`$f\` | $size |"
+            done
+            echo ""
+            echo "## Fresh-device flash (USB, esptool)"
+            echo ""
+            echo '```bash'
+            echo "esptool --chip esp32s3 --before default_reset --after hard_reset write-flash 0 taipanminer-<board>-factory.bin"
+            echo '```'
+            echo ""
+            echo "## Existing device (OTA)"
+            echo ""
+            echo "Via taipan-cli:"
+            echo '```bash'
+            echo "taipan update --host <miner>.local"
+            echo '```'
+            echo ""
+            echo "Or push the app-only binary:"
+            echo '```bash'
+            echo "curl -X POST --data-binary @taipanminer-<board>.bin http://<miner>/api/ota/push"
+            echo '```'
+          } > release-body.md
       - name: Create release
         run: gh release create ${{ github.ref_name }} taipanminer-*.bin --repo ${{ github.repository }} --generate-notes --notes-file release-body.md
         env:

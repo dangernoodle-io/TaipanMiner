@@ -152,7 +152,7 @@ TaipanMiner consumes shared infrastructure components from the breadboard librar
 
 **To add a web asset to the SPA**: edit the Svelte source. Assets bundled by Vite are included automatically in `dist/`. Only provisioning-mode static files need manual `bb_embed_assets` entries.
 
-**API routes**: unchanged. `/api/stats` (polled every 5s), `/api/info` (device details), `/api/version`, `/api/ota/check`, `/api/ota/upload`, `/api/ota/update`, `/api/power` (bitaxe-only — 404 on tdongle), `/api/fan` (bitaxe-only — 404 on tdongle; `duty_pct` reflects actual curve-controlled setting, null until first 5s telemetry tick), `/api/logs/status`, `/api/logs`.
+**API routes**: unchanged. `/api/stats` (polled every 5s), `/api/info` (device details), `/api/version`, `/api/ota/check`, `/api/ota/push`, `/api/ota/update`, `/api/power` (bitaxe-only — 404 on tdongle), `/api/fan` (bitaxe-only — 404 on tdongle; `duty_pct` reflects actual curve-controlled setting, null until first 5s telemetry tick), `/api/logs/status`, `/api/logs`.
 
 **OTA check** suspends mining task to free heap for TLS handshake (~29 KB stack).
 

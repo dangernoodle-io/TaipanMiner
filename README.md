@@ -34,7 +34,7 @@ After provisioning, the device is accessible at `taipanminer-<worker>.local`. Fi
 
 ```bash
 # Push: upload a binary directly
-curl -X POST http://taipanminer-<worker>.local/api/ota/upload --data-binary @taipanminer-<board>.bin
+curl -X POST http://taipanminer-<worker>.local/api/ota/push --data-binary @taipanminer-<board>.bin
 
 # Pull: trigger the device to fetch the latest release from GitHub
 curl -X POST http://taipanminer-<worker>.local/api/ota/update

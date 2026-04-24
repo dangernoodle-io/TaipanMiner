@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store'
-import { fetchStats, fetchInfo, fetchPower, fetchFan, type Stats, type Info, type Power, type Fan } from './api'
+import { fetchStats, fetchInfo, fetchPower, fetchFan, type Stats, type Info, type Power, type Fan, type OtaCheckResult } from './api'
 
 export const stats = writable<Stats | null>(null)
 export const info = writable<Info | null>(null)
@@ -7,6 +7,25 @@ export const power = writable<Power | null>(null)
 export const fan = writable<Fan | null>(null)
 export const hasAsic = writable<boolean>(false)
 export const connected = writable<boolean>(false)
+
+// OTA UI state — persists across page navigations so a check result and install
+// progress remain visible when returning to the Update page.
+export type OtaKind = '' | 'ok' | 'avail' | 'err'
+
+export const otaCheck = writable<{
+  checking: boolean
+  result: OtaCheckResult | null
+  msg: string
+  kind: OtaKind
+}>({ checking: false, result: null, msg: '', kind: '' })
+
+export const otaInstall = writable<{
+  installing: boolean
+  pct: number
+  state: string
+  msg: string
+  kind: OtaKind
+}>({ installing: false, pct: 0, state: '', msg: '', kind: '' })
 
 let pollInterval: ReturnType<typeof setInterval> | null = null
 let failCount = 0

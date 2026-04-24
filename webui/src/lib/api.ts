@@ -145,3 +145,63 @@ export async function postReboot(): Promise<void> {
   const res = await fetch(`${baseUrl}/api/reboot`, { method: 'POST' })
   if (!res.ok) throw new Error(`reboot failed: ${res.status}`)
 }
+
+// OTA check — returns 202 while in progress; result on 200.
+export interface OtaCheckResult {
+  update_available: boolean
+  latest_version: string
+  current_version: string
+}
+
+export interface OtaStatus {
+  state: string
+  in_progress: boolean
+  progress_pct: number
+}
+
+export async function fetchOtaCheck(): Promise<OtaCheckResult | 'pending'> {
+  const res = await fetch(`${baseUrl}/api/ota/check`)
+  if (res.status === 202) return 'pending'
+  if (!res.ok) throw new Error(`ota check failed: ${res.status}`)
+  return res.json()
+}
+
+export async function triggerOtaUpdate(): Promise<void> {
+  const res = await fetch(`${baseUrl}/api/ota/update`, { method: 'POST' })
+  if (!res.ok) throw new Error(`ota update failed: ${res.status}`)
+}
+
+export async function fetchOtaStatus(): Promise<OtaStatus> {
+  const res = await fetch(`${baseUrl}/api/ota/status`)
+  if (!res.ok) throw new Error(`ota status failed: ${res.status}`)
+  return res.json()
+}
+
+// Upload firmware binary to /api/ota/push with progress callback.
+export function uploadOta(
+  file: File,
+  onProgress: (pct: number) => void
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${baseUrl}/api/ota/push`)
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream')
+
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) onProgress((e.loaded / e.total) * 100)
+    })
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(xhr.responseText || 'ok')
+      } else {
+        reject(new Error(`upload failed: ${xhr.status} ${xhr.responseText}`))
+      }
+    })
+
+    xhr.addEventListener('error', () => reject(new Error('network error during upload')))
+    xhr.addEventListener('abort', () => reject(new Error('upload aborted')))
+
+    xhr.send(file)
+  })
+}

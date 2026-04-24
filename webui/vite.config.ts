@@ -7,6 +7,22 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [svelte()],
+    build: {
+      minify: 'terser',
+      terserOptions: {
+        compress: {
+          passes: 3,
+          drop_console: true,
+          drop_debugger: true,
+          pure_getters: true,
+          unsafe_arrows: true,
+          unsafe_methods: true
+        },
+        mangle: { toplevel: true },
+        format: { comments: false }
+      },
+      cssMinify: 'lightningcss'
+    },
     server: {
       port: 5173,
       host: true,

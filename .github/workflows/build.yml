@@ -14,10 +14,19 @@ on:
 
 jobs:
   test:
-    needs: webui
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: webui/package-lock.json
+      - name: Build webui for embed
+        working-directory: webui
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
@@ -27,10 +36,6 @@ jobs:
           path: ~/.platformio
           key: ${{ runner.os }}-pio-${{ hashFiles('**/platformio.ini') }}
           restore-keys: ${{ runner.os }}-pio-
-      - uses: actions/download-artifact@v4
-        with:
-          name: webui-dist
-          path: webui/dist
       - name: Install tools
         run: pip install platformio gcovr
       - name: Static analysis
@@ -56,7 +61,7 @@ jobs:
           cache-dependency-path: webui/package-lock.json
       - name: Install deps
         working-directory: webui
-        run: npm ci
+        run: npm install --no-audit --no-fund
       - name: Typecheck
         working-directory: webui
         run: npm run check --if-present

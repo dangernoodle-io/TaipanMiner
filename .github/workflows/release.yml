@@ -17,7 +17,7 @@ jobs:
           cache-dependency-path: webui/package-lock.json
       - name: Install deps
         working-directory: webui
-        run: npm ci
+        run: npm install --no-audit --no-fund
       - name: Typecheck
         working-directory: webui
         run: npm run check --if-present

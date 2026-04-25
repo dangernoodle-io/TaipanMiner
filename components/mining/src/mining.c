@@ -1,4 +1,5 @@
 #include "mining.h"
+#include "mining_pause_state.h"
 #ifdef ASIC_CHIP
 #include "board.h"
 #endif
@@ -37,8 +38,7 @@ QueueHandle_t result_queue = NULL;
 mining_stats_t mining_stats = {0};
 
 static temperature_sensor_handle_t s_temp_handle = NULL;
-static volatile bool s_pause_requested = false;
-static volatile bool s_pause_active = false;
+static mining_pause_state_t s_pause_state;
 static SemaphoreHandle_t s_pause_ack = NULL;
 static SemaphoreHandle_t s_pause_done = NULL;
 static SemaphoreHandle_t s_pause_mutex = NULL;
@@ -424,6 +424,7 @@ void mining_pause_init(void)
     s_pause_ack = xSemaphoreCreateBinary();
     s_pause_done = xSemaphoreCreateBinary();
     s_pause_mutex = xSemaphoreCreateMutex();
+    mining_pause_state_init(&s_pause_state);
 }
 
 bool mining_pause(void)
@@ -432,14 +433,14 @@ bool mining_pause(void)
         bb_log_w(TAG, "mining pause mutex timeout — another caller holds pause");
         return false;
     }
-    s_pause_requested = true;
+    mining_pause_state_request(&s_pause_state);
     // 15s covers the worst-case chip_resume freq ramp (~10s on BM1370 at
     // 650 MHz). Fix #1 (coalesce) should prevent most timeouts, but this is
     // belt-and-suspenders for races where the pause arrives just inside the
     // ramp window.
     if (xSemaphoreTake(s_pause_ack, pdMS_TO_TICKS(15000)) != pdTRUE) {
         bb_log_w(TAG, "mining pause acknowledge timeout, resetting state");
-        s_pause_requested = false;
+        mining_pause_state_on_ack_timeout(&s_pause_state);
         xSemaphoreGive(s_pause_mutex);
         return false;
     }
@@ -448,28 +449,25 @@ bool mining_pause(void)
 
 void mining_resume(void)
 {
-    s_pause_requested = false;
-    if (s_pause_active) {
-        xSemaphoreGive(s_pause_done);
-    }
+    bool needs_signal = mining_pause_state_on_resume(&s_pause_state);
+    if (needs_signal) xSemaphoreGive(s_pause_done);
     xSemaphoreGive(s_pause_mutex);
 }
 
 bool mining_pause_pending(void)
 {
-    return s_pause_requested;
+    return s_pause_state.pause_requested;
 }
 
 bool mining_pause_check(void)
 {
-    if (!s_pause_requested) return false;
+    if (!mining_pause_state_on_check(&s_pause_state)) return false;
     bb_log_i(TAG, "mining paused for maintenance");
-    s_pause_active = true;
     xSemaphoreGive(s_pause_ack);
     if (xSemaphoreTake(s_pause_done, pdMS_TO_TICKS(30000)) != pdTRUE) {
         bb_log_e(TAG, "mining resume timeout, resuming anyway");
     }
-    s_pause_active = false;
+    mining_pause_state_on_resumed(&s_pause_state);
     bb_log_i(TAG, "mining resumed (stack high water: %" PRIu32 ")",
              (uint32_t)uxTaskGetStackHighWaterMark(NULL));
     return true;

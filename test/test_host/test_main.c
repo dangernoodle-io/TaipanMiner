@@ -195,6 +195,13 @@ void test_ota_validator_on_timer_fired_pending(void);
 void test_ota_validator_happy_path_share_accepted(void);
 void test_ota_validator_happy_path_timeout(void);
 
+// Forward declarations from test_asic_pause_coalesce.c
+void test_asic_pause_idle_when_not_pending_and_not_quiesced(void);
+void test_asic_pause_first_pause_quiesces_and_acks(void);
+void test_asic_pause_second_pause_only_acks(void);
+void test_asic_pause_resume_when_clear_and_quiesced(void);
+void test_asic_pause_full_check_install_resume_sequence(void);
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -397,6 +404,13 @@ int main(void) {
     RUN_TEST(test_ota_validator_on_timer_fired_pending);
     RUN_TEST(test_ota_validator_happy_path_share_accepted);
     RUN_TEST(test_ota_validator_happy_path_timeout);
+
+    // ASIC pause/resume coalesce tests
+    RUN_TEST(test_asic_pause_idle_when_not_pending_and_not_quiesced);
+    RUN_TEST(test_asic_pause_first_pause_quiesces_and_acks);
+    RUN_TEST(test_asic_pause_second_pause_only_acks);
+    RUN_TEST(test_asic_pause_resume_when_clear_and_quiesced);
+    RUN_TEST(test_asic_pause_full_check_install_resume_sequence);
 
     return UNITY_END();
 }

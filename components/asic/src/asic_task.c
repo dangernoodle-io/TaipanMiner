@@ -4,6 +4,7 @@
 #include "asic.h"
 #include "asic_proto.h"
 #include "asic_internal.h"
+#include "asic_pause_coalesce.h"
 #include "crc.h"
 #include "tps546.h"
 #include "emc2101.h"
@@ -347,19 +348,21 @@ void asic_mining_task(void *arg)
         // ramp of chip_resume, asic_task can't call mining_pause_check, so the
         // second pause's ACK window expires. Keep the chip in CMD_INACTIVE across
         // rapid-fire cycles and only run the re-init ramp when we're truly clear.
-        if (mining_pause_pending()) {
-            if (!s_chip_quiesced) {
-                g_chip_ops->chip_quiesce();
-                s_chip_quiesced = true;
-            }
+        asic_pause_action_t action = asic_pause_coalesce_next(mining_pause_pending(), &s_chip_quiesced);
+        switch (action) {
+        case ASIC_PAUSE_ACTION_QUIESCE_AND_ACK:
+            g_chip_ops->chip_quiesce();
             mining_pause_check();
-            // loop back; if another pause is pending (rapid-fire check→install),
-            // the `if (mining_pause_pending())` check on the next iteration keeps
-            // us in the paused state without redundantly quiescing or prematurely
-            // running the ~8s chip_resume ramp.
-        } else if (s_chip_quiesced) {
+            break;
+        case ASIC_PAUSE_ACTION_ACK_ONLY:
+            mining_pause_check();
+            break;
+        case ASIC_PAUSE_ACTION_RESUME:
             g_chip_ops->chip_resume();
-            s_chip_quiesced = false;
+            break;
+        case ASIC_PAUSE_ACTION_NONE:
+        default:
+            break;
         }
 
         // 1. Peek for work

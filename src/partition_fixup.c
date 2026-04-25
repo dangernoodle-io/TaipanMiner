@@ -1,6 +1,7 @@
 #ifdef ESP_PLATFORM
 
 #include "partition_fixup.h"
+#include "partition_fixup_decision.h"
 #include <string.h>
 #include "esp_flash.h"
 #include "esp_ota_ops.h"
@@ -29,37 +30,41 @@ static uint8_t s_buf[4096];
 // cppcheck-suppress unusedFunction ; called from src/main.c (cross-TU)
 void partition_fixup_check(void)
 {
-    // Stub build (first compile before partitions.bin exists): skip
-    if (g_partitions_bin_len <= 1) {
-        return;
-    }
-
     // Read current partition table from flash
+    bool live_table_ok = false;
     esp_err_t err = esp_flash_read(NULL, s_buf, PARTITION_TABLE_ADDR, g_partitions_bin_len);
-    if (err != ESP_OK) {
+    if (err == ESP_OK) {
+        live_table_ok = true;
+    } else {
         bb_log_e(TAG, "failed to read partition table: %s", esp_err_to_name(err));
-        return;  // can't determine state, proceed with normal boot
     }
-
-    // Fast path: table matches, nothing to do
-    if (memcmp(s_buf, g_partitions_bin, g_partitions_bin_len) == 0) {
-        return;
-    }
-
-    bb_log_w(TAG, "foreign partition table detected — starting fixup");
 
     // Find where we're currently running from
     const esp_partition_t *running = esp_ota_get_running_partition();
-    if (running == NULL) {
-        bb_log_e(TAG, "cannot determine running partition, aborting fixup");
+    uint32_t running_addr = running ? (uint32_t)running->address : 0;
+
+    // Decide whether and how to fix up the partition layout
+    partition_fixup_decision_t d = partition_fixup_decide(
+        g_partitions_bin, g_partitions_bin_len,
+        live_table_ok, live_table_ok ? s_buf : NULL,
+        running_addr, OTA_0_ADDR);
+
+    switch (d.action) {
+    case PARTITION_FIXUP_SKIP_NO_TABLE:
+    case PARTITION_FIXUP_SKIP_TABLE_MATCHES:
         return;
-    }
 
-    bb_log_i(TAG, "running from 0x%08" PRIx32 " (size 0x%08" PRIx32 ")",
-             (uint32_t)running->address, (uint32_t)running->size);
+    case PARTITION_FIXUP_NEEDS_COPY_AND_REWRITE:
+        bb_log_w(TAG, "foreign partition table detected — starting fixup");
+        if (running == NULL) {
+            bb_log_e(TAG, "cannot determine running partition, aborting fixup");
+            return;
+        }
 
-    // If we're not at our expected ota_0 offset, copy firmware there
-    if (running->address != OTA_0_ADDR) {
+        bb_log_i(TAG, "running from 0x%08" PRIx32 " (size 0x%08" PRIx32 ")",
+                 (uint32_t)running->address, (uint32_t)running->size);
+        bb_log_i(TAG, "copying firmware from 0x%08" PRIx32 " to 0x%08" PRIx32,
+                 (uint32_t)running->address, (uint32_t)OTA_0_ADDR);
         bb_log_i(TAG, "copying firmware from 0x%08" PRIx32 " to 0x%08" PRIx32,
                  (uint32_t)running->address, (uint32_t)OTA_0_ADDR);
 
@@ -94,63 +99,69 @@ void partition_fixup_check(void)
         }
 
         bb_log_i(TAG, "firmware copy complete (%" PRIu32 " bytes)", copy_size);
-    }
+        // Fall through to rewrite and dup
+        __attribute__((fallthrough));
 
-    // Write our partition table at 0x8000 (one 4KB sector)
-    // Requires CONFIG_SPI_FLASH_DANGEROUS_WRITE_ALLOWED=y in sdkconfig
-    bb_log_i(TAG, "writing partition table at 0x%x", PARTITION_TABLE_ADDR);
-    err = esp_flash_erase_region(NULL, PARTITION_TABLE_ADDR, COPY_CHUNK_SIZE);
-    if (err != ESP_OK) {
-        bb_log_e(TAG, "erase partition table failed: %s", esp_err_to_name(err));
-        return;
-    }
+    case PARTITION_FIXUP_NEEDS_REWRITE_ONLY:
+        bb_log_w(TAG, "foreign partition table detected — starting fixup");
 
-    err = esp_flash_write(NULL, g_partitions_bin, PARTITION_TABLE_ADDR, g_partitions_bin_len);
-    if (err != ESP_OK) {
-        bb_log_e(TAG, "write partition table failed: %s", esp_err_to_name(err));
-        return;
-    }
-
-    // Duplicate ota_0 into ota_1 for rollback safety
-    // Prevents anti-rollback from booting into garbage if mark-valid doesn't fire
-    bb_log_i(TAG, "duplicating ota_0 -> ota_1 for rollback safety");
-    for (uint32_t offset = 0; offset < OTA_SLOT_SIZE; offset += COPY_CHUNK_SIZE) {
-        uint32_t len = COPY_CHUNK_SIZE;
-        if (offset + len > OTA_SLOT_SIZE) {
-            len = OTA_SLOT_SIZE - offset;
-        }
-
-        err = esp_flash_read(NULL, s_buf, OTA_0_ADDR + offset, len);
+        // Write our partition table at 0x8000 (one 4KB sector)
+        // Requires CONFIG_SPI_FLASH_DANGEROUS_WRITE_ALLOWED=y in sdkconfig
+        bb_log_i(TAG, "writing partition table at 0x%x", PARTITION_TABLE_ADDR);
+        err = esp_flash_erase_region(NULL, PARTITION_TABLE_ADDR, COPY_CHUNK_SIZE);
         if (err != ESP_OK) {
-            bb_log_e(TAG, "ota_1 copy: read failed at offset 0x%" PRIx32 ": %s", offset, esp_err_to_name(err));
+            bb_log_e(TAG, "erase partition table failed: %s", esp_err_to_name(err));
             return;
         }
 
-        err = esp_flash_erase_region(NULL, OTA_1_ADDR + offset, COPY_CHUNK_SIZE);
+        err = esp_flash_write(NULL, g_partitions_bin, PARTITION_TABLE_ADDR, g_partitions_bin_len);
         if (err != ESP_OK) {
-            bb_log_e(TAG, "ota_1 copy: erase failed at offset 0x%" PRIx32 ": %s", offset, esp_err_to_name(err));
+            bb_log_e(TAG, "write partition table failed: %s", esp_err_to_name(err));
             return;
         }
 
-        err = esp_flash_write(NULL, s_buf, OTA_1_ADDR + offset, len);
+        // Duplicate ota_0 into ota_1 for rollback safety
+        // Prevents anti-rollback from booting into garbage if mark-valid doesn't fire
+        bb_log_i(TAG, "duplicating ota_0 -> ota_1 for rollback safety");
+        for (uint32_t offset = 0; offset < OTA_SLOT_SIZE; offset += COPY_CHUNK_SIZE) {
+            uint32_t len = COPY_CHUNK_SIZE;
+            if (offset + len > OTA_SLOT_SIZE) {
+                len = OTA_SLOT_SIZE - offset;
+            }
+
+            err = esp_flash_read(NULL, s_buf, OTA_0_ADDR + offset, len);
+            if (err != ESP_OK) {
+                bb_log_e(TAG, "ota_1 copy: read failed at offset 0x%" PRIx32 ": %s", offset, esp_err_to_name(err));
+                return;
+            }
+
+            err = esp_flash_erase_region(NULL, OTA_1_ADDR + offset, COPY_CHUNK_SIZE);
+            if (err != ESP_OK) {
+                bb_log_e(TAG, "ota_1 copy: erase failed at offset 0x%" PRIx32 ": %s", offset, esp_err_to_name(err));
+                return;
+            }
+
+            err = esp_flash_write(NULL, s_buf, OTA_1_ADDR + offset, len);
+            if (err != ESP_OK) {
+                bb_log_e(TAG, "ota_1 copy: write failed at offset 0x%" PRIx32 ": %s", offset, esp_err_to_name(err));
+                return;
+            }
+        }
+        bb_log_i(TAG, "ota_1 duplication complete (%" PRIu32 " bytes)", OTA_SLOT_SIZE);
+
+        // Erase otadata (8KB = two 4KB sectors at 0xF000)
+        // All 0xFF means "boot from ota_0"
+        bb_log_i(TAG, "erasing otadata at 0x%x (%" PRIu32 " bytes)", OTADATA_ADDR, (uint32_t)OTADATA_SIZE);
+        err = esp_flash_erase_region(NULL, OTADATA_ADDR, OTADATA_SIZE);
         if (err != ESP_OK) {
-            bb_log_e(TAG, "ota_1 copy: write failed at offset 0x%" PRIx32 ": %s", offset, esp_err_to_name(err));
+            bb_log_e(TAG, "erase otadata failed: %s", esp_err_to_name(err));
             return;
         }
-    }
-    bb_log_i(TAG, "ota_1 duplication complete (%" PRIu32 " bytes)", OTA_SLOT_SIZE);
 
-    // Erase otadata (8KB = two 4KB sectors at 0xF000)
-    // All 0xFF means "boot from ota_0"
-    bb_log_i(TAG, "erasing otadata at 0x%x (%" PRIu32 " bytes)", OTADATA_ADDR, (uint32_t)OTADATA_SIZE);
-    err = esp_flash_erase_region(NULL, OTADATA_ADDR, OTADATA_SIZE);
-    if (err != ESP_OK) {
-        bb_log_e(TAG, "erase otadata failed: %s", esp_err_to_name(err));
-        return;
+        bb_log_w(TAG, "partition fixup complete — rebooting");
+        esp_restart();
+        break;
     }
-
-    bb_log_w(TAG, "partition fixup complete — rebooting");
-    esp_restart();
 }
 
 #else

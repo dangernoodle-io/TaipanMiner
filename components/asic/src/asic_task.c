@@ -8,6 +8,7 @@
 #include "asic_metric_avg.h"
 #include "asic_drop_detect.h"
 #include "asic_chip_routing.h"
+#include "asic_nonce_dedup.h"
 #include "crc.h"
 #include "tps546.h"
 #include "emc2101.h"
@@ -54,9 +55,7 @@ static double s_current_asic_diff = 0;
 #define ASIC_TICKET_DIFF 256.0
 
 // --- Nonce dedup (ASIC loops nonce space quickly, reports same results) ---
-#define DEDUP_SIZE 16
-static struct { uint8_t job_id; uint32_t nonce; uint32_t ver; } s_dedup[DEDUP_SIZE];
-static uint8_t s_dedup_idx;
+static asic_nonce_dedup_t s_dedup;
 
 // Debug counters for SHA256d filter
 static uint32_t s_sha_pass;
@@ -339,8 +338,7 @@ void asic_mining_task(void *arg)
             if (work.clean) {
                 memset(s_job_table, 0, sizeof(s_job_table));
             }
-            memset(s_dedup, 0, sizeof(s_dedup));
-            s_dedup_idx = 0;
+            asic_nonce_dedup_reset(&s_dedup);
 
             // Cycle job ID
             s_next_job_id = (s_next_job_id + ASIC_JOB_ID_STEP) % ASIC_JOB_ID_MOD;
@@ -511,18 +509,9 @@ void asic_mining_task(void *arg)
                                  ((uint32_t)nonce.nonce[2] << 8) | nonce.nonce[3];
 
             // Dedup: skip if we already submitted this nonce+version for this job
-            bool dup = false;
-            for (int d = 0; d < DEDUP_SIZE; d++) {
-                if (s_dedup[d].job_id == real_job_id && s_dedup[d].nonce == nonce_val && s_dedup[d].ver == ver_bits) {
-                    dup = true;
-                    break;
-                }
-            }
-            if (dup) {
+            if (asic_nonce_dedup_check_and_insert(&s_dedup, real_job_id, nonce_val, ver_bits)) {
                 continue;
             }
-            s_dedup[s_dedup_idx] = (typeof(s_dedup[0])){real_job_id, nonce_val, ver_bits};
-            s_dedup_idx = (s_dedup_idx + 1) % DEDUP_SIZE;
 
             nonces_since_log++;
 

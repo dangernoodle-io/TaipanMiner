@@ -202,6 +202,16 @@ void test_asic_pause_second_pause_only_acks(void);
 void test_asic_pause_resume_when_clear_and_quiesced(void);
 void test_asic_pause_full_check_install_resume_sequence(void);
 
+// TA-234: asic_nonce_dedup
+void test_nonce_dedup_fresh_state_has_no_dups(void);
+void test_nonce_dedup_immediate_redundant_insert_returns_true(void);
+void test_nonce_dedup_different_job_id_is_not_dup(void);
+void test_nonce_dedup_different_nonce_is_not_dup(void);
+void test_nonce_dedup_different_ver_is_not_dup(void);
+void test_nonce_dedup_ring_wraparound_evicts_oldest(void);
+void test_nonce_dedup_reset_clears_all(void);
+void test_nonce_dedup_next_idx_advances_cyclically(void);
+
 // TA-234: asic_metric_avg
 void test_avg_nan_safe_empty_all_nan(void);
 void test_avg_nan_safe_single_value(void);
@@ -473,6 +483,16 @@ int main(void) {
     RUN_TEST(test_asic_pause_second_pause_only_acks);
     RUN_TEST(test_asic_pause_resume_when_clear_and_quiesced);
     RUN_TEST(test_asic_pause_full_check_install_resume_sequence);
+
+    // TA-234: asic_nonce_dedup tests
+    RUN_TEST(test_nonce_dedup_fresh_state_has_no_dups);
+    RUN_TEST(test_nonce_dedup_immediate_redundant_insert_returns_true);
+    RUN_TEST(test_nonce_dedup_different_job_id_is_not_dup);
+    RUN_TEST(test_nonce_dedup_different_nonce_is_not_dup);
+    RUN_TEST(test_nonce_dedup_different_ver_is_not_dup);
+    RUN_TEST(test_nonce_dedup_ring_wraparound_evicts_oldest);
+    RUN_TEST(test_nonce_dedup_reset_clears_all);
+    RUN_TEST(test_nonce_dedup_next_idx_advances_cyclically);
 
     // TA-234: asic_metric_avg tests
     RUN_TEST(test_avg_nan_safe_empty_all_nan);

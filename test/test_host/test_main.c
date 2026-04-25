@@ -202,6 +202,18 @@ void test_asic_pause_second_pause_only_acks(void);
 void test_asic_pause_resume_when_clear_and_quiesced(void);
 void test_asic_pause_full_check_install_resume_sequence(void);
 
+// TA-234: mining_pause_state
+void test_mining_pause_state_init(void);
+void test_mining_pause_state_request(void);
+void test_mining_pause_state_on_check_not_requested(void);
+void test_mining_pause_state_on_check_requested(void);
+void test_mining_pause_state_on_resume_when_active(void);
+void test_mining_pause_state_on_resume_when_not_active(void);
+void test_mining_pause_state_on_resumed(void);
+void test_mining_pause_state_on_ack_timeout(void);
+void test_mining_pause_state_full_happy_path(void);
+void test_mining_pause_state_resume_before_check(void);
+
 // TA-234: asic_nonce_dedup
 void test_nonce_dedup_fresh_state_has_no_dups(void);
 void test_nonce_dedup_immediate_redundant_insert_returns_true(void);
@@ -483,6 +495,18 @@ int main(void) {
     RUN_TEST(test_asic_pause_second_pause_only_acks);
     RUN_TEST(test_asic_pause_resume_when_clear_and_quiesced);
     RUN_TEST(test_asic_pause_full_check_install_resume_sequence);
+
+    // TA-234: mining_pause_state tests
+    RUN_TEST(test_mining_pause_state_init);
+    RUN_TEST(test_mining_pause_state_request);
+    RUN_TEST(test_mining_pause_state_on_check_not_requested);
+    RUN_TEST(test_mining_pause_state_on_check_requested);
+    RUN_TEST(test_mining_pause_state_on_resume_when_active);
+    RUN_TEST(test_mining_pause_state_on_resume_when_not_active);
+    RUN_TEST(test_mining_pause_state_on_resumed);
+    RUN_TEST(test_mining_pause_state_on_ack_timeout);
+    RUN_TEST(test_mining_pause_state_full_happy_path);
+    RUN_TEST(test_mining_pause_state_resume_before_check);
 
     // TA-234: asic_nonce_dedup tests
     RUN_TEST(test_nonce_dedup_fresh_state_has_no_dups);

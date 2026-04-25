@@ -202,6 +202,20 @@ void test_asic_pause_second_pause_only_acks(void);
 void test_asic_pause_resume_when_clear_and_quiesced(void);
 void test_asic_pause_full_check_install_resume_sequence(void);
 
+// TA-234: asic_metric_avg
+void test_avg_nan_safe_empty_all_nan(void);
+void test_avg_nan_safe_single_value(void);
+void test_avg_nan_safe_partial_nan(void);
+void test_avg_nan_safe_all_populated(void);
+void test_update_warmup_1m(void);
+void test_update_full_1m_window(void);
+void test_update_step_change(void);
+void test_update_ring_wraparound(void);
+void test_update_10m_blend_formula(void);
+void test_update_1h_accumulation(void);
+void test_update_with_zero_samples(void);
+void test_update_mixed_values(void);
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -411,6 +425,20 @@ int main(void) {
     RUN_TEST(test_asic_pause_second_pause_only_acks);
     RUN_TEST(test_asic_pause_resume_when_clear_and_quiesced);
     RUN_TEST(test_asic_pause_full_check_install_resume_sequence);
+
+    // TA-234: asic_metric_avg tests
+    RUN_TEST(test_avg_nan_safe_empty_all_nan);
+    RUN_TEST(test_avg_nan_safe_single_value);
+    RUN_TEST(test_avg_nan_safe_partial_nan);
+    RUN_TEST(test_avg_nan_safe_all_populated);
+    RUN_TEST(test_update_warmup_1m);
+    RUN_TEST(test_update_full_1m_window);
+    RUN_TEST(test_update_step_change);
+    RUN_TEST(test_update_ring_wraparound);
+    RUN_TEST(test_update_10m_blend_formula);
+    RUN_TEST(test_update_1h_accumulation);
+    RUN_TEST(test_update_with_zero_samples);
+    RUN_TEST(test_update_mixed_values);
 
     return UNITY_END();
 }

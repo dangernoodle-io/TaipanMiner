@@ -5,6 +5,7 @@
 #include "asic_proto.h"
 #include "asic_internal.h"
 #include "asic_pause_coalesce.h"
+#include "asic_metric_avg.h"
 #include "crc.h"
 #include "tps546.h"
 #include "emc2101.h"
@@ -99,11 +100,11 @@ static struct {
 
 // TA-196: rolling-window averages mirroring ESP-Miner's hashrate_monitor_task.c
 #define ASIC_POLL_PERIOD_MS 5000
-#define ASIC_AVG_1M_SIZE    12  // 12 * 5s = 60s
-#define ASIC_AVG_10M_SIZE   10
-#define ASIC_AVG_1H_SIZE    6
-#define ASIC_AVG_DIV_10M    ASIC_AVG_1M_SIZE
-#define ASIC_AVG_DIV_1H     (ASIC_AVG_10M_SIZE * ASIC_AVG_DIV_10M)
+#define ASIC_AVG_1M_SIZE    ASIC_METRIC_AVG_1M_SIZE
+#define ASIC_AVG_10M_SIZE   ASIC_METRIC_AVG_10M_SIZE
+#define ASIC_AVG_1H_SIZE    ASIC_METRIC_AVG_1H_SIZE
+#define ASIC_AVG_DIV_10M    ASIC_METRIC_AVG_DIV_10M
+#define ASIC_AVG_DIV_1H     ASIC_METRIC_AVG_DIV_1H
 
 static unsigned long s_avg_poll_count;
 static float s_total_1m[ASIC_AVG_1M_SIZE];
@@ -181,20 +182,6 @@ void set_ticket_mask(double difficulty)
              difficulty, mask[0], mask[1], mask[2], mask[3]);
 }
 
-// TA-196: NaN-safe averaging helpers
-static float avg_nan_safe(const float *buf, size_t n)
-{
-    float sum = 0.0f;
-    int count = 0;
-    for (size_t i = 0; i < n; i++) {
-        if (!isnanf(buf[i])) {
-            sum += buf[i];
-            count++;
-        }
-    }
-    return count > 0 ? sum / (float)count : 0.0f;
-}
-
 static void init_avg_buffers(void)
 {
     s_avg_poll_count = 0;
@@ -205,43 +192,6 @@ static void init_avg_buffers(void)
     s_total_1h_prev  = NAN;
     s_hw_err_10m_prev = NAN;
     s_hw_err_1h_prev  = NAN;
-}
-
-// Progressive-blend averaging — matches ESP-Miner's update_hashrate_averages.
-// Does NOT increment s_avg_poll_count — caller does after both metrics update.
-static void update_metric_avg(float sample,
-                              float *buf_1m, float *buf_10m, float *buf_1h,
-                              float *prev_10m, float *prev_1h,
-                              float *out_1m, float *out_10m, float *out_1h)
-{
-    unsigned long pc = s_avg_poll_count;
-
-    buf_1m[pc % ASIC_AVG_1M_SIZE] = sample;
-    *out_1m = avg_nan_safe(buf_1m, ASIC_AVG_1M_SIZE);
-
-    int blend_10m = pc % ASIC_AVG_1M_SIZE;
-    if (blend_10m == 0) {
-        *prev_10m = buf_10m[(pc / ASIC_AVG_DIV_10M) % ASIC_AVG_10M_SIZE];
-    }
-    float v_10m = *out_1m;
-    if (!isnanf(*prev_10m)) {
-        float f = (blend_10m + 1.0f) / (float)ASIC_AVG_1M_SIZE;
-        v_10m = f * v_10m + (1.0f - f) * (*prev_10m);
-    }
-    buf_10m[(pc / ASIC_AVG_DIV_10M) % ASIC_AVG_10M_SIZE] = v_10m;
-    *out_10m = avg_nan_safe(buf_10m, ASIC_AVG_10M_SIZE);
-
-    int blend_1h = pc % ASIC_AVG_DIV_1H;
-    if (blend_1h == 0) {
-        *prev_1h = buf_1h[(pc / ASIC_AVG_DIV_1H) % ASIC_AVG_1H_SIZE];
-    }
-    float v_1h = *out_10m;
-    if (!isnanf(*prev_1h)) {
-        float f = (blend_1h + 1.0f) / (float)ASIC_AVG_DIV_1H;
-        v_1h = f * v_1h + (1.0f - f) * (*prev_1h);
-    }
-    buf_1h[(pc / ASIC_AVG_DIV_1H) % ASIC_AVG_1H_SIZE] = v_1h;
-    *out_1h = avg_nan_safe(buf_1h, ASIC_AVG_1H_SIZE);
 }
 
 // --- asic_init ---
@@ -708,14 +658,14 @@ void asic_mining_task(void *arg)
 
             float t_1m = 0.0f, t_10m = 0.0f, t_1h = 0.0f;
             float h_1m = 0.0f, h_10m = 0.0f, h_1h = 0.0f;
-            update_metric_avg(total_sum,
-                              s_total_1m, s_total_10m, s_total_1h,
-                              &s_total_10m_prev, &s_total_1h_prev,
-                              &t_1m, &t_10m, &t_1h);
-            update_metric_avg(hw_err_pct,
-                              s_hw_err_1m, s_hw_err_10m, s_hw_err_1h,
-                              &s_hw_err_10m_prev, &s_hw_err_1h_prev,
-                              &h_1m, &h_10m, &h_1h);
+            asic_metric_avg_update(s_avg_poll_count, total_sum,
+                                   s_total_1m, s_total_10m, s_total_1h,
+                                   &s_total_10m_prev, &s_total_1h_prev,
+                                   &t_1m, &t_10m, &t_1h);
+            asic_metric_avg_update(s_avg_poll_count, hw_err_pct,
+                                   s_hw_err_1m, s_hw_err_10m, s_hw_err_1h,
+                                   &s_hw_err_10m_prev, &s_hw_err_1h_prev,
+                                   &h_1m, &h_10m, &h_1h);
             s_avg_poll_count++;
 
             if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {

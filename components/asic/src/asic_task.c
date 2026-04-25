@@ -6,6 +6,7 @@
 #include "asic_internal.h"
 #include "asic_pause_coalesce.h"
 #include "asic_metric_avg.h"
+#include "asic_drop_detect.h"
 #include "crc.h"
 #include "tps546.h"
 #include "emc2101.h"
@@ -411,18 +412,21 @@ void asic_mining_task(void *arg)
                         float seconds = (float)(now_us - s_chip_meas[chip_idx].total_time_us) / 1e6f;
                         if (seconds > 0.001f) {
                             float ghs = (float)delta * (float)HASH_CNT_LSB / seconds / 1e9f;
-                            if (ghs < ASIC_CHIP_GHS_SANITY_MAX) {
+                            asic_drop_detect_step_t step = asic_drop_detect_evaluate(
+                                ghs, ASIC_CHIP_GHS_SANITY_MAX,
+                                (uint64_t)esp_timer_get_time(),
+                                s_chip_warn[chip_idx].total_last_warn_us,
+                                WARN_COOLDOWN_US);
+                            if (step.accept) {
                                 s_chip_meas[chip_idx].total_ghs = ghs;
                             } else {
                                 s_chip_meas[chip_idx].total_drops++;
-                                uint64_t now = esp_timer_get_time();
-                                if ((now - s_chip_warn[chip_idx].total_last_warn_us) >= WARN_COOLDOWN_US) {
-                                    float elapsed_s = (float)seconds;
+                                if (step.should_warn) {
                                     bb_log_w(TAG, "chip %d total sanity fail: ghs=%.1f delta=0x%08" PRIx32
                                                   " elapsed=%.3fs addr=0x%02X drops=%" PRIu32 " — dropped",
-                                             chip_idx, ghs, delta, elapsed_s, asic_addr,
+                                             chip_idx, ghs, delta, (float)seconds, asic_addr,
                                              s_chip_meas[chip_idx].total_drops);
-                                    s_chip_warn[chip_idx].total_last_warn_us = now;
+                                    s_chip_warn[chip_idx].total_last_warn_us = step.new_last_warn_us;
                                 }
                             }
                         }
@@ -438,18 +442,21 @@ void asic_mining_task(void *arg)
                         float seconds = (float)(now_us - s_chip_meas[chip_idx].error_time_us) / 1e6f;
                         if (seconds > 0.001f) {
                             float ghs = (float)delta * (float)HASH_CNT_LSB / seconds / 1e9f;
-                            if (ghs < ASIC_CHIP_GHS_SANITY_MAX) {
+                            asic_drop_detect_step_t step = asic_drop_detect_evaluate(
+                                ghs, ASIC_CHIP_GHS_SANITY_MAX,
+                                (uint64_t)esp_timer_get_time(),
+                                s_chip_warn[chip_idx].error_last_warn_us,
+                                WARN_COOLDOWN_US);
+                            if (step.accept) {
                                 s_chip_meas[chip_idx].error_ghs = ghs;
                             } else {
                                 s_chip_meas[chip_idx].error_drops++;
-                                uint64_t now = esp_timer_get_time();
-                                if ((now - s_chip_warn[chip_idx].error_last_warn_us) >= WARN_COOLDOWN_US) {
-                                    float elapsed_s = (float)seconds;
+                                if (step.should_warn) {
                                     bb_log_w(TAG, "chip %d error sanity fail: ghs=%.1f delta=0x%08" PRIx32
                                                   " elapsed=%.3fs addr=0x%02X drops=%" PRIu32 " — dropped",
-                                             chip_idx, ghs, delta, elapsed_s, asic_addr,
+                                             chip_idx, ghs, delta, (float)seconds, asic_addr,
                                              s_chip_meas[chip_idx].error_drops);
-                                    s_chip_warn[chip_idx].error_last_warn_us = now;
+                                    s_chip_warn[chip_idx].error_last_warn_us = step.new_last_warn_us;
                                 }
                             }
                         }
@@ -466,18 +473,21 @@ void asic_mining_task(void *arg)
                         float seconds = (float)(now_us - s_chip_meas[chip_idx].domain_time_us[d]) / 1e6f;
                         if (seconds > 0.001f) {
                             float ghs = (float)delta * (float)HASH_CNT_LSB / seconds / 1e9f;
-                            if (ghs < ASIC_DOMAIN_GHS_SANITY_MAX) {
+                            asic_drop_detect_step_t step = asic_drop_detect_evaluate(
+                                ghs, ASIC_DOMAIN_GHS_SANITY_MAX,
+                                (uint64_t)esp_timer_get_time(),
+                                s_chip_warn[chip_idx].domain_last_warn_us[d],
+                                WARN_COOLDOWN_US);
+                            if (step.accept) {
                                 s_chip_meas[chip_idx].domain_ghs[d] = ghs;
                             } else {
                                 s_chip_meas[chip_idx].domain_drops[d]++;
-                                uint64_t now = esp_timer_get_time();
-                                if ((now - s_chip_warn[chip_idx].domain_last_warn_us[d]) >= WARN_COOLDOWN_US) {
-                                    float elapsed_s = (float)seconds;
+                                if (step.should_warn) {
                                     bb_log_w(TAG, "chip %d domain %d sanity fail: ghs=%.1f delta=0x%08" PRIx32
                                                   " elapsed=%.3fs addr=0x%02X drops=%" PRIu32 " — dropped",
-                                             chip_idx, d, ghs, delta, elapsed_s, asic_addr,
+                                             chip_idx, d, ghs, delta, (float)seconds, asic_addr,
                                              s_chip_meas[chip_idx].domain_drops[d]);
-                                    s_chip_warn[chip_idx].domain_last_warn_us[d] = now;
+                                    s_chip_warn[chip_idx].domain_last_warn_us[d] = step.new_last_warn_us;
                                 }
                             }
                         }

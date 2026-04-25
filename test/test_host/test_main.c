@@ -224,6 +224,15 @@ void test_stratum_backoff_caps_at_60s(void);
 void test_stratum_backoff_reset_on_success(void);
 void test_stratum_backoff_post_kick_restarts_clean(void);
 
+// TA-234: asic_drop_detect
+void test_drop_detect_accepts_below_sanity(void);
+void test_drop_detect_rejects_at_or_above_sanity(void);
+void test_drop_detect_first_warn_fires_immediately(void);
+void test_drop_detect_warn_cooldown_suppresses(void);
+void test_drop_detect_warn_after_cooldown_elapsed(void);
+void test_drop_detect_domain_smaller_cap(void);
+void test_drop_detect_zero_cooldown_always_warns(void);
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -455,6 +464,15 @@ int main(void) {
     RUN_TEST(test_stratum_backoff_caps_at_60s);
     RUN_TEST(test_stratum_backoff_reset_on_success);
     RUN_TEST(test_stratum_backoff_post_kick_restarts_clean);
+
+    // TA-234: asic_drop_detect tests
+    RUN_TEST(test_drop_detect_accepts_below_sanity);
+    RUN_TEST(test_drop_detect_rejects_at_or_above_sanity);
+    RUN_TEST(test_drop_detect_first_warn_fires_immediately);
+    RUN_TEST(test_drop_detect_warn_cooldown_suppresses);
+    RUN_TEST(test_drop_detect_warn_after_cooldown_elapsed);
+    RUN_TEST(test_drop_detect_domain_smaller_cap);
+    RUN_TEST(test_drop_detect_zero_cooldown_always_warns);
 
     return UNITY_END();
 }

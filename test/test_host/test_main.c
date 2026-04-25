@@ -216,6 +216,14 @@ void test_update_1h_accumulation(void);
 void test_update_with_zero_samples(void);
 void test_update_mixed_values(void);
 
+// TA-234: stratum_backoff
+void test_stratum_backoff_init(void);
+void test_stratum_backoff_first_fail_sleeps_initial_then_doubles(void);
+void test_stratum_backoff_progression_to_kick(void);
+void test_stratum_backoff_caps_at_60s(void);
+void test_stratum_backoff_reset_on_success(void);
+void test_stratum_backoff_post_kick_restarts_clean(void);
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -439,6 +447,14 @@ int main(void) {
     RUN_TEST(test_update_1h_accumulation);
     RUN_TEST(test_update_with_zero_samples);
     RUN_TEST(test_update_mixed_values);
+
+    // TA-234: stratum_backoff tests
+    RUN_TEST(test_stratum_backoff_init);
+    RUN_TEST(test_stratum_backoff_first_fail_sleeps_initial_then_doubles);
+    RUN_TEST(test_stratum_backoff_progression_to_kick);
+    RUN_TEST(test_stratum_backoff_caps_at_60s);
+    RUN_TEST(test_stratum_backoff_reset_on_success);
+    RUN_TEST(test_stratum_backoff_post_kick_restarts_clean);
 
     return UNITY_END();
 }

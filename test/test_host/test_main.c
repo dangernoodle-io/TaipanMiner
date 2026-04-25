@@ -233,6 +233,25 @@ void test_drop_detect_warn_after_cooldown_elapsed(void);
 void test_drop_detect_domain_smaller_cap(void);
 void test_drop_detect_zero_cooldown_always_warns(void);
 
+// TA-234: stratum_watchdogs
+void test_stratum_watchdog_job_drought_never_observed(void);
+void test_stratum_watchdog_job_drought_below_threshold(void);
+void test_stratum_watchdog_job_drought_at_threshold(void);
+void test_stratum_watchdog_job_drought_above_threshold(void);
+void test_stratum_watchdog_job_drought_wraparound(void);
+void test_stratum_watchdog_share_drought_both_zero(void);
+void test_stratum_watchdog_share_drought_only_last_share_below_threshold(void);
+void test_stratum_watchdog_share_drought_session_start_at_threshold(void);
+void test_stratum_watchdog_share_drought_only_last_share_above_threshold(void);
+void test_stratum_watchdog_share_drought_prefers_last_share(void);
+void test_stratum_watchdog_share_drought_falls_back_to_session_start(void);
+void test_stratum_watchdog_share_drought_last_share_overrides_old_session(void);
+void test_stratum_watchdog_keepalive_never_transmitted(void);
+void test_stratum_watchdog_keepalive_below_threshold(void);
+void test_stratum_watchdog_keepalive_at_threshold(void);
+void test_stratum_watchdog_keepalive_above_threshold(void);
+void test_stratum_watchdog_keepalive_wraparound(void);
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -473,6 +492,25 @@ int main(void) {
     RUN_TEST(test_drop_detect_warn_after_cooldown_elapsed);
     RUN_TEST(test_drop_detect_domain_smaller_cap);
     RUN_TEST(test_drop_detect_zero_cooldown_always_warns);
+
+    // TA-234: stratum_watchdogs tests
+    RUN_TEST(test_stratum_watchdog_job_drought_never_observed);
+    RUN_TEST(test_stratum_watchdog_job_drought_below_threshold);
+    RUN_TEST(test_stratum_watchdog_job_drought_at_threshold);
+    RUN_TEST(test_stratum_watchdog_job_drought_above_threshold);
+    RUN_TEST(test_stratum_watchdog_job_drought_wraparound);
+    RUN_TEST(test_stratum_watchdog_share_drought_both_zero);
+    RUN_TEST(test_stratum_watchdog_share_drought_only_last_share_below_threshold);
+    RUN_TEST(test_stratum_watchdog_share_drought_session_start_at_threshold);
+    RUN_TEST(test_stratum_watchdog_share_drought_only_last_share_above_threshold);
+    RUN_TEST(test_stratum_watchdog_share_drought_prefers_last_share);
+    RUN_TEST(test_stratum_watchdog_share_drought_falls_back_to_session_start);
+    RUN_TEST(test_stratum_watchdog_share_drought_last_share_overrides_old_session);
+    RUN_TEST(test_stratum_watchdog_keepalive_never_transmitted);
+    RUN_TEST(test_stratum_watchdog_keepalive_below_threshold);
+    RUN_TEST(test_stratum_watchdog_keepalive_at_threshold);
+    RUN_TEST(test_stratum_watchdog_keepalive_above_threshold);
+    RUN_TEST(test_stratum_watchdog_keepalive_wraparound);
 
     return UNITY_END();
 }

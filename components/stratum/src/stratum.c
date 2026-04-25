@@ -1,5 +1,6 @@
 #include "stratum.h"
 #include "stratum_backoff.h"
+#include "stratum_watchdogs.h"
 #include "stratum_utils.h"
 #include "bb_nv.h"
 #include "taipan_config.h"
@@ -730,17 +731,21 @@ void stratum_task(void *arg)
             }
 
             // Reconnect if no new pool job received for 5 minutes
-            if (s_last_pool_job_tick != 0 &&
-                (xTaskGetTickCount() - s_last_pool_job_tick) >= pdMS_TO_TICKS(300000)) {
-                bb_log_w(TAG, "no new job for 5 minutes, reconnecting");
-                break;
+            {
+                uint32_t now_ms = pdTICKS_TO_MS(xTaskGetTickCount());
+                uint32_t last_ms = pdTICKS_TO_MS(s_last_pool_job_tick);
+                if (stratum_watchdog_job_drought(now_ms, last_ms)) {
+                    bb_log_w(TAG, "no new job for 5 minutes, reconnecting");
+                    break;
+                }
             }
 
             // Reconnect if no share submitted in 30 minutes
             {
-                TickType_t share_ref = s_last_share_tick ? s_last_share_tick : s_session_start_tick;
-                if (share_ref != 0 &&
-                    (xTaskGetTickCount() - share_ref) >= pdMS_TO_TICKS(1800000)) {
+                uint32_t now_ms = pdTICKS_TO_MS(xTaskGetTickCount());
+                uint32_t last_share_ms = pdTICKS_TO_MS(s_last_share_tick);
+                uint32_t start_ms = pdTICKS_TO_MS(s_session_start_tick);
+                if (stratum_watchdog_share_drought(now_ms, last_share_ms, start_ms)) {
                     bb_log_w(TAG, "no share submitted in 30 minutes, reconnecting");
                     break;
                 }
@@ -762,9 +767,9 @@ void stratum_task(void *arg)
 
             // App-level keepalive — keep NAT table alive on routers that ignore TCP keepalives
             {
-                TickType_t now = xTaskGetTickCount();
-                if (s_last_tx_tick != 0 &&
-                    (now - s_last_tx_tick) >= pdMS_TO_TICKS(90000)) {
+                uint32_t now_ms = pdTICKS_TO_MS(xTaskGetTickCount());
+                uint32_t last_tx_ms = pdTICKS_TO_MS(s_last_tx_tick);
+                if (stratum_watchdog_needs_keepalive(now_ms, last_tx_ms)) {
                     bb_log_d(TAG, "sending keepalive ping");
                     char params[32];
                     snprintf(params, sizeof(params), "[%.4f]", s_difficulty);

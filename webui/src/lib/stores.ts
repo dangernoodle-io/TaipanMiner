@@ -88,6 +88,14 @@ export function startRebootRecovery(reason: string) {
   }, 3000)
 }
 
+// Test helper to reset reboot state
+export function __resetRebootPoll() {
+  if (rebootPollId !== null) {
+    clearInterval(rebootPollId)
+  }
+  rebootPollId = null
+}
+
 let pollInterval: ReturnType<typeof setInterval> | null = null
 let failCount = 0
 let infoLoaded = false

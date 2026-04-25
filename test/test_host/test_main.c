@@ -182,6 +182,19 @@ void test_curve_negative_temp(void);
 void test_curve_very_high_temp(void);
 void test_curve_monotonic(void);
 
+// Forward declarations from test_ota_validator.c
+void test_ota_validator_init(void);
+void test_ota_validator_on_stratum_authorized_not_pending(void);
+void test_ota_validator_on_stratum_authorized_pending_first_time(void);
+void test_ota_validator_on_stratum_authorized_pending_already_armed(void);
+void test_ota_validator_on_share_accepted_not_pending(void);
+void test_ota_validator_on_share_accepted_pending_with_armed_timer(void);
+void test_ota_validator_on_share_accepted_pending_without_timer(void);
+void test_ota_validator_on_timer_fired_not_pending(void);
+void test_ota_validator_on_timer_fired_pending(void);
+void test_ota_validator_happy_path_share_accepted(void);
+void test_ota_validator_happy_path_timeout(void);
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -371,6 +384,19 @@ int main(void) {
     RUN_TEST(test_curve_negative_temp);
     RUN_TEST(test_curve_very_high_temp);
     RUN_TEST(test_curve_monotonic);
+
+    // OTA validator state machine tests
+    RUN_TEST(test_ota_validator_init);
+    RUN_TEST(test_ota_validator_on_stratum_authorized_not_pending);
+    RUN_TEST(test_ota_validator_on_stratum_authorized_pending_first_time);
+    RUN_TEST(test_ota_validator_on_stratum_authorized_pending_already_armed);
+    RUN_TEST(test_ota_validator_on_share_accepted_not_pending);
+    RUN_TEST(test_ota_validator_on_share_accepted_pending_with_armed_timer);
+    RUN_TEST(test_ota_validator_on_share_accepted_pending_without_timer);
+    RUN_TEST(test_ota_validator_on_timer_fired_not_pending);
+    RUN_TEST(test_ota_validator_on_timer_fired_pending);
+    RUN_TEST(test_ota_validator_happy_path_share_accepted);
+    RUN_TEST(test_ota_validator_happy_path_timeout);
 
     return UNITY_END();
 }

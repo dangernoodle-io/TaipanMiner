@@ -1,4 +1,5 @@
 #include "stratum.h"
+#include "stratum_backoff.h"
 #include "stratum_utils.h"
 #include "bb_nv.h"
 #include "taipan_config.h"
@@ -51,12 +52,13 @@ static TickType_t s_last_pool_job_tick = 0; // last mining.notify from pool (not
 static TickType_t s_last_share_tick = 0; // last share submission tick (30-min watchdog)
 static TickType_t s_last_tx_tick = 0;    // last stratum TX (for app-level keepalive)
 static TickType_t s_session_start_tick = 0;
-static uint32_t s_reconnect_delay_ms = 5000; // exponential backoff for reconnect attempts
+static stratum_backoff_t s_backoff = {
+    .delay_ms = STRATUM_BACKOFF_INITIAL_MS,
+    .fail_count = 0,
+};
 static volatile bool s_stratum_connected = false;
 static volatile bool s_reconnect_requested = false;
 static stratum_wifi_kick_cb_t s_wifi_kick_cb = NULL;
-static int s_connect_fail_count = 0;
-#define STRATUM_WIFI_KICK_THRESHOLD 5
 
 // Line buffer for reading from socket
 static char s_linebuf[4096];
@@ -98,12 +100,12 @@ void stratum_set_wifi_kick_cb(stratum_wifi_kick_cb_t cb)
 
 uint32_t stratum_get_reconnect_delay_ms(void)
 {
-    return s_reconnect_delay_ms;
+    return s_backoff.delay_ms;
 }
 
 int stratum_get_connect_fail_count(void)
 {
-    return s_connect_fail_count;
+    return s_backoff.fail_count;
 }
 
 // Send a JSON-RPC request. Returns assigned message id, or -1 on error.
@@ -420,7 +422,7 @@ static void handle_notify(bb_json_t params)
     xQueueOverwrite(work_queue, &work);
     s_last_job_tick = xTaskGetTickCount();
     s_last_pool_job_tick = s_last_job_tick;
-    s_reconnect_delay_ms = 5000;  // reset backoff on successful job receipt
+    stratum_backoff_reset(&s_backoff);  // reset on successful job receipt
 }
 
 // Handle mining.set_difficulty
@@ -607,23 +609,18 @@ void stratum_task(void *arg)
 
         // Connect
         if (stratum_connect(pool_host, pool_port) != 0) {
-            s_connect_fail_count++;
+            stratum_backoff_step_t step = stratum_backoff_on_fail(&s_backoff);
             bb_log_w(TAG, "connect failed (%d/%d), reconnecting in %" PRIu32 "ms",
-                     s_connect_fail_count, STRATUM_WIFI_KICK_THRESHOLD,
-                     s_reconnect_delay_ms);
-            if (s_connect_fail_count >= STRATUM_WIFI_KICK_THRESHOLD && s_wifi_kick_cb) {
+                     s_backoff.fail_count, STRATUM_BACKOFF_KICK_THRESHOLD, step.sleep_ms);
+            if (step.outcome == STRATUM_BACKOFF_OUTCOME_KICK && s_wifi_kick_cb) {
                 bb_log_w(TAG, "forcing WiFi reassociation after %d consecutive failures",
-                         s_connect_fail_count);
-                s_connect_fail_count = 0;
-                s_reconnect_delay_ms = 5000;
+                         STRATUM_BACKOFF_KICK_THRESHOLD);
                 s_wifi_kick_cb();
             }
-            vTaskDelay(pdMS_TO_TICKS(s_reconnect_delay_ms));
-            if (s_reconnect_delay_ms < 60000) s_reconnect_delay_ms *= 2;
+            vTaskDelay(pdMS_TO_TICKS(step.sleep_ms));
             continue;
         }
-        s_connect_fail_count = 0;
-        s_reconnect_delay_ms = 5000;
+        stratum_backoff_reset(&s_backoff);
 
         // Configure (version rolling) — non-fatal if pool doesn't support it
         s_configure_id = stratum_request("mining.configure",
@@ -803,8 +800,13 @@ reconnect:
             mining_result_t stale;
             while (xQueueReceive(result_queue, &stale, 0) == pdTRUE) {}
         }
-        bb_log_w(TAG, "reconnecting in %" PRIu32 "ms", s_reconnect_delay_ms);
-        vTaskDelay(pdMS_TO_TICKS(s_reconnect_delay_ms));
-        if (s_reconnect_delay_ms < 60000) s_reconnect_delay_ms *= 2;
+        stratum_backoff_step_t step = stratum_backoff_on_fail(&s_backoff);
+        bb_log_w(TAG, "reconnecting in %" PRIu32 "ms", step.sleep_ms);
+        if (step.outcome == STRATUM_BACKOFF_OUTCOME_KICK && s_wifi_kick_cb) {
+            bb_log_w(TAG, "forcing WiFi reassociation after %d consecutive failures",
+                     STRATUM_BACKOFF_KICK_THRESHOLD);
+            s_wifi_kick_cb();
+        }
+        vTaskDelay(pdMS_TO_TICKS(step.sleep_ms));
     }
 }

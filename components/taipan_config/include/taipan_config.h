@@ -6,6 +6,7 @@
 #include "bb_nv.h"
 
 bb_err_t taipan_config_init(void);
+bb_err_t taipan_config_register_manifest(void);
 
 const char *taipan_config_pool_host(void);
 uint16_t taipan_config_pool_port(void);

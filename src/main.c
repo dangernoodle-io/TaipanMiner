@@ -20,6 +20,8 @@
 #include "bb_log.h"
 #include "bb_ota_pull.h"
 #include "bb_ota_push.h"
+#include "bb_openapi.h"
+#include "bb_manifest.h"
 #include "knot.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -213,6 +215,8 @@ void app_main(void)
     // Load config from NVS (falls back to defaults)
     ESP_ERROR_CHECK(bb_nv_config_init());
     ESP_ERROR_CHECK(taipan_config_init());
+    // Register manifest so /api/manifest exposes the NVS keyspace
+    ESP_ERROR_CHECK(taipan_config_register_manifest());
     log_reset_reason();
     ESP_ERROR_CHECK(led_init());
 
@@ -370,6 +374,26 @@ void app_main(void)
                           "mining");
         }
         ESP_ERROR_CHECK(bb_http_server_ensure_started());
+        {
+            // Register OpenAPI endpoint (version sourced from bb_system_get_version when NULL)
+            static const bb_openapi_meta_t openapi_meta = {
+                .title = "TaipanMiner API",
+                .version = NULL,
+                .description = "Bitcoin mining firmware API for ESP32-S3 boards",
+            };
+            ESP_ERROR_CHECK(bb_openapi_register(bb_http_server_get_handle(), &openapi_meta));
+        }
+        // Register manifest endpoint and mDNS keys
+        ESP_ERROR_CHECK(bb_manifest_register_route(bb_http_server_get_handle()));
+        {
+            static const bb_manifest_mdns_t taipan_mdns_keys[] = {
+                {.key = "worker", .desc = "stratum worker name"},
+                {.key = "board", .desc = "firmware board identifier", .values = "tdongle-s3|bitaxe-601|bitaxe-403|bitaxe-650"},
+                {.key = "version", .desc = "firmware semver"},
+                {.key = "state", .desc = "device lifecycle state", .values = "provisioning|mining|ota"},
+            };
+            ESP_ERROR_CHECK(bb_manifest_register_mdns("_taipanminer._tcp", taipan_mdns_keys, sizeof(taipan_mdns_keys) / sizeof(taipan_mdns_keys[0])));
+        }
         ESP_ERROR_CHECK(taipan_web_register_mining_routes(bb_http_server_get_handle()));
     }
 

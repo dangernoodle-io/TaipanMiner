@@ -888,6 +888,249 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
 }
 
 // ============================================================================
+// ROUTE DESCRIPTORS
+// ============================================================================
+
+// ---------------------------------------------------------------------------
+// /api/stats — GET
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_stats_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"hashrate\":{\"type\":\"number\",\"description\":\"ESP32-S3 HW hashrate H/s\"},"
+      "\"hashrate_avg\":{\"type\":\"number\",\"description\":\"EMA hashrate H/s\"},"
+      "\"temp_c\":{\"type\":\"number\"},"
+      "\"shares\":{\"type\":\"integer\",\"description\":\"HW shares found\"},"
+      "\"pool_difficulty\":{\"type\":\"number\"},"
+      "\"session_shares\":{\"type\":\"integer\"},"
+      "\"session_rejected\":{\"type\":\"integer\"},"
+      "\"rejected\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"total\":{\"type\":\"integer\"},"
+      "\"job_not_found\":{\"type\":\"integer\"},"
+      "\"low_difficulty\":{\"type\":\"integer\"},"
+      "\"duplicate\":{\"type\":\"integer\"},"
+      "\"stale_prevhash\":{\"type\":\"integer\"},"
+      "\"other\":{\"type\":\"integer\"},"
+      "\"other_last_code\":{\"type\":\"integer\"}}},"
+      "\"last_share_ago_s\":{\"type\":\"integer\",\"description\":\"-1 if no share yet\"},"
+      "\"lifetime_shares\":{\"type\":\"integer\"},"
+      "\"best_diff\":{\"type\":\"number\"},"
+      "\"pool_host\":{\"type\":\"string\"},"
+      "\"pool_port\":{\"type\":\"integer\"},"
+      "\"worker\":{\"type\":\"string\"},"
+      "\"wallet\":{\"type\":\"string\"},"
+      "\"uptime_s\":{\"type\":\"integer\"},"
+      "\"free_heap\":{\"type\":\"integer\"},"
+      "\"total_heap\":{\"type\":\"integer\"},"
+      "\"rssi_dbm\":{\"type\":[\"integer\",\"null\"]},"
+      "\"version\":{\"type\":\"string\"},"
+      "\"build_date\":{\"type\":\"string\"},"
+      "\"build_time\":{\"type\":\"string\"},"
+      "\"board\":{\"type\":\"string\"},"
+      "\"display_en\":{\"type\":\"boolean\"},"
+      "\"expected_ghs\":{\"type\":\"number\","
+      "\"description\":\"theoretical max GH/s for this platform\"}}}",
+      "mining statistics snapshot" },
+    { 0 },
+};
+
+static const bb_route_t s_stats_route = {
+    .method       = BB_HTTP_GET,
+    .path         = "/api/stats",
+    .tag          = "mining",
+    .summary      = "Get mining statistics",
+    .operation_id = "getStats",
+    .responses    = s_stats_responses,
+    .handler      = stats_handler,
+};
+
+// ---------------------------------------------------------------------------
+// /api/knot — GET
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_knot_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"array\","
+      "\"items\":{"
+      "\"type\":\"object\","
+      "\"properties\":{"
+      "\"instance\":{\"type\":\"string\"},"
+      "\"hostname\":{\"type\":\"string\"},"
+      "\"ip\":{\"type\":\"string\"},"
+      "\"worker\":{\"type\":\"string\"},"
+      "\"board\":{\"type\":\"string\"},"
+      "\"version\":{\"type\":\"string\"},"
+      "\"state\":{\"type\":\"string\"},"
+      "\"seen_ago_s\":{\"type\":\"integer\"}},"
+      "\"required\":[\"instance\",\"hostname\",\"ip\","
+      "\"worker\",\"board\",\"version\",\"state\",\"seen_ago_s\"]}}",
+      "mDNS-discovered TaipanMiner peer table snapshot" },
+    { 0 },
+};
+
+static const bb_route_t s_knot_route = {
+    .method       = BB_HTTP_GET,
+    .path         = "/api/knot",
+    .tag          = "knot",
+    .summary      = "Get peer table snapshot",
+    .operation_id = "getKnot",
+    .responses    = s_knot_responses,
+    .handler      = knot_handler,
+};
+
+// ---------------------------------------------------------------------------
+// /api/settings — GET, POST, PATCH
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_settings_get_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"pool_host\":{\"type\":\"string\"},"
+      "\"pool_port\":{\"type\":\"integer\"},"
+      "\"wallet\":{\"type\":\"string\"},"
+      "\"worker\":{\"type\":\"string\"},"
+      "\"pool_pass\":{\"type\":\"string\"},"
+      "\"hostname\":{\"type\":\"string\"},"
+      "\"display_en\":{\"type\":\"boolean\"},"
+      "\"ota_skip_check\":{\"type\":\"boolean\"}},"
+      "\"required\":[\"pool_host\",\"pool_port\",\"wallet\",\"worker\","
+      "\"pool_pass\",\"hostname\",\"display_en\",\"ota_skip_check\"]}",
+      "current persisted settings" },
+    { 0 },
+};
+
+static const bb_route_t s_settings_get_route = {
+    .method       = BB_HTTP_GET,
+    .path         = "/api/settings",
+    .tag          = "config",
+    .summary      = "Get current settings",
+    .operation_id = "getSettings",
+    .responses    = s_settings_get_responses,
+    .handler      = settings_get_handler,
+};
+
+static const bb_route_response_t s_settings_write_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"status\":{\"type\":\"string\",\"enum\":[\"saved\"]},"
+      "\"reboot_required\":{\"type\":\"boolean\"}},"
+      "\"required\":[\"status\",\"reboot_required\"]}",
+      "settings saved" },
+    { 400, "text/plain", NULL, "validation error" },
+    { 500, "text/plain", NULL, "save failed" },
+    { 0 },
+};
+
+static const bb_route_t s_settings_post_route = {
+    .method               = BB_HTTP_POST,
+    .path                 = "/api/settings",
+    .tag                  = "config",
+    .summary              = "Replace settings (full update)",
+    .operation_id         = "postSettings",
+    .request_content_type = "application/json",
+    .request_schema       =
+        "{\"type\":\"object\","
+        "\"properties\":{"
+        "\"pool_host\":{\"type\":\"string\"},"
+        "\"pool_port\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":65535},"
+        "\"wallet\":{\"type\":\"string\"},"
+        "\"worker\":{\"type\":\"string\"},"
+        "\"pool_pass\":{\"type\":\"string\"},"
+        "\"display_en\":{\"type\":\"boolean\"},"
+        "\"ota_skip_check\":{\"type\":\"boolean\"}},"
+        "\"required\":[\"pool_host\",\"pool_port\",\"wallet\",\"worker\"]}",
+    .responses            = s_settings_write_responses,
+    .handler              = settings_post_handler,
+};
+
+static const bb_route_t s_settings_patch_route = {
+    .method               = BB_HTTP_PATCH,
+    .path                 = "/api/settings",
+    .tag                  = "config",
+    .summary              = "Partial settings update",
+    .operation_id         = "patchSettings",
+    .request_content_type = "application/json",
+    .request_schema       =
+        "{\"type\":\"object\","
+        "\"properties\":{"
+        "\"pool_host\":{\"type\":\"string\"},"
+        "\"pool_port\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":65535},"
+        "\"wallet\":{\"type\":\"string\"},"
+        "\"worker\":{\"type\":\"string\"},"
+        "\"pool_pass\":{\"type\":\"string\"},"
+        "\"hostname\":{\"type\":\"string\"},"
+        "\"display_en\":{\"type\":\"boolean\"},"
+        "\"ota_skip_check\":{\"type\":\"boolean\"}}}",
+    .responses            = s_settings_write_responses,
+    .handler              = settings_patch_handler,
+};
+
+#ifdef ASIC_CHIP
+
+// ---------------------------------------------------------------------------
+// /api/power — GET (ASIC boards only)
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_power_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"vcore_mv\":{\"type\":[\"integer\",\"null\"]},"
+      "\"icore_ma\":{\"type\":[\"integer\",\"null\"]},"
+      "\"pcore_mw\":{\"type\":[\"integer\",\"null\"]},"
+      "\"efficiency_jth\":{\"type\":[\"number\",\"null\"],"
+      "\"description\":\"J/TH; null until ASIC hashrate and power both available\"},"
+      "\"vin_mv\":{\"type\":[\"integer\",\"null\"]},"
+      "\"vin_low\":{\"type\":[\"boolean\",\"null\"]},"
+      "\"board_temp_c\":{\"type\":[\"number\",\"null\"]},"
+      "\"vr_temp_c\":{\"type\":[\"number\",\"null\"]}}}",
+      "ASIC power and thermal telemetry" },
+    { 0 },
+};
+
+static const bb_route_t s_power_route = {
+    .method       = BB_HTTP_GET,
+    .path         = "/api/power",
+    .tag          = "mining",
+    .summary      = "Get ASIC power and thermal telemetry",
+    .operation_id = "getPower",
+    .responses    = s_power_responses,
+    .handler      = power_handler,
+};
+
+// ---------------------------------------------------------------------------
+// /api/fan — GET (ASIC boards only)
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_fan_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"rpm\":{\"type\":[\"integer\",\"null\"]},"
+      "\"duty_pct\":{\"type\":[\"integer\",\"null\"],"
+      "\"description\":\"curve-controlled duty %; null until first telemetry tick\"}}}",
+      "fan telemetry" },
+    { 0 },
+};
+
+static const bb_route_t s_fan_route = {
+    .method       = BB_HTTP_GET,
+    .path         = "/api/fan",
+    .tag          = "mining",
+    .summary      = "Get fan speed and duty cycle",
+    .operation_id = "getFan",
+    .responses    = s_fan_responses,
+    .handler      = fan_handler,
+};
+
+#endif /* ASIC_CHIP */
+
+// ============================================================================
 // REGISTRATION
 // ============================================================================
 
@@ -960,29 +1203,29 @@ bb_err_t taipan_web_register_mining_routes(bb_http_handle_t server)
     // Initialize breadboard's OTA validator (registers /api/ota/mark-valid handler)
     bb_ota_validator_init(server);
 
-    // Register dynamic handlers (portable bb_http)
+    // Register dynamic handlers with OpenAPI descriptors
     bb_err_t rc;
-    rc = bb_http_register_route(server, BB_HTTP_GET, "/api/stats", stats_handler);
+    rc = bb_http_register_described_route(server, &s_stats_route);
     if (rc != BB_OK) return rc;
 
-    rc = bb_http_register_route(server, BB_HTTP_GET, "/api/knot", knot_handler);
+    rc = bb_http_register_described_route(server, &s_knot_route);
     if (rc != BB_OK) return rc;
 
-    rc = bb_http_register_route(server, BB_HTTP_GET, "/api/settings", settings_get_handler);
+    rc = bb_http_register_described_route(server, &s_settings_get_route);
     if (rc != BB_OK) return rc;
 
-    rc = bb_http_register_route(server, BB_HTTP_POST, "/api/settings", settings_post_handler);
+    rc = bb_http_register_described_route(server, &s_settings_post_route);
     if (rc != BB_OK) return rc;
 
 #ifdef ASIC_CHIP
-    rc = bb_http_register_route(server, BB_HTTP_GET, "/api/power", power_handler);
+    rc = bb_http_register_described_route(server, &s_power_route);
     if (rc != BB_OK) return rc;
 
-    rc = bb_http_register_route(server, BB_HTTP_GET, "/api/fan", fan_handler);
+    rc = bb_http_register_described_route(server, &s_fan_route);
     if (rc != BB_OK) return rc;
 #endif
 
-    rc = bb_http_register_route(server, BB_HTTP_PATCH, "/api/settings", settings_patch_handler);
+    rc = bb_http_register_described_route(server, &s_settings_patch_route);
     if (rc != BB_OK) return rc;
 
     bb_ota_pull_register_handler(server);

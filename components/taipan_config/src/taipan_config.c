@@ -2,6 +2,7 @@
 #include <string.h>
 #include "bb_nv.h"
 #include "bb_log.h"
+#include "bb_manifest.h"
 #ifdef ESP_PLATFORM
 #include "bb_mdns.h"
 #endif
@@ -174,4 +175,67 @@ bb_err_t taipan_config_set_hostname(const char *hostname)
     s_config.hostname[sizeof(s_config.hostname) - 1] = '\0';
 
     return BB_OK;
+}
+
+bb_err_t taipan_config_register_manifest(void)
+{
+    static const bb_manifest_nv_t taipan_nv_keys[] = {
+        {
+            .key = "pool_host",
+            .type = "str",
+            .default_ = "",
+            .max_len = 63,
+            .desc = "pool hostname or IP address",
+            .reboot_required = false,
+            .provisioning_only = false,
+        },
+        {
+            .key = "pool_port",
+            .type = "u16",
+            .default_ = "0",
+            .max_len = 0,
+            .desc = "pool port",
+            .reboot_required = false,
+            .provisioning_only = false,
+        },
+        {
+            .key = "wallet_addr",
+            .type = "str",
+            .default_ = "",
+            .max_len = 63,
+            .desc = "wallet address",
+            .reboot_required = false,
+            .provisioning_only = false,
+        },
+        {
+            .key = "worker",
+            .type = "str",
+            .default_ = "",
+            .max_len = 31,
+            .desc = "worker name",
+            .reboot_required = false,
+            .provisioning_only = false,
+        },
+        {
+            .key = "pool_pass",
+            .type = "str",
+            .default_ = "",
+            .max_len = 63,
+            .desc = "pool password",
+            .reboot_required = false,
+            .provisioning_only = false,
+        },
+        {
+            .key = "hostname",
+            .type = "str",
+            .default_ = "",
+            .max_len = 32,
+            .desc = "device hostname",
+            .reboot_required = false,
+            .provisioning_only = false,
+        },
+    };
+
+    return bb_manifest_register_nv(TAIPAN_NS, taipan_nv_keys,
+                                   sizeof(taipan_nv_keys) / sizeof(taipan_nv_keys[0]));
 }

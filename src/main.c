@@ -270,6 +270,7 @@ void app_main(void)
                 bb_mdns_build_hostname(taipan_config_worker_name(), NULL, hn, sizeof(hn));
             }
             bb_mdns_set_hostname(hn);
+            bb_wifi_set_hostname(hn);
         }
 
         ESP_ERROR_CHECK(bb_prov_start_ap());
@@ -287,6 +288,11 @@ void app_main(void)
         ESP_ERROR_CHECK(led_set_color(0, 0, 38));
 
         bool connected = false;
+        // cppcheck-suppress knownConditionTrueFalse
+        // Loop exits via esp_restart() in the success branch; the failure
+        // branch re-enters provisioning indefinitely. `connected` stays false
+        // by design — terminating the loop normally would skip the reboot
+        // that TA-225 documented as required for clean asic_init.
         while (!connected) {
             bb_prov_wait_done(UINT32_MAX);
 
@@ -327,6 +333,7 @@ void app_main(void)
                 bb_mdns_build_hostname(taipan_config_worker_name(), NULL, hn, sizeof(hn));
             }
             bb_mdns_set_hostname(hn);
+            bb_wifi_set_hostname(hn);
         }
         bb_mdns_init();
         ESP_ERROR_CHECK(bb_wifi_init());

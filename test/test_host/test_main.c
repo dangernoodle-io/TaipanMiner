@@ -58,6 +58,20 @@ void test_nv_config_init(void);
 void test_nv_config_all_empty_before_provisioning(void);
 void test_nv_config_not_provisioned_by_default(void);
 
+// Forward declarations from test_taipan_config_hostname.c
+void test_valid_hostname_single_char(void);
+void test_valid_hostname_lowercase_digits_hyphen(void);
+void test_valid_hostname_mixed(void);
+void test_valid_hostname_max_length(void);
+void test_invalid_hostname_empty(void);
+void test_invalid_hostname_leading_hyphen(void);
+void test_invalid_hostname_trailing_hyphen(void);
+void test_invalid_hostname_uppercase(void);
+void test_invalid_hostname_underscore(void);
+void test_invalid_hostname_dot(void);
+void test_invalid_hostname_too_long(void);
+void test_hostname_persists_after_set(void);
+
 // Forward declarations from test_crc.c
 void test_crc5_chain_inactive(void);
 void test_crc5_reg_write_a8(void);
@@ -341,6 +355,20 @@ int main(void) {
     RUN_TEST(test_nv_config_init);
     RUN_TEST(test_nv_config_all_empty_before_provisioning);
     RUN_TEST(test_nv_config_not_provisioned_by_default);
+
+    // taipan_config_hostname tests
+    RUN_TEST(test_valid_hostname_single_char);
+    RUN_TEST(test_valid_hostname_lowercase_digits_hyphen);
+    RUN_TEST(test_valid_hostname_mixed);
+    RUN_TEST(test_valid_hostname_max_length);
+    RUN_TEST(test_invalid_hostname_empty);
+    RUN_TEST(test_invalid_hostname_leading_hyphen);
+    RUN_TEST(test_invalid_hostname_trailing_hyphen);
+    RUN_TEST(test_invalid_hostname_uppercase);
+    RUN_TEST(test_invalid_hostname_underscore);
+    RUN_TEST(test_invalid_hostname_dot);
+    RUN_TEST(test_invalid_hostname_too_long);
+    RUN_TEST(test_hostname_persists_after_set);
 
     // CRC tests
     RUN_TEST(test_crc5_chain_inactive);

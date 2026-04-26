@@ -259,7 +259,16 @@ void app_main(void)
         bb_mdns_set_instance_name("TaipanMiner");
         {
             char hn[64];
-            bb_mdns_build_hostname("taipanminer", taipan_config_worker_name(), hn, sizeof(hn));
+            const char *hostname = taipan_config_hostname();
+            if (hostname && hostname[0]) {
+                strncpy(hn, hostname, sizeof(hn) - 1);
+                hn[sizeof(hn) - 1] = '\0';
+            } else {
+                /* First-boot edge before migration runs (un-provisioned device). Fall
+                 * back to a sanitized worker so mDNS still has *something* to announce
+                 * during the AP/prov flow. */
+                bb_mdns_build_hostname(taipan_config_worker_name(), NULL, hn, sizeof(hn));
+            }
             bb_mdns_set_hostname(hn);
         }
 
@@ -307,7 +316,16 @@ void app_main(void)
         bb_mdns_set_instance_name("TaipanMiner");
         {
             char hn[64];
-            bb_mdns_build_hostname("taipanminer", taipan_config_worker_name(), hn, sizeof(hn));
+            const char *hostname = taipan_config_hostname();
+            if (hostname && hostname[0]) {
+                strncpy(hn, hostname, sizeof(hn) - 1);
+                hn[sizeof(hn) - 1] = '\0';
+            } else {
+                /* First-boot edge before migration runs (un-provisioned device). Fall
+                 * back to a sanitized worker so mDNS still has *something* to announce
+                 * during the AP/prov flow. */
+                bb_mdns_build_hostname(taipan_config_worker_name(), NULL, hn, sizeof(hn));
+            }
             bb_mdns_set_hostname(hn);
         }
         bb_mdns_init();

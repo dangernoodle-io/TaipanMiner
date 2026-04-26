@@ -45,6 +45,13 @@ export const otaInstall = writable<{
   kind: OtaKind
 }>({ installing: false, pct: 0, state: '', msg: '', kind: '' })
 
+export const otaUpload = writable<{
+  uploading: boolean
+  pct: number
+  msg: string
+  kind: OtaKind
+}>({ uploading: false, pct: 0, msg: '', kind: '' })
+
 // Reboot overlay — UI enters this state after a user-initiated reboot or
 // firmware flash, exits once the device responds to a liveness probe.
 export const rebooting = writable<{
@@ -81,6 +88,11 @@ export function startRebootRecovery(reason: string) {
         clearInterval(rebootPollId!)
         rebootPollId = null
         rebooting.set({ active: false, reason: '', elapsed: 0, timedOut: false })
+        // Clear OTA state — the upgrade flow is done; the page should be back
+        // to a fresh "no current operation" view, not pinned at "Install complete".
+        otaCheck.set({ checking: false, result: null, msg: '', kind: '' })
+        otaInstall.set({ installing: false, pct: 0, state: '', msg: '', kind: '' })
+        otaUpload.set({ uploading: false, pct: 0, msg: '', kind: '' })
         return
       }
       rebooting.update((s) => ({ ...s, elapsed }))

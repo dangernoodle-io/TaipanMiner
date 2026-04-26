@@ -87,7 +87,7 @@
   }
 </script>
 
-<div class="grid">
+<div class="pool-grid">
   <!-- Active pool status -->
   <section class="card active">
     <h3>Active</h3>
@@ -242,17 +242,10 @@
 </div>
 
 <style>
-  .grid {
+  .pool-grid {
     display: grid;
     grid-template-columns: 1fr;
     gap: 14px;
-  }
-
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
   }
 
   .card.pending { opacity: 0.75; }
@@ -492,44 +485,6 @@
     flex-wrap: wrap;
   }
 
-  .btn {
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text);
-    padding: 6px 14px;
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-weight: 600;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
-  }
-
-  .btn.sm { padding: 5px 12px; font-size: 10px; }
-
-  .btn.primary {
-    background: var(--accent);
-    color: var(--bg);
-    border-color: var(--accent);
-  }
-
-  .btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
-
-  .btn.outline {
-    background: transparent;
-    color: var(--label);
-  }
-
-  .btn.outline:hover:not(:disabled) {
-    color: var(--text);
-    border-color: var(--label);
-  }
-
-  .btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
 
   .msg {
     font-size: 11px;

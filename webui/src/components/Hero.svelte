@@ -15,10 +15,7 @@
   $: ghs10m = $stats?.asic_total_ghs_10m ?? null
   $: ghs1h = $stats?.asic_total_ghs_1h ?? null
   $: emaGhs = $stats?.asic_hashrate_avg ? $stats.asic_hashrate_avg / 1e9 : ($stats ? $stats.hashrate_avg / 1e9 : null)
-  $: expectedGhs =
-    $stats?.asic_freq_configured_mhz && $stats?.asic_small_cores && $stats?.asic_count
-      ? ($stats.asic_freq_configured_mhz * $stats.asic_small_cores * $stats.asic_count) / 1000
-      : null
+  $: expectedGhs = $stats?.expected_ghs ?? null
   $: err = $stats?.asic_hw_error_pct ?? null
   $: err1m = $stats?.asic_hw_error_pct_1m ?? null
   $: err10m = $stats?.asic_hw_error_pct_10m ?? null

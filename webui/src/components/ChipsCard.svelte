@@ -63,13 +63,6 @@
 </section>
 
 <style>
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
-  }
-
   header {
     display: flex;
     align-items: baseline;

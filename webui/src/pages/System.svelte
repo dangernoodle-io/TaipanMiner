@@ -190,13 +190,6 @@
     gap: 14px;
   }
 
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
-  }
-
   h3 {
     margin: 0 0 12px 0;
     font-size: 12px;

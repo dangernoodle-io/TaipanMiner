@@ -1,1 +1,66 @@
-/* App-level styles */
+/* App-level shared styles. Component-specific overrides live in each .svelte. */
+
+/* ---- card ---- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+/* ---- grid ---- */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.full { grid-column: 1 / -1; }
+
+/* ---- buttons ---- */
+.btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  padding: 6px 14px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.btn.sm { padding: 5px 12px; font-size: 10px; }
+
+.btn.primary {
+  background: var(--input);
+  color: var(--accent);
+  border-color: var(--border);
+}
+
+.btn.primary:hover:not(:disabled) { border-color: var(--accent); }
+
+.btn.outline {
+  background: transparent;
+  color: var(--label);
+}
+
+.btn.outline:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--label);
+}
+
+.btn.danger {
+  background: var(--danger);
+  color: white;
+  border-color: var(--danger);
+}
+
+.btn.danger:hover:not(:disabled) { filter: brightness(1.1); }
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

@@ -10,10 +10,7 @@
     ? $stats.asic_total_ghs / chips.length / 4
     : undefined
   $: pcoreW = $power?.pcore_mw != null ? $power.pcore_mw / 1000 : null
-  $: expectedGhs =
-    $stats?.asic_freq_configured_mhz && $stats?.asic_small_cores && $stats?.asic_count
-      ? ($stats.asic_freq_configured_mhz * $stats.asic_small_cores * $stats.asic_count) / 1000
-      : null
+  $: expectedGhs = $stats?.expected_ghs ?? null
 </script>
 
 <div class="sticky-pool"><PoolStrip /></div>
@@ -88,21 +85,6 @@
 
   .sticky-pool :global(.pool-strip) {
     margin-bottom: 0;
-  }
-
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 14px;
-  }
-
-  .full { grid-column: 1 / -1; }
-
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
   }
 
   .card.full { padding: 0; }

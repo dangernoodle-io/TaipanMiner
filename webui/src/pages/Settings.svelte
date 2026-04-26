@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { fetchSettings, patchSettings, type Settings } from '../lib/api'
-  import { stats } from '../lib/stores'
+  import { stats, hasAsic } from '../lib/stores'
   import Toggle from '../components/Toggle.svelte'
 
   let loading = true
@@ -88,54 +88,56 @@
   {:else if loadErr}
     <div class="error">Failed to load settings: {loadErr}</div>
   {:else}
-    <!-- ASIC (per-chip) -->
-    <h2>
-      ASIC <span class="pending-tag">TA-97{#if chipCount > 1} · TA-194{/if}</span>
-    </h2>
-    <div class="settings pending">
-      <div class="asic-head">
-        <span></span>
-        <span class="col-label">Frequency</span>
-        <span class="col-label">Core voltage</span>
-      </div>
-      {#each chipIndices as idx}
-        <div class="asic-row">
-          <span class="k">Chip {idx}</span>
-          <div class="unit-input">
-            <input type="number" value={defaultFreq} disabled />
-            <span class="unit">MHz</span>
-          </div>
-          <div class="unit-input">
-            <input type="number" value="1150" disabled />
-            <span class="unit">mV</span>
-          </div>
+    {#if $hasAsic}
+      <!-- ASIC (per-chip) -->
+      <h2>
+        ASIC <span class="pending-tag">TA-97{#if chipCount > 1} · TA-194{/if}</span>
+      </h2>
+      <div class="settings pending">
+        <div class="asic-head">
+          <span></span>
+          <span class="col-label">Frequency</span>
+          <span class="col-label">Core voltage</span>
         </div>
-      {/each}
-      <p class="hint">
-        {#if chipCount > 1}Per-chip tuning (TA-194) lets you bin-tune each die.{:else}Live tuning of ASIC clock and core voltage.{/if}
-        Out-of-range settings can brown-out the chip or trip the VR fault.
-      </p>
-    </div>
+        {#each chipIndices as idx}
+          <div class="asic-row">
+            <span class="k">Chip {idx}</span>
+            <div class="unit-input">
+              <input type="number" value={defaultFreq} disabled />
+              <span class="unit">MHz</span>
+            </div>
+            <div class="unit-input">
+              <input type="number" value="1150" disabled />
+              <span class="unit">mV</span>
+            </div>
+          </div>
+        {/each}
+        <p class="hint">
+          {#if chipCount > 1}Per-chip tuning (TA-194) lets you bin-tune each die.{:else}Live tuning of ASIC clock and core voltage.{/if}
+          Out-of-range settings can brown-out the chip or trip the VR fault.
+        </p>
+      </div>
 
-    <!-- Fan -->
-    <h2>Fan <span class="pending-tag">TA-141</span></h2>
-    <div class="settings pending">
-      <div class="row">
-        <span class="k">Mode</span>
-        <select disabled>
-          <option>Auto (target temp)</option>
-          <option>Manual duty</option>
-        </select>
-      </div>
-      <div class="row">
-        <span class="k">Target temperature</span>
-        <div class="unit-input">
-          <input type="number" value="65" disabled />
-          <span class="unit">°C</span>
+      <!-- Fan -->
+      <h2>Fan <span class="pending-tag">TA-141</span></h2>
+      <div class="settings pending">
+        <div class="row">
+          <span class="k">Mode</span>
+          <select disabled>
+            <option>Auto (target temp)</option>
+            <option>Manual duty</option>
+          </select>
         </div>
+        <div class="row">
+          <span class="k">Target temperature</span>
+          <div class="unit-input">
+            <input type="number" value="65" disabled />
+            <span class="unit">°C</span>
+          </div>
+        </div>
+        <p class="hint">Closed-loop fan control keeps the ASIC at a target temperature.</p>
       </div>
-      <p class="hint">Closed-loop fan control keeps the ASIC at a target temperature.</p>
-    </div>
+    {/if}
 
     <!-- General -->
     <h2>General</h2>

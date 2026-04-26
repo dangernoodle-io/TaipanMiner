@@ -65,7 +65,7 @@
     z-index: 20;
     background: rgba(26, 26, 46, 0.92);
     backdrop-filter: blur(8px);
-    margin: 0 -16px;
+    margin: 0 -16px 16px;
     padding: 0 16px;
   }
 

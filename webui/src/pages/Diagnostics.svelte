@@ -19,6 +19,56 @@
   let status: 'connected' | 'disconnected' | 'external' | 'connecting' = 'connecting'
   let wasDisconnected = false
 
+  /* Reconnect state machine. The previous version held only `es` and a flat
+   * 3s setTimeout, which raced when onerror fired twice and could orphan an
+   * EventSource that then silently held the server's single SSE slot —
+   * leaving the page in a permanent "Disconnected" loop until reload. */
+  let pendingRetry: ReturnType<typeof setTimeout> | null = null
+  let lastMessageAt = 0
+  const STALL_THRESHOLD_MS = 20000     /* two missed 10s server pings */
+  const STALL_CHECK_INTERVAL_MS = 5000
+  const RETRY_INITIAL_MS = 3000
+  const RETRY_MAX_MS = 20000
+  let retryDelay = RETRY_INITIAL_MS
+  let stallTimer: ReturnType<typeof setInterval> | null = null
+  /* Surface next-retry countdown in the UI. nextRetryAt is the absolute ms
+   * timestamp; tickNow is a 1s clock to drive the countdown reactivity. */
+  let nextRetryAt: number | null = null
+  let tickNow = Date.now()
+  let tickTimer: ReturnType<typeof setInterval> | null = null
+  $: retryInS = nextRetryAt != null
+    ? Math.max(0, Math.ceil((nextRetryAt - tickNow) / 1000))
+    : null
+
+  function cancelPendingRetry() {
+    if (pendingRetry !== null) {
+      clearTimeout(pendingRetry)
+      pendingRetry = null
+    }
+    nextRetryAt = null
+  }
+
+  function teardownEs() {
+    if (es) {
+      es.onopen = null
+      es.onmessage = null
+      es.onerror = null
+      es.close()
+      es = null
+    }
+  }
+
+  function scheduleRetry() {
+    cancelPendingRetry()
+    nextRetryAt = Date.now() + retryDelay
+    pendingRetry = setTimeout(() => {
+      pendingRetry = null
+      nextRetryAt = null
+      start()
+    }, retryDelay)
+    retryDelay = Math.min(RETRY_MAX_MS, retryDelay * 2)
+  }
+
   // Log levels — fetched from GET /api/log/level
   let availableLevels: LogLevel[] = ['none', 'error', 'warn', 'info', 'debug', 'verbose']
   let tagLevels: { tag: string; level: LogLevel }[] = []
@@ -38,8 +88,8 @@
     levelsErr = ''
     try {
       const data = await fetchLogLevels()
-      availableLevels = data.levels
-      tagLevels = data.tags.map((t) => ({ ...t }))
+      availableLevels = [...data.levels].sort((a, b) => a.localeCompare(b))
+      tagLevels = data.tags.map((t) => ({ ...t })).sort((a, b) => a.tag.localeCompare(b.tag))
       if (!selectedTag && tagLevels.length) selectedTag = tagLevels[0].tag
     } catch (e) {
       levelsErr = (e as Error).message
@@ -85,11 +135,15 @@
     : lines
 
   function start() {
-    if (es) return
+    cancelPendingRetry()
+    teardownEs()
     status = 'connecting'
+    lastMessageAt = Date.now()
     es = new EventSource(`${baseUrl}/api/logs?source=browser`)
     es.onopen = () => {
       status = 'connected'
+      lastMessageAt = Date.now()
+      retryDelay = RETRY_INITIAL_MS
       if (wasDisconnected) {
         wasDisconnected = false
         // Device may have rebooted — re-query tag list (levels reset on reboot).
@@ -97,6 +151,7 @@
       }
     }
     es.onmessage = (e) => {
+      lastMessageAt = Date.now()
       lines = lines.concat(e.data)
       if (lines.length > LOG_MAX_LINES) lines = lines.slice(-LOG_MAX_LINES)
       if (autoscroll) {
@@ -106,8 +161,7 @@
       }
     }
     es.onerror = () => {
-      es?.close()
-      es = null
+      teardownEs()
       wasDisconnected = true
       fetch(`${baseUrl}/api/logs/status`)
         .then((r) => r.json())
@@ -115,14 +169,37 @@
           status = d.active && d.client === 'external' ? 'external' : 'disconnected'
         })
         .catch(() => { status = 'disconnected' })
-      setTimeout(start, 3000)
+      scheduleRetry()
     }
   }
 
   function stop() {
-    es?.close()
-    es = null
+    cancelPendingRetry()
+    teardownEs()
+    if (stallTimer !== null) { clearInterval(stallTimer); stallTimer = null }
+    document.removeEventListener('visibilitychange', onVisibilityChange)
     status = 'disconnected'
+  }
+
+  function checkStall() {
+    if (!es || es.readyState !== EventSource.OPEN) return
+    if (Date.now() - lastMessageAt > STALL_THRESHOLD_MS) {
+      /* Server keepalive is 10s; missing two pings = dead stream. */
+      teardownEs()
+      status = 'disconnected'
+      wasDisconnected = true
+      scheduleRetry()
+    }
+  }
+
+  function onVisibilityChange() {
+    if (document.visibilityState !== 'visible') return
+    /* Tab was hidden long enough to stall — reconnect immediately rather
+     * than waiting for the next 5s stall-check tick. */
+    if (Date.now() - lastMessageAt > STALL_THRESHOLD_MS) {
+      retryDelay = RETRY_INITIAL_MS
+      start()
+    }
   }
 
   function clear() {
@@ -159,8 +236,17 @@
     }
   }
 
-  onMount(() => { start(); loadLevels() })
-  onDestroy(stop)
+  onMount(() => {
+    start()
+    loadLevels()
+    stallTimer = setInterval(checkStall, STALL_CHECK_INTERVAL_MS)
+    tickTimer = setInterval(() => { tickNow = Date.now() }, 1000)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+  })
+  onDestroy(() => {
+    stop()
+    if (tickTimer !== null) clearInterval(tickTimer)
+  })
 </script>
 
 <div class="page">
@@ -205,7 +291,7 @@
           {#if status === 'connected'}Connected
           {:else if status === 'connecting'}Connecting…
           {:else if status === 'external'}External client connected
-          {:else}Disconnected{/if}
+          {:else}Disconnected {#if retryInS != null}— retrying in {retryInS}s{/if}{/if}
         </span>
       </h2>
     </div>
@@ -442,51 +528,6 @@
     letter-spacing: 0.5px;
   }
 
-  .btn {
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text);
-    padding: 10px 20px;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-weight: 600;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
-  }
-
-  .btn.sm { padding: 5px 12px; font-size: 10px; }
-
-  .btn.primary {
-    background: var(--accent);
-    color: var(--bg);
-    border-color: var(--accent);
-  }
-
-  .btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
-
-  .btn.outline {
-    background: transparent;
-    color: var(--label);
-  }
-
-  .btn.outline:hover:not(:disabled) {
-    color: var(--text);
-    border-color: var(--label);
-  }
-
-  .btn.danger {
-    border-color: var(--danger);
-    color: var(--danger);
-  }
-
-  .btn.danger:hover:not(:disabled) {
-    background: var(--danger);
-    color: var(--bg);
-  }
-
-  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .status-msg {
     margin-top: 10px;

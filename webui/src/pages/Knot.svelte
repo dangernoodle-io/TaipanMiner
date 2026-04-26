@@ -3,15 +3,25 @@
   import { route } from '../lib/router'
   import { info } from '../lib/stores'
   import { fetchKnot, type KnotPeer } from '../lib/api'
+  import { fmtRelative } from '../lib/fmt'
 
   let peers: KnotPeer[] = []
   let loading = true
   let loadErr = ''
   let lastFetch = 0
+  let now = Date.now()
+  let nowTimer: ReturnType<typeof setInterval> | null = null
+  let pollTimer: ReturnType<typeof setInterval> | null = null
+  const POLL_INTERVAL_MS = 30000
+
+  $: lastFetchAgoS = lastFetch > 0 ? Math.floor((now - lastFetch) / 1000) : null
+  /* Poll runs every 30s; >75s without a successful refresh means polling
+   * stalled (network drop, tab throttled, fetch erroring). Flag the indicator. */
+  $: stale = lastFetchAgoS != null && lastFetchAgoS > 75
 
   async function load() {
     try {
-      peers = await fetchKnot()
+      peers = (await fetchKnot()).sort((a, b) => a.hostname.localeCompare(b.hostname))
       loadErr = ''
       lastFetch = Date.now()
     } catch (e) {
@@ -35,24 +45,27 @@
   onMount(() => {
     load()
     document.addEventListener('visibilitychange', handleVisibilityChange)
+    nowTimer = setInterval(() => { now = Date.now() }, 1000)
+    pollTimer = setInterval(() => {
+      /* Skip while hidden — visibilitychange handler fires a refresh on return. */
+      if (document.visibilityState === 'visible' && $route === 'knot') load()
+    }, POLL_INTERVAL_MS)
   })
 
   onDestroy(() => {
     document.removeEventListener('visibilitychange', handleVisibilityChange)
+    if (nowTimer !== null) clearInterval(nowTimer)
+    if (pollTimer !== null) clearInterval(pollTimer)
   })
 
   function getStateBadgeClass(state: string): string {
     switch (state) {
-      case 'mining':
-        return 'state-mining'
-      case 'ota':
-        return 'state-ota'
-      case 'provisioning':
-        return 'state-provisioning'
-      case 'idle':
-        return 'state-idle'
-      default:
-        return 'state-neutral'
+      case 'mining':       return 'state-mining'
+      case 'ota':          return 'state-ota'
+      case 'provisioning': return 'state-provisioning'
+      case 'idle':         return 'state-idle'
+      case 'unknown':      return 'state-unknown'
+      default:             return 'state-neutral'
     }
   }
 
@@ -90,14 +103,27 @@
 
   /* Distinct boards present in the current peer set, for the legend. */
   $: legendBoards = Array.from(new Set(peers.map(p => p.board).filter(Boolean))).sort()
+
+  /* Distinct statuses present in the peer set, for the status legend. Empty
+   * states surface as "unknown" so the user knows they're not reporting yet. */
+  $: legendStatuses = Array.from(
+    new Set(peers.map(p => p.state || 'unknown'))
+  ).sort()
 </script>
 
 <div class="knot-container">
   <div class="header">
     <h1>Knot</h1>
-    <button on:click={handleRefresh} disabled={loading}>
-      {loading ? 'Loading...' : 'Refresh'}
-    </button>
+    <div class="actions">
+      {#if lastFetchAgoS != null}
+        <span class="updated" class:stale title="Time since the last successful /api/knot fetch">
+          Updated {fmtRelative(lastFetchAgoS)}
+        </span>
+      {/if}
+      <button class="btn outline sm" on:click={handleRefresh} disabled={loading}>
+        {loading ? 'Loading...' : 'Refresh'}
+      </button>
+    </div>
   </div>
 
   {#if loadErr}
@@ -117,7 +143,7 @@
           <tr>
             <th>Hostname</th>
             <th>Version</th>
-            <th>State</th>
+            <th>Status</th>
           </tr>
         </thead>
         <tbody>
@@ -131,9 +157,10 @@
               </td>
               <td>{peer.version}</td>
               <td>
-                <span class={`badge ${getStateBadgeClass(peer.state)}`}>
-                  {peer.state}
-                </span>
+                <span
+                  class={`status-dot ${getStateBadgeClass(peer.state || 'unknown')}`}
+                  title={peer.state || 'unknown'}
+                ></span>
               </td>
             </tr>
           {/each}
@@ -141,14 +168,30 @@
       </table>
     </div>
 
-    {#if legendBoards.length > 0}
+    {#if legendBoards.length > 0 || legendStatuses.length > 0}
       <div class="legend">
-        {#each legendBoards as b}
-          <span class="legend-item">
-            <span class={`board-dot ${boardClass(b)}`} title={b}></span>
-            {b}
-          </span>
-        {/each}
+        {#if legendBoards.length > 0}
+          <div class="legend-row">
+            <span class="legend-label">Boards</span>
+            {#each legendBoards as b}
+              <span class="legend-item">
+                <span class={`board-dot ${boardClass(b)}`} title={b}></span>
+                {b}
+              </span>
+            {/each}
+          </div>
+        {/if}
+        {#if legendStatuses.length > 0}
+          <div class="legend-row">
+            <span class="legend-label">Status</span>
+            {#each legendStatuses as s}
+              <span class="legend-item">
+                <span class={`status-dot ${getStateBadgeClass(s)}`} title={s}></span>
+                {s}
+              </span>
+            {/each}
+          </div>
+        {/if}
       </div>
     {/if}
   {/if}
@@ -174,26 +217,21 @@
     font-weight: 600;
   }
 
-  .header button {
-    padding: 8px 16px;
-    background: var(--accent);
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-    transition: opacity 0.2s;
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
   }
 
-  .header button:hover:not(:disabled) {
-    opacity: 0.9;
+  .updated {
+    font-size: 11px;
+    color: var(--label);
   }
 
-  .header button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+  .updated.stale {
+    color: var(--warning, #f39c12);
   }
+
 
   .error {
     padding: 12px;
@@ -246,10 +284,11 @@
     background: rgba(255, 255, 255, 0.03);
   }
 
-  tbody tr.current-device {
-    background: rgba(0, 200, 100, 0.1);
-    border-left: 3px solid var(--accent);
-    padding-left: 9px;
+  tbody tr.current-device td {
+    background: rgba(0, 200, 100, 0.08);
+  }
+  tbody tr.current-device td:first-child {
+    box-shadow: inset 3px 0 0 var(--accent);
   }
 
   .badge {
@@ -262,30 +301,24 @@
     letter-spacing: 0.5px;
   }
 
-  .state-mining {
-    background: rgba(0, 200, 100, 0.2);
-    color: #00c864;
+  .state-mining       { background: rgba(0, 200, 100, 0.2); color: #00c864; }
+  .state-ota          { background: rgba(255, 200, 0, 0.2);  color: #ffc800; }
+  .state-provisioning { background: rgba(0, 150, 255, 0.2);  color: #0096ff; }
+  .state-idle         { background: rgba(150, 150, 150, 0.2); color: #aaaaaa; }
+  .state-neutral      { background: rgba(100, 100, 100, 0.2); color: #999999; }
+  .state-unknown      { background: rgba(180, 120, 60, 0.18); color: #d8965a; }
+
+  /* Solid-fill dot in the table cell — paint the dot with the status color
+   * (`color`) rather than its translucent background. */
+  .status-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: currentColor;
+    vertical-align: middle;
   }
 
-  .state-ota {
-    background: rgba(255, 200, 0, 0.2);
-    color: #ffc800;
-  }
-
-  .state-provisioning {
-    background: rgba(0, 150, 255, 0.2);
-    color: #0096ff;
-  }
-
-  .state-idle {
-    background: rgba(150, 150, 150, 0.2);
-    color: #aaaaaa;
-  }
-
-  .state-neutral {
-    background: rgba(100, 100, 100, 0.2);
-    color: #999999;
-  }
 
   a {
     color: var(--accent);
@@ -299,16 +332,32 @@
 
   .legend {
     display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 16px;
+    flex-direction: column;
+    gap: 10px;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 16px;
     font-size: 12px;
     color: var(--label);
-    text-align: center;
+  }
+
+  .legend-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+  }
+
+  .legend-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--label);
+    margin-right: 4px;
+    min-width: 50px;
+    text-align: right;
   }
 
   .legend-item {

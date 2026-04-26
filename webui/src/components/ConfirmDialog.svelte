@@ -105,43 +105,4 @@
     gap: 10px;
   }
 
-  .btn {
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text);
-    padding: 8px 16px;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-weight: 600;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
-  }
-
-  .btn.primary {
-    background: var(--accent);
-    color: var(--bg);
-    border-color: var(--accent);
-  }
-
-  .btn.primary:hover { background: var(--accent-hover); }
-
-  .btn.danger {
-    background: var(--danger);
-    border-color: var(--danger);
-    color: var(--bg);
-  }
-
-  .btn.danger:hover { filter: brightness(1.1); }
-
-  .btn.outline {
-    background: transparent;
-    color: var(--label);
-  }
-
-  .btn.outline:hover {
-    color: var(--text);
-    border-color: var(--label);
-  }
 </style>

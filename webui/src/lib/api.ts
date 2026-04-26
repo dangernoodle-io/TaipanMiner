@@ -55,6 +55,7 @@ export interface Stats {
   asic_freq_effective_mhz: number | null
   asic_small_cores: number | null
   asic_count: number | null
+  expected_ghs: number | null
   asic_total_ghs: number | null
   asic_hw_error_pct: number | null
   asic_total_ghs_1m: number | null

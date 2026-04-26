@@ -72,6 +72,11 @@ void test_invalid_hostname_dot(void);
 void test_invalid_hostname_too_long(void);
 void test_hostname_persists_after_set(void);
 
+// Forward declarations from test_taipan_config_manifest.c
+void test_register_manifest_returns_ok(void);
+void test_register_manifest_registers_six_keys(void);
+void test_register_manifest_idempotent_via_clear(void);
+
 // Forward declarations from test_crc.c
 void test_crc5_chain_inactive(void);
 void test_crc5_reg_write_a8(void);
@@ -392,6 +397,11 @@ int main(void) {
     RUN_TEST(test_invalid_hostname_dot);
     RUN_TEST(test_invalid_hostname_too_long);
     RUN_TEST(test_hostname_persists_after_set);
+
+    // taipan_config manifest tests
+    RUN_TEST(test_register_manifest_returns_ok);
+    RUN_TEST(test_register_manifest_registers_six_keys);
+    RUN_TEST(test_register_manifest_idempotent_via_clear);
 
     // CRC tests
     RUN_TEST(test_crc5_chain_inactive);

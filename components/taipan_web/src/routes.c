@@ -72,7 +72,7 @@ static bb_err_t taipan_prov_save_cb(bb_http_request_t *req, const char *body, in
 {
     (void)len;
     char pool_host[64] = "", wallet[64] = "", worker[32] = "";
-    char pool_pass[64] = "";
+    char pool_pass[64] = "", hostname[33] = "";
     char port_str[8] = "";
 
     bb_url_decode_field(body, "pool_host", pool_host, sizeof(pool_host));
@@ -80,6 +80,7 @@ static bb_err_t taipan_prov_save_cb(bb_http_request_t *req, const char *body, in
     bb_url_decode_field(body, "wallet", wallet, sizeof(wallet));
     bb_url_decode_field(body, "worker", worker, sizeof(worker));
     bb_url_decode_field(body, "pool_pass", pool_pass, sizeof(pool_pass));
+    bb_url_decode_field(body, "hostname", hostname, sizeof(hostname));
 
     if (pool_host[0] == '\0' || wallet[0] == '\0' || worker[0] == '\0') {
         bb_http_resp_send_err(req, 400, "All fields required");
@@ -90,6 +91,18 @@ static bb_err_t taipan_prov_save_cb(bb_http_request_t *req, const char *body, in
         bb_http_resp_send_err(req, 400, "Valid port required");
         return BB_ERR_INVALID_ARG;
     }
+
+    // Derive hostname from worker if not provided
+    if (hostname[0] == '\0') {
+        bb_mdns_build_hostname(worker, NULL, hostname, sizeof(hostname));
+    }
+
+    // Validate and save hostname
+    if (taipan_config_set_hostname(hostname) != BB_OK) {
+        bb_http_resp_send_err(req, 400, "Invalid hostname");
+        return BB_ERR_INVALID_ARG;
+    }
+
     if (taipan_config_set_pool(pool_host, port, wallet, worker, pool_pass) != ESP_OK) {
         bb_http_resp_send_err(req, 500, "Failed to save config");
         return BB_ERR_INVALID_ARG;
@@ -450,6 +463,7 @@ static bb_err_t settings_get_handler(bb_http_request_t *req)
     bb_json_obj_set_string(root, "wallet", taipan_config_wallet_addr());
     bb_json_obj_set_string(root, "worker", taipan_config_worker_name());
     bb_json_obj_set_string(root, "pool_pass", taipan_config_pool_pass());
+    bb_json_obj_set_string(root, "hostname", taipan_config_hostname());
     bb_json_obj_set_bool(root, "display_en", bb_nv_config_display_enabled());
     bb_json_obj_set_bool(root, "ota_skip_check", bb_nv_config_ota_skip_check());
 
@@ -636,6 +650,7 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
     const char *wallet = taipan_config_wallet_addr();
     const char *worker = taipan_config_worker_name();
     const char *pool_pass = taipan_config_pool_pass();
+    const char *hostname = taipan_config_hostname();
     bool reboot_required = false;
 
     bb_json_t j;
@@ -655,12 +670,29 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
     j = bb_json_obj_get_item(root, "pool_pass");
     if (j && bb_json_item_is_string(j)) { pool_pass = bb_json_item_get_string(j); }
 
+    j = bb_json_obj_get_item(root, "hostname");
+    if (j && bb_json_item_is_string(j)) { hostname = bb_json_item_get_string(j); }
+
+    // Check if hostname was provided and validate it
+    bool hostname_changed = false;
+    if (bb_json_obj_get_item(root, "hostname")) {
+        if (strcmp(hostname, taipan_config_hostname()) != 0) {
+            hostname_changed = true;
+            if (hostname[0] != '\0' && taipan_config_set_hostname(hostname) != BB_OK) {
+                bb_json_free(root);
+                bb_http_resp_send_err(req, 400, "invalid hostname");
+                return BB_ERR_INVALID_ARG;
+            }
+        }
+    }
+
     // Compare against current values to determine if reboot is needed
     if (strcmp(pool_host, taipan_config_pool_host()) != 0 ||
         pool_port != taipan_config_pool_port() ||
         strcmp(wallet, taipan_config_wallet_addr()) != 0 ||
         strcmp(worker, taipan_config_worker_name()) != 0 ||
-        strcmp(pool_pass, taipan_config_pool_pass()) != 0) {
+        strcmp(pool_pass, taipan_config_pool_pass()) != 0 ||
+        hostname_changed) {
         reboot_required = true;
     }
 
@@ -677,7 +709,14 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
     }
 
     // Save mining config if any mining field was provided
-    if (reboot_required) {
+    if (reboot_required && !hostname_changed) {
+        esp_err_t err = taipan_config_set_pool(pool_host, pool_port, wallet, worker, pool_pass);
+        if (err != ESP_OK) {
+            bb_json_free(root);
+            bb_http_resp_send_err(req, 500, "Failed to save config");
+            return BB_ERR_INVALID_ARG;
+        }
+    } else if (reboot_required && hostname_changed) {
         esp_err_t err = taipan_config_set_pool(pool_host, pool_port, wallet, worker, pool_pass);
         if (err != ESP_OK) {
             bb_json_free(root);

@@ -20,6 +20,7 @@
 #include "bb_log.h"
 #include "bb_ota_pull.h"
 #include "bb_ota_push.h"
+#include "knot.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "asic_chip.h"
@@ -256,7 +257,6 @@ void app_main(void)
         bb_prov_set_ap_ssid_prefix("TaipanMiner-");
         bb_prov_set_ap_password("taipanminer");
         bb_mdns_set_service_type("_taipanminer");
-        bb_mdns_set_instance_name("TaipanMiner");
         {
             char hn[64];
             const char *hostname = taipan_config_hostname();
@@ -269,6 +269,9 @@ void app_main(void)
                  * during the AP/prov flow. */
                 bb_mdns_build_hostname(taipan_config_worker_name(), NULL, hn, sizeof(hn));
             }
+            /* Instance name == hostname so dns-sd browses surface a useful identifier
+             * (e.g. "tdongles3-1") instead of the generic "TaipanMiner". */
+            bb_mdns_set_instance_name(hn);
             bb_mdns_set_hostname(hn);
             bb_wifi_set_hostname(hn);
         }
@@ -324,7 +327,6 @@ void app_main(void)
     } else {
         // Normal boot: connect to saved WiFi
         bb_mdns_set_service_type("_taipanminer");
-        bb_mdns_set_instance_name("TaipanMiner");
         {
             char hn[64];
             const char *hostname = taipan_config_hostname();
@@ -337,6 +339,8 @@ void app_main(void)
                  * during the AP/prov flow. */
                 bb_mdns_build_hostname(taipan_config_worker_name(), NULL, hn, sizeof(hn));
             }
+            /* Instance name == hostname so dns-sd browses surface a useful identifier. */
+            bb_mdns_set_instance_name(hn);
             bb_mdns_set_hostname(hn);
             bb_wifi_set_hostname(hn);
         }
@@ -346,6 +350,7 @@ void app_main(void)
         bb_mdns_set_txt("version", esp_app_get_description()->version);
         bb_mdns_set_txt("state", "mining");
         ESP_ERROR_CHECK(bb_wifi_init());
+        ESP_ERROR_CHECK(knot_init());
         ESP_ERROR_CHECK(bb_http_server_ensure_started());
         ESP_ERROR_CHECK(taipan_web_register_mining_routes(bb_http_server_get_handle()));
     }

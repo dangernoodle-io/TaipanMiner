@@ -14,6 +14,7 @@
   import Diagnostics from './pages/Diagnostics.svelte'
   import Settings from './pages/Settings.svelte'
   import History from './pages/History.svelte'
+  import Knot from './pages/Knot.svelte'
   import './lib/theme.css'
   import './App.css'
 
@@ -42,6 +43,8 @@
     <Settings />
   {:else if $route === 'history'}
     <History />
+  {:else if $route === 'knot'}
+    <Knot />
   {:else}
     <Dashboard />
   {/if}

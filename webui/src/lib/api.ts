@@ -101,6 +101,7 @@ export interface Info {
   wdt_resets: number | null
   boot_time: number | null
   worker_name: string
+  hostname: string
   validated: boolean
   network?: InfoNetwork
 }
@@ -118,6 +119,17 @@ export interface Power {
 export interface Fan {
   rpm: number | null
   duty_pct: number | null
+}
+
+export interface KnotPeer {
+  instance: string
+  hostname: string
+  ip: string
+  worker: string
+  board: string
+  version: string
+  state: string
+  seen_ago_s: number
 }
 
 // In dev, Vite proxies /api/* to VITE_MINER_URL (configured in vite.config.ts).
@@ -146,6 +158,7 @@ export const fetchInfo  = () => getJson<Info>('/api/info')
 export const fetchPower = () => getJson<Power>('/api/power')
 export const fetchFan   = () => getJson<Fan>('/api/fan')
 export const fetchSettings = () => getJson<Settings>('/api/settings')
+export const fetchKnot = () => getJson<KnotPeer[]>('/api/knot')
 
 export async function patchSettings(patch: Partial<Settings>): Promise<{ status: string; reboot_required: boolean }> {
   const res = await fetch(`${baseUrl}/api/settings`, {

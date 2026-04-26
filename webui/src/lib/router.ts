@@ -1,6 +1,6 @@
 import { writable } from 'svelte/store'
 
-export type Route = 'dashboard' | 'system' | 'pool' | 'settings' | 'history' | 'diagnostics' | 'update'
+export type Route = 'dashboard' | 'system' | 'pool' | 'settings' | 'history' | 'diagnostics' | 'update' | 'knot'
 
 const defaultRoute: Route = 'dashboard'
 
@@ -13,6 +13,7 @@ function parseHash(): Route {
     case 'history':
     case 'diagnostics':
     case 'update':
+    case 'knot':
       return h
     default:
       return defaultRoute

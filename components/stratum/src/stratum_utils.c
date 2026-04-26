@@ -1,4 +1,5 @@
 #include "stratum_utils.h"
+#include "bb_json.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -56,4 +57,19 @@ int format_stratum_request(char *buf, size_t buf_size,
     }
 
     return result;
+}
+
+int stratum_parse_error_code(bb_json_t error_item)
+{
+    /* Array form first: [code, "message", "data"]. */
+    bb_json_t arr0 = bb_json_arr_get_item(error_item, 0);
+    if (bb_json_item_is_number(arr0)) {
+        return (int)bb_json_item_get_double(arr0);
+    }
+    /* Object form: {"code": N, ...}. */
+    double n;
+    if (bb_json_obj_get_number(error_item, "code", &n)) {
+        return (int)n;
+    }
+    return -1;
 }

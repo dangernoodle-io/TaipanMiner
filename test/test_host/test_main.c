@@ -148,6 +148,16 @@ void test_format_request_basic(void);
 void test_format_request_truncation(void);
 void test_format_request_newline(void);
 
+// Forward declarations from test_stratum_reject.c
+void test_parse_error_code_array_form_21(void);
+void test_parse_error_code_array_form_23(void);
+void test_parse_error_code_object_form_22(void);
+void test_parse_error_code_object_form_25(void);
+void test_parse_error_code_empty_array(void);
+void test_parse_error_code_null(void);
+void test_parse_error_code_non_numeric_array_first(void);
+void test_parse_error_code_no_code_field(void);
+
 // Forward declarations from test_stats.c
 void test_ema_seeds_on_first_sample(void);
 void test_ema_converges(void);
@@ -445,6 +455,16 @@ int main(void) {
     RUN_TEST(test_format_request_basic);
     RUN_TEST(test_format_request_truncation);
     RUN_TEST(test_format_request_newline);
+
+    // Stratum error code parsing tests
+    RUN_TEST(test_parse_error_code_array_form_21);
+    RUN_TEST(test_parse_error_code_array_form_23);
+    RUN_TEST(test_parse_error_code_object_form_22);
+    RUN_TEST(test_parse_error_code_object_form_25);
+    RUN_TEST(test_parse_error_code_empty_array);
+    RUN_TEST(test_parse_error_code_null);
+    RUN_TEST(test_parse_error_code_non_numeric_array_first);
+    RUN_TEST(test_parse_error_code_no_code_field);
 
     // Stats tests
     RUN_TEST(test_ema_seeds_on_first_sample);

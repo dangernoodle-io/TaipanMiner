@@ -150,6 +150,12 @@ static bb_err_t stats_handler(bb_http_request_t *req)
     uint32_t hw_shares = 0;
     float temp = 0;
     uint32_t session_shares = 0, session_rejected = 0;
+    uint32_t session_rejected_job_not_found = 0;
+    uint32_t session_rejected_low_difficulty = 0;
+    uint32_t session_rejected_duplicate = 0;
+    uint32_t session_rejected_stale_prevhash = 0;
+    uint32_t session_rejected_other = 0;
+    int32_t  session_rejected_other_last_code = -1;
     int64_t last_share_us = 0, session_start_us = 0;
     mining_lifetime_t lifetime = {0};
 #ifdef ASIC_CHIP
@@ -172,6 +178,12 @@ static bb_err_t stats_handler(bb_http_request_t *req)
         temp = mining_stats.temp_c;
         session_shares = mining_stats.session.shares;
         session_rejected = mining_stats.session.rejected;
+        session_rejected_job_not_found = mining_stats.session.rejected_job_not_found;
+        session_rejected_low_difficulty = mining_stats.session.rejected_low_difficulty;
+        session_rejected_duplicate = mining_stats.session.rejected_duplicate;
+        session_rejected_stale_prevhash = mining_stats.session.rejected_stale_prevhash;
+        session_rejected_other = mining_stats.session.rejected_other;
+        session_rejected_other_last_code = mining_stats.session.rejected_other_last_code;
         last_share_us = mining_stats.session.last_share_us;
         session_start_us = mining_stats.session.start_us;
         best_diff = mining_stats.session.best_diff;
@@ -209,6 +221,15 @@ static bb_err_t stats_handler(bb_http_request_t *req)
     bb_json_obj_set_number(root, "pool_difficulty", pool_diff);
     bb_json_obj_set_number(root, "session_shares", session_shares);
     bb_json_obj_set_number(root, "session_rejected", session_rejected);
+    bb_json_t rejected = bb_json_obj_new();
+    bb_json_obj_set_number(rejected, "total", (double)session_rejected);
+    bb_json_obj_set_number(rejected, "job_not_found", (double)session_rejected_job_not_found);
+    bb_json_obj_set_number(rejected, "low_difficulty", (double)session_rejected_low_difficulty);
+    bb_json_obj_set_number(rejected, "duplicate", (double)session_rejected_duplicate);
+    bb_json_obj_set_number(rejected, "stale_prevhash", (double)session_rejected_stale_prevhash);
+    bb_json_obj_set_number(rejected, "other", (double)session_rejected_other);
+    bb_json_obj_set_number(rejected, "other_last_code", (double)session_rejected_other_last_code);
+    bb_json_obj_set_obj(root, "rejected", rejected);
     bb_json_obj_set_number(root, "last_share_ago_s", (double)last_share_ago_s);
     bb_json_obj_set_number(root, "lifetime_shares", lifetime.total_shares);
     bb_json_obj_set_number(root, "best_diff", best_diff);

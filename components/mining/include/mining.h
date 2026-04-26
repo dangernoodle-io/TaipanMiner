@@ -105,6 +105,12 @@ typedef struct {
     uint32_t shares;
     uint64_t hashes;
     uint32_t rejected;
+    uint32_t rejected_job_not_found;    // stratum code 21
+    uint32_t rejected_low_difficulty;   // stratum code 23
+    uint32_t rejected_duplicate;        // stratum code 22
+    uint32_t rejected_stale_prevhash;   // stratum code 25
+    uint32_t rejected_other;            // any other code (or no code)
+    int32_t  rejected_other_last_code;  // last seen "other" code (-1 if none/unparseable)
     int64_t  start_us;
     int64_t  last_share_us;   // 0 = no share yet
     double   best_diff;       // highest share difficulty (raw value)

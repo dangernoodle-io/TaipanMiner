@@ -563,8 +563,19 @@ static void process_message(const char *line)
                     bb_log_e(TAG, "share rejected: %s", err_str);
                     bb_json_free_str(err_str);
                 }
+                int code = stratum_parse_error_code(error_item);
                 if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                     mining_stats.session.rejected++;
+                    switch (code) {
+                        case 21: mining_stats.session.rejected_job_not_found++;   break;
+                        case 22: mining_stats.session.rejected_duplicate++;       break;
+                        case 23: mining_stats.session.rejected_low_difficulty++;  break;
+                        case 25: mining_stats.session.rejected_stale_prevhash++;  break;
+                        default:
+                            mining_stats.session.rejected_other++;
+                            mining_stats.session.rejected_other_last_code = code;
+                            break;
+                    }
                     xSemaphoreGive(mining_stats.mutex);
                 }
             } else if (result_item && bb_json_item_is_true(result_item)) {

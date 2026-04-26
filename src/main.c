@@ -273,6 +273,11 @@ void app_main(void)
             bb_wifi_set_hostname(hn);
         }
 
+        bb_mdns_init();
+        bb_mdns_set_txt("worker", "");
+        bb_mdns_set_txt("board", FIRMWARE_BOARD);
+        bb_mdns_set_txt("version", esp_app_get_description()->version);
+        bb_mdns_set_txt("state", "provisioning");
         ESP_ERROR_CHECK(bb_prov_start_ap());
         taipan_web_install_prov_save_cb();
         {
@@ -336,6 +341,10 @@ void app_main(void)
             bb_wifi_set_hostname(hn);
         }
         bb_mdns_init();
+        bb_mdns_set_txt("worker", taipan_config_worker_name());
+        bb_mdns_set_txt("board", FIRMWARE_BOARD);
+        bb_mdns_set_txt("version", esp_app_get_description()->version);
+        bb_mdns_set_txt("state", "mining");
         ESP_ERROR_CHECK(bb_wifi_init());
         ESP_ERROR_CHECK(bb_http_server_ensure_started());
         ESP_ERROR_CHECK(taipan_web_register_mining_routes(bb_http_server_get_handle()));

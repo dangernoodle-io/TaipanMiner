@@ -297,6 +297,18 @@ void test_pfd_rewrite_only_when_running_at_correct_addr(void);
 void test_pfd_copy_and_rewrite_when_running_at_wrong_addr(void);
 void test_pfd_running_addr_zero_treated_as_wrong(void);
 
+// Forward declarations from test_knot.c
+void test_knot_table_upsert_empty_slot(void);
+void test_knot_table_upsert_update_existing(void);
+void test_knot_table_upsert_table_full(void);
+void test_knot_table_remove_existing(void);
+void test_knot_table_remove_missing(void);
+void test_knot_table_prune_stale_entries(void);
+void test_knot_table_snapshot(void);
+void test_knot_table_snapshot_cap(void);
+void test_knot_table_apply_txt(void);
+void test_knot_table_null_guards(void);
+
 // TA-234: stratum_watchdogs
 void test_stratum_watchdog_job_drought_never_observed(void);
 void test_stratum_watchdog_job_drought_below_threshold(void);
@@ -620,6 +632,18 @@ int main(void) {
     RUN_TEST(test_pfd_rewrite_only_when_running_at_correct_addr);
     RUN_TEST(test_pfd_copy_and_rewrite_when_running_at_wrong_addr);
     RUN_TEST(test_pfd_running_addr_zero_treated_as_wrong);
+
+    // Knot peer table tests
+    RUN_TEST(test_knot_table_upsert_empty_slot);
+    RUN_TEST(test_knot_table_upsert_update_existing);
+    RUN_TEST(test_knot_table_upsert_table_full);
+    RUN_TEST(test_knot_table_remove_existing);
+    RUN_TEST(test_knot_table_remove_missing);
+    RUN_TEST(test_knot_table_prune_stale_entries);
+    RUN_TEST(test_knot_table_snapshot);
+    RUN_TEST(test_knot_table_snapshot_cap);
+    RUN_TEST(test_knot_table_apply_txt);
+    RUN_TEST(test_knot_table_null_guards);
 
     // TA-234: stratum_watchdogs tests
     RUN_TEST(test_stratum_watchdog_job_drought_never_observed);

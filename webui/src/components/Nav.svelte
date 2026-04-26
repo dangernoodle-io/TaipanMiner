@@ -5,6 +5,7 @@
     { id: 'dashboard',   label: 'Dashboard' },
     { id: 'diagnostics', label: 'Diagnostics' },
     { id: 'history',     label: 'History' },
+    { id: 'knot',        label: 'Knot' },
     { id: 'pool',        label: 'Pool' },
     { id: 'settings',    label: 'Settings' },
     { id: 'system',      label: 'System' },

@@ -34,6 +34,7 @@
 #include "bb_ota_validator.h"
 #include "bb_log.h"
 #include "bb_board.h"
+#include "knot.h"
 
 static const char *TAG = "web";
 
@@ -465,9 +466,53 @@ static bb_err_t fan_handler(bb_http_request_t *req)
 }
 #endif // ASIC_BM1370 || ASIC_BM1368
 
+static bb_err_t knot_handler(bb_http_request_t *req)
+{
+    set_common_headers(req);
+
+    /* Off-stack: 32 * sizeof(knot_peer_t) ≈ 9 KB blows the httpd task stack.
+     * Heap-allocate the snapshot buffer; httpd serializes per-handler so a
+     * static would also be safe, but heap keeps the lifetime explicit. */
+    knot_peer_t *peers = malloc(sizeof(knot_peer_t) * 32);
+    if (!peers) {
+        bb_http_resp_send_err(req, 500, "out of memory");
+        return BB_ERR_INVALID_ARG;
+    }
+    size_t peer_count = knot_snapshot(peers, 32);
+
+    int64_t now_us = esp_timer_get_time();
+
+    bb_json_t root = bb_json_arr_new();
+    for (size_t i = 0; i < peer_count; i++) {
+        bb_json_t peer_obj = bb_json_obj_new();
+        bb_json_obj_set_string(peer_obj, "instance", peers[i].instance_name);
+        bb_json_obj_set_string(peer_obj, "hostname", peers[i].hostname);
+        bb_json_obj_set_string(peer_obj, "ip", peers[i].ip4);
+        bb_json_obj_set_string(peer_obj, "worker", peers[i].worker);
+        bb_json_obj_set_string(peer_obj, "board", peers[i].board);
+        bb_json_obj_set_string(peer_obj, "version", peers[i].version);
+        bb_json_obj_set_string(peer_obj, "state", peers[i].state);
+
+        int64_t seen_ago_us = now_us - peers[i].last_seen_us;
+        int64_t seen_ago_s = seen_ago_us / 1000000;
+        bb_json_obj_set_number(peer_obj, "seen_ago_s", (double)seen_ago_s);
+
+        bb_json_arr_append_obj(root, peer_obj);
+    }
+
+    char *json = bb_json_serialize(root);
+    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
+    bb_json_free_str(json);
+    bb_json_free(root);
+    free(peers);
+    return rc;
+}
+
 static void taipan_info_extender(bb_json_t root)
 {
     bb_json_obj_set_string(root, "worker_name", taipan_config_worker_name());
+    bb_json_obj_set_string(root, "hostname", taipan_config_hostname());
 
     const char *ssid = bb_nv_config_wifi_ssid();
     if (ssid) bb_json_obj_set_string(root, "ssid", ssid);
@@ -900,6 +945,9 @@ bb_err_t taipan_web_register_mining_routes(bb_http_handle_t server)
     // Register dynamic handlers (portable bb_http)
     bb_err_t rc;
     rc = bb_http_register_route(server, BB_HTTP_GET, "/api/stats", stats_handler);
+    if (rc != BB_OK) return rc;
+
+    rc = bb_http_register_route(server, BB_HTTP_GET, "/api/knot", knot_handler);
     if (rc != BB_OK) return rc;
 
     rc = bb_http_register_route(server, BB_HTTP_GET, "/api/settings", settings_get_handler);

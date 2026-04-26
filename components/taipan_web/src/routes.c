@@ -37,6 +37,23 @@
 
 static const char *TAG = "web";
 
+// ============================================================================
+// DEFERRED RESTART HELPERS
+// ============================================================================
+
+static void deferred_restart_task(void *arg)
+{
+    (void)arg;
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
+    vTaskDelete(NULL);
+}
+
+static void schedule_deferred_restart(void)
+{
+    xTaskCreate(deferred_restart_task, "deferred_restart", 2048, NULL, 5, NULL);
+}
+
 extern const uint8_t prov_form_html_gz[];
 extern const size_t prov_form_html_gz_len;
 extern const uint8_t theme_css_gz[];
@@ -114,6 +131,9 @@ static bb_err_t taipan_prov_save_cb(bb_http_request_t *req, const char *body, in
     bb_http_resp_set_header(req, "Content-Encoding", "gzip");
     bb_http_resp_set_header(req, "Content-Type", "text/html");
     bb_http_resp_send(req, (const char *)prov_save_html_gz, prov_save_html_gz_len);
+
+    // schedule deferred restart so config changes apply
+    schedule_deferred_restart();
     return BB_OK;
 }
 
@@ -476,8 +496,11 @@ static bb_err_t settings_get_handler(bb_http_request_t *req)
 }
 
 // Shared helper for POST (full) and PATCH (partial) settings
-static bb_err_t apply_settings(bb_http_request_t *req, bool partial)
+// Returns BB_OK on successful response send; sets *out_reboot_required to true if restart needed
+static bb_err_t apply_settings(bb_http_request_t *req, bool partial, bool *out_reboot_required)
 {
+    *out_reboot_required = false;
+
     set_common_headers(req);
     char body[512];
 
@@ -608,12 +631,25 @@ static bb_err_t apply_settings(bb_http_request_t *req, bool partial)
     snprintf(resp, sizeof(resp), "{\"status\":\"saved\",\"reboot_required\":%s}",
              reboot_required ? "true" : "false");
     bb_http_resp_set_header(req, "Content-Type", "application/json");
-    return bb_http_resp_send(req, resp, strlen(resp));
+    bb_err_t send_rc = bb_http_resp_send(req, resp, strlen(resp));
+
+    if (send_rc == BB_OK) {
+        *out_reboot_required = reboot_required;
+    }
+
+    return send_rc;
 }
 
 static bb_err_t settings_post_handler(bb_http_request_t *req)
 {
-    return apply_settings(req, false);
+    bool reboot_required = false;
+    bb_err_t rc = apply_settings(req, false, &reboot_required);
+
+    if (rc == BB_OK && reboot_required) {
+        schedule_deferred_restart();
+    }
+
+    return rc;
 }
 
 // ============================================================================
@@ -757,7 +793,14 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
     snprintf(resp, sizeof(resp), "{\"status\":\"saved\",\"reboot_required\":%s}",
              reboot_required ? "true" : "false");
     bb_http_resp_set_header(req, "Content-Type", "application/json");
-    return bb_http_resp_send(req, resp, strlen(resp));
+    bb_err_t send_rc = bb_http_resp_send(req, resp, strlen(resp));
+
+    // schedule deferred restart if reboot is needed
+    if (reboot_required) {
+        schedule_deferred_restart();
+    }
+
+    return send_rc;
 }
 
 // ============================================================================

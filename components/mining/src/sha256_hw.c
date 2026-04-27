@@ -27,10 +27,26 @@
 // must be written before each SHA operation — no per-nonce write reduction
 // is possible.
 
+static const char *TAG = "sha256_hw";
+
+// Drain a stale SHA_BUSY=1 left by a soft-restart while another caller (typically
+// mbedTLS HMAC during esp_https_ota TLS) was mid-operation. Lock state evaporates
+// at esp_restart but the peripheral's BUSY latch persists; the first hot-loop spin
+// then never returns. Bounded so a permanently-wedged peripheral surfaces as a
+// recoverable error rather than a hang.
+static void sha256_hw_drain_busy(void)
+{
+    for (int i = 0; i < 100000; i++) {
+        if (!REG_READ(SHA_BUSY_REG)) return;
+    }
+    bb_log_e(TAG, "SHA peripheral BUSY did not clear after 100k polls");
+}
+
 void sha256_hw_acquire(void)
 {
     esp_crypto_sha_aes_lock_acquire();
     esp_crypto_sha_enable_periph_clk(true);
+    sha256_hw_drain_busy();
     REG_WRITE(SHA_MODE_REG, 2);  // SHA-256
 }
 
@@ -232,8 +248,6 @@ IRAM_ATTR void sha256_hw_midstate(const uint8_t header_block1[64],
 #include "esp_log.h"
 #include "esp_timer.h"
 #include <inttypes.h>
-
-static const char *TAG = "sha256_hw";
 
 bool sha256_hw_verify_text_preserved(void)
 {

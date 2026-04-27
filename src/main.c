@@ -311,8 +311,8 @@ void app_main(void)
 
             bb_prov_stop_ap();
 
-            esp_err_t err = bb_wifi_init_sta();
-            if (err == ESP_OK) {
+            bb_err_t err = bb_wifi_init_sta();
+            if (err == BB_OK) {
                 BB_ERROR_CHECK(led_off());
                 bb_log_i(TAG, "provisioning complete; restarting into mining mode");
                 bb_nv_config_set_provisioned();

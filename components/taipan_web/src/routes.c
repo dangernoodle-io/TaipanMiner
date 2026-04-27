@@ -120,7 +120,7 @@ static bb_err_t taipan_prov_save_cb(bb_http_request_t *req, const char *body, in
         return BB_ERR_INVALID_ARG;
     }
 
-    if (taipan_config_set_pool(pool_host, port, wallet, worker, pool_pass) != ESP_OK) {
+    if (taipan_config_set_pool(pool_host, port, wallet, worker, pool_pass) != BB_OK) {
         bb_http_resp_send_err(req, 500, "Failed to save config");
         return BB_ERR_INVALID_ARG;
     }
@@ -667,8 +667,8 @@ static bb_err_t apply_settings(bb_http_request_t *req, bool partial, bool *out_r
 
     // Save mining config if any mining field was provided
     if (reboot_required) {
-        esp_err_t err = taipan_config_set_pool(pool_host, pool_port, wallet, worker, pool_pass);
-        if (err != ESP_OK) {
+        bb_err_t err = taipan_config_set_pool(pool_host, pool_port, wallet, worker, pool_pass);
+        if (err != BB_OK) {
             bb_json_free(root);
             bb_http_resp_set_status(req, 500);
             bb_http_resp_set_header(req, "Content-Type", "text/plain");
@@ -681,8 +681,8 @@ static bb_err_t apply_settings(bb_http_request_t *req, bool partial, bool *out_r
     {
         bool display_val = false;
         if (bb_json_obj_get_bool(root, "display_en", &display_val)) {
-            esp_err_t err = bb_nv_config_set_display_enabled(display_val);
-            if (err != ESP_OK) {
+            bb_err_t err = bb_nv_config_set_display_enabled(display_val);
+            if (err != BB_OK) {
                 bb_json_free(root);
                 bb_http_resp_set_status(req, 500);
                 bb_http_resp_set_header(req, "Content-Type", "text/plain");
@@ -695,8 +695,8 @@ static bb_err_t apply_settings(bb_http_request_t *req, bool partial, bool *out_r
     {
         bool skip_val = false;
         if (bb_json_obj_get_bool(root, "ota_skip_check", &skip_val)) {
-            esp_err_t err = bb_nv_config_set_ota_skip_check(skip_val);
-            if (err != ESP_OK) {
+            bb_err_t err = bb_nv_config_set_ota_skip_check(skip_val);
+            if (err != BB_OK) {
                 bb_json_free(root);
                 bb_http_resp_set_status(req, 500);
                 bb_http_resp_set_header(req, "Content-Type", "text/plain");
@@ -828,15 +828,15 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
 
     // Save mining config if any mining field was provided
     if (reboot_required && !hostname_changed) {
-        esp_err_t err = taipan_config_set_pool(pool_host, pool_port, wallet, worker, pool_pass);
-        if (err != ESP_OK) {
+        bb_err_t err = taipan_config_set_pool(pool_host, pool_port, wallet, worker, pool_pass);
+        if (err != BB_OK) {
             bb_json_free(root);
             bb_http_resp_send_err(req, 500, "Failed to save config");
             return BB_ERR_INVALID_ARG;
         }
     } else if (reboot_required && hostname_changed) {
-        esp_err_t err = taipan_config_set_pool(pool_host, pool_port, wallet, worker, pool_pass);
-        if (err != ESP_OK) {
+        bb_err_t err = taipan_config_set_pool(pool_host, pool_port, wallet, worker, pool_pass);
+        if (err != BB_OK) {
             bb_json_free(root);
             bb_http_resp_send_err(req, 500, "Failed to save config");
             return BB_ERR_INVALID_ARG;
@@ -847,8 +847,8 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
     {
         bool display_val = false;
         if (bb_json_obj_get_bool(root, "display_en", &display_val)) {
-            esp_err_t err = bb_nv_config_set_display_enabled(display_val);
-            if (err != ESP_OK) {
+            bb_err_t err = bb_nv_config_set_display_enabled(display_val);
+            if (err != BB_OK) {
                 bb_json_free(root);
                 bb_http_resp_send_err(req, 500, "Failed to save display setting");
                 return BB_ERR_INVALID_ARG;
@@ -859,8 +859,8 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
     {
         bool skip_val = false;
         if (bb_json_obj_get_bool(root, "ota_skip_check", &skip_val)) {
-            esp_err_t err = bb_nv_config_set_ota_skip_check(skip_val);
-            if (err != ESP_OK) {
+            bb_err_t err = bb_nv_config_set_ota_skip_check(skip_val);
+            if (err != BB_OK) {
                 bb_json_free(root);
                 bb_http_resp_send_err(req, 500, "Failed to save ota_skip_check");
                 return BB_ERR_INVALID_ARG;

@@ -631,7 +631,7 @@ void asic_mining_task(void *arg)
         if (now - last_temp_tick >= pdMS_TO_TICKS(5000)) {
             float temp;
             int new_duty;
-            if (emc2101_read_temp(&temp) == ESP_OK) {
+            if (emc2101_read_temp(&temp) == BB_OK) {
                 new_duty = emc2101_duty_for_temp_c(temp);
                 if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                     mining_stats.asic_temp_c = temp;
@@ -652,7 +652,7 @@ void asic_mining_task(void *arg)
                 int rpm = emc2101_read_rpm();
                 int duty = emc2101_get_duty_pct();
                 float board_t = -1.0f;
-                if (emc2101_read_internal_temp(&board_t) != ESP_OK) board_t = -1.0f;
+                if (emc2101_read_internal_temp(&board_t) != BB_OK) board_t = -1.0f;
                 if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                     mining_stats.vcore_mv = v;
                     mining_stats.icore_ma = i;

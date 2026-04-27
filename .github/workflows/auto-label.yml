@@ -1,0 +1,9 @@
+name: auto-label
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+jobs:
+  label:
+    uses: dangernoodle-io/.github/.github/workflows/auto-label-conventional.yml@main
+    permissions:
+      pull-requests: write

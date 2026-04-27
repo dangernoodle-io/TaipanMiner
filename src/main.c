@@ -415,6 +415,7 @@ void app_main(void)
 #else
     bb_ota_pull_set_task_core(tskNO_AFFINITY);
 #endif
+    bb_ota_pull_set_http_timeout_ms(60000);
 
     // Initialize OTA push with breadboard component
     bb_ota_push_set_hooks(mining_pause, mining_resume);

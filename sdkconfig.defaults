@@ -38,10 +38,18 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
 # Watchdog
+# 60 s timeout (Kconfig range cap) absorbs long stalls during pull-OTA on bitaxe
+# (TLS handshake + mbedTLS SHA on Core 1, bb_log writer TX backpressure on
+# Core 0). Diagnose the starving task properly later; for now this prevents the
+# rollback storm.
 CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=60
 CONFIG_ESP_TASK_WDT_PANIC=y
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=y
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+
+# Panic — give USB CDC TX FIFO time to flush panic dump before reset
+CONFIG_ESP_SYSTEM_PANIC_REBOOT_DELAY_SECONDS=3
 
 # FreeRTOS
 CONFIG_FREERTOS_UNICORE=n

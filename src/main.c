@@ -196,6 +196,10 @@ void app_main(void)
     bb_log_tag_register("partition_fixup", BB_LOG_LEVEL_INFO);
     bb_log_tag_register("taipan_config", BB_LOG_LEVEL_INFO);
     bb_log_tag_register("web", BB_LOG_LEVEL_INFO);
+    // "diag" — opt-in instrumentation (per-job hashrate, tier1_dwell, job_swap,
+    // share-ack latency, asic periodic stats). Default WARN suppresses info-level
+    // probes; bump to DEBUG/INFO via /api/log/level when investigating.
+    bb_log_tag_register("diag", BB_LOG_LEVEL_WARN);
 #ifdef ASIC_CHIP
     bb_log_tag_register("asic", BB_LOG_LEVEL_INFO);
     bb_log_tag_register("emc2101", BB_LOG_LEVEL_INFO);

@@ -1,5 +1,6 @@
 #include "mining.h"
 #include "mining_pause_state.h"
+#include "diag.h"
 #ifdef ASIC_CHIP
 #include "board.h"
 #endif
@@ -348,15 +349,29 @@ bool mine_nonce_range(hash_backend_t *backend,
         if (((nonce + 1) & params->yield_mask) == 0) {
             // Tier 1: lightweight new-work check (every 256K nonces)
             sha256_hw_release();
+            int64_t tier1_start_us = esp_timer_get_time();  // Diag: dwell timer starts here
             mining_work_t new_work;
             if (xQueuePeek(work_queue, &new_work, 0) == pdTRUE &&
                 new_work.work_seq != work->work_seq) {
+                // Diag: time the swap path (acquire + prepare_job)
+                int64_t swap_start_us = esp_timer_get_time();
                 memcpy(work, &new_work, sizeof(*work));
+                {
+                    int64_t job_elapsed_us = swap_start_us - start_us;
+                    double job_hashrate = (double)hashes / ((double)job_elapsed_us / 1000000.0);
+                    bb_log_i(DIAG, "prev job %s: %" PRIu32 " nonces in %.2fs (%.1f kH/s)",
+                             work->job_id, hashes, (double)job_elapsed_us / 1000000.0,
+                             job_hashrate / 1000.0);
+                }
                 bb_log_i(TAG, "new job (%s)", work->job_id);
                 build_block2(block2, work->header);
                 sha256_hw_acquire();
                 backend->prepare_job(backend, work, block2);
                 start_us = esp_timer_get_time();
+                int64_t swap_dur_us = start_us - swap_start_us;
+                if (swap_dur_us > 50000) {
+                    bb_log_w(DIAG, "job_swap: %lldms (acquire + prepare_job)", swap_dur_us / 1000);
+                }
                 hashes = 0;
                 nonce = params->nonce_start - 1;
                 continue;
@@ -378,6 +393,16 @@ bool mine_nonce_range(hash_backend_t *backend,
                 continue;
             }
             sha256_hw_acquire();
+
+            // Diag: measure time spent inside the Tier-1 dance (release → peek → acquire →
+            // release → pause_check → acquire). Captures real internal stalls; immune to job-swap
+            // and pause-resume paths that continue before reaching this point.
+            {
+                int64_t tier1_dwell_us = esp_timer_get_time() - tier1_start_us;
+                if (tier1_dwell_us > 50000) {  // 50ms threshold
+                    bb_log_w(DIAG, "tier1_dwell: %lldms (acq/rel + peek + pause)", tier1_dwell_us / 1000);
+                }
+            }
 
             // Tier 2: full yield (every 1M nonces)
             if (((nonce + 1) & params->log_mask) == 0) {

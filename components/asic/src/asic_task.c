@@ -15,6 +15,7 @@
 #include "emc2101.h"
 #include "emc2101_curve.h"
 #include "mining.h"
+#include "diag.h"
 #include "stratum.h"
 #include "work.h"
 #include "sha256.h"
@@ -596,7 +597,7 @@ void asic_mining_task(void *arg)
             uint32_t rolled_ver = (ver_bits != 0 && orig->version_mask != 0)
                 ? (orig->version & ~orig->version_mask) | (ver_bits & orig->version_mask)
                 : orig->version;
-            bb_log_i(TAG, "share: job=%u ver=%08" PRIx32 " n=%02X%02X%02X%02X",
+            bb_log_i(DIAG, "share: job=%u ver=%08" PRIx32 " n=%02X%02X%02X%02X",
                      real_job_id, rolled_ver,
                      nonce.nonce[0], nonce.nonce[1], nonce.nonce[2], nonce.nonce[3]);
 
@@ -756,13 +757,13 @@ void asic_mining_task(void *arg)
                 }
             }
 
-            bb_log_i(TAG, "asic: %.1f GH/s (reported %.1f) | hw_err: %.2f%% | temp: %.1f C | shares: %" PRIu32 " | sha pass/fail: %" PRIu32 "/%" PRIu32,
+            bb_log_i(TAG, "%.1f GH/s (reported %.1f) | hw_err: %.2f%% | temp: %.1f C | shares: %" PRIu32 " | sha pass/fail: %" PRIu32 "/%" PRIu32,
                      hashrate / 1e9, total_ghs_sum, asic_hw_error_pct,
                      temp, shares, s_sha_pass, s_sha_fail);
 
-            // TA-198: per-chip raw counters for diagnostic (601 vs 650 comparison)
+            // TA-198: per-chip raw counters — diag only (601 vs 650 comparison)
             for (int c = 0; c < BOARD_ASIC_COUNT; c++) {
-                bb_log_i(TAG, "chip %d: total_raw=%" PRIu32 " error_raw=%" PRIu32
+                bb_log_i(DIAG, "chip %d: total_raw=%" PRIu32 " error_raw=%" PRIu32
                               " total_ghs=%.1f error_ghs=%.2f",
                          c,
                          s_chip_meas[c].total_val - s_chip_meas[c].total_val_base,

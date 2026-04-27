@@ -5,6 +5,7 @@
 #include "bb_nv.h"
 #include "taipan_config.h"
 #include "mining.h"
+#include "diag.h"
 #include "work.h"
 #include "sha256.h"
 #include "board.h"
@@ -51,6 +52,7 @@ static uint32_t s_work_seq = 0;        // work sequence counter
 static TickType_t s_last_job_tick = 0; // last job dispatch tick
 static TickType_t s_last_pool_job_tick = 0; // last mining.notify from pool (not extranonce2 roll)
 static TickType_t s_last_share_tick = 0; // last share submission tick (30-min watchdog)
+static int64_t s_last_submit_us = 0;     // diag: esp_timer timestamp of last mining.submit send
 static TickType_t s_last_tx_tick = 0;    // last stratum TX (for app-level keepalive)
 static TickType_t s_session_start_tick = 0;
 static stratum_backoff_t s_backoff = {
@@ -489,6 +491,7 @@ static int submit_share(mining_result_t *result)
     }
 
     bb_log_i(TAG, "submit: %s", params);
+    s_last_submit_us = esp_timer_get_time();
     int rc = stratum_request("mining.submit", params);
     if (rc >= 0) {
         s_last_share_tick = xTaskGetTickCount();
@@ -580,6 +583,10 @@ static void process_message(const char *line)
                 }
             } else if (result_item && bb_json_item_is_true(result_item)) {
                 bb_log_i(TAG, "share accepted");
+                if (s_last_submit_us) {
+                    bb_log_i(DIAG, "share ack: %lldms",
+                             (esp_timer_get_time() - s_last_submit_us) / 1000);
+                }
                 ota_validator_on_share_accepted();
                 int64_t now_us = esp_timer_get_time();
                 mining_lifetime_t lt_snap = {0};

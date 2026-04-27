@@ -1,0 +1,13 @@
+changelog:
+  exclude:
+    labels: [skip-changelog]
+    authors: [dependabot]
+  categories:
+    - title: New Components
+      labels: [new-component]
+    - title: New APIs
+      labels: [enhancement, feature]
+    - title: Fixes
+      labels: [bug, fix]
+    - title: Other Changes
+      labels: ["*"]

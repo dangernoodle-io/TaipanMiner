@@ -96,22 +96,35 @@ jobs:
           cp .pio/build/${{ matrix.env }}/firmware.bin taipanminer-${{ matrix.env }}.bin
           cp .pio/build/${{ matrix.env }}/firmware.factory.bin taipanminer-${{ matrix.env }}-factory.bin
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
-          name: taipanminer-${{ matrix.env }}
+          name: firmware-${{ matrix.env }}
           path: |
             taipanminer-${{ matrix.env }}.bin
             taipanminer-${{ matrix.env }}-factory.bin
 
-  release:
+  aggregate:
     needs: build
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@v4
         with:
+          pattern: firmware-*
           merge-multiple: true
+          path: firmware
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-binaries
+          path: firmware/taipanminer-*.bin
+
+  notes-preamble:
+    needs: aggregate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware-binaries
+          path: firmware
       - name: Build release body
         run: |
           {
@@ -124,9 +137,9 @@ jobs:
             echo ""
             echo "| File | Size |"
             echo "|------|------|"
-            for f in taipanminer-*.bin; do
+            for f in firmware/taipanminer-*.bin; do
               size=$(du -h "$f" | cut -f1)
-              echo "| \`$f\` | $size |"
+              echo "| \`$(basename $f)\` | $size |"
             done
             echo ""
             echo "## Fresh-device flash (USB, esptool)"
@@ -147,7 +160,17 @@ jobs:
             echo "curl -X POST --data-binary @taipanminer-<board>.bin http://<miner>/api/ota/push"
             echo '```'
           } > release-body.md
-      - name: Create release
-        run: gh release create ${{ github.ref_name }} taipanminer-*.bin --repo ${{ github.repository }} --generate-notes --notes-file release-body.md
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes-preamble
+          path: release-body.md
+
+  release:
+    needs: [aggregate, notes-preamble]
+    uses: dangernoodle-io/.github/.github/workflows/gh-release.yml@main
+    with:
+      assets-artifact: firmware-binaries
+      notes-preamble-artifact: release-notes-preamble
+    secrets: inherit
+    permissions:
+      contents: write

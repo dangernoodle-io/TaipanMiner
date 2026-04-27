@@ -171,3 +171,7 @@ TaipanMiner consumes shared infrastructure components from the breadboard librar
 - Host test scope: SHA-256, Stratum parsing, coinbase/merkle, header serialization, target, mining loop (nonce iteration, early reject, share finding), CRC, PLL, BM1370 framing
 - Device test scope: mining integration, NVS persistence, live pool handshake
 - Anonymize test data per workspace rules
+
+## Releases
+
+Tagging is manual: `git tag -a vX.Y.Z -m 'chore: vX.Y.Z tag' && git push origin vX.Y.Z`. The `release.yml` workflow runs CI then publishes a GitHub release with auto-generated notes categorized by PR label (`.github/release.yml`). PR labels are auto-applied from conventional-commit prefixes; `new-component` PRs need that label set manually.

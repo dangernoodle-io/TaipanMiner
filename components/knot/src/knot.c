@@ -4,21 +4,15 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <esp_timer.h>
-#include <mdns.h>
 #include <string.h>
 
 #define KNOT_PEER_COUNT 32
-#define KNOT_REQUERY_INTERVAL_US (45ULL * 1000 * 1000)
 
 static const char *TAG = "knot";
 
 static knot_peer_t g_peer_table[KNOT_PEER_COUNT];
 static SemaphoreHandle_t g_mutex = NULL;
 static bool g_initialized = false;
-static esp_timer_handle_t g_requery_timer = NULL;
-
-// Forward declarations
-static void on_peer_discovered(const bb_mdns_peer_t *peer, void *ctx);
 
 /* No local TTL prune. IDF's mdns_browse only delivers notifier callbacks on
  * change events (new / updated / removed), so a stable peer goes silent on
@@ -27,46 +21,14 @@ static void on_peer_discovered(const bb_mdns_peer_t *peer, void *ctx);
  * refresh, IDF fires the notifier with ttl=0 which routes through
  * on_peer_removed below. last_seen_us still tracks the most-recent
  * notification so the UI can show "seen N seconds ago" — that number will
- * grow for stable peers, which is the correct semantic. */
-
-static void on_requery_tick(void *ctx) {
-    // Snapshot current peer table under mutex
-    knot_peer_t snapshot[KNOT_PEER_COUNT];
-    size_t snapshot_count = 0;
-
-    if (xSemaphoreTake(g_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
-        snapshot_count = knot_table_snapshot(g_peer_table, KNOT_PEER_COUNT, snapshot, KNOT_PEER_COUNT);
-        xSemaphoreGive(g_mutex);
-    }
-
-    // For each peer, query TXT records
-    for (size_t i = 0; i < snapshot_count; i++) {
-        const knot_peer_t *peer = &snapshot[i];
-
-        mdns_result_t *results = NULL;
-        esp_err_t err = mdns_query_txt(peer->instance_name, "_taipanminer", "_tcp", 1500, &results);
-
-        if (err == ESP_OK && results) {
-            // Build bb_mdns_peer_t from result, preserving hostname/ip4 from snapshot
-            bb_mdns_peer_t new_peer = {
-                .instance_name = results->instance_name,
-                .hostname = results->hostname ? results->hostname : peer->hostname,
-                .ip4 = peer->ip4,  // Preserve from snapshot; results.addr is mdns_ip_addr_t linked list
-                .port = results->port,
-                .txt = (bb_mdns_txt_t *)results->txt,
-                .txt_count = results->txt_count,
-            };
-
-            // Call on_peer_discovered to flow through existing upsert + apply_txt path
-            on_peer_discovered(&new_peer, NULL);
-
-            mdns_query_results_free(results);
-        } else {
-            // Log misses at debug level only
-            bb_log_d(TAG, "mdns_query_txt %s failed: %s", peer->instance_name, esp_err_to_name(err));
-        }
-    }
-}
+ * grow for stable peers, which is the correct semantic.
+ *
+ * Periodic mdns_query_txt requery (originally added in #216 to refresh stale
+ * TXT) was removed in TA-251: the blocking IDF call on the esp_timer service
+ * task starved the IDF log mutex and aborted mining_task. Migrating to the
+ * v0.16.4 bb_mdns_query_txt async shim still produced silent reboots whose
+ * root cause is unidentified. Treat TXT freshness as best-effort until a
+ * non-blocking, non-rebooting refresh path lands. */
 
 static void on_peer_discovered(const bb_mdns_peer_t *peer, void *ctx) {
     if (!peer || !peer->instance_name) {
@@ -125,32 +87,6 @@ int knot_init(void) {
                                         NULL);
     if (err != BB_OK) {
         bb_log_e(TAG, "failed to start mdns browse: %d", err);
-        vSemaphoreDelete(g_mutex);
-        g_mutex = NULL;
-        return -1;
-    }
-
-    // Create and start periodic mDNS re-query timer
-    const esp_timer_create_args_t requery_args = {
-        .callback = on_requery_tick,
-        .arg = NULL,
-        .name = "knot_requery",
-    };
-    esp_err_t timer_err = esp_timer_create(&requery_args, &g_requery_timer);
-    if (timer_err != ESP_OK) {
-        bb_log_e(TAG, "failed to create requery timer: %s", esp_err_to_name(timer_err));
-        bb_mdns_browse_stop("_taipanminer", "_tcp");
-        vSemaphoreDelete(g_mutex);
-        g_mutex = NULL;
-        return -1;
-    }
-
-    timer_err = esp_timer_start_periodic(g_requery_timer, KNOT_REQUERY_INTERVAL_US);
-    if (timer_err != ESP_OK) {
-        bb_log_e(TAG, "failed to start requery timer: %s", esp_err_to_name(timer_err));
-        esp_timer_delete(g_requery_timer);
-        g_requery_timer = NULL;
-        bb_mdns_browse_stop("_taipanminer", "_tcp");
         vSemaphoreDelete(g_mutex);
         g_mutex = NULL;
         return -1;

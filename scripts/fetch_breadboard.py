@@ -1,7 +1,7 @@
 Import("env")
 import os, subprocess
 
-VERSION = "v0.16.3"
+VERSION = "v0.16.4"
 DEST = os.path.join(env.subst("$PROJECT_DIR"), ".breadboard")
 LOCAL = os.environ.get("BREADBOARD_LOCAL")
 

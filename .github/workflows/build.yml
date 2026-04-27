@@ -25,7 +25,7 @@ jobs:
       - name: Build webui for embed
         working-directory: webui
         run: |
-          npm install --no-audit --no-fund
+          npm ci --no-audit --no-fund
           npm run build
       - uses: actions/setup-python@v6
         with:
@@ -59,7 +59,7 @@ jobs:
           cache-dependency-path: webui/package-lock.json
       - name: Install deps
         working-directory: webui
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Typecheck
         working-directory: webui
         run: npm run check --if-present

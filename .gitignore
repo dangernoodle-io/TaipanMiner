@@ -2,7 +2,6 @@
 .platformio/
 .claude/worktrees/
 managed_components/
-dependencies.lock
 sdkconfig.tdongle-s3
 sdkconfig.tdongle-s3-debug
 sdkconfig.bitaxe-601

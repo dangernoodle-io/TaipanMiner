@@ -1,11 +1,20 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
-  import { postReboot, setLogLevel, fetchLogLevels, type LogLevel, type RecentDrop } from '../lib/api'
+  import { postReboot, setLogLevel, fetchLogLevels, fetchDiagAsic, type LogLevel, type RecentDrop } from '../lib/api'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
   import { startRebootRecovery } from '../lib/stores'
 
-  // TODO(TA-282/TA-287): fetch from /api/diag/asic once that endpoint ships
-  const recentDrops: RecentDrop[] = []
+  let recentDrops: RecentDrop[] = []
+  let diagInterval: ReturnType<typeof setInterval> | null = null
+
+  async function loadDiagAsic() {
+    try {
+      const data = await fetchDiagAsic()
+      recentDrops = data.recent_drops
+    } catch {
+      recentDrops = []
+    }
+  }
 
   const REBOOT_SKIP_KEY = 'taipanminer.skipRebootConfirm'
 
@@ -240,12 +249,15 @@
   onMount(() => {
     start()
     loadLevels()
+    loadDiagAsic()
+    diagInterval = setInterval(loadDiagAsic, 10000)
     stallTimer = setInterval(checkStall, STALL_CHECK_INTERVAL_MS)
     tickTimer = setInterval(() => { tickNow = Date.now() }, 1000)
     document.addEventListener('visibilitychange', onVisibilityChange)
   })
   onDestroy(() => {
     stop()
+    if (diagInterval !== null) clearInterval(diagInterval)
     if (tickTimer !== null) clearInterval(tickTimer)
   })
 </script>

@@ -1,6 +1,3 @@
-// TA-282/TA-287: shape of recent_drops[] entries. Will be served from
-// /api/diag/asic once that endpoint ships; kept here so Diagnostics.svelte
-// can carry a typed empty stub in the meantime.
 export interface RecentDrop {
   ts_ago_s: number
   chip: number
@@ -163,6 +160,9 @@ export interface Pool {
 }
 
 export const fetchPool = () => getJson<Pool>('/api/pool')
+
+export interface DiagAsic { recent_drops: RecentDrop[] }
+export const fetchDiagAsic = () => getJson<DiagAsic>('/api/diag/asic')
 
 export interface Settings {
   pool_host: string

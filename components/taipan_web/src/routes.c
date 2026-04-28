@@ -1077,6 +1077,89 @@ static const bb_route_t s_pool_route = {
 };
 
 // ---------------------------------------------------------------------------
+// /api/diag/asic — GET (TA-282, TA-287)
+// Recent telemetry-drop log. On ASIC boards, calls asic_task_get_drop_log()
+// and serialises up to ASIC_DROP_LOG_CAP entries as recent_drops[].
+// On tdongle (no ASIC), returns { "recent_drops": [] } — keeps the webui
+// path uniform with no special-casing.
+// ---------------------------------------------------------------------------
+static bb_err_t diag_asic_handler(bb_http_request_t *req)
+{
+    set_common_headers(req);
+
+    bb_json_t root = bb_json_obj_new();
+    bb_json_t arr  = bb_json_arr_new();
+
+#ifdef ASIC_CHIP
+    asic_drop_event_t drops[ASIC_DROP_LOG_CAP];
+    size_t n = asic_task_get_drop_log(drops, ASIC_DROP_LOG_CAP);
+    uint64_t now_us = (uint64_t)esp_timer_get_time();
+
+    for (size_t i = 0; i < n; i++) {
+        bb_json_t e = bb_json_obj_new();
+
+        uint64_t age_us = (drops[i].ts_us <= now_us) ? (now_us - drops[i].ts_us) : 0;
+        bb_json_obj_set_number(e, "ts_ago_s",  (double)(age_us / 1000000ULL));
+        bb_json_obj_set_number(e, "chip",      (double)drops[i].chip_idx);
+
+        const char *kind_str;
+        switch (drops[i].kind) {
+            case ASIC_DROP_KIND_ERROR:  kind_str = "error";  break;
+            case ASIC_DROP_KIND_DOMAIN: kind_str = "domain"; break;
+            default:                    kind_str = "total";  break;
+        }
+        bb_json_obj_set_string(e, "kind",      kind_str);
+        bb_json_obj_set_number(e, "domain",    (double)drops[i].domain_idx);
+        bb_json_obj_set_number(e, "addr",      (double)drops[i].asic_addr);
+        bb_json_obj_set_number(e, "ghs",       (double)drops[i].ghs);
+        bb_json_obj_set_number(e, "delta",     (double)drops[i].delta);
+        bb_json_obj_set_number(e, "elapsed_s", (double)drops[i].elapsed_s);
+        bb_json_arr_append_obj(arr, e);
+    }
+#endif /* ASIC_CHIP */
+
+    bb_json_obj_set_arr(root, "recent_drops", arr);
+
+    char *json = bb_json_serialize(root);
+    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
+    bb_json_free_str(json);
+    bb_json_free(root);
+    return rc;
+}
+
+static const bb_route_response_t s_diag_asic_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"recent_drops\":{\"type\":\"array\","
+      "\"items\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"ts_ago_s\":{\"type\":\"number\",\"description\":\"seconds since drop event\"},"
+      "\"chip\":{\"type\":\"integer\"},"
+      "\"kind\":{\"type\":\"string\",\"enum\":[\"total\",\"error\",\"domain\"]},"
+      "\"domain\":{\"type\":\"integer\"},"
+      "\"addr\":{\"type\":\"integer\"},"
+      "\"ghs\":{\"type\":\"number\"},"
+      "\"delta\":{\"type\":\"integer\"},"
+      "\"elapsed_s\":{\"type\":\"number\"}},"
+      "\"required\":[\"ts_ago_s\",\"chip\",\"kind\",\"domain\","
+      "\"addr\",\"ghs\",\"delta\",\"elapsed_s\"]}}}}",
+      "recent ASIC telemetry drop log" },
+    { 0 },
+};
+
+static const bb_route_t s_diag_asic_route = {
+    .method       = BB_HTTP_GET,
+    .path         = "/api/diag/asic",
+    .tag          = "diag",
+    .summary      = "Get recent ASIC telemetry drop log",
+    .operation_id = "getDiagAsic",
+    .responses    = s_diag_asic_responses,
+    .handler      = diag_asic_handler,
+};
+
+// ---------------------------------------------------------------------------
 // /api/knot — GET
 // ---------------------------------------------------------------------------
 
@@ -1338,6 +1421,9 @@ bb_err_t taipan_web_register_mining_routes(bb_http_handle_t server)
     if (rc != BB_OK) return rc;
 
     rc = bb_http_register_described_route(server, &s_pool_route);
+    if (rc != BB_OK) return rc;
+
+    rc = bb_http_register_described_route(server, &s_diag_asic_route);
     if (rc != BB_OK) return rc;
 
     rc = bb_http_register_described_route(server, &s_knot_route);

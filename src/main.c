@@ -24,6 +24,7 @@
 #include "bb_openapi.h"
 #include "bb_manifest.h"
 #include "knot.h"
+#include "ota_validator_io.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "asic_chip.h"
@@ -425,6 +426,9 @@ void app_main(void)
     // Initialize OTA push with breadboard component
     bb_ota_push_set_hooks(mining_pause, mining_resume);
     bb_ota_push_set_skip_check_cb(bb_nv_config_ota_skip_check);
+
+    // Wire production OTA validator ops before stratum starts
+    ota_validator_init(&g_ota_timer_ops_default, &g_ota_mark_valid_ops_default);
 
     // Start mining
     start_mining();

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ota_validator_io.h"
+
 // Notify validator that stratum has authorized.
 // Starts the 15-minute safety-net timer.
 void ota_validator_on_stratum_authorized(void);

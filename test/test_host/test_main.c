@@ -256,6 +256,21 @@ void test_hash_to_difficulty_easy(void);
 void test_hash_to_difficulty_six_zeros(void);
 void test_best_diff_only_increases(void);
 
+// Forward declarations from test_asic_share_validator.c (TA-274)
+void test_asic_share_validate_null_work(void);
+void test_asic_share_validate_null_out_difficulty(void);
+void test_asic_share_validate_null_out_hash(void);
+void test_asic_share_validate_happy_path_easy_share(void);
+void test_asic_share_validate_below_target(void);
+void test_asic_share_validate_invalid_target_all_ff(void);
+void test_asic_share_validate_low_difficulty_sanity(void);
+void test_asic_share_validate_version_rolling_applied(void);
+void test_asic_share_validate_nonce_patching_position(void);
+
+// Forward declarations from test_work.c (TA-274 additions)
+void test_package_result_round_trip_no_rolling(void);
+void test_package_result_round_trip_with_rolling(void);
+
 // Forward declarations from test_bm1368.c
 void test_bm1368_pll_fb_range(void);
 void test_bm1368_pll_490mhz(void);
@@ -553,6 +568,9 @@ int main(void) {
     RUN_TEST(test_build_block2_padding);
     RUN_TEST(test_package_result_no_version_rolling);
     RUN_TEST(test_package_result_version_rolling_submits_ver_bits);
+    // TA-274: package_result round-trip tests (test_work.c)
+    RUN_TEST(test_package_result_round_trip_no_rolling);
+    RUN_TEST(test_package_result_round_trip_with_rolling);
 
     // Stratum utils tests
     RUN_TEST(test_format_submit_no_version);
@@ -751,6 +769,17 @@ int main(void) {
     RUN_TEST(test_nonce_dedup_ring_wraparound_evicts_oldest);
     RUN_TEST(test_nonce_dedup_reset_clears_all);
     RUN_TEST(test_nonce_dedup_next_idx_advances_cyclically);
+
+    // TA-274: asic_share_validator tests
+    RUN_TEST(test_asic_share_validate_null_work);
+    RUN_TEST(test_asic_share_validate_null_out_difficulty);
+    RUN_TEST(test_asic_share_validate_null_out_hash);
+    RUN_TEST(test_asic_share_validate_happy_path_easy_share);
+    RUN_TEST(test_asic_share_validate_below_target);
+    RUN_TEST(test_asic_share_validate_invalid_target_all_ff);
+    RUN_TEST(test_asic_share_validate_low_difficulty_sanity);
+    RUN_TEST(test_asic_share_validate_version_rolling_applied);
+    RUN_TEST(test_asic_share_validate_nonce_patching_position);
 
     // TA-234: asic_metric_avg tests
     RUN_TEST(test_avg_nan_safe_empty_all_nan);

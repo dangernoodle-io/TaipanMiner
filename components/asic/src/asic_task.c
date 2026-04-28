@@ -10,6 +10,7 @@
 #include "asic_drop_log.h"
 #include "asic_chip_routing.h"
 #include "asic_nonce_dedup.h"
+#include "asic_share_validator.h"
 #include "crc.h"
 #include "tps546.h"
 #include "emc2101.h"
@@ -540,6 +541,9 @@ void asic_mining_task(void *arg)
             uint32_t ver_bits = asic_decode_version_bits(&nonce);
             uint32_t nonce_val = ((uint32_t)nonce.nonce[0] << 24) | ((uint32_t)nonce.nonce[1] << 16) |
                                  ((uint32_t)nonce.nonce[2] << 8) | nonce.nonce[3];
+            // LE uint32: raw ASIC wire bytes interpreted as little-endian (pool submission value)
+            uint32_t nonce_le = nonce.nonce[0] | ((uint32_t)nonce.nonce[1] << 8) |
+                                ((uint32_t)nonce.nonce[2] << 16) | ((uint32_t)nonce.nonce[3] << 24);
 
             // Dedup: skip if we already submitted this nonce+version for this job
             if (asic_nonce_dedup_check_and_insert(&s_dedup, real_job_id, nonce_val, ver_bits)) {
@@ -548,40 +552,20 @@ void asic_mining_task(void *arg)
 
             nonces_since_log++;
 
-            // Local SHA256d verification — only submit nonces meeting pool target
-            uint8_t header_copy[80];
-            memcpy(header_copy, orig->header, 80);
-
-            // Apply version rolling (LE in header)
-            if (ver_bits != 0 && orig->version_mask != 0) {
-                uint32_t rolled = (orig->version & ~orig->version_mask) | (ver_bits & orig->version_mask);
-                header_copy[0] = (uint8_t)(rolled);
-                header_copy[1] = (uint8_t)(rolled >> 8);
-                header_copy[2] = (uint8_t)(rolled >> 16);
-                header_copy[3] = (uint8_t)(rolled >> 24);
-            }
-
-            // Apply nonce — raw ASIC wire bytes map directly to header bytes
-            // (submitted nonce is LE interpretation of wire bytes; pool writes LE back to header)
-            header_copy[76] = nonce.nonce[0];
-            header_copy[77] = nonce.nonce[1];
-            header_copy[78] = nonce.nonce[2];
-            header_copy[79] = nonce.nonce[3];
-
+            double share_diff = 0.0;
             uint8_t hash[32];
-            sha256d(header_copy, 80, hash);
-
-            if (!meets_target(hash, orig->target)) {
+            asic_share_verdict_t verdict = asic_share_validate(orig, nonce_le, ver_bits, &share_diff, hash);
+            if (verdict == ASIC_SHARE_BELOW_TARGET) {
                 s_sha_fail++;
                 continue;
             }
             s_sha_pass++;
-
-            double share_diff = hash_to_difficulty(hash);
-
-            // Sanity check: target/difficulty must be valid and share must meet pool diff
-            if (orig->difficulty < 0.001 || !is_target_valid(orig->target) ||
-                share_diff < orig->difficulty * 0.5) {
+            if (verdict == ASIC_SHARE_INVALID_TARGET) {
+                bb_log_e(TAG, "share sanity fail: share_diff=%.4f pool_diff=%.4f, skipping",
+                         share_diff, orig->difficulty);
+                continue;
+            }
+            if (verdict == ASIC_SHARE_LOW_DIFFICULTY) {
                 bb_log_e(TAG, "share sanity fail: share_diff=%.4f pool_diff=%.4f, skipping",
                          share_diff, orig->difficulty);
                 continue;
@@ -601,24 +585,8 @@ void asic_mining_task(void *arg)
                      real_job_id, rolled_ver,
                      nonce.nonce[0], nonce.nonce[1], nonce.nonce[2], nonce.nonce[3]);
 
-            // Build result for stratum
             mining_result_t result;
-            memset(&result, 0, sizeof(result));
-            strncpy(result.job_id, orig->job_id, sizeof(result.job_id) - 1);
-            strncpy(result.extranonce2_hex, orig->extranonce2_hex, sizeof(result.extranonce2_hex) - 1);
-
-            // ntime from original work
-            snprintf(result.ntime_hex, sizeof(result.ntime_hex), "%08" PRIx32, orig->ntime);
-
-            // nonce — submit raw UART bytes as LE uint32 (matches ESP-Miner packed struct on LE ESP32)
-            uint32_t nonce_le = nonce.nonce[0] | ((uint32_t)nonce.nonce[1] << 8) |
-                                ((uint32_t)nonce.nonce[2] << 16) | ((uint32_t)nonce.nonce[3] << 24);
-            snprintf(result.nonce_hex, sizeof(result.nonce_hex), "%08" PRIx32, nonce_le);
-
-            // Version rolling — submit ver_bits (pool XORs with base version)
-            if (ver_bits != 0 && orig->version_mask != 0) {
-                snprintf(result.version_hex, sizeof(result.version_hex), "%08" PRIx32, ver_bits);
-            }
+            package_result(&result, orig, nonce_le, ver_bits);
 
             if (!stratum_is_connected()) {
                 bb_log_d(TAG, "stratum disconnected, discarding share");

@@ -1,5 +1,6 @@
 #include "unity.h"
 #include "work.h"
+#include "mining.h"
 #include "sha256.h"
 #include <string.h>
 #include <stdlib.h>
@@ -744,4 +745,49 @@ void test_is_target_valid_diff_001(void)
     uint8_t target[32];
     difficulty_to_target(0.001, target);
     TEST_ASSERT_TRUE(is_target_valid(target));
+}
+
+// TA-274: package_result round-trip — no version rolling
+void test_package_result_round_trip_no_rolling(void)
+{
+    mining_work_t work;
+    memset(&work, 0, sizeof(work));
+    strncpy(work.job_id, "rjob-01", sizeof(work.job_id) - 1);
+    strncpy(work.extranonce2_hex, "aabbccdd", sizeof(work.extranonce2_hex) - 1);
+    work.ntime        = 0x66778899;
+    work.version      = 0x20000000;
+    work.version_mask = 0x1FFFE000;
+
+    mining_result_t result;
+    package_result(&result, &work, 0x11223344, 0);
+
+    TEST_ASSERT_EQUAL_STRING("rjob-01",  result.job_id);
+    TEST_ASSERT_EQUAL_STRING("aabbccdd", result.extranonce2_hex);
+    TEST_ASSERT_EQUAL_STRING("66778899", result.ntime_hex);
+    TEST_ASSERT_EQUAL_STRING("11223344", result.nonce_hex);
+    // version_hex must be empty when ver_bits=0
+    TEST_ASSERT_EQUAL_STRING("", result.version_hex);
+}
+
+// TA-274: package_result round-trip — with version rolling
+void test_package_result_round_trip_with_rolling(void)
+{
+    mining_work_t work;
+    memset(&work, 0, sizeof(work));
+    strncpy(work.job_id, "rjob-02", sizeof(work.job_id) - 1);
+    strncpy(work.extranonce2_hex, "deadbeef", sizeof(work.extranonce2_hex) - 1);
+    work.ntime        = 0xaabbccdd;
+    work.version      = 0x20000000;
+    work.version_mask = 0x1FFFE000;
+
+    mining_result_t result;
+    // ver_bits=0x00006000 — pool expects this value in version_hex
+    package_result(&result, &work, 0xcafe1234, 0x00006000);
+
+    TEST_ASSERT_EQUAL_STRING("rjob-02",  result.job_id);
+    TEST_ASSERT_EQUAL_STRING("deadbeef", result.extranonce2_hex);
+    TEST_ASSERT_EQUAL_STRING("aabbccdd", result.ntime_hex);
+    TEST_ASSERT_EQUAL_STRING("cafe1234", result.nonce_hex);
+    // version_hex = ver_bits directly (pool XORs with base version)
+    TEST_ASSERT_EQUAL_STRING("00006000", result.version_hex);
 }

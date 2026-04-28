@@ -1,5 +1,4 @@
 #include "mining.h"
-#include "mining_pause_state.h"
 #include "diag.h"
 #ifdef ASIC_CHIP
 #include "board.h"
@@ -40,10 +39,6 @@ QueueHandle_t result_queue = NULL;
 mining_stats_t mining_stats = {0};
 
 static temperature_sensor_handle_t s_temp_handle = NULL;
-static mining_pause_state_t s_pause_state;
-static SemaphoreHandle_t s_pause_ack = NULL;
-static SemaphoreHandle_t s_pause_done = NULL;
-static SemaphoreHandle_t s_pause_mutex = NULL;
 
 void mining_stats_load_lifetime(void)
 {
@@ -445,68 +440,6 @@ bool mine_nonce_range(hash_backend_t *backend,
 }
 
 #ifdef ESP_PLATFORM
-void mining_pause_init(void)
-{
-    s_pause_ack = xSemaphoreCreateBinary();
-    s_pause_done = xSemaphoreCreateBinary();
-    s_pause_mutex = xSemaphoreCreateMutex();
-    mining_pause_state_init(&s_pause_state);
-}
-
-bool mining_pause(void)
-{
-    if (xSemaphoreTake(s_pause_mutex, pdMS_TO_TICKS(30000)) != pdTRUE) {
-        bb_log_w(TAG, "mining pause mutex timeout — another caller holds pause");
-        return false;
-    }
-    mining_pause_state_request(&s_pause_state);
-    // 15s covers the worst-case chip_resume freq ramp (~10s on BM1370 at
-    // 650 MHz). Fix #1 (coalesce) should prevent most timeouts, but this is
-    // belt-and-suspenders for races where the pause arrives just inside the
-    // ramp window.
-    if (xSemaphoreTake(s_pause_ack, pdMS_TO_TICKS(15000)) != pdTRUE) {
-        bb_log_w(TAG, "mining pause acknowledge timeout, resetting state");
-        mining_pause_state_on_ack_timeout(&s_pause_state);
-        xSemaphoreGive(s_pause_mutex);
-        return false;
-    }
-    return true;
-}
-
-void mining_resume(void)
-{
-    bool needs_signal = mining_pause_state_on_resume(&s_pause_state);
-    if (needs_signal) xSemaphoreGive(s_pause_done);
-    xSemaphoreGive(s_pause_mutex);
-}
-
-bool mining_pause_pending(void)
-{
-    return s_pause_state.pause_requested;
-}
-
-bool mining_pause_check(void)
-{
-    if (!mining_pause_state_on_check(&s_pause_state)) return false;
-    bb_log_i(TAG, "mining paused for maintenance");
-    xSemaphoreGive(s_pause_ack);
-    // 5 min covers OTA pull worst case (firmware download over weak WiFi).
-    // The prior 30s budget timed out mid-download on slow links, and because
-    // on_resumed() only cleared pause_active the task re-paused on the next
-    // Tier-1 hop and cycled until OTA finally called mining_resume(). See
-    // TA-277. on_done_timeout clears both flags as belt-and-suspenders so a
-    // future watchdog event does not regress to cycling.
-    if (xSemaphoreTake(s_pause_done, pdMS_TO_TICKS(300000)) != pdTRUE) {
-        bb_log_e(TAG, "mining resume timeout, resuming anyway");
-        mining_pause_state_on_done_timeout(&s_pause_state);
-    } else {
-        mining_pause_state_on_resumed(&s_pause_state);
-    }
-    bb_log_i(TAG, "mining resumed (stack high water: %" PRIu32 ")",
-             (uint32_t)uxTaskGetStackHighWaterMark(NULL));
-    return true;
-}
-
 void mining_task(void *arg)
 {
     (void)arg;

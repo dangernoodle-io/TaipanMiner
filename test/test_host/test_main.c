@@ -318,6 +318,19 @@ void test_asic_pause_second_pause_only_acks(void);
 void test_asic_pause_resume_when_clear_and_quiesced(void);
 void test_asic_pause_full_check_install_resume_sequence(void);
 
+// TA-234B: mining_pause_io (coordinator seam tests)
+void test_init_stores_ops_and_inits_state(void);
+void test_pause_happy_path(void);
+void test_pause_mutex_timeout(void);
+void test_pause_ack_timeout(void);
+void test_resume_happy_path(void);
+void test_resume_after_pause_check_normal(void);
+void test_resume_without_active_no_done_signal(void);
+void test_pause_check_no_request_returns_false(void);
+void test_pause_check_request_normal_resume(void);
+void test_pause_check_done_timeout_TA277(void);
+void test_concurrent_pause_serialized_via_mutex(void);
+
 // TA-234: mining_pause_state
 void test_mining_pause_state_init(void);
 void test_mining_pause_state_request(void);
@@ -746,6 +759,19 @@ int main(void) {
     RUN_TEST(test_asic_pause_second_pause_only_acks);
     RUN_TEST(test_asic_pause_resume_when_clear_and_quiesced);
     RUN_TEST(test_asic_pause_full_check_install_resume_sequence);
+
+    // TA-234B: mining_pause_io coordinator tests
+    RUN_TEST(test_init_stores_ops_and_inits_state);
+    RUN_TEST(test_pause_happy_path);
+    RUN_TEST(test_pause_mutex_timeout);
+    RUN_TEST(test_pause_ack_timeout);
+    RUN_TEST(test_resume_happy_path);
+    RUN_TEST(test_resume_after_pause_check_normal);
+    RUN_TEST(test_resume_without_active_no_done_signal);
+    RUN_TEST(test_pause_check_no_request_returns_false);
+    RUN_TEST(test_pause_check_request_normal_resume);
+    RUN_TEST(test_pause_check_done_timeout_TA277);
+    RUN_TEST(test_concurrent_pause_serialized_via_mutex);
 
     // TA-234: mining_pause_state tests
     RUN_TEST(test_mining_pause_state_init);

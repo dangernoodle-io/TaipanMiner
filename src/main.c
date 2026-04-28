@@ -7,6 +7,7 @@
 #include "bb_ntp.h"
 #include "bb_system.h"
 #include "mining.h"
+#include "mining_pause_io.h"
 #include "work.h"
 #include "stratum.h"
 #include "bb_nv.h"
@@ -73,7 +74,7 @@ static void start_mining(void)
     // Initialize mining stats
     mining_stats_init();
 
-    mining_pause_init();
+    mining_pause_init(&g_mining_pause_sync_ops_default);
 
     // Create task for NVS stats save (low priority, blocks on notification)
     xTaskCreate(stats_save_task, "nvs_save", 4096, NULL, 1, &s_stats_save_task);

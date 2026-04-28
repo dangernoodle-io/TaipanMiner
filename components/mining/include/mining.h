@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include "asic_chip.h"
 #include "work.h"
+#include "mining_pause_io.h"
 
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
@@ -94,6 +95,15 @@ void package_result(mining_result_t *result,
                     uint32_t nonce,
                     uint32_t ver_bits);
 
+// Cooperative mining pause (for OTA — avoids mid-hash vTaskSuspend)
+void mining_pause_init(const mining_pause_sync_ops_t *ops);
+bool mining_pause(void);
+void mining_resume(void);
+// Check if a pause has been requested and block until resumed; returns true if paused
+bool mining_pause_check(void);
+// Non-blocking query: returns true if a pause has been requested
+bool mining_pause_pending(void);
+
 // Exponential moving average state for hashrate smoothing
 typedef struct {
     double   value;
@@ -133,15 +143,6 @@ extern QueueHandle_t result_queue;
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "driver/temperature_sensor.h"
-
-// Cooperative mining pause (for OTA — avoids mid-hash vTaskSuspend)
-void mining_pause_init(void);
-bool mining_pause(void);
-void mining_resume(void);
-// Check if a pause has been requested and block until resumed; returns true if paused
-bool mining_pause_check(void);
-// Non-blocking query: returns true if a pause has been requested
-bool mining_pause_pending(void);
 
 // Mining task handles
 #ifdef ASIC_CHIP

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { stats, info, settings } from '../lib/stores'
+  import { stats, info, settings, pool } from '../lib/stores'
   import { fetchSettings, patchSettings, type Settings } from '../lib/api'
   import { fmtRelative } from '../lib/fmt'
 
@@ -88,33 +88,44 @@
 </script>
 
 <div class="pool-grid">
-  <!-- Active pool status -->
+  <!-- Active pool status — read-only metrics from /api/pool (TA-281). -->
   <section class="card active">
     <h3>Active</h3>
-    {#if $stats}
-      <div class="status-row">
-        <div class="who">
-          <div class="host">{$settings?.pool_host ?? '—'}:{$settings?.pool_port ?? '—'}</div>
-          <div class="sub">worker {$settings?.worker ?? '—'}</div>
+    <div class="status-row">
+      <div class="who">
+        <div class="host">
+          <span class="dot" class:connected={$pool?.connected === true}
+                            class:disconnected={$pool?.connected === false}
+                            class:unknown={$pool == null}
+                aria-hidden="true"></span>
+          {$pool?.host ?? '—'}:{$pool?.port ?? '—'}
         </div>
-        <div class="metrics">
-          <div class="m">
-            <div class="v">{$stats.pool_difficulty}</div>
-            <div class="k">diff</div>
-          </div>
-          <div class="m">
-            <div class="v">{fmtRelative($stats.last_share_ago_s)}</div>
-            <div class="k">last share</div>
-          </div>
-          <div class="m">
-            <div class="v">{$stats.session_shares}<span class="sep">/</span><span class="rej">{$stats.session_rejected}</span></div>
-            <div class="k">shares</div>
-          </div>
+        <div class="sub">
+          worker {$pool?.worker ?? '—'}
+          {#if $pool?.session_start_ago_s != null}
+            · session {fmtRelative($pool.session_start_ago_s)}
+          {/if}
         </div>
       </div>
-    {:else}
-      <div class="loading">Loading…</div>
-    {/if}
+      <div class="metrics">
+        <div class="m">
+          <div class="v">{$pool?.current_difficulty ?? '—'}</div>
+          <div class="k">diff</div>
+        </div>
+        <div class="m">
+          <div class="v">{$stats ? fmtRelative($stats.last_share_ago_s) : '—'}</div>
+          <div class="k">last share</div>
+        </div>
+        <div class="m">
+          {#if $stats}
+            <div class="v">{$stats.session_shares}<span class="sep">/</span><span class="rej">{$stats.session_rejected}</span></div>
+          {:else}
+            <div class="v">—</div>
+          {/if}
+          <div class="k">shares</div>
+        </div>
+      </div>
+    </div>
   </section>
 
   <!-- Pool rows -->
@@ -290,7 +301,22 @@
     font-size: 18px;
     font-weight: 600;
     color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
+
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--muted);
+  }
+  .dot.connected { background: var(--success); }
+  .dot.disconnected { background: var(--danger); }
+  .dot.unknown { background: var(--muted); }
 
   .who .sub {
     font-size: 11px;

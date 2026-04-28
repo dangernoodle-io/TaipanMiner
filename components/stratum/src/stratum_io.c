@@ -103,6 +103,35 @@ int stratum_get_connect_fail_count(void)
     return s_backoff.fail_count;
 }
 
+uint32_t stratum_get_session_start_ms(void)
+{
+    if (!s_stratum_connected) return 0;
+    return pdTICKS_TO_MS(s_session_start_tick);
+}
+
+double stratum_get_difficulty(void)
+{
+    return s_state.difficulty;
+}
+
+bool stratum_get_session_snapshot(stratum_session_snapshot_t *out)
+{
+    if (!s_stratum_connected || !out) return false;
+    out->extranonce1      = s_state.extranonce1;
+    out->extranonce1_len  = s_state.extranonce1_len;
+    out->extranonce2_size = s_state.extranonce2_size;
+    out->version_mask     = s_state.version_mask;
+    return true;
+}
+
+bool stratum_get_job_snapshot(const stratum_job_t **out)
+{
+    if (!s_stratum_connected || !out) return false;
+    if (s_state.job.job_id[0] == '\0') return false;
+    *out = &s_state.job;
+    return true;
+}
+
 // Send a JSON-RPC request. Returns assigned message id, or -1 on error.
 static int stratum_request(const char *method, const char *params_json)
 {

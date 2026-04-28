@@ -145,7 +145,6 @@ static bb_err_t stats_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
     double hw_rate = 0, hw_ema = 0;
-    double pool_diff = 0;
     double best_diff = 0;
     uint32_t hw_shares = 0;
     float temp = 0;
@@ -174,7 +173,6 @@ static bb_err_t stats_handler(bb_http_request_t *req)
         hw_rate = mining_stats.hw_hashrate;
         hw_ema = mining_stats.hw_ema.value;
         hw_shares = mining_stats.hw_shares;
-        pool_diff = mining_stats.pool_difficulty;
         temp = mining_stats.temp_c;
         session_shares = mining_stats.session.shares;
         session_rejected = mining_stats.session.rejected;
@@ -217,7 +215,6 @@ static bb_err_t stats_handler(bb_http_request_t *req)
     bb_json_obj_set_number(root, "hashrate_avg", hw_ema);
     bb_json_obj_set_number(root, "temp_c", (double)temp);
     bb_json_obj_set_number(root, "shares", hw_shares);
-    bb_json_obj_set_number(root, "pool_difficulty", pool_diff);
     bb_json_obj_set_number(root, "session_shares", session_shares);
     bb_json_obj_set_number(root, "session_rejected", session_rejected);
     bb_json_t rejected = bb_json_obj_new();
@@ -329,6 +326,113 @@ static bb_err_t stats_handler(bb_http_request_t *req)
     }
     bb_json_obj_set_arr(root, "asic_chips", chips_arr);
 #endif
+
+    char *json = bb_json_serialize(root);
+    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
+    bb_json_free_str(json);
+    bb_json_free(root);
+    return rc;
+}
+
+// ----------------------------------------------------------------------------
+// /api/pool — TA-281/TA-286
+// Locked shape: pool config (always populated from taipan_config_*) +
+// session-scoped negotiated values (extranonce1, extranonce2_size,
+// version_mask) + most-recent stratum mining.notify exposed as a `notify`
+// sub-object. Pre-stratum-connect, connected=false, session_start_ago_s/
+// extranonce*/version_mask/notify are all null; current_difficulty defaults
+// to stratum_state.difficulty (512.0).
+// ----------------------------------------------------------------------------
+static bb_err_t pool_handler(bb_http_request_t *req)
+{
+    set_common_headers(req);
+
+    bb_json_t root = bb_json_obj_new();
+
+    // Pool config — always populated from NVS-backed accessors.
+    bb_json_obj_set_string(root, "host",   taipan_config_pool_host());
+    bb_json_obj_set_number(root, "port",   (double)taipan_config_pool_port());
+    bb_json_obj_set_string(root, "worker", taipan_config_worker_name());
+    bb_json_obj_set_string(root, "wallet", taipan_config_wallet_addr());
+
+    bool connected = stratum_is_connected();
+    bb_json_obj_set_bool(root, "connected", connected);
+
+    // session_start_ago_s — null pre-connect; wrap-safe diff in ms then /1000.
+    // 32-bit ms wraps at ~49.7 days; sessions never run that long without
+    // reconnect (job-drought watchdog at 5 min).
+    uint32_t start_ms = stratum_get_session_start_ms();
+    if (start_ms == 0) {
+        bb_json_obj_set_null(root, "session_start_ago_s");
+    } else {
+        uint32_t now_ms   = pdTICKS_TO_MS(xTaskGetTickCount());
+        uint32_t delta_ms = now_ms - start_ms;  // unsigned wrap-safe
+        bb_json_obj_set_number(root, "session_start_ago_s",
+                               (double)(delta_ms / 1000U));
+    }
+
+    bb_json_obj_set_number(root, "current_difficulty", stratum_get_difficulty());
+
+    // Negotiated session params — null until subscribe response received.
+    stratum_session_snapshot_t sess;
+    if (stratum_get_session_snapshot(&sess) && sess.extranonce1_len > 0) {
+        char en1_hex[2 * MAX_EXTRANONCE1_SIZE + 1];
+        bytes_to_hex(sess.extranonce1, sess.extranonce1_len, en1_hex);
+        bb_json_obj_set_string(root, "extranonce1", en1_hex);
+        bb_json_obj_set_number(root, "extranonce2_size", (double)sess.extranonce2_size);
+        if (sess.version_mask != 0) {
+            char vm_hex[9];
+            snprintf(vm_hex, sizeof(vm_hex), "%08lx", (unsigned long)sess.version_mask);
+            bb_json_obj_set_string(root, "version_mask", vm_hex);
+        } else {
+            bb_json_obj_set_null(root, "version_mask");
+        }
+    } else {
+        bb_json_obj_set_null(root, "extranonce1");
+        bb_json_obj_set_null(root, "extranonce2_size");
+        bb_json_obj_set_null(root, "version_mask");
+    }
+
+    // notify sub-object — most recent mining.notify (TA-201).
+    const stratum_job_t *job = NULL;
+    if (stratum_get_job_snapshot(&job) && job) {
+        bb_json_t nobj = bb_json_obj_new();
+        bb_json_obj_set_string(nobj, "job_id", job->job_id);
+
+        char prevhash_hex[65];
+        bytes_to_hex(job->prevhash, 32, prevhash_hex);
+        bb_json_obj_set_string(nobj, "prev_hash", prevhash_hex);
+
+        char coinb1_hex[2 * MAX_COINB1_SIZE + 1];
+        bytes_to_hex(job->coinb1, job->coinb1_len, coinb1_hex);
+        bb_json_obj_set_string(nobj, "coinb1", coinb1_hex);
+
+        char coinb2_hex[2 * MAX_COINB2_SIZE + 1];
+        bytes_to_hex(job->coinb2, job->coinb2_len, coinb2_hex);
+        bb_json_obj_set_string(nobj, "coinb2", coinb2_hex);
+
+        bb_json_t mb = bb_json_arr_new();
+        for (size_t i = 0; i < job->merkle_count; i++) {
+            char br_hex[65];
+            bytes_to_hex(job->merkle_branches[i], 32, br_hex);
+            bb_json_arr_append_string(mb, br_hex);
+        }
+        bb_json_obj_set_arr(nobj, "merkle_branches", mb);
+
+        char hex8[9];
+        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)job->version);
+        bb_json_obj_set_string(nobj, "version", hex8);
+        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)job->nbits);
+        bb_json_obj_set_string(nobj, "nbits", hex8);
+        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)job->ntime);
+        bb_json_obj_set_string(nobj, "ntime", hex8);
+
+        bb_json_obj_set_bool(nobj, "clean_jobs", job->clean_jobs);
+        bb_json_obj_set_obj(root, "notify", nobj);
+    } else {
+        bb_json_obj_set_null(root, "notify");
+    }
 
     char *json = bb_json_serialize(root);
     bb_http_resp_set_header(req, "Content-Type", "application/json");
@@ -880,7 +984,6 @@ static const bb_route_response_t s_stats_responses[] = {
       "\"hashrate_avg\":{\"type\":\"number\",\"description\":\"EMA hashrate H/s\"},"
       "\"temp_c\":{\"type\":\"number\"},"
       "\"shares\":{\"type\":\"integer\",\"description\":\"HW shares found\"},"
-      "\"pool_difficulty\":{\"type\":\"number\"},"
       "\"session_shares\":{\"type\":\"integer\"},"
       "\"session_rejected\":{\"type\":\"integer\"},"
       "\"rejected\":{\"type\":\"object\","
@@ -924,6 +1027,53 @@ static const bb_route_t s_stats_route = {
     .operation_id = "getStats",
     .responses    = s_stats_responses,
     .handler      = stats_handler,
+};
+
+// ---------------------------------------------------------------------------
+// /api/pool — GET (TA-281, TA-286; closes TA-201)
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_pool_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"host\":{\"type\":\"string\"},"
+      "\"port\":{\"type\":\"integer\"},"
+      "\"worker\":{\"type\":\"string\"},"
+      "\"wallet\":{\"type\":\"string\"},"
+      "\"connected\":{\"type\":\"boolean\"},"
+      "\"session_start_ago_s\":{\"type\":[\"integer\",\"null\"]},"
+      "\"current_difficulty\":{\"type\":\"number\"},"
+      "\"extranonce1\":{\"type\":[\"string\",\"null\"]},"
+      "\"extranonce2_size\":{\"type\":[\"integer\",\"null\"]},"
+      "\"version_mask\":{\"type\":[\"string\",\"null\"],"
+      "\"description\":\"BIP320 mask, 8-char lowercase hex; null if not negotiated\"},"
+      "\"notify\":{\"type\":[\"object\",\"null\"],"
+      "\"properties\":{"
+      "\"job_id\":{\"type\":\"string\"},"
+      "\"prev_hash\":{\"type\":\"string\"},"
+      "\"coinb1\":{\"type\":\"string\"},"
+      "\"coinb2\":{\"type\":\"string\"},"
+      "\"merkle_branches\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},"
+      "\"version\":{\"type\":\"string\"},"
+      "\"nbits\":{\"type\":\"string\"},"
+      "\"ntime\":{\"type\":\"string\"},"
+      "\"clean_jobs\":{\"type\":\"boolean\"}}}},"
+      "\"required\":[\"host\",\"port\",\"worker\",\"wallet\",\"connected\","
+      "\"session_start_ago_s\",\"current_difficulty\","
+      "\"extranonce1\",\"extranonce2_size\",\"version_mask\",\"notify\"]}",
+      "pool connection state and current job" },
+    { 0 },
+};
+
+static const bb_route_t s_pool_route = {
+    .method       = BB_HTTP_GET,
+    .path         = "/api/pool",
+    .tag          = "pool",
+    .summary      = "Get pool connection state and current job",
+    .operation_id = "getPool",
+    .responses    = s_pool_responses,
+    .handler      = pool_handler,
 };
 
 // ---------------------------------------------------------------------------
@@ -1185,6 +1335,9 @@ bb_err_t taipan_web_register_mining_routes(bb_http_handle_t server)
     // Register dynamic handlers with OpenAPI descriptors
     bb_err_t rc;
     rc = bb_http_register_described_route(server, &s_stats_route);
+    if (rc != BB_OK) return rc;
+
+    rc = bb_http_register_described_route(server, &s_pool_route);
     if (rc != BB_OK) return rc;
 
     rc = bb_http_register_described_route(server, &s_knot_route);

@@ -1,26 +1,29 @@
 <script lang="ts">
-  import { stats, settings, connected } from '../lib/stores'
+  import { pool } from '../lib/stores'
+
+  // Connection indicator: green=connected, red=not connected, gray=unknown.
+  $: dotClass =
+    $pool == null ? 'unknown'
+    : $pool.connected ? 'connected'
+    : 'disconnected'
 </script>
 
 <div class="pool-strip">
   <div class="left">
-    {#if $settings}
-      <strong>{$settings.pool_host}:{$settings.pool_port}</strong>
+    <span class="dot {dotClass}" aria-hidden="true"></span>
+    {#if $pool}
+      <strong>{$pool.host}:{$pool.port}</strong>
     {:else}
-      <span class="loading">Loading…</span>
+      <strong>—</strong>
     {/if}
   </div>
 
   <div class="center">
-    {#if $settings}
-      <strong>{$settings.worker}</strong>
-    {/if}
+    <strong>{$pool?.worker ?? '—'}</strong>
   </div>
 
   <div class="right">
-    {#if $stats}
-      diff <strong>{$stats.pool_difficulty}</strong>
-    {/if}
+    diff <strong>{$pool?.current_difficulty ?? '—'}</strong>
   </div>
 </div>
 
@@ -60,6 +63,10 @@
 
   .dot.disconnected {
     background: var(--danger);
+  }
+
+  .dot.unknown {
+    background: var(--muted);
   }
 
   @keyframes pulse {

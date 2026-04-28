@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { stats, connected, power } from '../lib/stores'
+  import { stats, connected, power, pool } from '../lib/stores'
 
   interface Alert {
     key: string
@@ -28,7 +28,7 @@
       })
     }
 
-    if ($stats && !$stats.pool_difficulty) {
+    if ($pool && !$pool.current_difficulty) {
       newAlerts.push({
         key: 'pool_diff',
         severity: 'info',

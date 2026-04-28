@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { stats, connected, hasAsic } from '../lib/stores'
+  import { stats, connected, hasAsic, pool } from '../lib/stores'
   import Sparkline from './Sparkline.svelte'
   import { fmtDuration, fmtRelative, fmtHashGhs } from '../lib/fmt'
 
@@ -27,7 +27,7 @@
   $: rejected = $stats?.session_rejected ?? 0
   $: acceptRate = accepted + rejected > 0 ? (100 * accepted) / (accepted + rejected) : null
   $: sharesPerHour = $stats && $stats.uptime_s > 60 ? (accepted * 3600) / $stats.uptime_s : null
-  $: diffMult = $stats && $stats.pool_difficulty > 0 ? $stats.best_diff / $stats.pool_difficulty : null
+  $: diffMult = $stats && $pool && $pool.current_difficulty > 0 ? $stats.best_diff / $pool.current_difficulty : null
 </script>
 
 {#if $stats}

@@ -28,7 +28,6 @@ export interface Chip {
 }
 
 export interface Stats {
-  pool_difficulty: number
   session_shares: number
   session_rejected: number
   lifetime_shares: number
@@ -134,6 +133,36 @@ async function getJson<T>(path: string): Promise<T> {
   if (!res.ok) throw new Error(`${path} failed: ${res.status}`)
   return res.json() as Promise<T>
 }
+
+// TA-281/TA-286: locked /api/pool shape — pool config + session-scoped
+// negotiated values + most-recent stratum mining.notify.
+export interface PoolNotify {
+  job_id: string
+  prev_hash: string
+  coinb1: string
+  coinb2: string
+  merkle_branches: string[]
+  version: string      // 8-char hex
+  nbits: string        // 8-char hex
+  ntime: string        // 8-char hex
+  clean_jobs: boolean
+}
+
+export interface Pool {
+  host: string
+  port: number
+  worker: string
+  wallet: string
+  connected: boolean
+  session_start_ago_s: number | null
+  current_difficulty: number
+  extranonce1: string | null
+  extranonce2_size: number | null
+  version_mask: string | null
+  notify: PoolNotify | null
+}
+
+export const fetchPool = () => getJson<Pool>('/api/pool')
 
 export interface Settings {
   pool_host: string

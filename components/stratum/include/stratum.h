@@ -2,7 +2,9 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 #include "bb_json.h"
+#include "work.h"
 
 // Stratum v1 client task — runs on Core 0, priority 5
 void stratum_task(void *arg);
@@ -20,6 +22,33 @@ void stratum_set_wifi_kick_cb(stratum_wifi_kick_cb_t cb);
 // Diagnostic getters — lock-free reads from interrupt-safe statics
 uint32_t stratum_get_reconnect_delay_ms(void);
 int stratum_get_connect_fail_count(void);
+
+// Session start tick converted to milliseconds; 0 if not connected.
+// Caller computes elapsed = pdTICKS_TO_MS(xTaskGetTickCount()) - this.
+// Note: 32-bit ms wraparound at ~49.7 days; difference math is wrap-safe
+// for sessions shorter than that.
+uint32_t stratum_get_session_start_ms(void);
+
+// Current pool difficulty (default 512.0 pre-connect; updated on
+// mining.set_difficulty).
+double stratum_get_difficulty(void);
+
+// Snapshot of session-scoped negotiated values. Pointers in `extranonce1`
+// remain valid until the next reconnect (s_state lives for the firmware
+// lifetime; the reconnect path zeroes extranonce1_len). Returns false
+// when not connected; *out is unmodified in that case.
+typedef struct {
+    const uint8_t *extranonce1;
+    size_t         extranonce1_len;
+    int            extranonce2_size;
+    uint32_t       version_mask;  // 0 if version-rolling not negotiated
+} stratum_session_snapshot_t;
+bool stratum_get_session_snapshot(stratum_session_snapshot_t *out);
+
+// Pointer to the most recent mining.notify job, or false if none yet
+// (no connection or no notify since last reconnect). The returned pointer
+// is valid until the next mining.notify or reconnect.
+bool stratum_get_job_snapshot(const stratum_job_t **out);
 
 // Parse stratum error code from JSON-RPC error item.
 // Handles both [code, "message", "data"] array and {"code": N, ...} object forms.

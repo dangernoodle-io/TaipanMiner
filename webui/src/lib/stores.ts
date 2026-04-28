@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store'
-import { fetchStats, fetchInfo, fetchPower, fetchFan, fetchSettings, type Stats, type Info, type Power, type Fan, type Settings, type OtaCheckResult } from './api'
+import { fetchStats, fetchInfo, fetchPower, fetchFan, fetchSettings, fetchPool, type Stats, type Info, type Power, type Fan, type Settings, type Pool, type OtaCheckResult } from './api'
 
 export interface HistorySample {
   ts: number              // epoch seconds (client-side)
@@ -24,6 +24,7 @@ export const info = writable<Info | null>(null)
 export const settings = writable<Settings | null>(null)
 export const power = writable<Power | null>(null)
 export const fan = writable<Fan | null>(null)
+export const pool = writable<Pool | null>(null)
 export const hasAsic = writable<boolean>(false)
 export const connected = writable<boolean>(false)
 
@@ -144,6 +145,13 @@ async function poll() {
     }
     power.set(powerData)
     fan.set(fanData)
+
+    // /api/pool — TA-281; transient failures leave the store at last value.
+    try {
+      pool.set(await fetchPool())
+    } catch {
+      // keep prior value
+    }
 
     // Append to rolling history buffer (session-local).
     const sample: HistorySample = {

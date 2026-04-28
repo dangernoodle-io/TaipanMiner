@@ -61,8 +61,8 @@ static double s_current_asic_diff = 0;
 static asic_nonce_dedup_t s_dedup;
 
 // Debug counters for SHA256d filter
-static uint32_t s_sha_pass;
-static uint32_t s_sha_fail;
+static uint32_t s_nonce_verify_pass;
+static uint32_t s_nonce_verify_fail;
 
 // TA-221: sanity clamps for register-derived GHS. BM1370 theoretical max at 650 MHz
 // is ~1300 GH/s; BM1368 similar. Any computed hashrate above these thresholds is
@@ -551,10 +551,10 @@ void asic_mining_task(void *arg)
             uint8_t hash[32];
             asic_share_verdict_t verdict = asic_share_validate(orig, nonce_le, ver_bits, &share_diff, hash);
             if (verdict == ASIC_SHARE_BELOW_TARGET) {
-                s_sha_fail++;
+                s_nonce_verify_fail++;
                 continue;
             }
-            s_sha_pass++;
+            s_nonce_verify_pass++;
             if (verdict == ASIC_SHARE_INVALID_TARGET) {
                 bb_log_e(TAG, "share sanity fail: share_diff=%.4f pool_diff=%.4f, skipping",
                          share_diff, orig->difficulty);
@@ -720,9 +720,9 @@ void asic_mining_task(void *arg)
                 }
             }
 
-            bb_log_i(TAG, "%.1f GH/s (reported %.1f) | hw_err: %.2f%% | temp: %.1f C | shares: %" PRIu32 " | sha pass/fail: %" PRIu32 "/%" PRIu32,
+            bb_log_i(TAG, "%.1f GH/s (reported %.1f) | hw_err: %.2f%% | temp: %.1f C | shares: %" PRIu32 " | nonce verify pass/fail: %" PRIu32 "/%" PRIu32,
                      hashrate / 1e9, total_ghs_sum, asic_hw_error_pct,
-                     temp, shares, s_sha_pass, s_sha_fail);
+                     temp, shares, s_nonce_verify_pass, s_nonce_verify_fail);
 
             // TA-198: per-chip raw counters — diag only (601 vs 650 comparison)
             for (int c = 0; c < BOARD_ASIC_COUNT; c++) {

@@ -263,61 +263,15 @@ static int stratum_connect(const char *host, uint16_t port)
 // Handle mining.configure response
 static void handle_configure_result(bb_json_t result)
 {
-    bb_json_t vr = bb_json_obj_get_item(result, "version-rolling");
-    if (bb_json_item_is_true(vr)) {
-        bb_json_t mask_j = bb_json_obj_get_item(result, "version-rolling.mask");
-        if (mask_j && bb_json_item_is_string(mask_j)) {
-            s_state.version_mask = (uint32_t)strtoul(bb_json_item_get_string(mask_j), NULL, 16);
-            bb_log_i(TAG, "version rolling enabled, mask=0x%08" PRIx32, s_state.version_mask);
-        }
+    if (stratum_machine_handle_configure_result(&s_state, result)) {
+        bb_log_i(TAG, "version rolling enabled, mask=0x%08" PRIx32, s_state.version_mask);
     }
 }
 
 // Build mining work from current job
 static bool build_work(mining_work_t *work)
 {
-    // Build extranonce2 from rolling counter (LE byte order)
-    uint8_t extranonce2[MAX_EXTRANONCE2_SIZE];
-    memset(extranonce2, 0, sizeof(extranonce2));
-    for (size_t i = 0; i < s_state.extranonce2_size && i < sizeof(uint32_t); i++) {
-        extranonce2[i] = (uint8_t)(s_state.extranonce2 >> (i * 8));
-    }
-
-    // Store extranonce2 hex in work
-    char en2_hex[17];
-    bytes_to_hex(extranonce2, s_state.extranonce2_size, en2_hex);
-    strncpy(work->extranonce2_hex, en2_hex, sizeof(work->extranonce2_hex) - 1);
-    work->extranonce2_hex[sizeof(work->extranonce2_hex) - 1] = '\0';
-
-    // Build coinbase hash
-    uint8_t coinbase_hash[32];
-    build_coinbase_hash(s_state.job.coinb1, s_state.job.coinb1_len,
-                        s_state.extranonce1, s_state.extranonce1_len,
-                        extranonce2, s_state.extranonce2_size,
-                        s_state.job.coinb2, s_state.job.coinb2_len,
-                        coinbase_hash);
-
-    char cb_hex[65];
-    bytes_to_hex(coinbase_hash, 32, cb_hex);
-    bb_log_d(TAG, "coinbase_hash: %s", cb_hex);
-
-    // Build merkle root
-    uint8_t merkle_root[32];
-    build_merkle_root(coinbase_hash, s_state.job.merkle_branches, s_state.job.merkle_count, merkle_root);
-
-    char mr_hex[65];
-    bytes_to_hex(merkle_root, 32, mr_hex);
-    bb_log_d(TAG, "merkle_root: %s", mr_hex);
-
-    // Serialize header
-    serialize_header(s_state.job.version, s_state.job.prevhash, merkle_root,
-                     s_state.job.ntime, s_state.job.nbits, 0, work->header);
-
-    // Set target from current difficulty
-    difficulty_to_target(s_state.difficulty, work->target);
-    work->difficulty = s_state.difficulty;
-
-    if (!is_target_valid(work->target)) {
+    if (!stratum_machine_build_work(&s_state, work)) {
         bb_log_e(TAG, "build_work: invalid target for diff=%.6f, dropping work", s_state.difficulty);
         return false;
     }
@@ -326,85 +280,21 @@ static bool build_work(mining_work_t *work)
              s_state.difficulty,
              work->target[31], work->target[30], work->target[29], work->target[28],
              work->target[27], work->target[26], work->target[25], work->target[24]);
-
-    work->version = s_state.job.version;
-    work->version_mask = s_state.version_mask;
-    work->ntime = s_state.job.ntime;
-    strncpy(work->job_id, s_state.job.job_id, sizeof(work->job_id) - 1);
-    work->job_id[sizeof(work->job_id) - 1] = '\0';
-    work->work_seq = ++s_state.work_seq;
     return true;
 }
 
 // Handle mining.notify
 static void handle_notify(bb_json_t params)
 {
-    bb_json_t arr = params;
-    if (!bb_json_item_is_array(arr) || bb_json_arr_size(arr) < 9) {
+    if (!stratum_machine_handle_notify(&s_state, params)) {
         bb_log_w(TAG, "invalid notify params");
         return;
     }
 
-    // Parse job fields
-    bb_json_t job_id_j = bb_json_arr_get_item(arr, 0);
-    bb_json_t prevhash_j = bb_json_arr_get_item(arr, 1);
-    bb_json_t coinb1_j = bb_json_arr_get_item(arr, 2);
-    bb_json_t coinb2_j = bb_json_arr_get_item(arr, 3);
-    bb_json_t merkle_j = bb_json_arr_get_item(arr, 4);
-    bb_json_t version_j = bb_json_arr_get_item(arr, 5);
-    bb_json_t nbits_j = bb_json_arr_get_item(arr, 6);
-    bb_json_t ntime_j = bb_json_arr_get_item(arr, 7);
-    bb_json_t clean_j = bb_json_arr_get_item(arr, 8);
-
-    if (!job_id_j || !prevhash_j || !coinb1_j || !coinb2_j ||
-        !merkle_j || !version_j || !nbits_j || !ntime_j) {
-        bb_log_w(TAG, "missing notify fields");
-        return;
-    }
-
-    // Check that all string fields are actually strings
-    if (!bb_json_item_is_string(job_id_j) || !bb_json_item_is_string(prevhash_j) ||
-        !bb_json_item_is_string(coinb1_j) || !bb_json_item_is_string(coinb2_j) ||
-        !bb_json_item_is_string(version_j) || !bb_json_item_is_string(nbits_j) || !bb_json_item_is_string(ntime_j)) {
-        bb_log_w(TAG, "notify fields have wrong type");
-        return;
-    }
-
-    // Copy job_id
-    strncpy(s_state.job.job_id, bb_json_item_get_string(job_id_j), sizeof(s_state.job.job_id) - 1);
-    s_state.job.job_id[sizeof(s_state.job.job_id) - 1] = '\0';
-
-    // Decode prevhash (stratum format: 8 groups of 4 bytes, each reversed)
-    decode_stratum_prevhash(bb_json_item_get_string(prevhash_j), s_state.job.prevhash);
-
-    // Decode coinb1
-    s_state.job.coinb1_len = hex_to_bytes(bb_json_item_get_string(coinb1_j), s_state.job.coinb1, MAX_COINB1_SIZE);
-
-    // Decode coinb2
-    s_state.job.coinb2_len = hex_to_bytes(bb_json_item_get_string(coinb2_j), s_state.job.coinb2, MAX_COINB2_SIZE);
-
-    // Decode merkle branches
-    s_state.job.merkle_count = 0;
-    int branch_count = bb_json_arr_size(merkle_j);
-    for (int i = 0; i < branch_count && i < MAX_MERKLE_BRANCHES; i++) {
-        bb_json_t branch = bb_json_arr_get_item(merkle_j, i);
-        if (branch && bb_json_item_is_string(branch)) {
-            hex_to_bytes(bb_json_item_get_string(branch), s_state.job.merkle_branches[i], 32);
-            s_state.job.merkle_count++;
-        }
-    }
-
-    // Parse version, nbits, ntime (hex strings → uint32)
-    s_state.job.version = (uint32_t)strtoul(bb_json_item_get_string(version_j), NULL, 16);
-    s_state.job.nbits = (uint32_t)strtoul(bb_json_item_get_string(nbits_j), NULL, 16);
-    s_state.job.ntime = (uint32_t)strtoul(bb_json_item_get_string(ntime_j), NULL, 16);
-    s_state.job.clean_jobs = clean_j ? bb_json_item_is_true(clean_j) : false;
-
-    bb_log_i(TAG, "notify: job=%s clean=%d ver=%s ntime=%s nbits=%s",
+    bb_log_i(TAG, "notify: job=%s clean=%d ver=%08" PRIx32 " ntime=%08" PRIx32 " nbits=%08" PRIx32,
              s_state.job.job_id, s_state.job.clean_jobs,
-             bb_json_item_get_string(version_j), bb_json_item_get_string(ntime_j), bb_json_item_get_string(nbits_j));
+             s_state.job.version, s_state.job.ntime, s_state.job.nbits);
 
-    s_state.extranonce2 = 0;
     mining_work_t work;
     if (!build_work(&work)) return;
 
@@ -423,47 +313,29 @@ static void handle_notify(bb_json_t params)
 // Handle mining.set_difficulty
 static void handle_set_difficulty(bb_json_t params)
 {
-    if (!bb_json_item_is_array(params) || bb_json_arr_size(params) < 1) {
+    if (!stratum_machine_handle_set_difficulty(&s_state, params)) {
+        bb_log_w(TAG, "invalid set_difficulty params");
         return;
     }
-    bb_json_t diff = bb_json_arr_get_item(params, 0);
-    if (bb_json_item_is_number(diff)) {
-        s_state.difficulty = bb_json_item_get_double(diff);
-        bb_log_i(TAG, "difficulty set to %.4f", s_state.difficulty);
 
-        // Re-dispatch work with updated target — mark clean to invalidate
-        // stale job table entries that carry the old (easier) target
-        if (s_state.job.job_id[0] != '\0') {
-            mining_work_t work;
-            if (!build_work(&work)) return;
-            work.clean = true;
-            xQueueOverwrite(work_queue, &work);
-        }
+    bb_log_i(TAG, "difficulty set to %.4f", s_state.difficulty);
+
+    // Re-dispatch work with updated target — mark clean to invalidate
+    // stale job table entries that carry the old (easier) target
+    if (s_state.job.job_id[0] != '\0') {
+        mining_work_t work;
+        if (!build_work(&work)) return;
+        work.clean = true;
+        xQueueOverwrite(work_queue, &work);
     }
 }
 
 // Handle subscribe response
 static int handle_subscribe_result(bb_json_t result)
 {
-    if (!bb_json_item_is_array(result) || bb_json_arr_size(result) < 3) {
+    if (!stratum_machine_handle_subscribe_result(&s_state, result)) {
         bb_log_e(TAG, "invalid subscribe result");
         return -1;
-    }
-
-    // result[1] = extranonce1 (hex string)
-    bb_json_t en1 = bb_json_arr_get_item(result, 1);
-    if (!en1 || !bb_json_item_is_string(en1)) {
-        bb_log_e(TAG, "no extranonce1");
-        return -1;
-    }
-    strncpy(s_state.extranonce1_hex, bb_json_item_get_string(en1), sizeof(s_state.extranonce1_hex) - 1);
-    s_state.extranonce1_hex[sizeof(s_state.extranonce1_hex) - 1] = '\0';
-    s_state.extranonce1_len = hex_to_bytes(s_state.extranonce1_hex, s_state.extranonce1, MAX_EXTRANONCE1_SIZE);
-
-    // result[2] = extranonce2_size
-    bb_json_t en2sz = bb_json_arr_get_item(result, 2);
-    if (bb_json_item_is_number(en2sz)) {
-        s_state.extranonce2_size = bb_json_item_get_int(en2sz);
     }
 
     bb_log_i(TAG, "subscribed: en1=%s en2_size=%d", s_state.extranonce1_hex, s_state.extranonce2_size);

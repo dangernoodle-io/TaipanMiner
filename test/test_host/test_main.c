@@ -165,6 +165,58 @@ void test_stratum_machine_build_keepalive(void);
 void test_stratum_machine_build_keepalive_small_difficulty(void);
 void test_stratum_machine_build_keepalive_large_difficulty(void);
 void test_stratum_machine_build_keepalive_truncation(void);
+// TA-273 Phase 3: response handler tests
+void test_handle_configure_result_golden(void);
+void test_handle_configure_result_missing_field(void);
+void test_handle_configure_result_pool_not_supported(void);
+void test_handle_subscribe_result_golden(void);
+void test_handle_subscribe_result_too_long_extranonce1(void);
+void test_handle_subscribe_result_invalid_no_extranonce(void);
+void test_handle_set_difficulty_1(void);
+void test_handle_set_difficulty_65536(void);
+void test_handle_set_difficulty_fractional(void);
+void test_handle_set_difficulty_zero_rejected(void);
+void test_handle_set_difficulty_negative_rejected(void);
+void test_handle_set_difficulty_nan_rejected(void);
+void test_handle_notify_golden(void);
+void test_handle_notify_clean_jobs_false(void);
+void test_handle_notify_invalid_too_few_fields(void);
+void test_handle_notify_wrong_type_for_version(void);
+void test_handle_notify_ta186_non_monotonic_job_id(void);
+void test_subscribe_then_notify_work_seq_unchanged(void);
+// TA-273 Phase 3: build_work tests
+void test_build_work_null_state(void);
+void test_build_work_null_output(void);
+void test_build_work_happy_path(void);
+void test_build_work_with_version_mask(void);
+void test_build_work_increments_seq_multiple_times(void);
+void test_build_work_with_varying_extranonce2(void);
+void test_build_work_with_small_extranonce2_size(void);
+// NULL guard tests
+void test_build_configure_null_buf(void);
+void test_build_configure_zero_size(void);
+void test_build_subscribe_null_buf(void);
+void test_build_subscribe_zero_size(void);
+void test_build_authorize_null_buf(void);
+void test_build_authorize_zero_size(void);
+void test_build_authorize_null_wallet(void);
+void test_build_authorize_null_worker(void);
+void test_build_authorize_null_pass(void);
+void test_build_keepalive_null_buf(void);
+void test_build_keepalive_zero_size(void);
+void test_handle_configure_null_state(void);
+void test_handle_configure_null_result(void);
+void test_handle_subscribe_null_state(void);
+void test_handle_subscribe_null_result(void);
+void test_handle_subscribe_missing_extranonce_field(void);
+void test_handle_set_difficulty_null_state(void);
+void test_handle_set_difficulty_null_params(void);
+void test_handle_set_difficulty_not_array(void);
+void test_handle_set_difficulty_empty_array(void);
+void test_handle_set_difficulty_wrong_type(void);
+void test_handle_notify_null_state(void);
+void test_handle_notify_null_params(void);
+void test_handle_notify_missing_field_at_index_0(void);
 
 // Forward declarations from test_stratum_reject.c
 void test_parse_error_code_array_form_21(void);
@@ -505,6 +557,58 @@ int main(void) {
     RUN_TEST(test_stratum_machine_build_keepalive_small_difficulty);
     RUN_TEST(test_stratum_machine_build_keepalive_large_difficulty);
     RUN_TEST(test_stratum_machine_build_keepalive_truncation);
+    // TA-273 Phase 3: response handler tests
+    RUN_TEST(test_handle_configure_result_golden);
+    RUN_TEST(test_handle_configure_result_missing_field);
+    RUN_TEST(test_handle_configure_result_pool_not_supported);
+    RUN_TEST(test_handle_subscribe_result_golden);
+    RUN_TEST(test_handle_subscribe_result_too_long_extranonce1);
+    RUN_TEST(test_handle_subscribe_result_invalid_no_extranonce);
+    RUN_TEST(test_handle_set_difficulty_1);
+    RUN_TEST(test_handle_set_difficulty_65536);
+    RUN_TEST(test_handle_set_difficulty_fractional);
+    RUN_TEST(test_handle_set_difficulty_zero_rejected);
+    RUN_TEST(test_handle_set_difficulty_negative_rejected);
+    RUN_TEST(test_handle_set_difficulty_nan_rejected);
+    RUN_TEST(test_handle_notify_golden);
+    RUN_TEST(test_handle_notify_clean_jobs_false);
+    RUN_TEST(test_handle_notify_invalid_too_few_fields);
+    RUN_TEST(test_handle_notify_wrong_type_for_version);
+    RUN_TEST(test_handle_notify_ta186_non_monotonic_job_id);
+    RUN_TEST(test_subscribe_then_notify_work_seq_unchanged);
+    // TA-273 Phase 3: build_work tests
+    RUN_TEST(test_build_work_null_state);
+    RUN_TEST(test_build_work_null_output);
+    RUN_TEST(test_build_work_happy_path);
+    RUN_TEST(test_build_work_with_version_mask);
+    RUN_TEST(test_build_work_increments_seq_multiple_times);
+    RUN_TEST(test_build_work_with_varying_extranonce2);
+    RUN_TEST(test_build_work_with_small_extranonce2_size);
+    // NULL guard tests
+    RUN_TEST(test_build_configure_null_buf);
+    RUN_TEST(test_build_configure_zero_size);
+    RUN_TEST(test_build_subscribe_null_buf);
+    RUN_TEST(test_build_subscribe_zero_size);
+    RUN_TEST(test_build_authorize_null_buf);
+    RUN_TEST(test_build_authorize_zero_size);
+    RUN_TEST(test_build_authorize_null_wallet);
+    RUN_TEST(test_build_authorize_null_worker);
+    RUN_TEST(test_build_authorize_null_pass);
+    RUN_TEST(test_build_keepalive_null_buf);
+    RUN_TEST(test_build_keepalive_zero_size);
+    RUN_TEST(test_handle_configure_null_state);
+    RUN_TEST(test_handle_configure_null_result);
+    RUN_TEST(test_handle_subscribe_null_state);
+    RUN_TEST(test_handle_subscribe_null_result);
+    RUN_TEST(test_handle_subscribe_missing_extranonce_field);
+    RUN_TEST(test_handle_set_difficulty_null_state);
+    RUN_TEST(test_handle_set_difficulty_null_params);
+    RUN_TEST(test_handle_set_difficulty_not_array);
+    RUN_TEST(test_handle_set_difficulty_empty_array);
+    RUN_TEST(test_handle_set_difficulty_wrong_type);
+    RUN_TEST(test_handle_notify_null_state);
+    RUN_TEST(test_handle_notify_null_params);
+    RUN_TEST(test_handle_notify_missing_field_at_index_0);
 
     // Stratum error code parsing tests
     RUN_TEST(test_parse_error_code_array_form_21);

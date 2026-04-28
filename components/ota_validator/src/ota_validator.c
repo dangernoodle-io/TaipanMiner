@@ -1,54 +1,64 @@
 #include "ota_validator.h"
-#include <stdatomic.h>
-#include "esp_timer.h"
+#include "ota_validator_io.h"
+#include "ota_validator_state.h"
 #include "bb_log.h"
-#include "bb_ota_validator.h"
 
 static const char *TAG = "ota_validator";
 
 #define OTA_VALIDATOR_TIMEOUT_US (15 * 60 * 1000000)  // 15 minutes
 
-static esp_timer_handle_t s_timer = NULL;
+static const ota_timer_ops_t      *s_timer_ops  = NULL;
+static const ota_mark_valid_ops_t *s_mark_ops   = NULL;
 
-static void timer_callback(void *arg)
+static ota_validator_state_t s_state;
+static void                 *s_timer_handle = NULL;
+
+void ota_validator_init(const ota_timer_ops_t *t, const ota_mark_valid_ops_t *m)
 {
-    (void)arg;
-    bb_ota_mark_valid("sustained stratum");
+    s_timer_ops = t;
+    s_mark_ops  = m;
+    ota_validator_state_init(&s_state);
+}
+
+static void timer_fired_cb(void *user)
+{
+    (void)user;
+    if (!s_mark_ops) return;
+    ota_validator_step_t step = ota_validator_state_on_timer_fired(&s_state, s_mark_ops->is_pending());
+    if (step.kind == OTA_VAL_ACTION_MARK_VALID) {
+        s_mark_ops->mark_valid(step.mark_reason);
+    }
+    // Timer already fired; do not delete here.
 }
 
 void ota_validator_on_stratum_authorized(void)
 {
-    if (!bb_ota_is_pending()) {
-        return;  // Not a freshly-pushed OTA image; nothing to validate.
-    }
-    if (s_timer != NULL) {
-        return;  // Timer already running
-    }
+    if (!s_timer_ops || !s_mark_ops) return;
 
-    const esp_timer_create_args_t timer_args = {
-        .callback = timer_callback,
-        .arg = NULL,
-        .name = "ota_validator",
-        .dispatch_method = ESP_TIMER_TASK,
-    };
+    ota_validator_step_t step = ota_validator_state_on_stratum_authorized(&s_state, s_mark_ops->is_pending());
 
-    if (esp_timer_create(&timer_args, &s_timer) == ESP_OK) {
-        esp_timer_start_once(s_timer, OTA_VALIDATOR_TIMEOUT_US);
-        bb_log_i(TAG, "15-minute mark-valid timer started");
+    if (step.kind == OTA_VAL_ACTION_START_TIMER) {
+        if (s_timer_ops->create(timer_fired_cb, NULL, &s_timer_handle)) {
+            s_timer_ops->start_once(s_timer_handle, OTA_VALIDATOR_TIMEOUT_US);
+            bb_log_i(TAG, "15-minute mark-valid timer started");
+        }
     }
 }
 
 void ota_validator_on_share_accepted(void)
 {
-    if (!bb_ota_is_pending()) {
-        return;
-    }
+    if (!s_timer_ops || !s_mark_ops) return;
 
-    if (s_timer != NULL) {
-        esp_timer_stop(s_timer);
-        esp_timer_delete(s_timer);
-        s_timer = NULL;
-    }
+    ota_validator_step_t step = ota_validator_state_on_share_accepted(&s_state, s_mark_ops->is_pending());
 
-    bb_ota_mark_valid("first share");
+    if (step.kind == OTA_VAL_ACTION_STOP_TIMER_AND_MARK_VALID) {
+        if (s_timer_handle) {
+            s_timer_ops->stop(s_timer_handle);
+            s_timer_ops->delete_(s_timer_handle);
+            s_timer_handle = NULL;
+        }
+        s_mark_ops->mark_valid(step.mark_reason);
+    } else if (step.kind == OTA_VAL_ACTION_MARK_VALID) {
+        s_mark_ops->mark_valid(step.mark_reason);
+    }
 }

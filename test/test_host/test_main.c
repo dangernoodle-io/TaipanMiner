@@ -298,6 +298,16 @@ void test_curve_negative_temp(void);
 void test_curve_very_high_temp(void);
 void test_curve_monotonic(void);
 
+// Forward declarations from test_ota_validator_io.c (TA-234 phase A)
+void test_ota_io_authorize_pending_arms_timer(void);
+void test_ota_io_authorize_not_pending_no_timer(void);
+void test_ota_io_authorize_idempotent(void);
+void test_ota_io_share_accepted_armed_marks_valid_first_share(void);
+void test_ota_io_share_accepted_no_pending_noop(void);
+void test_ota_io_share_accepted_after_first_idempotent(void);
+void test_ota_io_timer_fires_marks_valid_sustained(void);
+void test_ota_io_timer_create_failure_no_start(void);
+
 // Forward declarations from test_ota_validator.c
 void test_ota_validator_init(void);
 void test_ota_validator_on_stratum_authorized_not_pending(void);
@@ -739,6 +749,16 @@ int main(void) {
     RUN_TEST(test_curve_negative_temp);
     RUN_TEST(test_curve_very_high_temp);
     RUN_TEST(test_curve_monotonic);
+
+    // OTA validator IO shell tests (TA-234 phase A)
+    RUN_TEST(test_ota_io_authorize_pending_arms_timer);
+    RUN_TEST(test_ota_io_authorize_not_pending_no_timer);
+    RUN_TEST(test_ota_io_authorize_idempotent);
+    RUN_TEST(test_ota_io_share_accepted_armed_marks_valid_first_share);
+    RUN_TEST(test_ota_io_share_accepted_no_pending_noop);
+    RUN_TEST(test_ota_io_share_accepted_after_first_idempotent);
+    RUN_TEST(test_ota_io_timer_fires_marks_valid_sustained);
+    RUN_TEST(test_ota_io_timer_create_failure_no_start);
 
     // OTA validator state machine tests
     RUN_TEST(test_ota_validator_init);

@@ -182,6 +182,24 @@ void test_handle_notify_golden(void);
 void test_handle_notify_clean_jobs_false(void);
 void test_handle_notify_invalid_too_few_fields(void);
 void test_handle_notify_wrong_type_for_version(void);
+// TA-273 Phase 4: reject classifier tests
+void test_classify_reject_job_not_found(void);
+void test_classify_reject_duplicate(void);
+void test_classify_reject_low_difficulty(void);
+void test_classify_reject_stale_prevhash(void);
+void test_classify_reject_unknown_code_24(void);
+void test_classify_reject_unknown_code_26(void);
+void test_classify_reject_unknown_code_99(void);
+void test_classify_reject_unknown_code_negative_one(void);
+void test_classify_reject_unknown_code_zero(void);
+void test_classify_reject_round_trip_array_job_not_found(void);
+void test_classify_reject_round_trip_array_duplicate(void);
+void test_classify_reject_round_trip_array_low_difficulty(void);
+void test_classify_reject_round_trip_array_stale_prevhash(void);
+void test_classify_reject_round_trip_object_job_not_found(void);
+void test_classify_reject_round_trip_object_duplicate(void);
+void test_classify_reject_round_trip_missing_code(void);
+void test_classify_reject_round_trip_null_error(void);
 void test_handle_notify_ta186_non_monotonic_job_id(void);
 void test_subscribe_then_notify_work_seq_unchanged(void);
 // TA-273 Phase 3: build_work tests
@@ -584,6 +602,24 @@ int main(void) {
     RUN_TEST(test_build_work_increments_seq_multiple_times);
     RUN_TEST(test_build_work_with_varying_extranonce2);
     RUN_TEST(test_build_work_with_small_extranonce2_size);
+    // TA-273 Phase 4: reject classifier tests
+    RUN_TEST(test_classify_reject_job_not_found);
+    RUN_TEST(test_classify_reject_duplicate);
+    RUN_TEST(test_classify_reject_low_difficulty);
+    RUN_TEST(test_classify_reject_stale_prevhash);
+    RUN_TEST(test_classify_reject_unknown_code_24);
+    RUN_TEST(test_classify_reject_unknown_code_26);
+    RUN_TEST(test_classify_reject_unknown_code_99);
+    RUN_TEST(test_classify_reject_unknown_code_negative_one);
+    RUN_TEST(test_classify_reject_unknown_code_zero);
+    RUN_TEST(test_classify_reject_round_trip_array_job_not_found);
+    RUN_TEST(test_classify_reject_round_trip_array_duplicate);
+    RUN_TEST(test_classify_reject_round_trip_array_low_difficulty);
+    RUN_TEST(test_classify_reject_round_trip_array_stale_prevhash);
+    RUN_TEST(test_classify_reject_round_trip_object_job_not_found);
+    RUN_TEST(test_classify_reject_round_trip_object_duplicate);
+    RUN_TEST(test_classify_reject_round_trip_missing_code);
+    RUN_TEST(test_classify_reject_round_trip_null_error);
     // NULL guard tests
     RUN_TEST(test_build_configure_null_buf);
     RUN_TEST(test_build_configure_zero_size);

@@ -90,3 +90,20 @@ bool stratum_machine_handle_notify(stratum_state_t *st, bb_json_t params);
 // Increments st->work_seq on success.
 // ---------------------------------------------------------------------------
 bool stratum_machine_build_work(stratum_state_t *st, mining_work_t *out);
+
+// ---------------------------------------------------------------------------
+// Reject categorization — pure function for testability.
+// Classifies a stratum error response code into a kind. Codes 21/22/23/25
+// map to named kinds; everything else is OTHER. Caller still records the
+// raw code for OTHER so operators can investigate uncategorized rejects.
+// ---------------------------------------------------------------------------
+typedef enum {
+    STRATUM_REJECT_JOB_NOT_FOUND  = 21,
+    STRATUM_REJECT_DUPLICATE      = 22,
+    STRATUM_REJECT_LOW_DIFFICULTY = 23,
+    STRATUM_REJECT_STALE_PREVHASH = 25,
+    STRATUM_REJECT_OTHER          = -1,  // not a real code; sentinel
+} stratum_reject_kind_t;
+
+// Classify a stratum error response code into a kind.
+stratum_reject_kind_t stratum_machine_classify_reject(int code);

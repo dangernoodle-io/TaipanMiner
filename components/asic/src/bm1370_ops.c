@@ -157,16 +157,16 @@ static esp_err_t bm1370_chip_init(void)
     return ESP_OK;
 }
 
-static esp_err_t bm1370_chip_quiesce(void)
+static bb_err_t bm1370_chip_quiesce(void)
 {
     bb_log_i(TAG, "quiescing BM1370 (CMD_INACTIVE)");
     uint8_t inactive_data[2] = {0x00, 0x00};
     send_cmd(ASIC_CMD_INACTIVE, ASIC_GROUP_ALL, inactive_data, 2);
     vTaskDelay(pdMS_TO_TICKS(5));
-    return ESP_OK;
+    return BB_OK;
 }
 
-static esp_err_t bm1370_chip_resume(void)
+static bb_err_t bm1370_chip_resume(void)
 {
     bb_log_i(TAG, "resuming BM1370 (re-init)");
     return bm1370_chip_init();

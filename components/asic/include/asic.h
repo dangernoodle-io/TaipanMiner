@@ -2,17 +2,20 @@
 
 #include "asic_chip.h"
 #include "bb_nv.h"
+
+#ifdef ESP_PLATFORM
 #include "driver/i2c_master.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#endif
 
 #ifdef ASIC_CHIP
 
 // ASIC chip operations abstraction
 typedef struct {
     bb_err_t (*chip_init)(void);
-    esp_err_t (*chip_quiesce)(void);   // send CMD_INACTIVE to halt hashing
-    esp_err_t (*chip_resume)(void);    // re-run chip init after pause
+    bb_err_t (*chip_quiesce)(void);   // send CMD_INACTIVE to halt hashing
+    bb_err_t (*chip_resume)(void);    // re-run chip init after pause
     bb_err_t (*vreg_init)(i2c_master_bus_handle_t bus, uint16_t target_mv);
     uint16_t fb_min;
     uint16_t fb_max;

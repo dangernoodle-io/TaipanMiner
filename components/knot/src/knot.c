@@ -14,22 +14,6 @@ static knot_peer_t g_peer_table[KNOT_PEER_COUNT];
 static SemaphoreHandle_t g_mutex = NULL;
 static bool g_initialized = false;
 
-/* No local TTL prune. IDF's mdns_browse only delivers notifier callbacks on
- * change events (new / updated / removed), so a stable peer goes silent on
- * the wire toward us even though IDF still considers it alive. We trust
- * IDF's own TTL bookkeeping: when a peer's announced TTL expires without a
- * refresh, IDF fires the notifier with ttl=0 which routes through
- * on_peer_removed below. last_seen_us still tracks the most-recent
- * notification so the UI can show "seen N seconds ago" — that number will
- * grow for stable peers, which is the correct semantic.
- *
- * Periodic mdns_query_txt requery (originally added in #216 to refresh stale
- * TXT) was removed in TA-251: the blocking IDF call on the esp_timer service
- * task starved the IDF log mutex and aborted mining_task. Migrating to the
- * v0.16.4 bb_mdns_query_txt async shim still produced silent reboots whose
- * root cause is unidentified. Treat TXT freshness as best-effort until a
- * non-blocking, non-rebooting refresh path lands. */
-
 static void on_peer_discovered(const bb_mdns_peer_t *peer, void *ctx) {
     if (!peer || !peer->instance_name) {
         return;
@@ -126,7 +110,7 @@ void knot_set_self(const char *instance_name,
 }
 
 size_t knot_snapshot(knot_peer_t *out, size_t cap) {
-    if (!out || cap == 0) {
+    if (!out || cap == 0 || !g_mutex) {
         return 0;
     }
 

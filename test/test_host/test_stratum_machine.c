@@ -1,5 +1,6 @@
 #include "unity.h"
 #include "stratum_machine.h"
+#include "stratum.h"
 #include "bb_json.h"
 #include <string.h>
 #include <math.h>
@@ -930,4 +931,191 @@ void test_handle_notify_missing_field_at_index_0(void)
     TEST_ASSERT_FALSE(ok);
 
     bb_json_free(params);
+}
+
+// ---------------------------------------------------------------------------
+// TA-273 Phase 4: reject classifier tests
+// ---------------------------------------------------------------------------
+
+// Test classification of code 21 → JOB_NOT_FOUND
+void test_classify_reject_job_not_found(void)
+{
+    stratum_reject_kind_t kind = stratum_machine_classify_reject(21);
+    TEST_ASSERT_EQUAL_INT(STRATUM_REJECT_JOB_NOT_FOUND, kind);
+}
+
+// Test classification of code 22 → DUPLICATE
+void test_classify_reject_duplicate(void)
+{
+    stratum_reject_kind_t kind = stratum_machine_classify_reject(22);
+    TEST_ASSERT_EQUAL_INT(STRATUM_REJECT_DUPLICATE, kind);
+}
+
+// Test classification of code 23 → LOW_DIFFICULTY
+void test_classify_reject_low_difficulty(void)
+{
+    stratum_reject_kind_t kind = stratum_machine_classify_reject(23);
+    TEST_ASSERT_EQUAL_INT(STRATUM_REJECT_LOW_DIFFICULTY, kind);
+}
+
+// Test classification of code 25 → STALE_PREVHASH
+void test_classify_reject_stale_prevhash(void)
+{
+    stratum_reject_kind_t kind = stratum_machine_classify_reject(25);
+    TEST_ASSERT_EQUAL_INT(STRATUM_REJECT_STALE_PREVHASH, kind);
+}
+
+// Test unknown codes map to OTHER
+void test_classify_reject_unknown_code_24(void)
+{
+    stratum_reject_kind_t kind = stratum_machine_classify_reject(24);
+    TEST_ASSERT_EQUAL_INT(STRATUM_REJECT_OTHER, kind);
+}
+
+void test_classify_reject_unknown_code_26(void)
+{
+    stratum_reject_kind_t kind = stratum_machine_classify_reject(26);
+    TEST_ASSERT_EQUAL_INT(STRATUM_REJECT_OTHER, kind);
+}
+
+void test_classify_reject_unknown_code_99(void)
+{
+    stratum_reject_kind_t kind = stratum_machine_classify_reject(99);
+    TEST_ASSERT_EQUAL_INT(STRATUM_REJECT_OTHER, kind);
+}
+
+void test_classify_reject_unknown_code_negative_one(void)
+{
+    stratum_reject_kind_t kind = stratum_machine_classify_reject(-1);
+    TEST_ASSERT_EQUAL_INT(STRATUM_REJECT_OTHER, kind);
+}
+
+void test_classify_reject_unknown_code_zero(void)
+{
+    stratum_reject_kind_t kind = stratum_machine_classify_reject(0);
+    TEST_ASSERT_EQUAL_INT(STRATUM_REJECT_OTHER, kind);
+}
+
+// ---------------------------------------------------------------------------
+// Round-trip tests with stratum_parse_error_code + classify
+// ---------------------------------------------------------------------------
+
+// Array form: [21, "Job not found", "..."]
+void test_classify_reject_round_trip_array_job_not_found(void)
+{
+    bb_json_t error = bb_json_parse("[21,\"Job not found\",\"\"]", 0);
+    TEST_ASSERT_NOT_NULL(error);
+
+    int code = stratum_parse_error_code(error);
+    TEST_ASSERT_EQUAL_INT(21, code);
+
+    stratum_reject_kind_t kind = stratum_machine_classify_reject(code);
+    TEST_ASSERT_EQUAL_INT(STRATUM_REJECT_JOB_NOT_FOUND, kind);
+
+    bb_json_free(error);
+}
+
+// Array form: [22, "Duplicate share", ""]
+void test_classify_reject_round_trip_array_duplicate(void)
+{
+    bb_json_t error = bb_json_parse("[22,\"Duplicate share\",\"\"]", 0);
+    TEST_ASSERT_NOT_NULL(error);
+
+    int code = stratum_parse_error_code(error);
+    TEST_ASSERT_EQUAL_INT(22, code);
+
+    stratum_reject_kind_t kind = stratum_machine_classify_reject(code);
+    TEST_ASSERT_EQUAL_INT(STRATUM_REJECT_DUPLICATE, kind);
+
+    bb_json_free(error);
+}
+
+// Array form: [23, "Low difficulty share", ""]
+void test_classify_reject_round_trip_array_low_difficulty(void)
+{
+    bb_json_t error = bb_json_parse("[23,\"Low difficulty share\",\"\"]", 0);
+    TEST_ASSERT_NOT_NULL(error);
+
+    int code = stratum_parse_error_code(error);
+    TEST_ASSERT_EQUAL_INT(23, code);
+
+    stratum_reject_kind_t kind = stratum_machine_classify_reject(code);
+    TEST_ASSERT_EQUAL_INT(STRATUM_REJECT_LOW_DIFFICULTY, kind);
+
+    bb_json_free(error);
+}
+
+// Array form: [25, "Not subscribed/stale prevhash", ""]
+void test_classify_reject_round_trip_array_stale_prevhash(void)
+{
+    bb_json_t error = bb_json_parse("[25,\"Not subscribed/stale prevhash\",\"\"]", 0);
+    TEST_ASSERT_NOT_NULL(error);
+
+    int code = stratum_parse_error_code(error);
+    TEST_ASSERT_EQUAL_INT(25, code);
+
+    stratum_reject_kind_t kind = stratum_machine_classify_reject(code);
+    TEST_ASSERT_EQUAL_INT(STRATUM_REJECT_STALE_PREVHASH, kind);
+
+    bb_json_free(error);
+}
+
+// Object form: {"code": 21, "message": "Job not found"}
+void test_classify_reject_round_trip_object_job_not_found(void)
+{
+    bb_json_t error = bb_json_parse("{\"code\":21,\"message\":\"Job not found\"}", 0);
+    TEST_ASSERT_NOT_NULL(error);
+
+    int code = stratum_parse_error_code(error);
+    TEST_ASSERT_EQUAL_INT(21, code);
+
+    stratum_reject_kind_t kind = stratum_machine_classify_reject(code);
+    TEST_ASSERT_EQUAL_INT(STRATUM_REJECT_JOB_NOT_FOUND, kind);
+
+    bb_json_free(error);
+}
+
+// Object form: {"code": 22, "message": "Duplicate share"}
+void test_classify_reject_round_trip_object_duplicate(void)
+{
+    bb_json_t error = bb_json_parse("{\"code\":22,\"message\":\"Duplicate share\"}", 0);
+    TEST_ASSERT_NOT_NULL(error);
+
+    int code = stratum_parse_error_code(error);
+    TEST_ASSERT_EQUAL_INT(22, code);
+
+    stratum_reject_kind_t kind = stratum_machine_classify_reject(code);
+    TEST_ASSERT_EQUAL_INT(STRATUM_REJECT_DUPLICATE, kind);
+
+    bb_json_free(error);
+}
+
+// Missing error code → parse_error_code returns -1 → OTHER
+void test_classify_reject_round_trip_missing_code(void)
+{
+    bb_json_t error = bb_json_parse("{\"message\":\"Some error\"}", 0);
+    TEST_ASSERT_NOT_NULL(error);
+
+    int code = stratum_parse_error_code(error);
+    TEST_ASSERT_EQUAL_INT(-1, code);
+
+    stratum_reject_kind_t kind = stratum_machine_classify_reject(code);
+    TEST_ASSERT_EQUAL_INT(STRATUM_REJECT_OTHER, kind);
+
+    bb_json_free(error);
+}
+
+// Null error array → parse_error_code returns -1 → OTHER
+void test_classify_reject_round_trip_null_error(void)
+{
+    bb_json_t error = bb_json_parse("null", 0);
+    TEST_ASSERT_NOT_NULL(error);
+
+    int code = stratum_parse_error_code(error);
+    TEST_ASSERT_EQUAL_INT(-1, code);
+
+    stratum_reject_kind_t kind = stratum_machine_classify_reject(code);
+    TEST_ASSERT_EQUAL_INT(STRATUM_REJECT_OTHER, kind);
+
+    bb_json_free(error);
 }

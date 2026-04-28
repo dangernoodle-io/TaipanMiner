@@ -431,13 +431,15 @@ static void process_message(const char *line)
                     bb_json_free_str(err_str);
                 }
                 int code = stratum_parse_error_code(error_item);
+                stratum_reject_kind_t kind = stratum_machine_classify_reject(code);
                 if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                     mining_stats.session.rejected++;
-                    switch (code) {
-                        case 21: mining_stats.session.rejected_job_not_found++;   break;
-                        case 22: mining_stats.session.rejected_duplicate++;       break;
-                        case 23: mining_stats.session.rejected_low_difficulty++;  break;
-                        case 25: mining_stats.session.rejected_stale_prevhash++;  break;
+                    switch (kind) {
+                        case STRATUM_REJECT_JOB_NOT_FOUND:  mining_stats.session.rejected_job_not_found++;  break;
+                        case STRATUM_REJECT_DUPLICATE:      mining_stats.session.rejected_duplicate++;      break;
+                        case STRATUM_REJECT_LOW_DIFFICULTY: mining_stats.session.rejected_low_difficulty++; break;
+                        case STRATUM_REJECT_STALE_PREVHASH: mining_stats.session.rejected_stale_prevhash++; break;
+                        case STRATUM_REJECT_OTHER:
                         default:
                             mining_stats.session.rejected_other++;
                             mining_stats.session.rejected_other_last_code = code;

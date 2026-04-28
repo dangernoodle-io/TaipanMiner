@@ -288,3 +288,15 @@ bool stratum_machine_build_work(stratum_state_t *st, mining_work_t *out)
     out->work_seq = ++st->work_seq;
     return true;
 }
+
+// Classify a stratum error response code into a kind.
+stratum_reject_kind_t stratum_machine_classify_reject(int code)
+{
+    switch (code) {
+        case 21: return STRATUM_REJECT_JOB_NOT_FOUND;
+        case 22: return STRATUM_REJECT_DUPLICATE;
+        case 23: return STRATUM_REJECT_LOW_DIFFICULTY;
+        case 25: return STRATUM_REJECT_STALE_PREVHASH;
+        default: return STRATUM_REJECT_OTHER;
+    }
+}

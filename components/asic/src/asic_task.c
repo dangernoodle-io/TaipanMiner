@@ -365,11 +365,6 @@ void asic_mining_task(void *arg)
             memcpy(&s_job_table[s_next_job_id], &work, sizeof(work));
             s_current_work_seq = work.work_seq;
 
-            if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
-                mining_stats.pool_difficulty = work.difficulty;
-                xSemaphoreGive(mining_stats.mutex);
-            }
-
             bb_log_d(TAG, "job dispatched (id=%u hw_id=%u)", 0, s_next_job_id);
         }
 

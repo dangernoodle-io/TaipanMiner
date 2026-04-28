@@ -181,7 +181,6 @@ typedef struct {
     float               asic_hw_error_pct_1h;  // Rolling 1h average of asic_hw_error_pct
 #endif
     uint32_t            hw_shares;
-    double              pool_difficulty;
     mining_session_t    session;
     mining_lifetime_t   lifetime;
     SemaphoreHandle_t   mutex;

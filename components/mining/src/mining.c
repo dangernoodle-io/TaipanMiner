@@ -477,12 +477,6 @@ void mining_task(void *arg)
             continue;
         }
 
-        // Update pool difficulty
-        if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
-            mining_stats.pool_difficulty = work.difficulty;
-            xSemaphoreGive(mining_stats.mutex);
-        }
-
         bb_log_i(TAG, "new job (%s)", work.job_id);
 
         uint32_t base_version = work.version;

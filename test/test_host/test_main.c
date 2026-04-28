@@ -437,6 +437,32 @@ void test_knot_table_snapshot_cap(void);
 void test_knot_table_apply_txt(void);
 void test_knot_table_null_guards(void);
 
+// Forward declarations from test_routes_json_asic.c (TA-292)
+void test_power_all_sensors_populated(void);
+void test_power_all_sensors_null(void);
+void test_power_efficiency_null_when_hashrate_zero(void);
+void test_power_efficiency_null_when_pcore_zero(void);
+void test_power_vin_low_true(void);
+void test_power_vin_low_false_above_threshold(void);
+void test_power_vin_low_false_at_threshold(void);
+void test_power_vcore_null_others_populated(void);
+void test_power_icore_null(void);
+void test_power_board_temp_null(void);
+void test_power_vr_temp_null(void);
+void test_fan_both_populated(void);
+void test_fan_rpm_null(void);
+void test_fan_duty_null(void);
+void test_fan_both_null(void);
+void test_stats_asic_total_valid_true(void);
+void test_stats_asic_total_valid_false(void);
+void test_stats_expected_ghs_populated(void);
+void test_stats_expected_ghs_null_when_freq_zero(void);
+void test_stats_freq_cfg_negative_emits_null(void);
+void test_stats_chip_array_two_chips(void);
+void test_stats_chip_array_empty(void);
+void test_stats_last_drop_null_when_zero(void);
+void test_stats_last_drop_nonzero_computes_age(void);
+
 // Forward declarations from test_routes_json.c (TA-291)
 void test_stats_happy_path(void);
 void test_stats_zeroed(void);
@@ -929,6 +955,32 @@ int main(void) {
     RUN_TEST(test_knot_two_peers);
     RUN_TEST(test_settings_happy_path);
     RUN_TEST(test_settings_empty_optional_fields);
+
+    // TA-292: ASIC-gated JSON builder tests
+    RUN_TEST(test_power_all_sensors_populated);
+    RUN_TEST(test_power_all_sensors_null);
+    RUN_TEST(test_power_efficiency_null_when_hashrate_zero);
+    RUN_TEST(test_power_efficiency_null_when_pcore_zero);
+    RUN_TEST(test_power_vin_low_true);
+    RUN_TEST(test_power_vin_low_false_above_threshold);
+    RUN_TEST(test_power_vin_low_false_at_threshold);
+    RUN_TEST(test_power_vcore_null_others_populated);
+    RUN_TEST(test_power_icore_null);
+    RUN_TEST(test_power_board_temp_null);
+    RUN_TEST(test_power_vr_temp_null);
+    RUN_TEST(test_fan_both_populated);
+    RUN_TEST(test_fan_rpm_null);
+    RUN_TEST(test_fan_duty_null);
+    RUN_TEST(test_fan_both_null);
+    RUN_TEST(test_stats_asic_total_valid_true);
+    RUN_TEST(test_stats_asic_total_valid_false);
+    RUN_TEST(test_stats_expected_ghs_populated);
+    RUN_TEST(test_stats_expected_ghs_null_when_freq_zero);
+    RUN_TEST(test_stats_freq_cfg_negative_emits_null);
+    RUN_TEST(test_stats_chip_array_two_chips);
+    RUN_TEST(test_stats_chip_array_empty);
+    RUN_TEST(test_stats_last_drop_null_when_zero);
+    RUN_TEST(test_stats_last_drop_nonzero_computes_age);
 
     // TA-234: stratum_watchdogs tests
     RUN_TEST(test_stratum_watchdog_job_drought_never_observed);

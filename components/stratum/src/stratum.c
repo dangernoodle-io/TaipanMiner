@@ -634,17 +634,30 @@ void stratum_task(void *arg)
         stratum_backoff_reset(&s_backoff);
 
         // Configure (version rolling) — non-fatal if pool doesn't support it
-        s_state.configure_id = stratum_request("mining.configure",
-            "[[\"version-rolling\"],"
-            "{\"version-rolling.mask\":\"1fffe000\","
-            "\"version-rolling.min-bit-count\":13}]");
-        if (s_state.configure_id < 0) {
-            bb_log_w(TAG, "configure send failed, skipping version rolling");
-            s_state.configure_id = 0;
+        {
+            char cfg_params[256];
+            int n = stratum_machine_build_configure(cfg_params, sizeof(cfg_params));
+            if (n < 0) {
+                bb_log_e(TAG, "configure params truncated");
+                goto reconnect;
+            }
+            s_state.configure_id = stratum_request("mining.configure", cfg_params);
+            if (s_state.configure_id < 0) {
+                bb_log_w(TAG, "configure send failed, skipping version rolling");
+                s_state.configure_id = 0;
+            }
         }
 
         // Subscribe
-        s_state.subscribe_id = stratum_request("mining.subscribe", "[\"TaipanMiner/0.1\"]");
+        {
+            char sub_params[64];
+            int n = stratum_machine_build_subscribe(sub_params, sizeof(sub_params));
+            if (n < 0) {
+                bb_log_e(TAG, "subscribe params truncated");
+                goto reconnect;
+            }
+            s_state.subscribe_id = stratum_request("mining.subscribe", sub_params);
+        }
         if (s_state.subscribe_id < 0) {
             goto reconnect;
         }
@@ -668,11 +681,9 @@ void stratum_task(void *arg)
         // Authorize
         {
             char auth_params[256];
-            int n = snprintf(auth_params, sizeof(auth_params),
-                     "[\"%s.%s\",\"%s\"]",
-                     s_wallet_addr, s_worker_name,
-                     pool_pass);
-            if (n < 0 || n >= (int)sizeof(auth_params)) {
+            int n = stratum_machine_build_authorize(auth_params, sizeof(auth_params),
+                                                    s_wallet_addr, s_worker_name, pool_pass);
+            if (n < 0) {
                 bb_log_e(TAG, "auth params truncated");
                 goto reconnect;
             }
@@ -782,7 +793,11 @@ void stratum_task(void *arg)
                 if (stratum_watchdog_needs_keepalive(now_ms, last_tx_ms)) {
                     bb_log_d(TAG, "sending keepalive ping");
                     char params[32];
-                    snprintf(params, sizeof(params), "[%.4f]", s_state.difficulty);
+                    int n = stratum_machine_build_keepalive(params, sizeof(params), s_state.difficulty);
+                    if (n < 0) {
+                        bb_log_e(TAG, "keepalive params truncated");
+                        break;
+                    }
                     int kid = stratum_request("mining.suggest_difficulty", params);
                     if (kid < 0) {
                         bb_log_w(TAG, "keepalive send failed, reconnecting");

@@ -39,3 +39,24 @@ typedef struct {
     uint32_t extranonce2;            // rolling extranonce2 counter
     uint32_t work_seq;               // monotonic work sequence
 } stratum_state_t;
+
+// JSON-RPC builders for Stratum protocol requests.
+// Each returns chars written (excluding null terminator) on success, -1 on truncation.
+
+// Build mining.configure request params (version rolling support).
+// Output: [["version-rolling"],{"version-rolling.mask":"1fffe000","version-rolling.min-bit-count":13}]
+int stratum_machine_build_configure(char *buf, size_t n);
+
+// Build mining.subscribe request params.
+// Output: ["TaipanMiner/0.1"]
+int stratum_machine_build_subscribe(char *buf, size_t n);
+
+// Build mining.authorize request params.
+// Output: ["<wallet>.<worker>","<pass>"]
+int stratum_machine_build_authorize(char *buf, size_t n,
+                                    const char *wallet, const char *worker,
+                                    const char *pass);
+
+// Build mining.suggest_difficulty request params (used as app-level keepalive).
+// Output: [<difficulty with %.4f format>]
+int stratum_machine_build_keepalive(char *buf, size_t n, double difficulty);

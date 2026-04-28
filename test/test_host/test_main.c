@@ -153,6 +153,19 @@ void test_format_request_basic(void);
 void test_format_request_truncation(void);
 void test_format_request_newline(void);
 
+// Forward declarations from test_stratum_machine.c
+void test_stratum_machine_build_configure(void);
+void test_stratum_machine_build_configure_truncation(void);
+void test_stratum_machine_build_subscribe(void);
+void test_stratum_machine_build_subscribe_truncation(void);
+void test_stratum_machine_build_authorize(void);
+void test_stratum_machine_build_authorize_different_values(void);
+void test_stratum_machine_build_authorize_truncation(void);
+void test_stratum_machine_build_keepalive(void);
+void test_stratum_machine_build_keepalive_small_difficulty(void);
+void test_stratum_machine_build_keepalive_large_difficulty(void);
+void test_stratum_machine_build_keepalive_truncation(void);
+
 // Forward declarations from test_stratum_reject.c
 void test_parse_error_code_array_form_21(void);
 void test_parse_error_code_array_form_23(void);
@@ -479,6 +492,19 @@ int main(void) {
     RUN_TEST(test_format_request_basic);
     RUN_TEST(test_format_request_truncation);
     RUN_TEST(test_format_request_newline);
+
+    // Stratum machine builder tests
+    RUN_TEST(test_stratum_machine_build_configure);
+    RUN_TEST(test_stratum_machine_build_configure_truncation);
+    RUN_TEST(test_stratum_machine_build_subscribe);
+    RUN_TEST(test_stratum_machine_build_subscribe_truncation);
+    RUN_TEST(test_stratum_machine_build_authorize);
+    RUN_TEST(test_stratum_machine_build_authorize_different_values);
+    RUN_TEST(test_stratum_machine_build_authorize_truncation);
+    RUN_TEST(test_stratum_machine_build_keepalive);
+    RUN_TEST(test_stratum_machine_build_keepalive_small_difficulty);
+    RUN_TEST(test_stratum_machine_build_keepalive_large_difficulty);
+    RUN_TEST(test_stratum_machine_build_keepalive_truncation);
 
     // Stratum error code parsing tests
     RUN_TEST(test_parse_error_code_array_form_21);

@@ -1,14 +1,14 @@
 <script lang="ts">
   import logoSvg from '/logo.svg?raw'
-  import { stats } from '../lib/stores'
+  import { info } from '../lib/stores'
 </script>
 
 <header class="brand">
   <div class="logo">{@html logoSvg}</div>
   <div class="title">
     <h1>TaipanMiner</h1>
-    {#if $stats}
-      <div class="sub">{$stats.board} · {$stats.version}</div>
+    {#if $info}
+      <div class="sub">{$info.board} · {$info.version}</div>
     {/if}
   </div>
 </header>

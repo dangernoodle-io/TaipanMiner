@@ -13,26 +13,7 @@ export interface Chip {
   last_drop_ago_s: number | null
 }
 
-export interface RecentDrop {
-  ts_ago_s: number
-  chip: number
-  kind: 'total' | 'error' | 'domain'
-  domain: number
-  addr: number
-  ghs: number
-  delta: number
-  elapsed_s: number
-}
-
 export interface Stats {
-  board: string
-  version: string
-  build_date: string
-  build_time: string
-  pool_host: string
-  pool_port: number
-  worker: string
-  wallet: string
   pool_difficulty: number
   session_shares: number
   session_rejected: number
@@ -40,9 +21,6 @@ export interface Stats {
   last_share_ago_s: number | null
   best_diff: number
   uptime_s: number
-  rssi_dbm: number | null
-  free_heap: number | null
-  total_heap: number | null
   temp_c: number
   hashrate: number
   hashrate_avg: number
@@ -65,7 +43,6 @@ export interface Stats {
   asic_hw_error_pct_10m: number | null
   asic_hw_error_pct_1h: number | null
   asic_chips?: Chip[]
-  recent_drops?: RecentDrop[]
 }
 
 export interface InfoNetwork {
@@ -150,6 +127,7 @@ export interface Settings {
   wallet: string
   worker: string
   pool_pass: string
+  hostname: string
   display_en?: boolean
   ota_skip_check?: boolean
 }

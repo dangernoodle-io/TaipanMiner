@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { fetchSettings, patchSettings, type Settings } from '../lib/api'
-  import { stats, hasAsic } from '../lib/stores'
+  import { stats, info, hasAsic } from '../lib/stores'
   import Toggle from '../components/Toggle.svelte'
 
   let loading = true
@@ -167,7 +167,7 @@
       </div>
       <div class="row">
         <span class="k">SSID</span>
-        <input type="text" disabled placeholder={$stats?.rssi_dbm != null ? 'connected network' : ''} />
+        <input type="text" disabled placeholder={$info?.network?.rssi != null ? 'connected network' : ''} />
       </div>
       <div class="row">
         <span class="k">Password</span>

@@ -22,10 +22,10 @@
     return '▯▯▯▯'
   }
 
-  $: heapUsed = $stats?.total_heap != null && $stats?.free_heap != null
-    ? $stats.total_heap - $stats.free_heap
+  $: heapUsed = $info?.total_heap != null && $info?.free_heap != null
+    ? $info.total_heap - $info.free_heap
     : null
-  $: rssi = $info?.network?.rssi ?? $stats?.rssi_dbm ?? null
+  $: rssi = $info?.network?.rssi ?? null
 </script>
 
 <div class="visual-row">
@@ -58,7 +58,7 @@
     {/if}
   </div>
   <div class="viz">
-    <Donut used={heapUsed} total={$stats?.total_heap} label="RAM usage" />
+    <Donut used={heapUsed} total={$info?.total_heap} label="RAM usage" />
   </div>
   <div class="viz">
     <Donut used={$info?.app_size} total={$info?.flash_size} label="Flash" />
@@ -73,7 +73,7 @@
   <section class="card">
     <h3>Device</h3>
     <dl>
-      <div><dt>Board</dt><dd>{$stats?.board ?? '—'}</dd></div>
+      <div><dt>Board</dt><dd>{$info?.board ?? '—'}</dd></div>
       <div><dt>Chip</dt><dd>{$info?.chip_model ?? '—'}</dd></div>
       <div><dt>Cores</dt><dd>{$info?.cores ?? '—'}</dd></div>
       <div><dt>MAC</dt><dd class="mono">{$info?.mac ?? '—'}</dd></div>
@@ -93,7 +93,7 @@
     <h3>Firmware</h3>
     <dl>
       <div><dt>Project</dt><dd class="mono small">{$info?.project_name ?? '—'}</dd></div>
-      <div><dt>Version</dt><dd>{$stats?.version ?? $info?.version ?? '—'}</dd></div>
+      <div><dt>Version</dt><dd>{$info?.version ?? '—'}</dd></div>
       <div><dt>Built</dt><dd>{fmtBuildTime($info?.build_date, $info?.build_time)}</dd></div>
       <div><dt>IDF</dt><dd>{$info?.idf_version ?? '—'}</dd></div>
     </dl>

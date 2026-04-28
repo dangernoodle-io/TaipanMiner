@@ -1,19 +1,19 @@
 <script lang="ts">
-  import { stats, connected } from '../lib/stores'
+  import { stats, settings, connected } from '../lib/stores'
 </script>
 
 <div class="pool-strip">
   <div class="left">
-    {#if $stats}
-      <strong>{$stats.pool_host}:{$stats.pool_port}</strong>
+    {#if $settings}
+      <strong>{$settings.pool_host}:{$settings.pool_port}</strong>
     {:else}
       <span class="loading">Loading…</span>
     {/if}
   </div>
 
   <div class="center">
-    {#if $stats}
-      <strong>{$stats.worker}</strong>
+    {#if $settings}
+      <strong>{$settings.worker}</strong>
     {/if}
   </div>
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { stats, info, otaCheck, otaInstall, otaUpload, rebooting, startRebootRecovery } from '../lib/stores'
+  import { info, otaCheck, otaInstall, otaUpload, rebooting, startRebootRecovery } from '../lib/stores'
   import { fetchOtaCheck, triggerOtaUpdate, fetchOtaStatus, uploadOta } from '../lib/api'
   import { fmtBuildTime } from '../lib/fmt'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
@@ -129,7 +129,7 @@
     }
   }
 
-  $: firmwareName = $stats?.board ? `taipanminer-${$stats.board}.bin` : 'firmware.bin'
+  $: firmwareName = $info?.board ? `taipanminer-${$info.board}.bin` : 'firmware.bin'
 
   /* The miner is unreachable while it reboots — either because the OTA flow
    * just completed (kind==='ok') or because the reboot overlay is up. Gate all
@@ -171,8 +171,8 @@
   function mockCheckAvailable() {
     otaCheck.set({
       checking: false,
-      result: { update_available: true, latest_version: 'v0.99.0-mock', current_version: $stats?.version ?? 'v0.14.0' } as any,
-      msg: `Update available: v0.99.0-mock (current ${$stats?.version ?? 'v0.14.0'})`,
+      result: { update_available: true, latest_version: 'v0.99.0-mock', current_version: $info?.version ?? 'v0.14.0' } as any,
+      msg: `Update available: v0.99.0-mock (current ${$info?.version ?? 'v0.14.0'})`,
       kind: 'avail',
     })
   }
@@ -233,8 +233,8 @@
   <!-- Firmware + check -->
   <div class="card">
     <h2>Firmware</h2>
-    <div class="info-row"><span class="k">Version</span><span>{$stats?.version ?? '—'}</span></div>
-    <div class="info-row"><span class="k">Board</span><span>{$stats?.board ?? '—'}</span></div>
+    <div class="info-row"><span class="k">Version</span><span>{$info?.version ?? '—'}</span></div>
+    <div class="info-row"><span class="k">Board</span><span>{$info?.board ?? '—'}</span></div>
     <div class="info-row"><span class="k">Build</span><span>{fmtBuildTime($info?.build_date, $info?.build_time)}</span></div>
 
     <div class="row-actions">

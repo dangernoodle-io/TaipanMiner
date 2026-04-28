@@ -232,24 +232,7 @@ static bb_err_t stats_handler(bb_http_request_t *req)
     bb_json_obj_set_number(root, "last_share_ago_s", (double)last_share_ago_s);
     bb_json_obj_set_number(root, "lifetime_shares", lifetime.total_shares);
     bb_json_obj_set_number(root, "best_diff", best_diff);
-    bb_json_obj_set_string(root, "pool_host", taipan_config_pool_host());
-    bb_json_obj_set_number(root, "pool_port", taipan_config_pool_port());
-    bb_json_obj_set_string(root, "worker", taipan_config_worker_name());
-    bb_json_obj_set_string(root, "wallet", taipan_config_wallet_addr());
     bb_json_obj_set_number(root, "uptime_s", (double)uptime_s);
-    bb_json_obj_set_number(root, "free_heap", (double)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
-    bb_json_obj_set_number(root, "total_heap", (double)heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
-    int8_t rssi = 0;
-    if (bb_wifi_get_rssi(&rssi) == BB_OK) {
-        bb_json_obj_set_number(root, "rssi_dbm", (double)rssi);
-    } else {
-        bb_json_obj_set_null(root, "rssi_dbm");
-    }
-    bb_json_obj_set_string(root, "version", bb_system_get_version());
-    bb_json_obj_set_string(root, "build_date", bb_system_get_build_date());
-    bb_json_obj_set_string(root, "build_time", bb_system_get_build_time());
-    bb_json_obj_set_string(root, "board", BOARD_NAME);
-    bb_json_obj_set_bool(root, "display_en", bb_nv_config_display_enabled());
 
     /* expected_ghs: theoretical max hashrate for the running platform, in GH/s.
      * Uniform across boards so the UI doesn't need per-board fallbacks (TA-211).
@@ -345,29 +328,6 @@ static bb_err_t stats_handler(bb_http_request_t *req)
         bb_json_arr_append_obj(chips_arr, chip_obj);
     }
     bb_json_obj_set_arr(root, "asic_chips", chips_arr);
-
-    // TA-238: ring of recent telemetry-drop events for forensic readback.
-    asic_drop_event_t drops[ASIC_DROP_LOG_CAP];
-    size_t n_drops = asic_task_get_drop_log(drops, ASIC_DROP_LOG_CAP);
-    bb_json_t drops_arr = bb_json_arr_new();
-    for (size_t i = 0; i < n_drops; i++) {
-        bb_json_t d_obj = bb_json_obj_new();
-        uint64_t ago_us = (now_us_for_drops > drops[i].ts_us)
-            ? (now_us_for_drops - drops[i].ts_us) : 0;
-        bb_json_obj_set_number(d_obj, "ts_ago_s", (double)(ago_us / 1000000ULL));
-        bb_json_obj_set_number(d_obj, "chip", drops[i].chip_idx);
-        const char *kind_str = (drops[i].kind == ASIC_DROP_KIND_TOTAL)  ? "total"
-                             : (drops[i].kind == ASIC_DROP_KIND_ERROR)  ? "error"
-                                                                        : "domain";
-        bb_json_obj_set_string(d_obj, "kind", kind_str);
-        bb_json_obj_set_number(d_obj, "domain", drops[i].domain_idx);
-        bb_json_obj_set_number(d_obj, "addr", drops[i].asic_addr);
-        bb_json_obj_set_number(d_obj, "ghs", (double)drops[i].ghs);
-        bb_json_obj_set_number(d_obj, "delta", drops[i].delta);
-        bb_json_obj_set_number(d_obj, "elapsed_s", (double)drops[i].elapsed_s);
-        bb_json_arr_append_obj(drops_arr, d_obj);
-    }
-    bb_json_obj_set_arr(root, "recent_drops", drops_arr);
 #endif
 
     char *json = bb_json_serialize(root);
@@ -556,16 +516,35 @@ bb_err_t taipan_web_register_info_extender(void)
     return bb_info_register_extender(taipan_info_extender);
 }
 
+typedef struct {
+    const char *pool_host;
+    uint16_t    pool_port;
+    const char *wallet;
+    const char *worker;
+    const char *pool_pass;
+    const char *hostname;
+} taipan_config_snap_t;
+
 static bb_err_t settings_get_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
+
+    taipan_config_snap_t snap = {
+        .pool_host = taipan_config_pool_host(),
+        .pool_port = taipan_config_pool_port(),
+        .wallet    = taipan_config_wallet_addr(),
+        .worker    = taipan_config_worker_name(),
+        .pool_pass = taipan_config_pool_pass(),
+        .hostname  = taipan_config_hostname(),
+    };
+
     bb_json_t root = bb_json_obj_new();
-    bb_json_obj_set_string(root, "pool_host", taipan_config_pool_host());
-    bb_json_obj_set_number(root, "pool_port", taipan_config_pool_port());
-    bb_json_obj_set_string(root, "wallet", taipan_config_wallet_addr());
-    bb_json_obj_set_string(root, "worker", taipan_config_worker_name());
-    bb_json_obj_set_string(root, "pool_pass", taipan_config_pool_pass());
-    bb_json_obj_set_string(root, "hostname", taipan_config_hostname());
+    bb_json_obj_set_string(root, "pool_host", snap.pool_host);
+    bb_json_obj_set_number(root, "pool_port", snap.pool_port);
+    bb_json_obj_set_string(root, "wallet",    snap.wallet);
+    bb_json_obj_set_string(root, "worker",    snap.worker);
+    bb_json_obj_set_string(root, "pool_pass", snap.pool_pass);
+    bb_json_obj_set_string(root, "hostname",  snap.hostname);
     bb_json_obj_set_bool(root, "display_en", bb_nv_config_display_enabled());
     bb_json_obj_set_bool(root, "ota_skip_check", bb_nv_config_ota_skip_check());
 
@@ -916,21 +895,23 @@ static const bb_route_response_t s_stats_responses[] = {
       "\"last_share_ago_s\":{\"type\":\"integer\",\"description\":\"-1 if no share yet\"},"
       "\"lifetime_shares\":{\"type\":\"integer\"},"
       "\"best_diff\":{\"type\":\"number\"},"
-      "\"pool_host\":{\"type\":\"string\"},"
-      "\"pool_port\":{\"type\":\"integer\"},"
-      "\"worker\":{\"type\":\"string\"},"
-      "\"wallet\":{\"type\":\"string\"},"
       "\"uptime_s\":{\"type\":\"integer\"},"
-      "\"free_heap\":{\"type\":\"integer\"},"
-      "\"total_heap\":{\"type\":\"integer\"},"
-      "\"rssi_dbm\":{\"type\":[\"integer\",\"null\"]},"
-      "\"version\":{\"type\":\"string\"},"
-      "\"build_date\":{\"type\":\"string\"},"
-      "\"build_time\":{\"type\":\"string\"},"
-      "\"board\":{\"type\":\"string\"},"
-      "\"display_en\":{\"type\":\"boolean\"},"
       "\"expected_ghs\":{\"type\":\"number\","
-      "\"description\":\"theoretical max GH/s for this platform\"}}}",
+      "\"description\":\"theoretical max GH/s for this platform\"},"
+      "\"asic_chips\":{\"type\":\"array\","
+      "\"items\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"idx\":{\"type\":\"integer\"},"
+      "\"total_ghs\":{\"type\":\"number\"},"
+      "\"error_ghs\":{\"type\":\"number\"},"
+      "\"hw_err_pct\":{\"type\":\"number\"},"
+      "\"total_raw\":{\"type\":\"integer\"},"
+      "\"error_raw\":{\"type\":\"integer\"},"
+      "\"total_drops\":{\"type\":\"integer\"},"
+      "\"error_drops\":{\"type\":\"integer\"},"
+      "\"last_drop_ago_s\":{\"type\":[\"number\",\"null\"]},"
+      "\"domain_ghs\":{\"type\":\"array\",\"items\":{\"type\":\"number\"}},"
+      "\"domain_drops\":{\"type\":\"array\",\"items\":{\"type\":\"number\"}}}}}}}",
       "mining statistics snapshot" },
     { 0 },
 };

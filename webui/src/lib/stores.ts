@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store'
-import { fetchStats, fetchInfo, fetchPower, fetchFan, type Stats, type Info, type Power, type Fan, type OtaCheckResult } from './api'
+import { fetchStats, fetchInfo, fetchPower, fetchFan, fetchSettings, type Stats, type Info, type Power, type Fan, type Settings, type OtaCheckResult } from './api'
 
 export interface HistorySample {
   ts: number              // epoch seconds (client-side)
@@ -21,6 +21,7 @@ export const history = writable<HistorySample[]>([])
 
 export const stats = writable<Stats | null>(null)
 export const info = writable<Info | null>(null)
+export const settings = writable<Settings | null>(null)
 export const power = writable<Power | null>(null)
 export const fan = writable<Fan | null>(null)
 export const hasAsic = writable<boolean>(false)
@@ -111,6 +112,7 @@ export function __resetRebootPoll() {
 let pollInterval: ReturnType<typeof setInterval> | null = null
 let failCount = 0
 let infoLoaded = false
+let settingsLoaded = false
 let asicProbed = false
 let asicAvailable = false
 
@@ -169,6 +171,13 @@ async function poll() {
         infoLoaded = true
       } catch { /* transient; retry next cycle */ }
     }
+
+    if (!settingsLoaded) {
+      try {
+        settings.set(await fetchSettings())
+        settingsLoaded = true
+      } catch { /* transient; retry next cycle */ }
+    }
   } catch {
     failCount++
     if (failCount >= 2) connected.set(false)
@@ -187,6 +196,7 @@ export function stop() {
     pollInterval = null
   }
   infoLoaded = false
+  settingsLoaded = false
   asicProbed = false
   asicAvailable = false
 }

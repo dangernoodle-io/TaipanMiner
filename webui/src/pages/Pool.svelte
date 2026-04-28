@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { stats, info } from '../lib/stores'
+  import { stats, info, settings } from '../lib/stores'
   import { fetchSettings, patchSettings, type Settings } from '../lib/api'
   import { fmtRelative } from '../lib/fmt'
 
@@ -94,8 +94,8 @@
     {#if $stats}
       <div class="status-row">
         <div class="who">
-          <div class="host">{$stats.pool_host}:{$stats.pool_port}</div>
-          <div class="sub">worker {$stats.worker}</div>
+          <div class="host">{$settings?.pool_host ?? '—'}:{$settings?.pool_port ?? '—'}</div>
+          <div class="sub">worker {$settings?.worker ?? '—'}</div>
         </div>
         <div class="metrics">
           <div class="m">

@@ -14,7 +14,7 @@ bb_embed_assets(
 )
 
 idf_component_register(
-    SRCS "src/routes.c" ${_embed_srcs}
+    SRCS "src/routes.c" "src/routes_json.c" ${_embed_srcs}
     INCLUDE_DIRS "include"
     REQUIRES mining stratum bb_wifi bb_prov bb_mdns bb_http bb_nv taipan_config bb_ota_pull bb_ota_push bb_ota_validator bb_log board bb_info bb_board esp_timer bb_json spi_flash asic knot
 )

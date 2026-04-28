@@ -437,6 +437,21 @@ void test_knot_table_snapshot_cap(void);
 void test_knot_table_apply_txt(void);
 void test_knot_table_null_guards(void);
 
+// Forward declarations from test_routes_json.c (TA-291)
+void test_stats_happy_path(void);
+void test_stats_zeroed(void);
+void test_stats_no_share_yet(void);
+void test_pool_disconnected(void);
+void test_pool_connected_with_notify(void);
+void test_pool_version_mask_zero(void);
+void test_diag_asic_empty(void);
+void test_diag_asic_three_events(void);
+void test_diag_asic_future_ts_clamps_to_zero(void);
+void test_knot_empty(void);
+void test_knot_two_peers(void);
+void test_settings_happy_path(void);
+void test_settings_empty_optional_fields(void);
+
 // TA-234: stratum_watchdogs
 void test_stratum_watchdog_job_drought_never_observed(void);
 void test_stratum_watchdog_job_drought_below_threshold(void);
@@ -899,6 +914,21 @@ int main(void) {
     RUN_TEST(test_knot_table_snapshot_cap);
     RUN_TEST(test_knot_table_apply_txt);
     RUN_TEST(test_knot_table_null_guards);
+
+    // TA-291: route JSON builder golden tests
+    RUN_TEST(test_stats_happy_path);
+    RUN_TEST(test_stats_zeroed);
+    RUN_TEST(test_stats_no_share_yet);
+    RUN_TEST(test_pool_disconnected);
+    RUN_TEST(test_pool_connected_with_notify);
+    RUN_TEST(test_pool_version_mask_zero);
+    RUN_TEST(test_diag_asic_empty);
+    RUN_TEST(test_diag_asic_three_events);
+    RUN_TEST(test_diag_asic_future_ts_clamps_to_zero);
+    RUN_TEST(test_knot_empty);
+    RUN_TEST(test_knot_two_peers);
+    RUN_TEST(test_settings_happy_path);
+    RUN_TEST(test_settings_empty_optional_fields);
 
     // TA-234: stratum_watchdogs tests
     RUN_TEST(test_stratum_watchdog_job_drought_never_observed);

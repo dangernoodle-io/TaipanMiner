@@ -13,6 +13,7 @@
 #include "bb_system.h"
 #include "board.h"
 #include "mining.h"
+#include "routes_json.h"
 #include "asic_drop_log.h"
 #include "bb_nv.h"
 #include "taipan_config.h"
@@ -144,189 +145,80 @@ static bb_err_t taipan_prov_save_cb(bb_http_request_t *req, const char *body, in
 static bb_err_t stats_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
-    double hw_rate = 0, hw_ema = 0;
-    double best_diff = 0;
-    uint32_t hw_shares = 0;
-    float temp = 0;
-    uint32_t session_shares = 0, session_rejected = 0;
-    uint32_t session_rejected_job_not_found = 0;
-    uint32_t session_rejected_low_difficulty = 0;
-    uint32_t session_rejected_duplicate = 0;
-    uint32_t session_rejected_stale_prevhash = 0;
-    uint32_t session_rejected_other = 0;
-    int32_t  session_rejected_other_last_code = -1;
-    int64_t last_share_us = 0, session_start_us = 0;
-    mining_lifetime_t lifetime = {0};
+
+    stats_snapshot_t s = {0};
+    s.session_rejected_other_last_code = -1;
 #ifdef ASIC_CHIP
-    double asic_rate = 0, asic_ema = 0;
-    uint32_t asic_shares = 0;
-    float asic_temp = 0;
-    float asic_freq_cfg = -1.0f, asic_freq_eff = -1.0f;
-    float asic_total_ghs = 0.0f;
-    float asic_hw_error_pct = 0.0f;
-    float asic_total_ghs_1m = 0.0f, asic_total_ghs_10m = 0.0f, asic_total_ghs_1h = 0.0f;
-    float asic_hw_error_pct_1m = 0.0f, asic_hw_error_pct_10m = 0.0f, asic_hw_error_pct_1h = 0.0f;
-    bool  asic_total_valid = false;
+    s.asic_freq_cfg = -1.0f;
+    s.asic_freq_eff = -1.0f;
 #endif
 
     if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        hw_rate = mining_stats.hw_hashrate;
-        hw_ema = mining_stats.hw_ema.value;
-        hw_shares = mining_stats.hw_shares;
-        temp = mining_stats.temp_c;
-        session_shares = mining_stats.session.shares;
-        session_rejected = mining_stats.session.rejected;
-        session_rejected_job_not_found = mining_stats.session.rejected_job_not_found;
-        session_rejected_low_difficulty = mining_stats.session.rejected_low_difficulty;
-        session_rejected_duplicate = mining_stats.session.rejected_duplicate;
-        session_rejected_stale_prevhash = mining_stats.session.rejected_stale_prevhash;
-        session_rejected_other = mining_stats.session.rejected_other;
-        session_rejected_other_last_code = mining_stats.session.rejected_other_last_code;
-        last_share_us = mining_stats.session.last_share_us;
-        session_start_us = mining_stats.session.start_us;
-        best_diff = mining_stats.session.best_diff;
-        lifetime = mining_stats.lifetime;
+        s.hw_rate    = mining_stats.hw_hashrate;
+        s.hw_ema     = mining_stats.hw_ema.value;
+        s.hw_shares  = mining_stats.hw_shares;
+        s.temp_c     = mining_stats.temp_c;
+        s.session_shares                   = mining_stats.session.shares;
+        s.session_rejected                 = mining_stats.session.rejected;
+        s.session_rejected_job_not_found   = mining_stats.session.rejected_job_not_found;
+        s.session_rejected_low_difficulty  = mining_stats.session.rejected_low_difficulty;
+        s.session_rejected_duplicate       = mining_stats.session.rejected_duplicate;
+        s.session_rejected_stale_prevhash  = mining_stats.session.rejected_stale_prevhash;
+        s.session_rejected_other           = mining_stats.session.rejected_other;
+        s.session_rejected_other_last_code = mining_stats.session.rejected_other_last_code;
+        s.last_share_us    = mining_stats.session.last_share_us;
+        s.session_start_us = mining_stats.session.start_us;
+        s.best_diff        = mining_stats.session.best_diff;
+        s.lifetime_shares  = mining_stats.lifetime.total_shares;
 #ifdef ASIC_CHIP
-        asic_rate = mining_stats.asic_hashrate;
-        asic_ema = mining_stats.asic_ema.value;
-        asic_shares = mining_stats.asic_shares;
-        asic_temp = mining_stats.asic_temp_c;
-        asic_freq_cfg = mining_stats.asic_freq_configured_mhz;
-        asic_freq_eff = mining_stats.asic_freq_effective_mhz;
-        asic_total_ghs = mining_stats.asic_total_ghs;
-        asic_hw_error_pct = mining_stats.asic_hw_error_pct;
-        asic_total_ghs_1m = mining_stats.asic_total_ghs_1m;
-        asic_total_ghs_10m = mining_stats.asic_total_ghs_10m;
-        asic_total_ghs_1h = mining_stats.asic_total_ghs_1h;
-        asic_hw_error_pct_1m = mining_stats.asic_hw_error_pct_1m;
-        asic_hw_error_pct_10m = mining_stats.asic_hw_error_pct_10m;
-        asic_hw_error_pct_1h = mining_stats.asic_hw_error_pct_1h;
-        asic_total_valid = (asic_total_ghs > 0.001f);
+        s.asic_rate         = mining_stats.asic_hashrate;
+        s.asic_ema          = mining_stats.asic_ema.value;
+        s.asic_shares       = mining_stats.asic_shares;
+        s.asic_temp_c       = mining_stats.asic_temp_c;
+        s.asic_freq_cfg     = mining_stats.asic_freq_configured_mhz;
+        s.asic_freq_eff     = mining_stats.asic_freq_effective_mhz;
+        s.asic_total_ghs    = mining_stats.asic_total_ghs;
+        s.asic_hw_error_pct = mining_stats.asic_hw_error_pct;
+        s.asic_total_ghs_1m       = mining_stats.asic_total_ghs_1m;
+        s.asic_total_ghs_10m      = mining_stats.asic_total_ghs_10m;
+        s.asic_total_ghs_1h       = mining_stats.asic_total_ghs_1h;
+        s.asic_hw_error_pct_1m    = mining_stats.asic_hw_error_pct_1m;
+        s.asic_hw_error_pct_10m   = mining_stats.asic_hw_error_pct_10m;
+        s.asic_hw_error_pct_1h    = mining_stats.asic_hw_error_pct_1h;
+        s.asic_total_valid  = (s.asic_total_ghs > 0.001f);
+        s.asic_small_cores  = BOARD_SMALL_CORES;
+        s.asic_count        = BOARD_ASIC_COUNT;
 #endif
         xSemaphoreGive(mining_stats.mutex);
     }
 
-    int64_t now_us = esp_timer_get_time();
-    int64_t uptime_s = (session_start_us > 0) ? (now_us - session_start_us) / 1000000 : 0;
-    int64_t last_share_ago_s = (last_share_us > 0) ? (now_us - last_share_us) / 1000000 : -1;
+    s.now_us = esp_timer_get_time();
 
-    bb_json_t root = bb_json_obj_new();
-    bb_json_obj_set_number(root, "hashrate", hw_rate);
-    bb_json_obj_set_number(root, "hashrate_avg", hw_ema);
-    bb_json_obj_set_number(root, "temp_c", (double)temp);
-    bb_json_obj_set_number(root, "shares", hw_shares);
-    bb_json_obj_set_number(root, "session_shares", session_shares);
-    bb_json_obj_set_number(root, "session_rejected", session_rejected);
-    bb_json_t rejected = bb_json_obj_new();
-    bb_json_obj_set_number(rejected, "total", (double)session_rejected);
-    bb_json_obj_set_number(rejected, "job_not_found", (double)session_rejected_job_not_found);
-    bb_json_obj_set_number(rejected, "low_difficulty", (double)session_rejected_low_difficulty);
-    bb_json_obj_set_number(rejected, "duplicate", (double)session_rejected_duplicate);
-    bb_json_obj_set_number(rejected, "stale_prevhash", (double)session_rejected_stale_prevhash);
-    bb_json_obj_set_number(rejected, "other", (double)session_rejected_other);
-    bb_json_obj_set_number(rejected, "other_last_code", (double)session_rejected_other_last_code);
-    bb_json_obj_set_obj(root, "rejected", rejected);
-    bb_json_obj_set_number(root, "last_share_ago_s", (double)last_share_ago_s);
-    bb_json_obj_set_number(root, "lifetime_shares", lifetime.total_shares);
-    bb_json_obj_set_number(root, "best_diff", best_diff);
-    bb_json_obj_set_number(root, "uptime_s", (double)uptime_s);
-
-    /* expected_ghs: theoretical max hashrate for the running platform, in GH/s.
-     * Uniform across boards so the UI doesn't need per-board fallbacks (TA-211).
-     * - ASIC: freq_cfg(MHz) * small_cores * chip_count / 1000
-     * - tdongle: 0.000223 GH/s (=223 kH/s) — ESP32-S3 HW-SHA peripheral ceiling,
-     *   MMIO-bound on the 80 MHz APB bus. */
 #ifdef ASIC_CHIP
-    if (asic_freq_cfg > 0) {
-        double expected_ghs = (double)asic_freq_cfg
-                              * (double)BOARD_SMALL_CORES
-                              * (double)BOARD_ASIC_COUNT / 1000.0;
-        bb_json_obj_set_number(root, "expected_ghs", expected_ghs);
-    } else {
-        bb_json_obj_set_null(root, "expected_ghs");
-    }
-#else
-    bb_json_obj_set_number(root, "expected_ghs", 0.000223);
-#endif
-#ifdef ASIC_CHIP
-    bb_json_obj_set_number(root, "asic_hashrate", asic_rate);
-    bb_json_obj_set_number(root, "asic_hashrate_avg", asic_ema);
-    bb_json_obj_set_number(root, "asic_shares", asic_shares);
-    bb_json_obj_set_number(root, "asic_temp_c", (double)asic_temp);
-    if (asic_freq_cfg >= 0) {
-        bb_json_obj_set_number(root, "asic_freq_configured_mhz", (double)asic_freq_cfg);
-    } else {
-        bb_json_obj_set_null(root, "asic_freq_configured_mhz");
-    }
-    if (asic_freq_eff >= 0) {
-        bb_json_obj_set_number(root, "asic_freq_effective_mhz", (double)asic_freq_eff);
-    } else {
-        bb_json_obj_set_null(root, "asic_freq_effective_mhz");
-    }
-    bb_json_obj_set_number(root, "asic_small_cores", BOARD_SMALL_CORES);
-    bb_json_obj_set_number(root, "asic_count", BOARD_ASIC_COUNT);
-    if (asic_total_valid) {
-        bb_json_obj_set_number(root, "asic_total_ghs", (double)asic_total_ghs);
-        bb_json_obj_set_number(root, "asic_hw_error_pct", (double)asic_hw_error_pct);
-        bb_json_obj_set_number(root, "asic_total_ghs_1m", (double)asic_total_ghs_1m);
-        bb_json_obj_set_number(root, "asic_total_ghs_10m", (double)asic_total_ghs_10m);
-        bb_json_obj_set_number(root, "asic_total_ghs_1h", (double)asic_total_ghs_1h);
-        bb_json_obj_set_number(root, "asic_hw_error_pct_1m", (double)asic_hw_error_pct_1m);
-        bb_json_obj_set_number(root, "asic_hw_error_pct_10m", (double)asic_hw_error_pct_10m);
-        bb_json_obj_set_number(root, "asic_hw_error_pct_1h", (double)asic_hw_error_pct_1h);
-    } else {
-        bb_json_obj_set_null(root, "asic_total_ghs");
-        bb_json_obj_set_null(root, "asic_hw_error_pct");
-        bb_json_obj_set_null(root, "asic_total_ghs_1m");
-        bb_json_obj_set_null(root, "asic_total_ghs_10m");
-        bb_json_obj_set_null(root, "asic_total_ghs_1h");
-        bb_json_obj_set_null(root, "asic_hw_error_pct_1m");
-        bb_json_obj_set_null(root, "asic_hw_error_pct_10m");
-        bb_json_obj_set_null(root, "asic_hw_error_pct_1h");
-    }
-
-    // Per-chip telemetry (TA-192 phase 2)
+    /* Per-chip telemetry (TA-192 phase 2) — collected after mutex released */
     asic_chip_telemetry_t chip_tel[BOARD_ASIC_COUNT];
     int n_chips = asic_task_get_chip_telemetry(chip_tel, BOARD_ASIC_COUNT);
-    uint64_t now_us_for_drops = (uint64_t)esp_timer_get_time();
-
-    bb_json_t chips_arr = bb_json_arr_new();
-    for (int c = 0; c < n_chips; c++) {
-        bb_json_t chip_obj = bb_json_obj_new();
-        bb_json_obj_set_number(chip_obj, "idx", c);
-        bb_json_obj_set_number(chip_obj, "total_ghs", (double)chip_tel[c].total_ghs);
-        bb_json_obj_set_number(chip_obj, "error_ghs", (double)chip_tel[c].error_ghs);
-        bb_json_obj_set_number(chip_obj, "hw_err_pct", (double)chip_tel[c].hw_err_pct);
-        bb_json_obj_set_number(chip_obj, "total_raw", (double)chip_tel[c].total_raw);
-        bb_json_obj_set_number(chip_obj, "error_raw", (double)chip_tel[c].error_raw);
-        bb_json_obj_set_number(chip_obj, "total_drops", chip_tel[c].total_drops);
-        bb_json_obj_set_number(chip_obj, "error_drops", chip_tel[c].error_drops);
-
-        // TA-237: time since most-recent drop, drives UI self-heal of corrupt badge.
-        if (chip_tel[c].last_drop_us == 0 || now_us_for_drops < chip_tel[c].last_drop_us) {
-            bb_json_obj_set_null(chip_obj, "last_drop_ago_s");
-        } else {
-            uint64_t ago_us = now_us_for_drops - chip_tel[c].last_drop_us;
-            bb_json_obj_set_number(chip_obj, "last_drop_ago_s", (double)(ago_us / 1000000ULL));
-        }
-
-        bb_json_t domains_arr = bb_json_arr_new();
+    s.n_chips = (n_chips <= ROUTES_JSON_MAX_CHIPS) ? n_chips : ROUTES_JSON_MAX_CHIPS;
+    for (int c = 0; c < s.n_chips; c++) {
+        s.chips[c].total_ghs   = chip_tel[c].total_ghs;
+        s.chips[c].error_ghs   = chip_tel[c].error_ghs;
+        s.chips[c].hw_err_pct  = chip_tel[c].hw_err_pct;
+        s.chips[c].total_raw   = chip_tel[c].total_raw;
+        s.chips[c].error_raw   = chip_tel[c].error_raw;
+        s.chips[c].total_drops = chip_tel[c].total_drops;
+        s.chips[c].error_drops = chip_tel[c].error_drops;
+        s.chips[c].last_drop_us = chip_tel[c].last_drop_us;
         for (int d = 0; d < 4; d++) {
-            bb_json_arr_append_number(domains_arr, (double)chip_tel[c].domain_ghs[d]);
+            s.chips[c].domain_ghs[d]   = chip_tel[c].domain_ghs[d];
+            s.chips[c].domain_drops[d] = chip_tel[c].domain_drops[d];
         }
-        bb_json_obj_set_arr(chip_obj, "domain_ghs", domains_arr);
-
-        bb_json_t domains_drops_arr = bb_json_arr_new();
-        for (int d = 0; d < 4; d++) {
-            bb_json_arr_append_number(domains_drops_arr, chip_tel[c].domain_drops[d]);
-        }
-        bb_json_obj_set_arr(chip_obj, "domain_drops", domains_drops_arr);
-
-        bb_json_arr_append_obj(chips_arr, chip_obj);
     }
-    bb_json_obj_set_arr(root, "asic_chips", chips_arr);
+    /* Re-read now_us after chip telemetry fetch for accurate last_drop_ago_s */
+    s.now_us = (int64_t)(uint64_t)esp_timer_get_time();
 #endif
 
+    bb_json_t root = bb_json_obj_new();
+    build_stats_json(&s, root);
     char *json = bb_json_serialize(root);
     bb_http_resp_set_header(req, "Content-Type", "application/json");
     bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
@@ -348,92 +240,71 @@ static bb_err_t pool_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
 
-    bb_json_t root = bb_json_obj_new();
+    pool_snapshot_t s = {0};
 
     // Pool config — always populated from NVS-backed accessors.
-    bb_json_obj_set_string(root, "host",   taipan_config_pool_host());
-    bb_json_obj_set_number(root, "port",   (double)taipan_config_pool_port());
-    bb_json_obj_set_string(root, "worker", taipan_config_worker_name());
-    bb_json_obj_set_string(root, "wallet", taipan_config_wallet_addr());
-
-    bool connected = stratum_is_connected();
-    bb_json_obj_set_bool(root, "connected", connected);
+    {
+        const char *h = taipan_config_pool_host();
+        if (h) strncpy(s.host, h, sizeof(s.host) - 1);
+        const char *wk = taipan_config_worker_name();
+        if (wk) strncpy(s.worker, wk, sizeof(s.worker) - 1);
+        const char *wa = taipan_config_wallet_addr();
+        if (wa) strncpy(s.wallet, wa, sizeof(s.wallet) - 1);
+    }
+    s.port      = taipan_config_pool_port();
+    s.connected = stratum_is_connected();
 
     // session_start_ago_s — null pre-connect; wrap-safe diff in ms then /1000.
-    // 32-bit ms wraps at ~49.7 days; sessions never run that long without
-    // reconnect (job-drought watchdog at 5 min).
     uint32_t start_ms = stratum_get_session_start_ms();
-    if (start_ms == 0) {
-        bb_json_obj_set_null(root, "session_start_ago_s");
-    } else {
+    if (start_ms != 0) {
         uint32_t now_ms   = pdTICKS_TO_MS(xTaskGetTickCount());
         uint32_t delta_ms = now_ms - start_ms;  // unsigned wrap-safe
-        bb_json_obj_set_number(root, "session_start_ago_s",
-                               (double)(delta_ms / 1000U));
+        s.session_start_ago_s = delta_ms / 1000U;
+        s.has_session_start   = true;
     }
 
-    bb_json_obj_set_number(root, "current_difficulty", stratum_get_difficulty());
+    s.current_difficulty = stratum_get_difficulty();
 
     // Negotiated session params — null until subscribe response received.
     stratum_session_snapshot_t sess;
     if (stratum_get_session_snapshot(&sess) && sess.extranonce1_len > 0) {
-        char en1_hex[2 * MAX_EXTRANONCE1_SIZE + 1];
-        bytes_to_hex(sess.extranonce1, sess.extranonce1_len, en1_hex);
-        bb_json_obj_set_string(root, "extranonce1", en1_hex);
-        bb_json_obj_set_number(root, "extranonce2_size", (double)sess.extranonce2_size);
-        if (sess.version_mask != 0) {
-            char vm_hex[9];
-            snprintf(vm_hex, sizeof(vm_hex), "%08lx", (unsigned long)sess.version_mask);
-            bb_json_obj_set_string(root, "version_mask", vm_hex);
-        } else {
-            bb_json_obj_set_null(root, "version_mask");
-        }
-    } else {
-        bb_json_obj_set_null(root, "extranonce1");
-        bb_json_obj_set_null(root, "extranonce2_size");
-        bb_json_obj_set_null(root, "version_mask");
+        size_t copy_len = sess.extranonce1_len;
+        if (copy_len > ROUTES_JSON_EXTRANONCE1_MAX)
+            copy_len = ROUTES_JSON_EXTRANONCE1_MAX;
+        memcpy(s.extranonce1, sess.extranonce1, copy_len);
+        s.extranonce1_len  = copy_len;
+        s.extranonce2_size = sess.extranonce2_size;
+        s.version_mask     = sess.version_mask;
     }
 
     // notify sub-object — most recent mining.notify (TA-201).
     const stratum_job_t *job = NULL;
     if (stratum_get_job_snapshot(&job) && job) {
-        bb_json_t nobj = bb_json_obj_new();
-        bb_json_obj_set_string(nobj, "job_id", job->job_id);
+        s.has_notify = true;
+        strncpy(s.job_id, job->job_id, sizeof(s.job_id) - 1);
+        memcpy(s.prevhash, job->prevhash, 32);
 
-        char prevhash_hex[65];
-        bytes_to_hex(job->prevhash, 32, prevhash_hex);
-        bb_json_obj_set_string(nobj, "prev_hash", prevhash_hex);
+        size_t cb1 = job->coinb1_len < ROUTES_JSON_MAX_COINB ? job->coinb1_len : ROUTES_JSON_MAX_COINB;
+        memcpy(s.coinb1, job->coinb1, cb1);
+        s.coinb1_len = cb1;
 
-        char coinb1_hex[2 * MAX_COINB1_SIZE + 1];
-        bytes_to_hex(job->coinb1, job->coinb1_len, coinb1_hex);
-        bb_json_obj_set_string(nobj, "coinb1", coinb1_hex);
+        size_t cb2 = job->coinb2_len < ROUTES_JSON_MAX_COINB ? job->coinb2_len : ROUTES_JSON_MAX_COINB;
+        memcpy(s.coinb2, job->coinb2, cb2);
+        s.coinb2_len = cb2;
 
-        char coinb2_hex[2 * MAX_COINB2_SIZE + 1];
-        bytes_to_hex(job->coinb2, job->coinb2_len, coinb2_hex);
-        bb_json_obj_set_string(nobj, "coinb2", coinb2_hex);
+        size_t mc = job->merkle_count < ROUTES_JSON_MAX_MERKLE ? job->merkle_count : ROUTES_JSON_MAX_MERKLE;
+        for (size_t i = 0; i < mc; i++)
+            memcpy(s.merkle_branches[i], job->merkle_branches[i], 32);
+        s.merkle_count = mc;
 
-        bb_json_t mb = bb_json_arr_new();
-        for (size_t i = 0; i < job->merkle_count; i++) {
-            char br_hex[65];
-            bytes_to_hex(job->merkle_branches[i], 32, br_hex);
-            bb_json_arr_append_string(mb, br_hex);
-        }
-        bb_json_obj_set_arr(nobj, "merkle_branches", mb);
-
-        char hex8[9];
-        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)job->version);
-        bb_json_obj_set_string(nobj, "version", hex8);
-        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)job->nbits);
-        bb_json_obj_set_string(nobj, "nbits", hex8);
-        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)job->ntime);
-        bb_json_obj_set_string(nobj, "ntime", hex8);
-
-        bb_json_obj_set_bool(nobj, "clean_jobs", job->clean_jobs);
-        bb_json_obj_set_obj(root, "notify", nobj);
-    } else {
-        bb_json_obj_set_null(root, "notify");
+        s.version    = job->version;
+        s.nbits      = job->nbits;
+        s.ntime      = job->ntime;
+        s.clean_jobs = job->clean_jobs;
     }
 
+    bb_json_t root = bb_json_obj_new();
+    build_pool_json(&s, root);
     char *json = bb_json_serialize(root);
     bb_http_resp_set_header(req, "Content-Type", "application/json");
     bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
@@ -446,65 +317,31 @@ static bb_err_t pool_handler(bb_http_request_t *req)
 static bb_err_t power_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
-    int vcore_mv = -1, icore_ma = -1, pcore_mw = -1;
-    int vin_mv = -1;
-    float board_temp_c = -1.0f, vr_temp_c = -1.0f;
-    double asic_hashrate = 0;
+
+    power_snapshot_t s = {
+        .vcore_mv      = -1,
+        .icore_ma      = -1,
+        .pcore_mw      = -1,
+        .vin_mv        = -1,
+        .asic_hashrate = 0,
+        .board_temp_c  = -1.0f,
+        .vr_temp_c     = -1.0f,
+        .nominal_vin_mv = BOARD_NOMINAL_VIN_MV,
+    };
 
     if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        vcore_mv = mining_stats.vcore_mv;
-        icore_ma = mining_stats.icore_ma;
-        pcore_mw = mining_stats.pcore_mw;
-        vin_mv = mining_stats.vin_mv;
-        asic_hashrate = mining_stats.asic_hashrate;
-        board_temp_c = mining_stats.board_temp_c;
-        vr_temp_c = mining_stats.vr_temp_c;
+        s.vcore_mv      = mining_stats.vcore_mv;
+        s.icore_ma      = mining_stats.icore_ma;
+        s.pcore_mw      = mining_stats.pcore_mw;
+        s.vin_mv        = mining_stats.vin_mv;
+        s.asic_hashrate = mining_stats.asic_hashrate;
+        s.board_temp_c  = mining_stats.board_temp_c;
+        s.vr_temp_c     = mining_stats.vr_temp_c;
         xSemaphoreGive(mining_stats.mutex);
     }
 
     bb_json_t root = bb_json_obj_new();
-    if (vcore_mv >= 0) {
-        bb_json_obj_set_number(root, "vcore_mv", vcore_mv);
-    } else {
-        bb_json_obj_set_null(root, "vcore_mv");
-    }
-    if (icore_ma >= 0) {
-        bb_json_obj_set_number(root, "icore_ma", icore_ma);
-    } else {
-        bb_json_obj_set_null(root, "icore_ma");
-    }
-    if (pcore_mw >= 0) {
-        bb_json_obj_set_number(root, "pcore_mw", pcore_mw);
-    } else {
-        bb_json_obj_set_null(root, "pcore_mw");
-    }
-    if (pcore_mw > 0 && asic_hashrate > 0) {
-        bb_json_obj_set_number(root, "efficiency_jth", (pcore_mw / 1000.0) / (asic_hashrate / 1e12));
-    } else {
-        bb_json_obj_set_null(root, "efficiency_jth");
-    }
-    if (vin_mv >= 0) {
-        bb_json_obj_set_number(root, "vin_mv", vin_mv);
-    } else {
-        bb_json_obj_set_null(root, "vin_mv");
-    }
-    if (vin_mv >= 0) {
-        bool vin_low = (vin_mv < (BOARD_NOMINAL_VIN_MV + 500) * 87 / 100);
-        bb_json_obj_set_bool(root, "vin_low", vin_low);
-    } else {
-        bb_json_obj_set_null(root, "vin_low");
-    }
-    if (board_temp_c >= 0.0f) {
-        bb_json_obj_set_number(root, "board_temp_c", (double)board_temp_c);
-    } else {
-        bb_json_obj_set_null(root, "board_temp_c");
-    }
-    if (vr_temp_c >= 0.0f) {
-        bb_json_obj_set_number(root, "vr_temp_c", (double)vr_temp_c);
-    } else {
-        bb_json_obj_set_null(root, "vr_temp_c");
-    }
-
+    build_power_json(&s, root);
     char *json = bb_json_serialize(root);
     bb_http_resp_set_header(req, "Content-Type", "application/json");
     bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
@@ -516,27 +353,17 @@ static bb_err_t power_handler(bb_http_request_t *req)
 static bb_err_t fan_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
-    int fan_rpm = -1;
-    int fan_duty_pct = -1;
+
+    fan_snapshot_t s = { .fan_rpm = -1, .fan_duty_pct = -1 };
 
     if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        fan_rpm = mining_stats.fan_rpm;
-        fan_duty_pct = mining_stats.fan_duty_pct;
+        s.fan_rpm      = mining_stats.fan_rpm;
+        s.fan_duty_pct = mining_stats.fan_duty_pct;
         xSemaphoreGive(mining_stats.mutex);
     }
 
     bb_json_t root = bb_json_obj_new();
-    if (fan_rpm >= 0) {
-        bb_json_obj_set_number(root, "rpm", fan_rpm);
-    } else {
-        bb_json_obj_set_null(root, "rpm");
-    }
-    if (fan_duty_pct >= 0) {
-        bb_json_obj_set_number(root, "duty_pct", fan_duty_pct);
-    } else {
-        bb_json_obj_set_null(root, "duty_pct");
-    }
-
+    build_fan_json(&s, root);
     char *json = bb_json_serialize(root);
     bb_http_resp_set_header(req, "Content-Type", "application/json");
     bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
@@ -553,39 +380,35 @@ static bb_err_t knot_handler(bb_http_request_t *req)
     /* Off-stack: 32 * sizeof(knot_peer_t) ≈ 9 KB blows the httpd task stack.
      * Heap-allocate the snapshot buffer; httpd serializes per-handler so a
      * static would also be safe, but heap keeps the lifetime explicit. */
-    knot_peer_t *peers = malloc(sizeof(knot_peer_t) * 32);
+    knot_peer_t *peers = malloc(sizeof(knot_peer_t) * ROUTES_JSON_MAX_PEERS);
     if (!peers) {
         bb_http_resp_send_err(req, 500, "out of memory");
         return BB_ERR_INVALID_ARG;
     }
-    size_t peer_count = knot_snapshot(peers, 32);
+    size_t peer_count = knot_snapshot(peers, ROUTES_JSON_MAX_PEERS);
 
-    int64_t now_us = esp_timer_get_time();
+    knot_snapshot_t s = {0};
+    s.now_us  = esp_timer_get_time();
+    s.n_peers = peer_count < ROUTES_JSON_MAX_PEERS ? peer_count : ROUTES_JSON_MAX_PEERS;
+    for (size_t i = 0; i < s.n_peers; i++) {
+        strncpy(s.peers[i].instance, peers[i].instance_name, sizeof(s.peers[i].instance) - 1);
+        strncpy(s.peers[i].hostname, peers[i].hostname,      sizeof(s.peers[i].hostname)  - 1);
+        strncpy(s.peers[i].ip,       peers[i].ip4,           sizeof(s.peers[i].ip)        - 1);
+        strncpy(s.peers[i].worker,   peers[i].worker,        sizeof(s.peers[i].worker)    - 1);
+        strncpy(s.peers[i].board,    peers[i].board,         sizeof(s.peers[i].board)     - 1);
+        strncpy(s.peers[i].version,  peers[i].version,       sizeof(s.peers[i].version)   - 1);
+        strncpy(s.peers[i].state,    peers[i].state,         sizeof(s.peers[i].state)     - 1);
+        s.peers[i].last_seen_us = peers[i].last_seen_us;
+    }
+    free(peers);
 
     bb_json_t root = bb_json_arr_new();
-    for (size_t i = 0; i < peer_count; i++) {
-        bb_json_t peer_obj = bb_json_obj_new();
-        bb_json_obj_set_string(peer_obj, "instance", peers[i].instance_name);
-        bb_json_obj_set_string(peer_obj, "hostname", peers[i].hostname);
-        bb_json_obj_set_string(peer_obj, "ip", peers[i].ip4);
-        bb_json_obj_set_string(peer_obj, "worker", peers[i].worker);
-        bb_json_obj_set_string(peer_obj, "board", peers[i].board);
-        bb_json_obj_set_string(peer_obj, "version", peers[i].version);
-        bb_json_obj_set_string(peer_obj, "state", peers[i].state);
-
-        int64_t seen_ago_us = now_us - peers[i].last_seen_us;
-        int64_t seen_ago_s = seen_ago_us / 1000000;
-        bb_json_obj_set_number(peer_obj, "seen_ago_s", (double)seen_ago_s);
-
-        bb_json_arr_append_obj(root, peer_obj);
-    }
-
+    build_knot_json(&s, root);
     char *json = bb_json_serialize(root);
     bb_http_resp_set_header(req, "Content-Type", "application/json");
     bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
     bb_json_free_str(json);
     bb_json_free(root);
-    free(peers);
     return rc;
 }
 
@@ -620,38 +443,29 @@ bb_err_t taipan_web_register_info_extender(void)
     return bb_info_register_extender(taipan_info_extender);
 }
 
-typedef struct {
-    const char *pool_host;
-    uint16_t    pool_port;
-    const char *wallet;
-    const char *worker;
-    const char *pool_pass;
-    const char *hostname;
-} taipan_config_snap_t;
-
 static bb_err_t settings_get_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
 
-    taipan_config_snap_t snap = {
-        .pool_host = taipan_config_pool_host(),
-        .pool_port = taipan_config_pool_port(),
-        .wallet    = taipan_config_wallet_addr(),
-        .worker    = taipan_config_worker_name(),
-        .pool_pass = taipan_config_pool_pass(),
-        .hostname  = taipan_config_hostname(),
-    };
+    settings_snapshot_t s = {0};
+    {
+        const char *h = taipan_config_pool_host();
+        if (h) strncpy(s.pool_host, h, sizeof(s.pool_host) - 1);
+        const char *wa = taipan_config_wallet_addr();
+        if (wa) strncpy(s.wallet, wa, sizeof(s.wallet) - 1);
+        const char *wk = taipan_config_worker_name();
+        if (wk) strncpy(s.worker, wk, sizeof(s.worker) - 1);
+        const char *pp = taipan_config_pool_pass();
+        if (pp) strncpy(s.pool_pass, pp, sizeof(s.pool_pass) - 1);
+        const char *hn = taipan_config_hostname();
+        if (hn) strncpy(s.hostname, hn, sizeof(s.hostname) - 1);
+    }
+    s.pool_port      = taipan_config_pool_port();
+    s.display_en     = bb_nv_config_display_enabled();
+    s.ota_skip_check = bb_nv_config_ota_skip_check();
 
     bb_json_t root = bb_json_obj_new();
-    bb_json_obj_set_string(root, "pool_host", snap.pool_host);
-    bb_json_obj_set_number(root, "pool_port", snap.pool_port);
-    bb_json_obj_set_string(root, "wallet",    snap.wallet);
-    bb_json_obj_set_string(root, "worker",    snap.worker);
-    bb_json_obj_set_string(root, "pool_pass", snap.pool_pass);
-    bb_json_obj_set_string(root, "hostname",  snap.hostname);
-    bb_json_obj_set_bool(root, "display_en", bb_nv_config_display_enabled());
-    bb_json_obj_set_bool(root, "ota_skip_check", bb_nv_config_ota_skip_check());
-
+    build_settings_json(&s, root);
     char *json = bb_json_serialize(root);
     bb_http_resp_set_header(req, "Content-Type", "application/json");
     bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
@@ -1087,39 +901,27 @@ static bb_err_t diag_asic_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
 
-    bb_json_t root = bb_json_obj_new();
-    bb_json_t arr  = bb_json_arr_new();
+    diag_asic_snapshot_t s = {0};
 
 #ifdef ASIC_CHIP
     asic_drop_event_t drops[ASIC_DROP_LOG_CAP];
     size_t n = asic_task_get_drop_log(drops, ASIC_DROP_LOG_CAP);
-    uint64_t now_us = (uint64_t)esp_timer_get_time();
-
-    for (size_t i = 0; i < n; i++) {
-        bb_json_t e = bb_json_obj_new();
-
-        uint64_t age_us = (drops[i].ts_us <= now_us) ? (now_us - drops[i].ts_us) : 0;
-        bb_json_obj_set_number(e, "ts_ago_s",  (double)(age_us / 1000000ULL));
-        bb_json_obj_set_number(e, "chip",      (double)drops[i].chip_idx);
-
-        const char *kind_str;
-        switch (drops[i].kind) {
-            case ASIC_DROP_KIND_ERROR:  kind_str = "error";  break;
-            case ASIC_DROP_KIND_DOMAIN: kind_str = "domain"; break;
-            default:                    kind_str = "total";  break;
-        }
-        bb_json_obj_set_string(e, "kind",      kind_str);
-        bb_json_obj_set_number(e, "domain",    (double)drops[i].domain_idx);
-        bb_json_obj_set_number(e, "addr",      (double)drops[i].asic_addr);
-        bb_json_obj_set_number(e, "ghs",       (double)drops[i].ghs);
-        bb_json_obj_set_number(e, "delta",     (double)drops[i].delta);
-        bb_json_obj_set_number(e, "elapsed_s", (double)drops[i].elapsed_s);
-        bb_json_arr_append_obj(arr, e);
+    s.now_us  = (uint64_t)esp_timer_get_time();
+    s.n_drops = n < ROUTES_JSON_DROP_LOG_CAP ? n : ROUTES_JSON_DROP_LOG_CAP;
+    for (size_t i = 0; i < s.n_drops; i++) {
+        s.drops[i].ts_us      = drops[i].ts_us;
+        s.drops[i].chip_idx   = drops[i].chip_idx;
+        s.drops[i].kind       = drops[i].kind;
+        s.drops[i].domain_idx = drops[i].domain_idx;
+        s.drops[i].asic_addr  = drops[i].asic_addr;
+        s.drops[i].ghs        = drops[i].ghs;
+        s.drops[i].delta      = drops[i].delta;
+        s.drops[i].elapsed_s  = drops[i].elapsed_s;
     }
 #endif /* ASIC_CHIP */
 
-    bb_json_obj_set_arr(root, "recent_drops", arr);
-
+    bb_json_t root = bb_json_obj_new();
+    build_diag_asic_json(&s, root);
     char *json = bb_json_serialize(root);
     bb_http_resp_set_header(req, "Content-Type", "application/json");
     bb_err_t rc = bb_http_resp_send(req, json, strlen(json));

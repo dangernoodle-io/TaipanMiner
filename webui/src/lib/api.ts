@@ -1,3 +1,17 @@
+// TA-282/TA-287: shape of recent_drops[] entries. Will be served from
+// /api/diag/asic once that endpoint ships; kept here so Diagnostics.svelte
+// can carry a typed empty stub in the meantime.
+export interface RecentDrop {
+  ts_ago_s: number
+  chip: number
+  kind: 'total' | 'error' | 'domain'
+  domain: number
+  addr: number
+  ghs: number
+  delta: number
+  elapsed_s: number
+}
+
 export interface Chip {
   idx: number
   total_ghs: number

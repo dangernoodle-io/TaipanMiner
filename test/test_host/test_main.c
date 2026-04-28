@@ -165,6 +165,25 @@ void test_stratum_machine_build_keepalive(void);
 void test_stratum_machine_build_keepalive_small_difficulty(void);
 void test_stratum_machine_build_keepalive_large_difficulty(void);
 void test_stratum_machine_build_keepalive_truncation(void);
+// TA-273 Phase 3: response handler tests
+void test_handle_configure_result_golden(void);
+void test_handle_configure_result_missing_field(void);
+void test_handle_configure_result_pool_not_supported(void);
+void test_handle_subscribe_result_golden(void);
+void test_handle_subscribe_result_too_long_extranonce1(void);
+void test_handle_subscribe_result_invalid_no_extranonce(void);
+void test_handle_set_difficulty_1(void);
+void test_handle_set_difficulty_65536(void);
+void test_handle_set_difficulty_fractional(void);
+void test_handle_set_difficulty_zero_rejected(void);
+void test_handle_set_difficulty_negative_rejected(void);
+void test_handle_set_difficulty_nan_rejected(void);
+void test_handle_notify_golden(void);
+void test_handle_notify_clean_jobs_false(void);
+void test_handle_notify_invalid_too_few_fields(void);
+void test_handle_notify_wrong_type_for_version(void);
+void test_handle_notify_ta186_non_monotonic_job_id(void);
+void test_subscribe_then_notify_work_seq_unchanged(void);
 
 // Forward declarations from test_stratum_reject.c
 void test_parse_error_code_array_form_21(void);
@@ -505,6 +524,25 @@ int main(void) {
     RUN_TEST(test_stratum_machine_build_keepalive_small_difficulty);
     RUN_TEST(test_stratum_machine_build_keepalive_large_difficulty);
     RUN_TEST(test_stratum_machine_build_keepalive_truncation);
+    // TA-273 Phase 3: response handler tests
+    RUN_TEST(test_handle_configure_result_golden);
+    RUN_TEST(test_handle_configure_result_missing_field);
+    RUN_TEST(test_handle_configure_result_pool_not_supported);
+    RUN_TEST(test_handle_subscribe_result_golden);
+    RUN_TEST(test_handle_subscribe_result_too_long_extranonce1);
+    RUN_TEST(test_handle_subscribe_result_invalid_no_extranonce);
+    RUN_TEST(test_handle_set_difficulty_1);
+    RUN_TEST(test_handle_set_difficulty_65536);
+    RUN_TEST(test_handle_set_difficulty_fractional);
+    RUN_TEST(test_handle_set_difficulty_zero_rejected);
+    RUN_TEST(test_handle_set_difficulty_negative_rejected);
+    RUN_TEST(test_handle_set_difficulty_nan_rejected);
+    RUN_TEST(test_handle_notify_golden);
+    RUN_TEST(test_handle_notify_clean_jobs_false);
+    RUN_TEST(test_handle_notify_invalid_too_few_fields);
+    RUN_TEST(test_handle_notify_wrong_type_for_version);
+    RUN_TEST(test_handle_notify_ta186_non_monotonic_job_id);
+    RUN_TEST(test_subscribe_then_notify_work_seq_unchanged);
 
     // Stratum error code parsing tests
     RUN_TEST(test_parse_error_code_array_form_21);

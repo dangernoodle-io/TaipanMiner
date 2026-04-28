@@ -60,3 +60,33 @@ int stratum_machine_build_authorize(char *buf, size_t n,
 // Build mining.suggest_difficulty request params (used as app-level keepalive).
 // Output: [<difficulty with %.4f format>]
 int stratum_machine_build_keepalive(char *buf, size_t n, double difficulty);
+
+// ---------------------------------------------------------------------------
+// Response handlers — pure state mutators.
+// Each receives an already-parsed bb_json_t item (caller owns/frees it).
+// Handlers MUST NOT retain pointers into the JSON tree across calls.
+// Returns true on success, false on parse/validation failure.
+// ---------------------------------------------------------------------------
+#include "bb_json.h"
+
+// Handle mining.configure result: parse version-rolling.mask into st->version_mask.
+// Pool may omit version-rolling → mask stays 0 (non-fatal; caller logs).
+bool stratum_machine_handle_configure_result(stratum_state_t *st, bb_json_t result);
+
+// Handle mining.subscribe result: parse extranonce1 (index 1) and extranonce2_size (index 2).
+// Validates extranonce1 hex length fits MAX_EXTRANONCE1_SIZE.
+bool stratum_machine_handle_subscribe_result(stratum_state_t *st, bb_json_t result);
+
+// Handle mining.set_difficulty params: bounds-check and set st->difficulty.
+// Rejects diff <= 0, NaN, and infinity.
+bool stratum_machine_handle_set_difficulty(stratum_state_t *st, bb_json_t params);
+
+// Handle mining.notify params: parse all fields into st->job.
+bool stratum_machine_handle_notify(stratum_state_t *st, bb_json_t params);
+
+// ---------------------------------------------------------------------------
+// Work builder — pure math, reads state, writes out.
+// Caller is responsible for incrementing st->extranonce2 before/after.
+// Increments st->work_seq on success.
+// ---------------------------------------------------------------------------
+bool stratum_machine_build_work(stratum_state_t *st, mining_work_t *out);

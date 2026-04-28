@@ -4,9 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "sync:assets": "node scripts/sync-public-assets.mjs",
+    "predev": "pnpm run sync:assets",
     "dev": "vite",
+    "prebuild": "pnpm run sync:assets",
     "build": "vite build",
     "preview": "vite preview",
+    "precheck": "pnpm run sync:assets",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest"
   },

@@ -4,7 +4,16 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./Brand.svelte": {
+      "svelte": "./Brand.svelte",
+      "default": "./Brand.svelte"
+    },
+    "./Select.svelte": {
+      "svelte": "./Select.svelte",
+      "default": "./Select.svelte"
+    },
     "./theme.css": "./styles/theme.css",
-    "./utilities.css": "./styles/utilities.css"
+    "./utilities.css": "./styles/utilities.css",
+    "./logo.svg": "./assets/logo.svg"
   }
 }

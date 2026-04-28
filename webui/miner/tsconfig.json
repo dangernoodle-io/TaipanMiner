@@ -10,7 +10,11 @@
     "resolveJsonModule": true,
     "allowJs": true,
     "checkJs": false,
-    "types": ["vitest/globals", "@testing-library/jest-dom"]
+    "types": ["vitest/globals", "@testing-library/jest-dom"],
+    "baseUrl": ".",
+    "paths": {
+      "ui-kit/*": ["../ui-kit/*"]
+    }
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.svelte"],
   "exclude": ["node_modules", "dist"]

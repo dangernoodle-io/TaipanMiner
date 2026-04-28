@@ -7,3 +7,4 @@ dist
 *.pem
 .DS_Store
 .vite
+public/logo.svg

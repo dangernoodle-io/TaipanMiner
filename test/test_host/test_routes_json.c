@@ -24,7 +24,7 @@ static char *serialize_and_free(bb_json_t root)
 }
 
 /* ============================================================================
- * /api/stats — no-ASIC path (host build never defines ASIC_CHIP)
+ * /api/stats — ASIC path (host build now defines ASIC_CHIP)
  * ========================================================================= */
 
 void test_stats_happy_path(void)
@@ -53,14 +53,24 @@ void test_stats_happy_path(void)
     char *json = serialize_and_free(root);
 
     /* uptime_s = (15000000 - 5000000) / 1000000 = 10
-     * last_share_ago_s = (15000000 - 10000000) / 1000000 = 5 */
+     * last_share_ago_s = (15000000 - 10000000) / 1000000 = 5
+     * ASIC fields all zero: expected_ghs=null (freq_cfg=0, not >0),
+     * freq_configured/effective=0 (>=0), total_valid=false → nulls, chips=[] */
     TEST_ASSERT_EQUAL_STRING(
         "{\"hashrate\":223000,\"hashrate_avg\":215000,\"temp_c\":42.5,"
         "\"shares\":7,\"session_shares\":5,\"session_rejected\":1,"
         "\"rejected\":{\"total\":1,\"job_not_found\":1,\"low_difficulty\":0,"
         "\"duplicate\":0,\"stale_prevhash\":0,\"other\":0,\"other_last_code\":-1},"
         "\"last_share_ago_s\":5,\"lifetime_shares\":42,\"best_diff\":131072,"
-        "\"uptime_s\":10,\"expected_ghs\":0.000223}",
+        "\"uptime_s\":10,"
+        "\"expected_ghs\":null,"
+        "\"asic_hashrate\":0,\"asic_hashrate_avg\":0,\"asic_shares\":0,\"asic_temp_c\":0,"
+        "\"asic_freq_configured_mhz\":0,\"asic_freq_effective_mhz\":0,"
+        "\"asic_small_cores\":0,\"asic_count\":0,"
+        "\"asic_total_ghs\":null,\"asic_hw_error_pct\":null,"
+        "\"asic_total_ghs_1m\":null,\"asic_total_ghs_10m\":null,\"asic_total_ghs_1h\":null,"
+        "\"asic_hw_error_pct_1m\":null,\"asic_hw_error_pct_10m\":null,\"asic_hw_error_pct_1h\":null,"
+        "\"asic_chips\":[]}",
         json);
     bb_json_free_str(json);
 }
@@ -81,7 +91,15 @@ void test_stats_zeroed(void)
         "\"rejected\":{\"total\":0,\"job_not_found\":0,\"low_difficulty\":0,"
         "\"duplicate\":0,\"stale_prevhash\":0,\"other\":0,\"other_last_code\":-1},"
         "\"last_share_ago_s\":-1,\"lifetime_shares\":0,\"best_diff\":0,"
-        "\"uptime_s\":0,\"expected_ghs\":0.000223}",
+        "\"uptime_s\":0,"
+        "\"expected_ghs\":null,"
+        "\"asic_hashrate\":0,\"asic_hashrate_avg\":0,\"asic_shares\":0,\"asic_temp_c\":0,"
+        "\"asic_freq_configured_mhz\":0,\"asic_freq_effective_mhz\":0,"
+        "\"asic_small_cores\":0,\"asic_count\":0,"
+        "\"asic_total_ghs\":null,\"asic_hw_error_pct\":null,"
+        "\"asic_total_ghs_1m\":null,\"asic_total_ghs_10m\":null,\"asic_total_ghs_1h\":null,"
+        "\"asic_hw_error_pct_1m\":null,\"asic_hw_error_pct_10m\":null,\"asic_hw_error_pct_1h\":null,"
+        "\"asic_chips\":[]}",
         json);
     bb_json_free_str(json);
 }
@@ -99,14 +117,23 @@ void test_stats_no_share_yet(void)
     build_stats_json(&s, root);
     char *json = serialize_and_free(root);
 
-    /* uptime_s = 60, last_share_ago_s = -1 */
+    /* uptime_s = 60, last_share_ago_s = -1
+     * ASIC fields all zero (zero-init snapshot) */
     const char *expected =
         "{\"hashrate\":0,\"hashrate_avg\":0,\"temp_c\":0,"
         "\"shares\":0,\"session_shares\":0,\"session_rejected\":0,"
         "\"rejected\":{\"total\":0,\"job_not_found\":0,\"low_difficulty\":0,"
         "\"duplicate\":0,\"stale_prevhash\":0,\"other\":0,\"other_last_code\":-1},"
         "\"last_share_ago_s\":-1,\"lifetime_shares\":0,\"best_diff\":0,"
-        "\"uptime_s\":60,\"expected_ghs\":0.000223}";
+        "\"uptime_s\":60,"
+        "\"expected_ghs\":null,"
+        "\"asic_hashrate\":0,\"asic_hashrate_avg\":0,\"asic_shares\":0,\"asic_temp_c\":0,"
+        "\"asic_freq_configured_mhz\":0,\"asic_freq_effective_mhz\":0,"
+        "\"asic_small_cores\":0,\"asic_count\":0,"
+        "\"asic_total_ghs\":null,\"asic_hw_error_pct\":null,"
+        "\"asic_total_ghs_1m\":null,\"asic_total_ghs_10m\":null,\"asic_total_ghs_1h\":null,"
+        "\"asic_hw_error_pct_1m\":null,\"asic_hw_error_pct_10m\":null,\"asic_hw_error_pct_1h\":null,"
+        "\"asic_chips\":[]}";
     TEST_ASSERT_EQUAL_STRING(expected, json);
     bb_json_free_str(json);
 }
@@ -435,8 +462,4 @@ void test_settings_empty_optional_fields(void)
     bb_json_free_str(json);
 }
 
-/* ============================================================================
- * /api/power and /api/fan are ASIC_CHIP only — not included in host build.
- * The test file compiles without ASIC_CHIP, so these builders are absent.
- * Their logic is covered by build_settings_json/build_diag_asic_json patterns.
- * ========================================================================= */
+/* /api/power and /api/fan ASIC tests are in test_routes_json_asic.c */

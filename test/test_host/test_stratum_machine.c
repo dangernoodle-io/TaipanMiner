@@ -521,3 +521,413 @@ void test_subscribe_then_notify_work_seq_unchanged(void)
     // work_seq must still be 5 — machine doesn't auto-increment
     TEST_ASSERT_EQUAL_UINT32(5, st.work_seq);
 }
+
+// ---------------------------------------------------------------------------
+// build_work tests — happy path and error cases
+// ---------------------------------------------------------------------------
+
+// Setup fixture: full stratum state ready for build_work
+static void _setup_ready_state(stratum_state_t *st)
+{
+    memset(st, 0, sizeof(*st));
+    st->difficulty = 512.0;
+    st->work_seq = 10;
+    st->extranonce2_size = 4;
+    st->extranonce2 = 0;
+
+    // Subscribe state
+    strncpy(st->extranonce1_hex, "08000002", sizeof(st->extranonce1_hex) - 1);
+    st->extranonce1[0] = 0x08;
+    st->extranonce1[1] = 0x00;
+    st->extranonce1[2] = 0x00;
+    st->extranonce1[3] = 0x02;
+    st->extranonce1_len = 4;
+
+    // Job state with minimal valid coinbase/merkle
+    strncpy(st->job.job_id, "test-work-job", sizeof(st->job.job_id) - 1);
+    st->job.version = 0x20000000;
+    st->job.nbits = 0x1a0392a3;
+    st->job.ntime = 0x67b1c400;
+
+    // Minimal coinbase: just the structure
+    st->job.coinb1[0] = 0x01;
+    st->job.coinb1_len = 1;
+    st->job.coinb2[0] = 0xff;
+    st->job.coinb2_len = 1;
+
+    // One merkle branch
+    memset(st->job.merkle_branches[0], 0xaa, 32);
+    st->job.merkle_count = 1;
+
+    // prevhash initialized to something valid
+    memset(st->job.prevhash, 0x00, 32);
+}
+
+void test_build_work_null_state(void)
+{
+    mining_work_t out;
+    memset(&out, 0, sizeof(out));
+
+    bool ok = stratum_machine_build_work(NULL, &out);
+    TEST_ASSERT_FALSE(ok);
+}
+
+void test_build_work_null_output(void)
+{
+    stratum_state_t st;
+    _setup_ready_state(&st);
+
+    bool ok = stratum_machine_build_work(&st, NULL);
+    TEST_ASSERT_FALSE(ok);
+}
+
+void test_build_work_happy_path(void)
+{
+    stratum_state_t st;
+    _setup_ready_state(&st);
+
+    mining_work_t out;
+    memset(&out, 0, sizeof(out));
+
+    bool ok = stratum_machine_build_work(&st, &out);
+    TEST_ASSERT_TRUE(ok);
+
+    // Check extranonce2_hex is populated (0x00000000 LE = "00000000")
+    TEST_ASSERT_EQUAL_STRING("00000000", out.extranonce2_hex);
+
+    // Check job_id matches
+    TEST_ASSERT_EQUAL_STRING("test-work-job", out.job_id);
+
+    // Check work_seq incremented
+    TEST_ASSERT_EQUAL_UINT32(11, out.work_seq);
+    TEST_ASSERT_EQUAL_UINT32(11, st.work_seq);
+
+    // Check difficulty copied
+    TEST_ASSERT_EQUAL_DOUBLE(512.0, out.difficulty);
+
+    // Check ntime copied
+    TEST_ASSERT_EQUAL_UINT32(0x67b1c400, out.ntime);
+
+    // Check version and version_mask
+    TEST_ASSERT_EQUAL_UINT32(0x20000000, out.version);
+    TEST_ASSERT_EQUAL_UINT32(0, out.version_mask);  // not configured
+
+    // Check header is 80 bytes
+    TEST_ASSERT_EQUAL_INT(80, (int)sizeof(out.header));
+
+    // Check target is 32 bytes and valid
+    TEST_ASSERT_EQUAL_INT(32, (int)sizeof(out.target));
+    bool target_valid = is_target_valid(out.target);
+    TEST_ASSERT_TRUE(target_valid);
+}
+
+void test_build_work_with_version_mask(void)
+{
+    stratum_state_t st;
+    _setup_ready_state(&st);
+    st.version_mask = 0x1fffe000;
+
+    mining_work_t out;
+    memset(&out, 0, sizeof(out));
+
+    bool ok = stratum_machine_build_work(&st, &out);
+    TEST_ASSERT_TRUE(ok);
+
+    TEST_ASSERT_EQUAL_UINT32(0x1fffe000, out.version_mask);
+}
+
+void test_build_work_increments_seq_multiple_times(void)
+{
+    stratum_state_t st;
+    _setup_ready_state(&st);
+    st.work_seq = 100;
+
+    mining_work_t out1, out2;
+    memset(&out1, 0, sizeof(out1));
+    memset(&out2, 0, sizeof(out2));
+
+    bool ok1 = stratum_machine_build_work(&st, &out1);
+    TEST_ASSERT_TRUE(ok1);
+    TEST_ASSERT_EQUAL_UINT32(101, out1.work_seq);
+    TEST_ASSERT_EQUAL_UINT32(101, st.work_seq);
+
+    bool ok2 = stratum_machine_build_work(&st, &out2);
+    TEST_ASSERT_TRUE(ok2);
+    TEST_ASSERT_EQUAL_UINT32(102, out2.work_seq);
+    TEST_ASSERT_EQUAL_UINT32(102, st.work_seq);
+}
+
+void test_build_work_with_varying_extranonce2(void)
+{
+    stratum_state_t st;
+    _setup_ready_state(&st);
+    st.extranonce2 = 0x12345678;
+    st.extranonce2_size = 4;
+
+    mining_work_t out;
+    memset(&out, 0, sizeof(out));
+
+    bool ok = stratum_machine_build_work(&st, &out);
+    TEST_ASSERT_TRUE(ok);
+
+    // extranonce2 is LE: 0x12345678 -> bytes [0x78, 0x56, 0x34, 0x12] -> "78563412"
+    TEST_ASSERT_EQUAL_STRING("78563412", out.extranonce2_hex);
+}
+
+void test_build_work_with_small_extranonce2_size(void)
+{
+    stratum_state_t st;
+    _setup_ready_state(&st);
+    st.extranonce2 = 0xABCDEF12;
+    st.extranonce2_size = 2;
+
+    mining_work_t out;
+    memset(&out, 0, sizeof(out));
+
+    bool ok = stratum_machine_build_work(&st, &out);
+    TEST_ASSERT_TRUE(ok);
+
+    // Only first 2 bytes: 0xABCDEF12 -> [0x12, 0xEF] -> "12ef"
+    TEST_ASSERT_EQUAL_STRING("12ef", out.extranonce2_hex);
+}
+
+// Test NULL checks at handler entry points (lines 15, 37, 58, 78, 126, 155, 160, 194)
+
+void test_build_configure_null_buf(void)
+{
+    int result = stratum_machine_build_configure(NULL, 256);
+    TEST_ASSERT_EQUAL_INT(-1, result);
+}
+
+void test_build_configure_zero_size(void)
+{
+    char buf[256];
+    int result = stratum_machine_build_configure(buf, 0);
+    TEST_ASSERT_EQUAL_INT(-1, result);
+}
+
+void test_build_subscribe_null_buf(void)
+{
+    int result = stratum_machine_build_subscribe(NULL, 256);
+    TEST_ASSERT_EQUAL_INT(-1, result);
+}
+
+void test_build_subscribe_zero_size(void)
+{
+    char buf[256];
+    int result = stratum_machine_build_subscribe(buf, 0);
+    TEST_ASSERT_EQUAL_INT(-1, result);
+}
+
+void test_build_authorize_null_buf(void)
+{
+    int result = stratum_machine_build_authorize(NULL, 256, "wallet", "worker", "pass");
+    TEST_ASSERT_EQUAL_INT(-1, result);
+}
+
+void test_build_authorize_zero_size(void)
+{
+    char buf[256];
+    int result = stratum_machine_build_authorize(buf, 0, "wallet", "worker", "pass");
+    TEST_ASSERT_EQUAL_INT(-1, result);
+}
+
+void test_build_authorize_null_wallet(void)
+{
+    char buf[256];
+    int result = stratum_machine_build_authorize(buf, 256, NULL, "worker", "pass");
+    TEST_ASSERT_EQUAL_INT(-1, result);
+}
+
+void test_build_authorize_null_worker(void)
+{
+    char buf[256];
+    int result = stratum_machine_build_authorize(buf, 256, "wallet", NULL, "pass");
+    TEST_ASSERT_EQUAL_INT(-1, result);
+}
+
+void test_build_authorize_null_pass(void)
+{
+    char buf[256];
+    int result = stratum_machine_build_authorize(buf, 256, "wallet", "worker", NULL);
+    TEST_ASSERT_EQUAL_INT(-1, result);
+}
+
+void test_build_keepalive_null_buf(void)
+{
+    int result = stratum_machine_build_keepalive(NULL, 256, 512.0);
+    TEST_ASSERT_EQUAL_INT(-1, result);
+}
+
+void test_build_keepalive_zero_size(void)
+{
+    char buf[256];
+    int result = stratum_machine_build_keepalive(buf, 0, 512.0);
+    TEST_ASSERT_EQUAL_INT(-1, result);
+}
+
+void test_handle_configure_null_state(void)
+{
+    bb_json_t result = bb_json_parse("{\"version-rolling\":true}", 0);
+    TEST_ASSERT_NOT_NULL(result);
+
+    bool ok = stratum_machine_handle_configure_result(NULL, result);
+    TEST_ASSERT_FALSE(ok);
+
+    bb_json_free(result);
+}
+
+void test_handle_configure_null_result(void)
+{
+    stratum_state_t st;
+    memset(&st, 0, sizeof(st));
+
+    bool ok = stratum_machine_handle_configure_result(&st, NULL);
+    TEST_ASSERT_FALSE(ok);
+}
+
+void test_handle_subscribe_null_state(void)
+{
+    bb_json_t result = bb_json_parse("[[\"mining.set_difficulty\",\"sub-1\"],\"08000002\",4]", 0);
+    TEST_ASSERT_NOT_NULL(result);
+
+    bool ok = stratum_machine_handle_subscribe_result(NULL, result);
+    TEST_ASSERT_FALSE(ok);
+
+    bb_json_free(result);
+}
+
+void test_handle_subscribe_null_result(void)
+{
+    stratum_state_t st;
+    memset(&st, 0, sizeof(st));
+
+    bool ok = stratum_machine_handle_subscribe_result(&st, NULL);
+    TEST_ASSERT_FALSE(ok);
+}
+
+void test_handle_subscribe_missing_extranonce_field(void)
+{
+    // Array with only 2 elements instead of 3+
+    bb_json_t result = bb_json_parse("[[\"mining.set_difficulty\",\"sub-1\"],4]", 0);
+    TEST_ASSERT_NOT_NULL(result);
+
+    stratum_state_t st;
+    memset(&st, 0, sizeof(st));
+
+    bool ok = stratum_machine_handle_subscribe_result(&st, result);
+    TEST_ASSERT_FALSE(ok);
+
+    bb_json_free(result);
+}
+
+void test_handle_set_difficulty_null_state(void)
+{
+    bb_json_t params = bb_json_parse("[1.0]", 0);
+    TEST_ASSERT_NOT_NULL(params);
+
+    bool ok = stratum_machine_handle_set_difficulty(NULL, params);
+    TEST_ASSERT_FALSE(ok);
+
+    bb_json_free(params);
+}
+
+void test_handle_set_difficulty_null_params(void)
+{
+    stratum_state_t st;
+    memset(&st, 0, sizeof(st));
+
+    bool ok = stratum_machine_handle_set_difficulty(&st, NULL);
+    TEST_ASSERT_FALSE(ok);
+}
+
+void test_handle_set_difficulty_not_array(void)
+{
+    bb_json_t params = bb_json_parse("1.0", 0);
+    TEST_ASSERT_NOT_NULL(params);
+
+    stratum_state_t st;
+    memset(&st, 0, sizeof(st));
+    st.difficulty = 512.0;
+
+    bool ok = stratum_machine_handle_set_difficulty(&st, params);
+    TEST_ASSERT_FALSE(ok);
+    TEST_ASSERT_EQUAL_DOUBLE(512.0, st.difficulty);  // unchanged
+
+    bb_json_free(params);
+}
+
+void test_handle_set_difficulty_empty_array(void)
+{
+    bb_json_t params = bb_json_parse("[]", 0);
+    TEST_ASSERT_NOT_NULL(params);
+
+    stratum_state_t st;
+    memset(&st, 0, sizeof(st));
+    st.difficulty = 512.0;
+
+    bool ok = stratum_machine_handle_set_difficulty(&st, params);
+    TEST_ASSERT_FALSE(ok);
+    TEST_ASSERT_EQUAL_DOUBLE(512.0, st.difficulty);
+
+    bb_json_free(params);
+}
+
+void test_handle_set_difficulty_wrong_type(void)
+{
+    // Array with string instead of number
+    bb_json_t params = bb_json_parse("[\"256.0\"]", 0);
+    TEST_ASSERT_NOT_NULL(params);
+
+    stratum_state_t st;
+    memset(&st, 0, sizeof(st));
+    st.difficulty = 512.0;
+
+    bool ok = stratum_machine_handle_set_difficulty(&st, params);
+    TEST_ASSERT_FALSE(ok);
+    TEST_ASSERT_EQUAL_DOUBLE(512.0, st.difficulty);
+
+    bb_json_free(params);
+}
+
+void test_handle_notify_null_state(void)
+{
+    bb_json_t params = bb_json_parse(
+        "[\"job-id\","
+        "\"000000000000000000039d6f4e3e1c7b3a5c2d9e8f1a0b4c5d6e7f8a9b0c1d2\","
+        "\"deadbeef\",\"cafecafe\",[],\"20000000\",\"1a0392a3\",\"67b1c400\",true]", 0);
+    TEST_ASSERT_NOT_NULL(params);
+
+    bool ok = stratum_machine_handle_notify(NULL, params);
+    TEST_ASSERT_FALSE(ok);
+
+    bb_json_free(params);
+}
+
+void test_handle_notify_null_params(void)
+{
+    stratum_state_t st;
+    memset(&st, 0, sizeof(st));
+
+    bool ok = stratum_machine_handle_notify(&st, NULL);
+    TEST_ASSERT_FALSE(ok);
+}
+
+void test_handle_notify_missing_field_at_index_0(void)
+{
+    // job_id field is NULL but array is long enough
+    // Craft a params array with a null where job_id should be
+    bb_json_t params = bb_json_parse(
+        "[null,"
+        "\"000000000000000000039d6f4e3e1c7b3a5c2d9e8f1a0b4c5d6e7f8a9b0c1d2\","
+        "\"deadbeef\",\"cafecafe\",[],\"20000000\",\"1a0392a3\",\"67b1c400\",true]", 0);
+    TEST_ASSERT_NOT_NULL(params);
+
+    stratum_state_t st;
+    memset(&st, 0, sizeof(st));
+
+    bool ok = stratum_machine_handle_notify(&st, params);
+    TEST_ASSERT_FALSE(ok);
+
+    bb_json_free(params);
+}

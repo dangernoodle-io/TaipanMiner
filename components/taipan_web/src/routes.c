@@ -110,9 +110,14 @@ static bb_err_t taipan_prov_save_cb(bb_http_request_t *req, const char *body, in
         return BB_ERR_INVALID_ARG;
     }
 
-    // Derive hostname from worker if not provided
+    // Derive hostname from worker if not provided; otherwise normalize user input.
     if (hostname[0] == '\0') {
         bb_mdns_build_hostname(worker, NULL, hostname, sizeof(hostname));
+    } else {
+        char normalized[sizeof(hostname)];
+        bb_mdns_build_hostname(hostname, NULL, normalized, sizeof(normalized));
+        strncpy(hostname, normalized, sizeof(hostname));
+        hostname[sizeof(hostname) - 1] = '\0';
     }
 
     // Validate and save hostname

@@ -220,10 +220,7 @@ static bb_err_t stats_handler(bb_http_request_t *req)
 
     bb_json_t root = bb_json_obj_new();
     build_stats_json(&s, root);
-    char *json = bb_json_serialize(root);
-    bb_http_resp_set_header(req, "Content-Type", "application/json");
-    bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
-    bb_json_free_str(json);
+    bb_err_t rc = bb_http_resp_send_json(req, root);
     bb_json_free(root);
     return rc;
 }
@@ -306,10 +303,7 @@ static bb_err_t pool_handler(bb_http_request_t *req)
 
     bb_json_t root = bb_json_obj_new();
     build_pool_json(&s, root);
-    char *json = bb_json_serialize(root);
-    bb_http_resp_set_header(req, "Content-Type", "application/json");
-    bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
-    bb_json_free_str(json);
+    bb_err_t rc = bb_http_resp_send_json(req, root);
     bb_json_free(root);
     return rc;
 }
@@ -343,10 +337,7 @@ static bb_err_t power_handler(bb_http_request_t *req)
 
     bb_json_t root = bb_json_obj_new();
     build_power_json(&s, root);
-    char *json = bb_json_serialize(root);
-    bb_http_resp_set_header(req, "Content-Type", "application/json");
-    bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
-    bb_json_free_str(json);
+    bb_err_t rc = bb_http_resp_send_json(req, root);
     bb_json_free(root);
     return rc;
 }
@@ -365,10 +356,7 @@ static bb_err_t fan_handler(bb_http_request_t *req)
 
     bb_json_t root = bb_json_obj_new();
     build_fan_json(&s, root);
-    char *json = bb_json_serialize(root);
-    bb_http_resp_set_header(req, "Content-Type", "application/json");
-    bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
-    bb_json_free_str(json);
+    bb_err_t rc = bb_http_resp_send_json(req, root);
     bb_json_free(root);
     return rc;
 }
@@ -392,10 +380,7 @@ static bb_err_t knot_handler(bb_http_request_t *req)
 
     bb_json_t root = bb_json_arr_new();
     build_knot_json(peers, n_peers, now_us, root);
-    char *json = bb_json_serialize(root);
-    bb_http_resp_set_header(req, "Content-Type", "application/json");
-    bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
-    bb_json_free_str(json);
+    bb_err_t rc = bb_http_resp_send_json(req, root);
     bb_json_free(root);
     free(peers);
     return rc;
@@ -455,10 +440,7 @@ static bb_err_t settings_get_handler(bb_http_request_t *req)
 
     bb_json_t root = bb_json_obj_new();
     build_settings_json(&s, root);
-    char *json = bb_json_serialize(root);
-    bb_http_resp_set_header(req, "Content-Type", "application/json");
-    bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
-    bb_json_free_str(json);
+    bb_err_t rc = bb_http_resp_send_json(req, root);
     bb_json_free(root);
     return rc;
 }
@@ -911,10 +893,7 @@ static bb_err_t diag_asic_handler(bb_http_request_t *req)
 
     bb_json_t root = bb_json_obj_new();
     build_diag_asic_json(&s, root);
-    char *json = bb_json_serialize(root);
-    bb_http_resp_set_header(req, "Content-Type", "application/json");
-    bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
-    bb_json_free_str(json);
+    bb_err_t rc = bb_http_resp_send_json(req, root);
     bb_json_free(root);
     return rc;
 }
@@ -1197,6 +1176,29 @@ static void init_mining_assets(void)
     }
 }
 
+// Mining-mode dynamic route table. sizeof-derived count keeps
+// webui_reserve_mining_routes in sync with the actual registrations.
+static const bb_route_t * const s_mining_routes[] = {
+    &s_stats_route,
+    &s_pool_route,
+    &s_diag_asic_route,
+    &s_knot_route,
+    &s_settings_get_route,
+    &s_settings_post_route,
+#ifdef ASIC_CHIP
+    &s_power_route,
+    &s_fan_route,
+#endif
+    &s_settings_patch_route,
+};
+
+void webui_reserve_mining_routes(void)
+{
+    size_t n = sizeof(s_mining_assets) / sizeof(s_mining_assets[0]) +
+               sizeof(s_mining_routes) / sizeof(s_mining_routes[0]);
+    bb_http_reserve_routes((int)n);
+}
+
 bb_err_t webui_register_mining_routes(bb_http_handle_t server)
 {
     // Cache WDT reset count — only changes on boot
@@ -1204,51 +1206,14 @@ bb_err_t webui_register_mining_routes(bb_http_handle_t server)
 
     // Initialize and register static assets
     init_mining_assets();
-    bb_http_register_assets(server, s_mining_assets, sizeof(s_mining_assets)/sizeof(s_mining_assets[0]));
-
-    // Initialize breadboard's OTA validator (registers /api/ota/mark-valid handler)
-    bb_ota_validator_init(server);
+    bb_err_t rc = bb_http_register_assets(server, s_mining_assets,
+                                          sizeof(s_mining_assets) / sizeof(s_mining_assets[0]));
+    if (rc != BB_OK) return rc;
 
     // Register dynamic handlers with OpenAPI descriptors
-    bb_err_t rc;
-    rc = bb_http_register_described_route(server, &s_stats_route);
+    rc = bb_http_register_route_table(server, s_mining_routes,
+                                      sizeof(s_mining_routes) / sizeof(s_mining_routes[0]));
     if (rc != BB_OK) return rc;
-
-    rc = bb_http_register_described_route(server, &s_pool_route);
-    if (rc != BB_OK) return rc;
-
-    rc = bb_http_register_described_route(server, &s_diag_asic_route);
-    if (rc != BB_OK) return rc;
-
-    rc = bb_http_register_described_route(server, &s_knot_route);
-    if (rc != BB_OK) return rc;
-
-    rc = bb_http_register_described_route(server, &s_settings_get_route);
-    if (rc != BB_OK) return rc;
-
-    rc = bb_http_register_described_route(server, &s_settings_post_route);
-    if (rc != BB_OK) return rc;
-
-#ifdef ASIC_CHIP
-    rc = bb_http_register_described_route(server, &s_power_route);
-    if (rc != BB_OK) return rc;
-
-    rc = bb_http_register_described_route(server, &s_fan_route);
-    if (rc != BB_OK) return rc;
-#endif
-
-    rc = bb_http_register_described_route(server, &s_settings_patch_route);
-    if (rc != BB_OK) return rc;
-
-    bb_ota_pull_register_handler(server);
-    bb_ota_push_register_handler(server);
-
-    bb_http_register_common_routes(server);
-    bb_info_register_routes(server);
-    bb_wifi_register_routes(server);
-    bb_board_register_routes(server);
-    bb_log_stream_register_routes(server);
-    bb_log_register_routes(server);
 
     bb_log_i(TAG, "mining routes registered");
     return BB_OK;

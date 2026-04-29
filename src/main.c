@@ -23,6 +23,7 @@
 #include "bb_ota_push.h"
 #include "bb_openapi.h"
 #include "bb_manifest.h"
+#include "bb_registry.h"
 #include "knot.h"
 #include "ota_validator_io.h"
 #include "freertos/FreeRTOS.h"
@@ -214,13 +215,8 @@ void app_main(void)
     bb_log_tag_register("bm1368", BB_LOG_LEVEL_INFO);
 #endif
 
-    BB_ERROR_CHECK(bb_log_stream_init());
-
-    // Initialize NVS (required by WiFi)
-    BB_ERROR_CHECK(bb_nv_flash_init());
-
-    // Load config from NVS (falls back to defaults)
-    BB_ERROR_CHECK(bb_nv_config_init());
+    // Initialize early-tier registry (log_stream, nv_flash, nv_config)
+    BB_ERROR_CHECK(bb_registry_init_early());
     BB_ERROR_CHECK(taipan_config_init());
     // Register manifest so /api/manifest exposes the NVS keyspace
     BB_ERROR_CHECK(taipan_config_register_manifest());
@@ -380,18 +376,22 @@ void app_main(void)
                           bb_system_get_version(),
                           "mining");
         }
-        BB_ERROR_CHECK(bb_http_server_ensure_started());
+        // Set OpenAPI metadata before server start (for auto-registration)
         {
-            // Register OpenAPI endpoint (version sourced from bb_system_get_version when NULL)
             static const bb_openapi_meta_t openapi_meta = {
                 .title = "TaipanMiner API",
                 .version = NULL,
                 .description = "Bitcoin mining firmware API for ESP32-S3 boards",
             };
-            BB_ERROR_CHECK(bb_openapi_register(bb_http_server_get_handle(), &openapi_meta));
+            bb_openapi_set_meta(&openapi_meta);
         }
-        // Register manifest endpoint and mDNS keys
-        BB_ERROR_CHECK(bb_manifest_register_route(bb_http_server_get_handle()));
+        // Reserve URI handler slots for routes that webui registers
+        // imperatively post-server-start. webui owns the count.
+        webui_reserve_mining_routes();
+        BB_ERROR_CHECK(bb_http_server_ensure_started());
+        // Initialize registry (auto-registers all breadboard routes and endpoints)
+        BB_ERROR_CHECK(bb_registry_init());
+        // Register mDNS keys (manifest auto-registered by registry)
         {
             static const bb_manifest_mdns_t taipan_mdns_keys[] = {
                 {.key = "worker", .desc = "stratum worker name"},

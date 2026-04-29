@@ -37,8 +37,11 @@ lsp-%: ## Switch clangd to <env> (e.g. make lsp-bitaxe-601) — generates DB and
 	$(PIO) run -t compiledb -e $*
 	bash $$(ls -d $$HOME/.cloak/profiles/dangernoodle/plugins/cache/dangernoodle-marketplace/espidf-clangd-lsp* 2>/dev/null | head -1)/scripts/compile-db-refresh.sh --variant $* --force
 
-flash-%: ## Flash specific env (e.g. make flash-bitaxe-601)
+flash-%: ## Flash specific env app-only (e.g. make flash-bitaxe-601)
 	$(PIO) run -e $* -t upload
+
+flash-factory-%: ## Erase flash + write factory image — fresh device / re-enter prov mode (e.g. make flash-factory-tdongle-s3)
+	$(PIO) run -e $* -t flash-factory
 
 monitor: ## Serial monitor
 	$(PIO) device monitor

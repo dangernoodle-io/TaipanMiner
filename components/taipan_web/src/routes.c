@@ -388,28 +388,34 @@ static bb_err_t knot_handler(bb_http_request_t *req)
     }
     size_t peer_count = knot_snapshot(peers, ROUTES_JSON_MAX_PEERS);
 
-    knot_snapshot_t s = {0};
-    s.now_us  = esp_timer_get_time();
-    s.n_peers = peer_count < ROUTES_JSON_MAX_PEERS ? peer_count : ROUTES_JSON_MAX_PEERS;
-    for (size_t i = 0; i < s.n_peers; i++) {
-        strncpy(s.peers[i].instance, peers[i].instance_name, sizeof(s.peers[i].instance) - 1);
-        strncpy(s.peers[i].hostname, peers[i].hostname,      sizeof(s.peers[i].hostname)  - 1);
-        strncpy(s.peers[i].ip,       peers[i].ip4,           sizeof(s.peers[i].ip)        - 1);
-        strncpy(s.peers[i].worker,   peers[i].worker,        sizeof(s.peers[i].worker)    - 1);
-        strncpy(s.peers[i].board,    peers[i].board,         sizeof(s.peers[i].board)     - 1);
-        strncpy(s.peers[i].version,  peers[i].version,       sizeof(s.peers[i].version)   - 1);
-        strncpy(s.peers[i].state,    peers[i].state,         sizeof(s.peers[i].state)     - 1);
-        s.peers[i].last_seen_us = peers[i].last_seen_us;
+    knot_snapshot_t *s = calloc(1, sizeof(*s));
+    if (!s) {
+        free(peers);
+        bb_http_resp_send_err(req, 500, "out of memory");
+        return BB_ERR_INVALID_ARG;
+    }
+    s->now_us  = esp_timer_get_time();
+    s->n_peers = peer_count < ROUTES_JSON_MAX_PEERS ? peer_count : ROUTES_JSON_MAX_PEERS;
+    for (size_t i = 0; i < s->n_peers; i++) {
+        strncpy(s->peers[i].instance, peers[i].instance_name, sizeof(s->peers[i].instance) - 1);
+        strncpy(s->peers[i].hostname, peers[i].hostname,      sizeof(s->peers[i].hostname)  - 1);
+        strncpy(s->peers[i].ip,       peers[i].ip4,           sizeof(s->peers[i].ip)        - 1);
+        strncpy(s->peers[i].worker,   peers[i].worker,        sizeof(s->peers[i].worker)    - 1);
+        strncpy(s->peers[i].board,    peers[i].board,         sizeof(s->peers[i].board)     - 1);
+        strncpy(s->peers[i].version,  peers[i].version,       sizeof(s->peers[i].version)   - 1);
+        strncpy(s->peers[i].state,    peers[i].state,         sizeof(s->peers[i].state)     - 1);
+        s->peers[i].last_seen_us = peers[i].last_seen_us;
     }
     free(peers);
 
     bb_json_t root = bb_json_arr_new();
-    build_knot_json(&s, root);
+    build_knot_json(s, root);
     char *json = bb_json_serialize(root);
     bb_http_resp_set_header(req, "Content-Type", "application/json");
     bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
     bb_json_free_str(json);
     bb_json_free(root);
+    free(s);
     return rc;
 }
 

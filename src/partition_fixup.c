@@ -22,17 +22,12 @@ extern const unsigned int g_partitions_bin_len;
 #define OTADATA_SIZE          0x2000
 #define COPY_CHUNK_SIZE       4096
 
-// Shared buffer for partition table and firmware copy operations
-// Used sequentially: first for partition table read, then for copy loop
-// Stack-allocated buffer would exceed main task stack (3584B), so static allocation is necessary
-static uint8_t s_buf[4096];
-
 // cppcheck-suppress unusedFunction ; called from src/main.c (cross-TU)
-void partition_fixup_check(void)
+static void partition_fixup_check_impl(uint8_t *buf)
 {
     // Read current partition table from flash
     bool live_table_ok = false;
-    esp_err_t err = esp_flash_read(NULL, s_buf, PARTITION_TABLE_ADDR, g_partitions_bin_len);
+    esp_err_t err = esp_flash_read(NULL, buf, PARTITION_TABLE_ADDR, g_partitions_bin_len);
     if (err == ESP_OK) {
         live_table_ok = true;
     } else {
@@ -46,7 +41,7 @@ void partition_fixup_check(void)
     // Decide whether and how to fix up the partition layout
     partition_fixup_decision_t d = partition_fixup_decide(
         g_partitions_bin, g_partitions_bin_len,
-        live_table_ok, live_table_ok ? s_buf : NULL,
+        live_table_ok, live_table_ok ? buf : NULL,
         running_addr, OTA_0_ADDR);
 
     switch (d.action) {
@@ -79,7 +74,7 @@ void partition_fixup_check(void)
                 len = copy_size - offset;
             }
 
-            err = esp_flash_read(NULL, s_buf, running->address + offset, len);
+            err = esp_flash_read(NULL, buf, running->address + offset, len);
             if (err != ESP_OK) {
                 bb_log_e(TAG, "read failed at offset 0x%" PRIx32 ": %s", offset, esp_err_to_name(err));
                 return;
@@ -91,7 +86,7 @@ void partition_fixup_check(void)
                 return;
             }
 
-            err = esp_flash_write(NULL, s_buf, OTA_0_ADDR + offset, len);
+            err = esp_flash_write(NULL, buf, OTA_0_ADDR + offset, len);
             if (err != ESP_OK) {
                 bb_log_e(TAG, "write failed at offset 0x%" PRIx32 ": %s", offset, esp_err_to_name(err));
                 return;
@@ -129,7 +124,7 @@ void partition_fixup_check(void)
                 len = OTA_SLOT_SIZE - offset;
             }
 
-            err = esp_flash_read(NULL, s_buf, OTA_0_ADDR + offset, len);
+            err = esp_flash_read(NULL, buf, OTA_0_ADDR + offset, len);
             if (err != ESP_OK) {
                 bb_log_e(TAG, "ota_1 copy: read failed at offset 0x%" PRIx32 ": %s", offset, esp_err_to_name(err));
                 return;
@@ -141,7 +136,7 @@ void partition_fixup_check(void)
                 return;
             }
 
-            err = esp_flash_write(NULL, s_buf, OTA_1_ADDR + offset, len);
+            err = esp_flash_write(NULL, buf, OTA_1_ADDR + offset, len);
             if (err != ESP_OK) {
                 bb_log_e(TAG, "ota_1 copy: write failed at offset 0x%" PRIx32 ": %s", offset, esp_err_to_name(err));
                 return;
@@ -162,6 +157,19 @@ void partition_fixup_check(void)
         bb_system_restart();
         break;
     }
+}
+
+#include <stdlib.h>
+
+void partition_fixup_check(void)
+{
+    uint8_t *buf = malloc(4096);
+    if (!buf) {
+        bb_log_e(TAG, "alloc failed");
+        return;
+    }
+    partition_fixup_check_impl(buf);
+    free(buf);
 }
 
 #else

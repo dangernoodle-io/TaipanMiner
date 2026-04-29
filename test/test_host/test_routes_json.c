@@ -355,12 +355,12 @@ void test_diag_asic_future_ts_clamps_to_zero(void)
 
 void test_knot_empty(void)
 {
-    knot_snapshot_t s = {0};
-    s.now_us  = 0;
-    s.n_peers = 0;
+    knot_peer_t peers[32] = {0};
+    size_t n_peers = 0;
+    int64_t now_us = 0;
 
     bb_json_t root = bb_json_arr_new();
-    build_knot_json(&s, root);
+    build_knot_json(peers, n_peers, now_us, root);
     char *json = serialize_and_free(root);
 
     TEST_ASSERT_EQUAL_STRING("[]", json);
@@ -369,30 +369,30 @@ void test_knot_empty(void)
 
 void test_knot_two_peers(void)
 {
-    knot_snapshot_t s = {0};
-    s.now_us  = 30000000LL;  /* 30 s */
-    s.n_peers = 2;
+    knot_peer_t peers[32] = {0};
+    size_t n_peers = 2;
+    int64_t now_us = 30000000LL;  /* 30 s */
 
-    strncpy(s.peers[0].instance, "taipan-alpha._taipan._tcp.local", sizeof(s.peers[0].instance) - 1);
-    strncpy(s.peers[0].hostname, "taipan-alpha", sizeof(s.peers[0].hostname) - 1);
-    strncpy(s.peers[0].ip,       "192.168.1.10", sizeof(s.peers[0].ip) - 1);
-    strncpy(s.peers[0].worker,   "alpha-worker", sizeof(s.peers[0].worker) - 1);
-    strncpy(s.peers[0].board,    "bitaxe-601",   sizeof(s.peers[0].board)   - 1);
-    strncpy(s.peers[0].version,  "1.2.3",        sizeof(s.peers[0].version) - 1);
-    strncpy(s.peers[0].state,    "mining",       sizeof(s.peers[0].state)   - 1);
-    s.peers[0].last_seen_us = 25000000LL;  /* 5 s ago */
+    strncpy(peers[0].instance_name, "taipan-alpha._taipan._tcp.local", sizeof(peers[0].instance_name) - 1);
+    strncpy(peers[0].hostname, "taipan-alpha", sizeof(peers[0].hostname) - 1);
+    strncpy(peers[0].ip4,      "192.168.1.10", sizeof(peers[0].ip4) - 1);
+    strncpy(peers[0].worker,   "alpha-worker", sizeof(peers[0].worker) - 1);
+    strncpy(peers[0].board,    "bitaxe-601",   sizeof(peers[0].board)   - 1);
+    strncpy(peers[0].version,  "1.2.3",        sizeof(peers[0].version) - 1);
+    strncpy(peers[0].state,    "mining",       sizeof(peers[0].state)   - 1);
+    peers[0].last_seen_us = 25000000LL;  /* 5 s ago */
 
-    strncpy(s.peers[1].instance, "taipan-beta._taipan._tcp.local", sizeof(s.peers[1].instance) - 1);
-    strncpy(s.peers[1].hostname, "taipan-beta", sizeof(s.peers[1].hostname) - 1);
-    strncpy(s.peers[1].ip,       "192.168.1.11", sizeof(s.peers[1].ip) - 1);
-    strncpy(s.peers[1].worker,   "beta-worker",  sizeof(s.peers[1].worker)  - 1);
-    strncpy(s.peers[1].board,    "bitaxe-403",   sizeof(s.peers[1].board)   - 1);
-    strncpy(s.peers[1].version,  "1.2.0",        sizeof(s.peers[1].version) - 1);
-    strncpy(s.peers[1].state,    "ota",          sizeof(s.peers[1].state)   - 1);
-    s.peers[1].last_seen_us = 20000000LL;  /* 10 s ago */
+    strncpy(peers[1].instance_name, "taipan-beta._taipan._tcp.local", sizeof(peers[1].instance_name) - 1);
+    strncpy(peers[1].hostname, "taipan-beta", sizeof(peers[1].hostname) - 1);
+    strncpy(peers[1].ip4,      "192.168.1.11", sizeof(peers[1].ip4) - 1);
+    strncpy(peers[1].worker,   "beta-worker",  sizeof(peers[1].worker)  - 1);
+    strncpy(peers[1].board,    "bitaxe-403",   sizeof(peers[1].board)   - 1);
+    strncpy(peers[1].version,  "1.2.0",        sizeof(peers[1].version) - 1);
+    strncpy(peers[1].state,    "ota",          sizeof(peers[1].state)   - 1);
+    peers[1].last_seen_us = 20000000LL;  /* 10 s ago */
 
     bb_json_t root = bb_json_arr_new();
-    build_knot_json(&s, root);
+    build_knot_json(peers, n_peers, now_us, root);
     char *json = serialize_and_free(root);
 
     TEST_ASSERT_EQUAL_STRING(

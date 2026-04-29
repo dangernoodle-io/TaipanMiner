@@ -506,7 +506,7 @@ static void process_message(const char *line)
 
 void stratum_task(void *arg)
 {
-    static char line[4096];
+    char line[4096];
 
     bb_log_i(TAG, "stratum task started");
 

@@ -12,7 +12,7 @@
 #include "stratum.h"
 #include "bb_nv.h"
 #include "taipan_config.h"
-#include "taipan_web.h"
+#include "webui.h"
 #include "display.h"
 #include "led.h"
 #include "esp_ota_ops.h"
@@ -232,7 +232,7 @@ void app_main(void)
     uint8_t boot_cnt = bb_nv_config_boot_count();
 
     // Register TaipanMiner-specific info extender for breadboard's /api/info endpoint
-    BB_ERROR_CHECK(taipan_web_register_info_extender());
+    BB_ERROR_CHECK(webui_register_info_extender());
 
     if (boot_cnt >= BB_NV_CONFIG_BOOT_FAIL_THRESHOLD && bb_nv_config_is_provisioned()) {
         bb_log_w(TAG, "boot_count=%" PRIu8 " >= %d: clearing provisioning for AP fallback",
@@ -293,10 +293,10 @@ void app_main(void)
         bb_mdns_set_txt("version", bb_system_get_version());
         bb_mdns_set_txt("state", "provisioning");
         BB_ERROR_CHECK(bb_prov_start_ap());
-        taipan_web_install_prov_save_cb();
+        webui_install_prov_save_cb();
         {
             size_t n;
-            const bb_http_asset_t *assets = taipan_web_prov_assets(&n);
+            const bb_http_asset_t *assets = webui_prov_assets(&n);
             BB_ERROR_CHECK(bb_prov_start(assets, n, NULL));
         }
 
@@ -401,7 +401,7 @@ void app_main(void)
             };
             BB_ERROR_CHECK(bb_manifest_register_mdns("_taipanminer._tcp", taipan_mdns_keys, sizeof(taipan_mdns_keys) / sizeof(taipan_mdns_keys[0])));
         }
-        BB_ERROR_CHECK(taipan_web_register_mining_routes(bb_http_server_get_handle()));
+        BB_ERROR_CHECK(webui_register_mining_routes(bb_http_server_get_handle()));
     }
 
     // Sync time via SNTP (UTC)

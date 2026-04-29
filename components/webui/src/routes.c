@@ -1,4 +1,4 @@
-#include "taipan_web.h"
+#include "webui.h"
 #include "bb_http.h"
 #include "bb_info.h"
 #include "bb_json.h"
@@ -445,7 +445,7 @@ static void taipan_info_extender(bb_json_t root)
     }
 }
 
-bb_err_t taipan_web_register_info_extender(void)
+bb_err_t webui_register_info_extender(void)
 {
     return bb_info_register_extender(taipan_info_extender);
 }
@@ -1155,7 +1155,7 @@ static const bb_route_t s_fan_route = {
 // REGISTRATION
 // ============================================================================
 
-void taipan_web_install_prov_save_cb(void)
+void webui_install_prov_save_cb(void)
 {
     bb_prov_set_save_callback(taipan_prov_save_cb);
 }
@@ -1168,7 +1168,7 @@ static bb_http_asset_t s_prov_assets[] = {
     { "/favicon.svg",       "image/svg+xml",          "gzip", NULL, 0 },
 };
 
-const bb_http_asset_t *taipan_web_prov_assets(size_t *n)
+const bb_http_asset_t *webui_prov_assets(size_t *n)
 {
     // Initialize asset data on first call
     static bool initialized = false;
@@ -1215,7 +1215,7 @@ static void init_mining_assets(void)
     }
 }
 
-bb_err_t taipan_web_register_mining_routes(bb_http_handle_t server)
+bb_err_t webui_register_mining_routes(bb_http_handle_t server)
 {
     // Cache WDT reset count — only changes on boot
     bb_nv_get_u32("taipanminer", "wdt_resets", &s_wdt_resets, 0);

@@ -67,7 +67,7 @@ For clangd-based C/C++ IntelliSense (via the `espidf-clangd-lsp` Claude Code plu
 
 - `src/` — app entry point, version
 - `components/` — ESP-IDF components:
-  - Local: `mining`, `stratum`, `board`, `asic`, `display`, `led`, `ota_validator`, `taipan_config`, `taipan_web`
+  - Local: `mining`, `stratum`, `board`, `asic`, `display`, `led`, `ota_validator`, `taipan_config`, `webui`
   - From breadboard: `log_stream`, `nv_config`, `ota_pull`, `ota_push`, `http_server`, `bb_wifi`, `bb_prov`, `bb_mdns`
 - `components/board/include/boards/` — per-board pin/peripheral headers
 - `sdkconfig/` — hand-authored sdkconfig deltas per board
@@ -140,11 +140,11 @@ TaipanMiner consumes shared infrastructure components from the breadboard librar
 
 **Build**: `cd webui && npm ci && npm run build` generates `webui/dist/index.html` + `assets/index.js` + `assets/index.css` + `favicon.svg` + `logo.svg` (stable filenames — no content hashes, as firmware version is the cache-buster).
 
-**Embed**: `components/taipan_web/CMakeLists.txt` references `webui/dist/*` via `bb_embed_assets`. Firmware build assumes `webui/dist/` exists — run `make webui` before `make build-<env>` if stale.
+**Embed**: `components/webui/CMakeLists.txt` references `webui/dist/*` via `bb_embed_assets`. Firmware build assumes `webui/dist/` exists — run `make webui` before `make build-<env>` if stale.
 
-**Provisioning-mode**: `prov_form.html` + `prov_save.html` in `components/taipan_web/` (hand-authored, unchanged).
+**Provisioning-mode**: `prov_form.html` + `prov_save.html` in `components/webui/` (hand-authored, unchanged).
 
-**Theme**: `theme.css` in `components/taipan_web/` is provisioning-only now; SPA has its own theme baked in.
+**Theme**: `theme.css` in `components/webui/` is provisioning-only now; SPA has its own theme baked in.
 
 **Dev loop**: `cd webui && npm run dev` with `VITE_MINER_URL=http://<miner-host>` in `webui/.env` — dev server proxies `/api/*` to the miner. Run against any tdongle/bitaxe on the network without reflashing. Works side-by-side with `--port 5174` for multi-device compare.
 

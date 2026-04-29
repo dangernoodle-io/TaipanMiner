@@ -1,6 +1,6 @@
 # TaipanMiner WebUI
 
-Modern Svelte + Vite frontend for the TaipanMiner dashboard, replacing the legacy HTML/CSS/JS UI in `components/taipan_web/`. This is a new replacement SPA shipped as part of the `jae/ui-redesign` branch.
+Modern Svelte + Vite frontend for the TaipanMiner dashboard, replacing the legacy HTML/CSS/JS UI in `components/webui/`. This is a new replacement SPA shipped as part of the `jae/ui-redesign` branch.
 
 ## Quick Start
 
@@ -35,7 +35,7 @@ Output goes to `dist/`. This bundle can be embedded into the firmware's `/` endp
 When ready to ship:
 
 1. Run `npm run build` to generate optimized assets
-2. Convert the `dist/` files into C byte arrays (using breadboard's `bb_embed_assets()` CMake helper, similar to the current `components/taipan_web/` setup)
+2. Convert the `dist/` files into C byte arrays (using breadboard's `bb_embed_assets()` CMake helper, similar to the current `components/webui/` setup)
 3. Update the firmware's `/` route handler to serve the new UI
 4. Update CI/release workflows to rebuild the firmware
 

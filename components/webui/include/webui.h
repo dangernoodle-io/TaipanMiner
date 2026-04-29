@@ -7,19 +7,16 @@
 #include "bb_http.h"
 
 // Returns the TM provisioning asset table. n is set to the entry count.
-const bb_http_asset_t *taipan_web_prov_assets(size_t *n);
+const bb_http_asset_t *webui_prov_assets(size_t *n);
 
 // Installs TM's save callback (for pool config fields).
-void taipan_web_install_prov_save_cb(void);
+void webui_install_prov_save_cb(void);
 
 // Register mining mode route handlers (called after provisioning completes).
 // Takes bb_http_handle_t and returns bb_err_t.
-bb_err_t taipan_web_register_mining_routes(bb_http_handle_t server);
-
-// Register preflight OPTIONS handler (called once at startup)
-bb_err_t taipan_web_register_preflight(bb_http_handle_t server);
+bb_err_t webui_register_mining_routes(bb_http_handle_t server);
 
 // Register TaipanMiner-specific info extender callback (call before HTTP server starts)
-bb_err_t taipan_web_register_info_extender(void);
+bb_err_t webui_register_info_extender(void);
 
 #endif

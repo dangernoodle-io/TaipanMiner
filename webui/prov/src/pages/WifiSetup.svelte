@@ -12,9 +12,15 @@
   let manualSsid = $state('')
   let pass = $state('')
   let showPass = $state(false)
+  let hostname = $state('')
   let wallet = $state('')
   let worker = $state('')
+  let workerEdited = $state(false)
   let poolHost = $state('')
+
+  $effect(() => {
+    if (!workerEdited) worker = hostname
+  })
   let poolPort = $state('')
   let poolPass = $state('')
   let errors = $state<Record<string, string>>({})
@@ -81,6 +87,7 @@
       await postSave({
         ssid,
         pass,
+        hostname,
         wallet,
         worker,
         pool_host: poolHost,
@@ -190,6 +197,19 @@
     <section>
       <h2>Mining</h2>
       <div class="form-group">
+        <label for="hostname">Hostname</label>
+        <input
+          id="hostname"
+          type="text"
+          value={hostname}
+          oninput={(e) => { hostname = e.currentTarget.value }}
+          maxlength="31"
+          placeholder="taipan-miner"
+          disabled={submitting}
+        />
+      </div>
+
+      <div class="form-group">
         <label for="wallet">Wallet Address</label>
         <input
           id="wallet"
@@ -209,7 +229,8 @@
         <input
           id="worker"
           type="text"
-          bind:value={worker}
+          value={worker}
+          oninput={(e) => { workerEdited = true; worker = e.currentTarget.value }}
           maxlength="31"
           placeholder="miner-1"
           disabled={submitting}

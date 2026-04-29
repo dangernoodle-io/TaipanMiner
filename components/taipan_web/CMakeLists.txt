@@ -3,14 +3,14 @@ include("${CMAKE_CURRENT_LIST_DIR}/../../.breadboard/cmake/bb_embed.cmake")
 bb_embed_assets(
     OUT_SRCS _embed_srcs
     ASSETS
-        prov_form.html:prov_form_html_gz
-        theme.css:theme_css_gz
         ../../webui/miner/dist/index.html:index_html_gz
         ../../webui/miner/dist/assets/index.js:index_js_gz
         ../../webui/miner/dist/assets/index.css:index_css_gz
         ../../webui/miner/dist/logo.svg:logo_svg_gz
         ../../webui/miner/dist/favicon.svg:favicon_svg_gz
-        prov_save.html:prov_save_html_gz
+        ../../webui/prov/dist/index.html:prov_index_html_gz
+        ../../webui/prov/dist/assets/index.js:prov_index_js_gz
+        ../../webui/prov/dist/assets/index.css:prov_index_css_gz
 )
 
 idf_component_register(

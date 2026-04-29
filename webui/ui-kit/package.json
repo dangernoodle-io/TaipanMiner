@@ -12,6 +12,10 @@
       "svelte": "./Select.svelte",
       "default": "./Select.svelte"
     },
+    "./WifiSelect.svelte": {
+      "svelte": "./WifiSelect.svelte",
+      "default": "./WifiSelect.svelte"
+    },
     "./theme.css": "./styles/theme.css",
     "./utilities.css": "./styles/utilities.css",
     "./logo.svg": "./assets/logo.svg"

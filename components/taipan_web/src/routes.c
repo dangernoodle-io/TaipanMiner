@@ -55,18 +55,18 @@ static void schedule_deferred_restart(void)
     xTaskCreate(deferred_restart_task, "deferred_restart", 2048, NULL, 5, NULL);
 }
 
-extern const uint8_t prov_form_html_gz[];
-extern const size_t prov_form_html_gz_len;
-extern const uint8_t theme_css_gz[];
-extern const size_t theme_css_gz_len;
 extern const uint8_t index_html_gz[];
 extern const size_t index_html_gz_len;
 extern const uint8_t index_js_gz[];
 extern const size_t index_js_gz_len;
 extern const uint8_t index_css_gz[];
 extern const size_t index_css_gz_len;
-extern const uint8_t prov_save_html_gz[];
-extern const size_t prov_save_html_gz_len;
+extern const uint8_t prov_index_html_gz[];
+extern const size_t prov_index_html_gz_len;
+extern const uint8_t prov_index_js_gz[];
+extern const size_t prov_index_js_gz_len;
+extern const uint8_t prov_index_css_gz[];
+extern const size_t prov_index_css_gz_len;
 extern const uint8_t logo_svg_gz[];
 extern const size_t logo_svg_gz_len;
 extern const uint8_t favicon_svg_gz[];
@@ -110,9 +110,14 @@ static bb_err_t taipan_prov_save_cb(bb_http_request_t *req, const char *body, in
         return BB_ERR_INVALID_ARG;
     }
 
-    // Derive hostname from worker if not provided
+    // Derive hostname from worker if not provided; otherwise normalize user input.
     if (hostname[0] == '\0') {
         bb_mdns_build_hostname(worker, NULL, hostname, sizeof(hostname));
+    } else {
+        char normalized[sizeof(hostname)];
+        bb_mdns_build_hostname(hostname, NULL, normalized, sizeof(normalized));
+        strncpy(hostname, normalized, sizeof(hostname));
+        hostname[sizeof(hostname) - 1] = '\0';
     }
 
     // Validate and save hostname
@@ -129,12 +134,8 @@ static bb_err_t taipan_prov_save_cb(bb_http_request_t *req, const char *body, in
     bb_http_resp_set_header(req, "Connection", "close");
     bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
     bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
-    bb_http_resp_set_header(req, "Content-Encoding", "gzip");
-    bb_http_resp_set_header(req, "Content-Type", "text/html");
-    bb_http_resp_send(req, (const char *)prov_save_html_gz, prov_save_html_gz_len);
+    bb_http_resp_send(req, "", 0);
 
-    // schedule deferred restart so config changes apply
-    schedule_deferred_restart();
     return BB_OK;
 }
 
@@ -387,28 +388,34 @@ static bb_err_t knot_handler(bb_http_request_t *req)
     }
     size_t peer_count = knot_snapshot(peers, ROUTES_JSON_MAX_PEERS);
 
-    knot_snapshot_t s = {0};
-    s.now_us  = esp_timer_get_time();
-    s.n_peers = peer_count < ROUTES_JSON_MAX_PEERS ? peer_count : ROUTES_JSON_MAX_PEERS;
-    for (size_t i = 0; i < s.n_peers; i++) {
-        strncpy(s.peers[i].instance, peers[i].instance_name, sizeof(s.peers[i].instance) - 1);
-        strncpy(s.peers[i].hostname, peers[i].hostname,      sizeof(s.peers[i].hostname)  - 1);
-        strncpy(s.peers[i].ip,       peers[i].ip4,           sizeof(s.peers[i].ip)        - 1);
-        strncpy(s.peers[i].worker,   peers[i].worker,        sizeof(s.peers[i].worker)    - 1);
-        strncpy(s.peers[i].board,    peers[i].board,         sizeof(s.peers[i].board)     - 1);
-        strncpy(s.peers[i].version,  peers[i].version,       sizeof(s.peers[i].version)   - 1);
-        strncpy(s.peers[i].state,    peers[i].state,         sizeof(s.peers[i].state)     - 1);
-        s.peers[i].last_seen_us = peers[i].last_seen_us;
+    knot_snapshot_t *s = calloc(1, sizeof(*s));
+    if (!s) {
+        free(peers);
+        bb_http_resp_send_err(req, 500, "out of memory");
+        return BB_ERR_INVALID_ARG;
+    }
+    s->now_us  = esp_timer_get_time();
+    s->n_peers = peer_count < ROUTES_JSON_MAX_PEERS ? peer_count : ROUTES_JSON_MAX_PEERS;
+    for (size_t i = 0; i < s->n_peers; i++) {
+        strncpy(s->peers[i].instance, peers[i].instance_name, sizeof(s->peers[i].instance) - 1);
+        strncpy(s->peers[i].hostname, peers[i].hostname,      sizeof(s->peers[i].hostname)  - 1);
+        strncpy(s->peers[i].ip,       peers[i].ip4,           sizeof(s->peers[i].ip)        - 1);
+        strncpy(s->peers[i].worker,   peers[i].worker,        sizeof(s->peers[i].worker)    - 1);
+        strncpy(s->peers[i].board,    peers[i].board,         sizeof(s->peers[i].board)     - 1);
+        strncpy(s->peers[i].version,  peers[i].version,       sizeof(s->peers[i].version)   - 1);
+        strncpy(s->peers[i].state,    peers[i].state,         sizeof(s->peers[i].state)     - 1);
+        s->peers[i].last_seen_us = peers[i].last_seen_us;
     }
     free(peers);
 
     bb_json_t root = bb_json_arr_new();
-    build_knot_json(&s, root);
+    build_knot_json(s, root);
     char *json = bb_json_serialize(root);
     bb_http_resp_set_header(req, "Content-Type", "application/json");
     bb_err_t rc = bb_http_resp_send(req, json, strlen(json));
     bb_json_free_str(json);
     bb_json_free(root);
+    free(s);
     return rc;
 }
 
@@ -1154,10 +1161,11 @@ void taipan_web_install_prov_save_cb(void)
 }
 
 static bb_http_asset_t s_prov_assets[] = {
-    { "/",            "text/html",     "gzip", NULL, 0  },
-    { "/theme.css",   "text/css",      "gzip", NULL, 0  },
-    { "/logo.svg",    "image/svg+xml", "gzip", NULL, 0  },
-    { "/favicon.ico", "image/svg+xml", "gzip", NULL, 0  },
+    { "/",                  "text/html",              "gzip", NULL, 0 },
+    { "/assets/index.js",   "application/javascript", "gzip", NULL, 0 },
+    { "/assets/index.css",  "text/css",               "gzip", NULL, 0 },
+    { "/logo.svg",          "image/svg+xml",          "gzip", NULL, 0 },
+    { "/favicon.svg",       "image/svg+xml",          "gzip", NULL, 0 },
 };
 
 const bb_http_asset_t *taipan_web_prov_assets(size_t *n)
@@ -1165,14 +1173,16 @@ const bb_http_asset_t *taipan_web_prov_assets(size_t *n)
     // Initialize asset data on first call
     static bool initialized = false;
     if (!initialized) {
-        s_prov_assets[0].data = prov_form_html_gz;
-        s_prov_assets[0].len = prov_form_html_gz_len;
-        s_prov_assets[1].data = theme_css_gz;
-        s_prov_assets[1].len = theme_css_gz_len;
-        s_prov_assets[2].data = logo_svg_gz;
-        s_prov_assets[2].len = logo_svg_gz_len;
-        s_prov_assets[3].data = favicon_svg_gz;
-        s_prov_assets[3].len = favicon_svg_gz_len;
+        s_prov_assets[0].data = prov_index_html_gz;
+        s_prov_assets[0].len = prov_index_html_gz_len;
+        s_prov_assets[1].data = prov_index_js_gz;
+        s_prov_assets[1].len = prov_index_js_gz_len;
+        s_prov_assets[2].data = prov_index_css_gz;
+        s_prov_assets[2].len = prov_index_css_gz_len;
+        s_prov_assets[3].data = logo_svg_gz;
+        s_prov_assets[3].len = logo_svg_gz_len;
+        s_prov_assets[4].data = favicon_svg_gz;
+        s_prov_assets[4].len = favicon_svg_gz_len;
         initialized = true;
     }
     *n = sizeof(s_prov_assets) / sizeof(s_prov_assets[0]);

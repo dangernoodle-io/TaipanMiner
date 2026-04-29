@@ -15,6 +15,7 @@ export async function fetchVersion(): Promise<string> {
 export type SaveBody = {
   ssid: string
   pass: string
+  hostname: string
   wallet: string
   worker: string
   pool_host: string

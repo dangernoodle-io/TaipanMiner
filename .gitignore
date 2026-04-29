@@ -1,6 +1,6 @@
 .pio/
 .platformio/
-.claude/worktrees/
+.claude/
 managed_components/
 sdkconfig.tdongle-s3
 sdkconfig.tdongle-s3-debug

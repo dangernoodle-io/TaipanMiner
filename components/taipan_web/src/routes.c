@@ -136,8 +136,6 @@ static bb_err_t taipan_prov_save_cb(bb_http_request_t *req, const char *body, in
     bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
     bb_http_resp_send(req, "", 0);
 
-    // schedule deferred restart so config changes apply
-    schedule_deferred_restart();
     return BB_OK;
 }
 

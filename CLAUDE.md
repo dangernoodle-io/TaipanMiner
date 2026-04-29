@@ -175,3 +175,22 @@ TaipanMiner consumes shared infrastructure components from the breadboard librar
 ## Releases
 
 Tagging is manual: `git tag -a vX.Y.Z -m 'chore: vX.Y.Z tag' && git push origin vX.Y.Z`. The `release.yml` workflow runs CI then publishes a GitHub release with auto-generated notes categorized by PR label (`.github/release.yml`). PR labels are auto-applied from conventional-commit prefixes; `new-component` PRs need that label set manually.
+
+### Decoding panics from a released binary
+
+Release artifacts ship `.bin` only. To get a matching ELF, rebuild the tag in Docker — the CI checkout path bakes into `__FILE__` strings and shifts rodata, so a Mac local build's ELF will misresolve `addr2line` against the released `.bin`.
+
+```bash
+docker run --rm -v $PWD:/out ubuntu:22.04 bash -c '
+  set -e
+  apt-get update -qq && apt-get install -y -qq python3.11 python3-pip git curl build-essential >/dev/null
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null && apt-get install -y -qq nodejs >/dev/null
+  npm i -g pnpm@9.15.9 && python3.11 -m pip install -q platformio
+  P=/home/runner/work/TaipanMiner/TaipanMiner   # path must match CI runner
+  git clone --depth 1 -b <tag> https://github.com/dangernoodle-io/TaipanMiner.git $P
+  (cd $P/webui && pnpm i --frozen-lockfile && pnpm --filter miner run build && pnpm --filter prov run build)
+  CI=1 pio run -C $P -e <env>
+  cp $P/.pio/build/<env>/firmware.{bin,elf} /out/'
+```
+
+Decode: `xtensa-esp-elf-addr2line -pfiaC -e firmware.elf <PC>`. `firmware.bin` matches the release byte-for-byte except for ~68 bytes of timestamp/SHA fields.

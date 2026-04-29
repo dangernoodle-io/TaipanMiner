@@ -109,7 +109,6 @@ jobs:
         run: |
           cp .pio/build/${{ matrix.env }}/firmware.bin taipanminer-${{ matrix.env }}.bin
           cp .pio/build/${{ matrix.env }}/firmware.factory.bin taipanminer-${{ matrix.env }}-factory.bin
-          cp .pio/build/${{ matrix.env }}/firmware.elf taipanminer-${{ matrix.env }}.elf
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -117,7 +116,6 @@ jobs:
           path: |
             taipanminer-${{ matrix.env }}.bin
             taipanminer-${{ matrix.env }}-factory.bin
-            taipanminer-${{ matrix.env }}.elf
 
   aggregate:
     needs: build

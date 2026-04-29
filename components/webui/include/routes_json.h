@@ -22,7 +22,10 @@
  * stays undefined and all ASIC-gated blocks are excluded. */
 #ifdef ESP_PLATFORM
 #include "asic_chip.h"
+#include "bb_mdns.h"  /* Needed before knot.h so bb_mdns_txt_t is defined */
 #endif
+
+#include "knot.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -169,25 +172,10 @@ void build_diag_asic_json(const diag_asic_snapshot_t *s, bb_json_t root);
 
 #define ROUTES_JSON_MAX_PEERS 32
 
-typedef struct {
-    char    instance[64];
-    char    hostname[64];
-    char    ip[16];
-    char    worker[33];
-    char    board[24];
-    char    version[24];
-    char    state[16];
-    int64_t last_seen_us;
-} routes_json_peer_t;
 
-typedef struct {
-    routes_json_peer_t peers[ROUTES_JSON_MAX_PEERS];
-    size_t  n_peers;
-    int64_t now_us;
-} knot_snapshot_t;
-
-/* Writes a JSON array into root (which must be bb_json_arr_new()). */
-void build_knot_json(const knot_snapshot_t *s, bb_json_t root);
+/* Writes a JSON array into root (which must be bb_json_arr_new()).
+ * Walks knot_peer_t directly, mapping field names at JSON write time. */
+void build_knot_json(const knot_peer_t *peers, size_t n_peers, int64_t now_us, bb_json_t root);
 
 /* ============================================================================
  * /api/settings GET

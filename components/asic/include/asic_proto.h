@@ -33,6 +33,10 @@
 #define ASIC_JOB_ID_STEP    24
 #define ASIC_JOB_ID_MOD     128
 
+// Local job-cache capacity. Decoupled from the wire-protocol modulus so we
+// can shrink BSS without changing the wire format.
+#define ASIC_JOB_TABLE_SIZE 16
+
 // --- Preambles ---
 #define ASIC_PREAMBLE_TX_0  0x55
 #define ASIC_PREAMBLE_TX_1  0xAA
@@ -93,3 +97,22 @@ uint32_t asic_decode_version_bits(const asic_nonce_t *nonce);
 // Compute the 4-byte ASIC ticket mask for a given pool difficulty.
 // Output is in wire format (BE, per-byte bit-reversed) ready to write to register 0x14.
 void asic_difficulty_to_mask(double difficulty, uint8_t mask_out[4]);
+
+// --- Job-cache helpers (pure; used by asic_task.c and unit tests) ---
+
+// Map a wire-protocol real_job_id (0..ASIC_JOB_ID_MOD-1) to a table slot index.
+static inline size_t asic_job_slot(uint8_t real_job_id) {
+    return real_job_id % ASIC_JOB_TABLE_SIZE;
+}
+
+// Return true if a nonce should be dropped: the slot was last written for a
+// different real_job_id (recycled slot), or was never written (empty slot,
+// indicated by the sentinel job_id_seen value of 0 with an empty work entry).
+// slot_id_seen  — the s_job_id_seen[slot] value stored at dispatch time
+// work_job_id_0 — first byte of s_job_table[slot].job_id (empty check)
+// real_job_id   — the id decoded from the nonce wire frame
+static inline bool asic_job_slot_stale(uint8_t slot_id_seen,
+                                       char    work_job_id_0,
+                                       uint8_t real_job_id) {
+    return slot_id_seen != real_job_id || work_job_id_0 == '\0';
+}

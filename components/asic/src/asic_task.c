@@ -47,9 +47,16 @@ static const char *TAG = "asic";
 // --- I2C bus handle (initialized in asic_init, shared with display) ---
 static i2c_master_bus_handle_t s_i2c_bus;
 
-// --- Active job table (static to avoid stack allocation ~28 KB) ---
-static mining_work_t s_job_table[ASIC_JOB_ID_MOD];
+// --- Active job table ---
+// Size decoupled from wire-protocol modulus (ASIC_JOB_ID_MOD=128) to reclaim
+// ~24 KB BSS. Slot is selected by real_job_id % ASIC_JOB_TABLE_SIZE; a
+// generation counter + stored identity guard detect stale/recycled-slot nonces.
+static mining_work_t s_job_table[ASIC_JOB_TABLE_SIZE];
+static uint8_t       s_job_gen[ASIC_JOB_TABLE_SIZE];     // incremented on each overwrite
+static uint8_t       s_job_id_seen[ASIC_JOB_TABLE_SIZE]; // raw real_job_id last stored here
 static uint8_t s_next_job_id;
+
+// asic_job_slot() is provided as asic_asic_job_slot() in asic_proto.h (public inline).
 static uint32_t s_current_work_seq;
 static double s_current_asic_diff = 0;
 
@@ -283,7 +290,9 @@ bb_err_t asic_init(void)
 
     // Initialize state
     s_next_job_id = 0;
-    memset(s_job_table, 0, sizeof(s_job_table));
+    memset(s_job_table,    0, sizeof(s_job_table));
+    memset(s_job_gen,      0, sizeof(s_job_gen));
+    memset(s_job_id_seen,  0, sizeof(s_job_id_seen));
     init_avg_buffers();
 
     bb_log_i(TAG, "ASIC subsystem ready");
@@ -346,7 +355,9 @@ void asic_mining_task(void *arg)
         if (work.work_seq != s_current_work_seq) {
             // Clean job: invalidate all active slots
             if (work.clean) {
-                memset(s_job_table, 0, sizeof(s_job_table));
+                memset(s_job_table,   0, sizeof(s_job_table));
+                memset(s_job_gen,     0, sizeof(s_job_gen));
+                memset(s_job_id_seen, 0, sizeof(s_job_id_seen));
             }
             asic_nonce_dedup_reset(&s_dedup);
 
@@ -361,8 +372,11 @@ void asic_mining_task(void *arg)
             asic_build_job(pkt, sizeof(pkt), &job);
             asic_uart_write(pkt, ASIC_JOB_PKT_LEN);
 
-            // Store in job table
-            memcpy(&s_job_table[s_next_job_id], &work, sizeof(work));
+            // Store in job table slot (generation guard: detect stale recycled slots)
+            size_t slot = asic_job_slot(s_next_job_id);
+            memcpy(&s_job_table[slot], &work, sizeof(work));
+            s_job_id_seen[slot] = s_next_job_id;
+            s_job_gen[slot]++;
             s_current_work_seq = work.work_seq;
 
             bb_log_d(TAG, "job dispatched (id=%u hw_id=%u)", 0, s_next_job_id);
@@ -527,12 +541,21 @@ void asic_mining_task(void *arg)
 
             // Decode job ID and look up
             uint8_t real_job_id = asic_decode_job_id(&nonce);
-            if (real_job_id >= ASIC_JOB_ID_MOD || s_job_table[real_job_id].job_id[0] == '\0') {
-                bb_log_w(TAG, "nonce for unknown job_id=%u", real_job_id);
+            if (real_job_id >= ASIC_JOB_ID_MOD) {
+                bb_log_w(TAG, "nonce: real_job_id=%u out of wire range, dropped", real_job_id);
+                continue;
+            }
+            size_t recv_slot = asic_job_slot(real_job_id);
+            if (asic_job_slot_stale(s_job_id_seen[recv_slot],
+                                    s_job_table[recv_slot].job_id[0],
+                                    real_job_id)) {
+                // Stale: the slot has been recycled for a different job ID, or was never written.
+                bb_log_w(TAG, "nonce for unknown/stale job_id=%u (slot=%zu seen=%u), dropped",
+                         real_job_id, recv_slot, s_job_id_seen[recv_slot]);
                 continue;
             }
 
-            mining_work_t *orig = &s_job_table[real_job_id];
+            mining_work_t *orig = &s_job_table[recv_slot];
             uint32_t ver_bits = asic_decode_version_bits(&nonce);
             uint32_t nonce_val = ((uint32_t)nonce.nonce[0] << 24) | ((uint32_t)nonce.nonce[1] << 16) |
                                  ((uint32_t)nonce.nonce[2] << 8) | nonce.nonce[3];

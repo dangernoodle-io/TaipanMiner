@@ -93,6 +93,20 @@ void test_pll_vdo_scale_high(void);
 void test_pll_vdo_scale_low(void);
 void test_pll_postdiv_byte(void);
 
+// Forward declarations from test_asic_job_table.c (TA-297)
+void test_job_slot_id_zero_maps_to_zero(void);
+void test_job_slot_id_below_table_size_maps_to_itself(void);
+void test_job_slot_wraps_at_table_size(void);
+void test_job_slot_step24_id_maps_correctly(void);
+void test_job_slot_max_wire_id(void);
+void test_job_slot_stale_matching_id_nonempty_accepted(void);
+void test_job_slot_stale_recycled_slot_rejected(void);
+void test_job_slot_stale_empty_slot_rejected(void);
+void test_job_slot_stale_id_match_but_slot_empty_rejected(void);
+void test_job_slot_at_wire_boundary_mod_rejected_upstream(void);
+void test_job_slot_stale_mismatch_rejected_regardless_of_work_content(void);
+void test_job_slot_all_stride24_ids_are_distinct_slots(void);
+
 // Forward declarations from test_asic_proto.c
 void test_build_cmd_inactive(void);
 void test_build_cmd_read_chipid(void);
@@ -581,6 +595,20 @@ int main(void) {
     RUN_TEST(test_pll_vdo_scale_high);
     RUN_TEST(test_pll_vdo_scale_low);
     RUN_TEST(test_pll_postdiv_byte);
+
+    // TA-297: ASIC job-table slot-mapping and staleness guard tests
+    RUN_TEST(test_job_slot_id_zero_maps_to_zero);
+    RUN_TEST(test_job_slot_id_below_table_size_maps_to_itself);
+    RUN_TEST(test_job_slot_wraps_at_table_size);
+    RUN_TEST(test_job_slot_step24_id_maps_correctly);
+    RUN_TEST(test_job_slot_max_wire_id);
+    RUN_TEST(test_job_slot_stale_matching_id_nonempty_accepted);
+    RUN_TEST(test_job_slot_stale_recycled_slot_rejected);
+    RUN_TEST(test_job_slot_stale_empty_slot_rejected);
+    RUN_TEST(test_job_slot_stale_id_match_but_slot_empty_rejected);
+    RUN_TEST(test_job_slot_at_wire_boundary_mod_rejected_upstream);
+    RUN_TEST(test_job_slot_stale_mismatch_rejected_regardless_of_work_content);
+    RUN_TEST(test_job_slot_all_stride24_ids_are_distinct_slots);
 
     // BM1370 framing tests
     RUN_TEST(test_build_cmd_inactive);

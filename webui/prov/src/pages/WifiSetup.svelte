@@ -82,18 +82,34 @@
     submitting = true
     submitError = null
 
+    const ssid = selectedSsid === '__manual__' ? manualSsid : selectedSsid
+    const savePromise = postSave({
+      ssid,
+      pass,
+      hostname,
+      wallet,
+      worker,
+      pool_host: poolHost,
+      pool_port: poolPort,
+      pool_pass: poolPass
+    })
+
+    // The device tears down its AP ~500ms after responding, so the fetch may
+    // never resolve. Race a short timeout: if the request hasn't errored by
+    // then, assume it succeeded and advance the UI. Validation errors (400)
+    // typically return in <100ms, so they still surface.
+    const TIMEOUT_MS = 1500
+    let timedOut = false
+    const timeout = new Promise<void>(resolve =>
+      setTimeout(() => { timedOut = true; resolve() }, TIMEOUT_MS)
+    )
+
     try {
-      const ssid = selectedSsid === '__manual__' ? manualSsid : selectedSsid
-      await postSave({
-        ssid,
-        pass,
-        hostname,
-        wallet,
-        worker,
-        pool_host: poolHost,
-        pool_port: poolPort,
-        pool_pass: poolPass
-      })
+      await Promise.race([savePromise, timeout])
+      if (timedOut) {
+        onSaved()
+        return
+      }
       onSaved()
     } catch (e) {
       submitError = `Save failed: ${e instanceof Error ? e.message : 'Unknown error'}`

@@ -129,7 +129,27 @@ static bb_err_t taipan_prov_save_cb(bb_http_request_t *req, const char *body, in
         return BB_ERR_INVALID_ARG;
     }
 
-    if (taipan_config_set_pool(pool_host, port, wallet, worker, pool_pass) != BB_OK) {
+    // Use atomic setter (TA-290 phase C): construct primary pool, preserve fallback.
+    taipan_pool_cfg_t primary = {0};
+    strncpy(primary.host,   pool_host, sizeof(primary.host)   - 1);
+    primary.port = port;
+    strncpy(primary.wallet, wallet,    sizeof(primary.wallet) - 1);
+    strncpy(primary.worker, worker,    sizeof(primary.worker) - 1);
+    strncpy(primary.pass,   pool_pass, sizeof(primary.pass)   - 1);
+
+    // Preserve any existing fallback config (factory provisioning is primary-only).
+    taipan_pool_cfg_t fallback = {0};
+    bool has_fallback = taipan_config_pool_configured(TAIPAN_POOL_FALLBACK);
+    if (has_fallback) {
+        strncpy(fallback.host,   taipan_config_pool_host_idx(TAIPAN_POOL_FALLBACK),   sizeof(fallback.host)   - 1);
+        fallback.port = taipan_config_pool_port_idx(TAIPAN_POOL_FALLBACK);
+        strncpy(fallback.wallet, taipan_config_wallet_addr_idx(TAIPAN_POOL_FALLBACK), sizeof(fallback.wallet) - 1);
+        strncpy(fallback.worker, taipan_config_worker_name_idx(TAIPAN_POOL_FALLBACK), sizeof(fallback.worker) - 1);
+        strncpy(fallback.pass,   taipan_config_pool_pass_idx(TAIPAN_POOL_FALLBACK),   sizeof(fallback.pass)   - 1);
+    }
+
+    bb_err_t err = taipan_config_set_pools(&primary, has_fallback ? &fallback : NULL);
+    if (err != BB_OK) {
         bb_http_resp_send_err(req, 500, "Failed to save config");
         return BB_ERR_INVALID_ARG;
     }
@@ -324,6 +344,250 @@ static bb_err_t pool_handler(bb_http_request_t *req)
     return rc;
 }
 
+// ---------------------------------------------------------------------------
+// /api/pool — PUT (TA-290/TA-202 phase C)
+// Set primary and optional fallback pool config atomically.
+// ---------------------------------------------------------------------------
+
+static bb_err_t pool_put_handler(bb_http_request_t *req)
+{
+    set_common_headers(req);
+
+    char body[768];
+    int body_len = bb_http_req_body_len(req);
+    if (body_len > sizeof(body) - 1) {
+        bb_http_resp_send_err(req, 400, "Body too large");
+        return BB_ERR_INVALID_ARG;
+    }
+    int len = bb_http_req_recv(req, body, sizeof(body) - 1);
+    if (len <= 0) {
+        bb_http_resp_send_err(req, 400, "Empty body");
+        return BB_ERR_INVALID_ARG;
+    }
+    body[len] = '\0';
+
+    bb_json_t root = bb_json_parse(body, 0);
+    if (!root) {
+        bb_http_resp_send_err(req, 400, "Invalid JSON");
+        return BB_ERR_INVALID_ARG;
+    }
+
+    // Parse primary pool (required)
+    bb_json_t primary_obj = bb_json_obj_get_item(root, "primary");
+    if (!primary_obj) {
+        bb_json_free(root);
+        bb_http_resp_send_err(req, 400, "primary pool required");
+        return BB_ERR_INVALID_ARG;
+    }
+
+    taipan_pool_cfg_t primary = {0};
+    bb_json_t j;
+
+    j = bb_json_obj_get_item(primary_obj, "host");
+    if (j && bb_json_item_is_string(j)) {
+        strncpy(primary.host, bb_json_item_get_string(j), sizeof(primary.host) - 1);
+    }
+    if (primary.host[0] == '\0') {
+        bb_json_free(root);
+        bb_http_resp_send_err(req, 400, "primary host required");
+        return BB_ERR_INVALID_ARG;
+    }
+
+    j = bb_json_obj_get_item(primary_obj, "port");
+    if (j && bb_json_item_is_number(j)) {
+        primary.port = (uint16_t)bb_json_item_get_double(j);
+    }
+    if (primary.port == 0 || primary.port > 65535) {
+        bb_json_free(root);
+        bb_http_resp_send_err(req, 400, "primary port must be in [1, 65535]");
+        return BB_ERR_INVALID_ARG;
+    }
+
+    j = bb_json_obj_get_item(primary_obj, "wallet");
+    if (j && bb_json_item_is_string(j)) {
+        strncpy(primary.wallet, bb_json_item_get_string(j), sizeof(primary.wallet) - 1);
+    }
+    if (primary.wallet[0] == '\0') {
+        bb_json_free(root);
+        bb_http_resp_send_err(req, 400, "primary wallet required");
+        return BB_ERR_INVALID_ARG;
+    }
+
+    j = bb_json_obj_get_item(primary_obj, "worker");
+    if (j && bb_json_item_is_string(j)) {
+        strncpy(primary.worker, bb_json_item_get_string(j), sizeof(primary.worker) - 1);
+    }
+    if (primary.worker[0] == '\0') {
+        bb_json_free(root);
+        bb_http_resp_send_err(req, 400, "primary worker required");
+        return BB_ERR_INVALID_ARG;
+    }
+
+    j = bb_json_obj_get_item(primary_obj, "pool_pass");
+    if (j && bb_json_item_is_string(j)) {
+        strncpy(primary.pass, bb_json_item_get_string(j), sizeof(primary.pass) - 1);
+    }
+
+    // Parse fallback pool (optional; null or missing clears it)
+    taipan_pool_cfg_t fallback = {0};
+    taipan_pool_cfg_t *fallback_ptr = NULL;
+
+    bb_json_t fallback_obj = bb_json_obj_get_item(root, "fallback");
+    if (fallback_obj && bb_json_item_is_object(fallback_obj)) {
+        j = bb_json_obj_get_item(fallback_obj, "host");
+        if (j && bb_json_item_is_string(j)) {
+            strncpy(fallback.host, bb_json_item_get_string(j), sizeof(fallback.host) - 1);
+        }
+        if (fallback.host[0] == '\0') {
+            bb_json_free(root);
+            bb_http_resp_send_err(req, 400, "fallback host required if provided");
+            return BB_ERR_INVALID_ARG;
+        }
+
+        j = bb_json_obj_get_item(fallback_obj, "port");
+        if (j && bb_json_item_is_number(j)) {
+            fallback.port = (uint16_t)bb_json_item_get_double(j);
+        }
+        if (fallback.port == 0 || fallback.port > 65535) {
+            bb_json_free(root);
+            bb_http_resp_send_err(req, 400, "fallback port must be in [1, 65535]");
+            return BB_ERR_INVALID_ARG;
+        }
+
+        j = bb_json_obj_get_item(fallback_obj, "wallet");
+        if (j && bb_json_item_is_string(j)) {
+            strncpy(fallback.wallet, bb_json_item_get_string(j), sizeof(fallback.wallet) - 1);
+        }
+        if (fallback.wallet[0] == '\0') {
+            bb_json_free(root);
+            bb_http_resp_send_err(req, 400, "fallback wallet required if provided");
+            return BB_ERR_INVALID_ARG;
+        }
+
+        j = bb_json_obj_get_item(fallback_obj, "worker");
+        if (j && bb_json_item_is_string(j)) {
+            strncpy(fallback.worker, bb_json_item_get_string(j), sizeof(fallback.worker) - 1);
+        }
+        if (fallback.worker[0] == '\0') {
+            bb_json_free(root);
+            bb_http_resp_send_err(req, 400, "fallback worker required if provided");
+            return BB_ERR_INVALID_ARG;
+        }
+
+        j = bb_json_obj_get_item(fallback_obj, "pool_pass");
+        if (j && bb_json_item_is_string(j)) {
+            strncpy(fallback.pass, bb_json_item_get_string(j), sizeof(fallback.pass) - 1);
+        }
+
+        fallback_ptr = &fallback;
+    }
+
+    // Determine if reboot is needed by comparing against current values
+    bool reboot_required = false;
+    if (strcmp(primary.host, taipan_config_pool_host_idx(TAIPAN_POOL_PRIMARY)) != 0 ||
+        primary.port != taipan_config_pool_port_idx(TAIPAN_POOL_PRIMARY) ||
+        strcmp(primary.wallet, taipan_config_wallet_addr_idx(TAIPAN_POOL_PRIMARY)) != 0 ||
+        strcmp(primary.worker, taipan_config_worker_name_idx(TAIPAN_POOL_PRIMARY)) != 0 ||
+        strcmp(primary.pass, taipan_config_pool_pass_idx(TAIPAN_POOL_PRIMARY)) != 0) {
+        reboot_required = true;
+    }
+
+    bool current_fallback_configured = taipan_config_pool_configured(TAIPAN_POOL_FALLBACK);
+    bool new_fallback_configured = (fallback_ptr != NULL);
+    if (current_fallback_configured != new_fallback_configured) {
+        reboot_required = true;
+    } else if (new_fallback_configured) {
+        if (strcmp(fallback.host, taipan_config_pool_host_idx(TAIPAN_POOL_FALLBACK)) != 0 ||
+            fallback.port != taipan_config_pool_port_idx(TAIPAN_POOL_FALLBACK) ||
+            strcmp(fallback.wallet, taipan_config_wallet_addr_idx(TAIPAN_POOL_FALLBACK)) != 0 ||
+            strcmp(fallback.worker, taipan_config_worker_name_idx(TAIPAN_POOL_FALLBACK)) != 0 ||
+            strcmp(fallback.pass, taipan_config_pool_pass_idx(TAIPAN_POOL_FALLBACK)) != 0) {
+            reboot_required = true;
+        }
+    }
+
+    // Set pools atomically
+    bb_err_t err = taipan_config_set_pools(&primary, fallback_ptr);
+    if (err != BB_OK) {
+        bb_json_free(root);
+        bb_http_resp_set_status(req, 500);
+        bb_http_resp_set_header(req, "Content-Type", "text/plain");
+        static const char *msg = "Failed to save config";
+        bb_http_resp_send(req, msg, strlen(msg));
+        return err;
+    }
+
+    bb_json_free(root);
+
+    // Response: 200 with reboot_required flag
+    char resp[64];
+    snprintf(resp, sizeof(resp), "{\"reboot_required\":%s}",
+             reboot_required ? "true" : "false");
+    bb_http_resp_set_header(req, "Content-Type", "application/json");
+    return bb_http_resp_send(req, resp, strlen(resp));
+}
+
+// ---------------------------------------------------------------------------
+// /api/pool/switch — POST (TA-290/TA-202 phase C)
+// Switch active pool to primary (idx=0) or fallback (idx=1).
+// ---------------------------------------------------------------------------
+
+static bb_err_t pool_switch_handler(bb_http_request_t *req)
+{
+    set_common_headers(req);
+
+    char body[64];
+    int body_len = bb_http_req_body_len(req);
+    if (body_len > sizeof(body) - 1) {
+        bb_http_resp_send_err(req, 400, "Body too large");
+        return BB_ERR_INVALID_ARG;
+    }
+    int len = bb_http_req_recv(req, body, sizeof(body) - 1);
+    if (len <= 0) {
+        bb_http_resp_send_err(req, 400, "Empty body");
+        return BB_ERR_INVALID_ARG;
+    }
+    body[len] = '\0';
+
+    bb_json_t root = bb_json_parse(body, 0);
+    if (!root) {
+        bb_http_resp_send_err(req, 400, "Invalid JSON");
+        return BB_ERR_INVALID_ARG;
+    }
+
+    int idx = -1;
+    bb_json_t j = bb_json_obj_get_item(root, "idx");
+    if (j && bb_json_item_is_number(j)) {
+        idx = (int)bb_json_item_get_double(j);
+    }
+
+    if (idx != 0 && idx != 1) {
+        bb_json_free(root);
+        bb_http_resp_send_err(req, 400, "idx must be 0 or 1");
+        return BB_ERR_INVALID_ARG;
+    }
+
+    bb_err_t err = stratum_request_switch_pool(idx);
+    bb_json_free(root);
+
+    if (err == BB_ERR_INVALID_ARG) {
+        bb_http_resp_set_status(req, 400);
+        bb_http_resp_set_header(req, "Content-Type", "text/plain");
+        char msg[64];
+        snprintf(msg, sizeof(msg), "pool slot %d is not configured", idx);
+        return bb_http_resp_send(req, msg, strlen(msg));
+    } else if (err != BB_OK) {
+        bb_http_resp_set_status(req, 500);
+        bb_http_resp_set_header(req, "Content-Type", "text/plain");
+        static const char *msg = "Failed to switch pool";
+        return bb_http_resp_send(req, msg, strlen(msg));
+    }
+
+    // 204 No Content on success
+    bb_http_resp_set_status(req, 204);
+    return bb_http_resp_send(req, "", 0);
+}
+
 #ifdef ASIC_CHIP
 static bb_err_t power_handler(bb_http_request_t *req)
 {
@@ -439,18 +703,9 @@ static bb_err_t settings_get_handler(bb_http_request_t *req)
 
     settings_snapshot_t s = {0};
     {
-        const char *h = taipan_config_pool_host();
-        if (h) strncpy(s.pool_host, h, sizeof(s.pool_host) - 1);
-        const char *wa = taipan_config_wallet_addr();
-        if (wa) strncpy(s.wallet, wa, sizeof(s.wallet) - 1);
-        const char *wk = taipan_config_worker_name();
-        if (wk) strncpy(s.worker, wk, sizeof(s.worker) - 1);
-        const char *pp = taipan_config_pool_pass();
-        if (pp) strncpy(s.pool_pass, pp, sizeof(s.pool_pass) - 1);
         const char *hn = taipan_config_hostname();
         if (hn) strncpy(s.hostname, hn, sizeof(s.hostname) - 1);
     }
-    s.pool_port      = taipan_config_pool_port();
     s.display_en     = bb_nv_config_display_enabled();
     s.ota_skip_check = bb_nv_config_ota_skip_check();
 
@@ -646,31 +901,22 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
         return BB_ERR_INVALID_ARG;
     }
 
+    // TA-290 phase C: reject pool fields from PATCH (moved to /api/pool)
+    if (bb_json_obj_get_item(root, "pool_host") ||
+        bb_json_obj_get_item(root, "pool_port") ||
+        bb_json_obj_get_item(root, "wallet") ||
+        bb_json_obj_get_item(root, "worker") ||
+        bb_json_obj_get_item(root, "pool_pass")) {
+        bb_json_free(root);
+        bb_http_resp_send_err(req, 400, "pool config moved to /api/pool");
+        return BB_ERR_INVALID_ARG;
+    }
+
     // Extract fields — use current values as defaults for PATCH
-    const char *pool_host = taipan_config_pool_host();
-    uint16_t pool_port = taipan_config_pool_port();
-    const char *wallet = taipan_config_wallet_addr();
-    const char *worker = taipan_config_worker_name();
-    const char *pool_pass = taipan_config_pool_pass();
     const char *hostname = taipan_config_hostname();
     bool reboot_required = false;
 
     bb_json_t j;
-
-    j = bb_json_obj_get_item(root, "pool_host");
-    if (j && bb_json_item_is_string(j)) { pool_host = bb_json_item_get_string(j); }
-
-    j = bb_json_obj_get_item(root, "pool_port");
-    if (j && bb_json_item_is_number(j)) { pool_port = (uint16_t)bb_json_item_get_double(j); }
-
-    j = bb_json_obj_get_item(root, "wallet");
-    if (j && bb_json_item_is_string(j)) { wallet = bb_json_item_get_string(j); }
-
-    j = bb_json_obj_get_item(root, "worker");
-    if (j && bb_json_item_is_string(j)) { worker = bb_json_item_get_string(j); }
-
-    j = bb_json_obj_get_item(root, "pool_pass");
-    if (j && bb_json_item_is_string(j)) { pool_pass = bb_json_item_get_string(j); }
 
     j = bb_json_obj_get_item(root, "hostname");
     if (j && bb_json_item_is_string(j)) { hostname = bb_json_item_get_string(j); }
@@ -688,43 +934,9 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
         }
     }
 
-    // Compare against current values to determine if reboot is needed
-    if (strcmp(pool_host, taipan_config_pool_host()) != 0 ||
-        pool_port != taipan_config_pool_port() ||
-        strcmp(wallet, taipan_config_wallet_addr()) != 0 ||
-        strcmp(worker, taipan_config_worker_name()) != 0 ||
-        strcmp(pool_pass, taipan_config_pool_pass()) != 0 ||
-        hostname_changed) {
+    // Determine if reboot is needed (hostname changes require reboot)
+    if (hostname_changed) {
         reboot_required = true;
-    }
-
-    // Validate
-    if (pool_host[0] == '\0' || wallet[0] == '\0' || worker[0] == '\0') {
-        bb_json_free(root);
-        bb_http_resp_send_err(req, 400, "pool_host, wallet, worker must not be empty");
-        return BB_ERR_INVALID_ARG;
-    }
-    if (pool_port == 0) {
-        bb_json_free(root);
-        bb_http_resp_send_err(req, 400, "pool_port must be > 0");
-        return BB_ERR_INVALID_ARG;
-    }
-
-    // Save mining config if any mining field was provided
-    if (reboot_required && !hostname_changed) {
-        bb_err_t err = taipan_config_set_pool(pool_host, pool_port, wallet, worker, pool_pass);
-        if (err != BB_OK) {
-            bb_json_free(root);
-            bb_http_resp_send_err(req, 500, "Failed to save config");
-            return BB_ERR_INVALID_ARG;
-        }
-    } else if (reboot_required && hostname_changed) {
-        bb_err_t err = taipan_config_set_pool(pool_host, pool_port, wallet, worker, pool_pass);
-        if (err != BB_OK) {
-            bb_json_free(root);
-            bb_http_resp_send_err(req, 500, "Failed to save config");
-            return BB_ERR_INVALID_ARG;
-        }
     }
 
     // Handle display_en separately (takes effect immediately, no reboot needed)
@@ -875,6 +1087,80 @@ static const bb_route_t s_pool_route = {
     .operation_id = "getPool",
     .responses    = s_pool_responses,
     .handler      = pool_handler,
+};
+
+// ---------------------------------------------------------------------------
+// /api/pool — PUT (TA-290/TA-202 phase C)
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_pool_put_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"reboot_required\":{\"type\":\"boolean\"}},"
+      "\"required\":[\"reboot_required\"]}",
+      "pool config saved" },
+    { 400, "text/plain", NULL, "validation error" },
+    { 500, "text/plain", NULL, "save failed" },
+    { 0 },
+};
+
+static const bb_route_t s_pool_put_route = {
+    .method               = BB_HTTP_PUT,
+    .path                 = "/api/pool",
+    .tag                  = "pool",
+    .summary              = "Set primary and fallback pool config",
+    .operation_id         = "putPool",
+    .request_content_type = "application/json",
+    .request_schema       =
+        "{\"type\":\"object\","
+        "\"properties\":{"
+        "\"primary\":{\"type\":\"object\","
+        "\"properties\":{"
+        "\"host\":{\"type\":\"string\"},"
+        "\"port\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":65535},"
+        "\"wallet\":{\"type\":\"string\"},"
+        "\"worker\":{\"type\":\"string\"},"
+        "\"pool_pass\":{\"type\":\"string\"}},"
+        "\"required\":[\"host\",\"port\",\"wallet\",\"worker\"]},"
+        "\"fallback\":{\"type\":[\"object\",\"null\"],"
+        "\"properties\":{"
+        "\"host\":{\"type\":\"string\"},"
+        "\"port\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":65535},"
+        "\"wallet\":{\"type\":\"string\"},"
+        "\"worker\":{\"type\":\"string\"},"
+        "\"pool_pass\":{\"type\":\"string\"}},"
+        "\"required\":[\"host\",\"port\",\"wallet\",\"worker\"]}},"
+        "\"required\":[\"primary\"]}",
+    .responses            = s_pool_put_responses,
+    .handler              = pool_put_handler,
+};
+
+// ---------------------------------------------------------------------------
+// /api/pool/switch — POST (TA-290/TA-202 phase C)
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_pool_switch_responses[] = {
+    { 204, NULL, NULL, "pool switch initiated" },
+    { 400, "text/plain", NULL, "validation error or pool not configured" },
+    { 500, "text/plain", NULL, "switch failed" },
+    { 0 },
+};
+
+static const bb_route_t s_pool_switch_route = {
+    .method               = BB_HTTP_POST,
+    .path                 = "/api/pool/switch",
+    .tag                  = "pool",
+    .summary              = "Switch active pool",
+    .operation_id         = "switchPool",
+    .request_content_type = "application/json",
+    .request_schema       =
+        "{\"type\":\"object\","
+        "\"properties\":{"
+        "\"idx\":{\"type\":\"integer\",\"enum\":[0,1]}},"
+        "\"required\":[\"idx\"]}",
+    .responses            = s_pool_switch_responses,
+    .handler              = pool_switch_handler,
 };
 
 // ---------------------------------------------------------------------------
@@ -1197,6 +1483,8 @@ static void init_mining_assets(void)
 static const bb_route_t * const s_mining_routes[] = {
     &s_stats_route,
     &s_pool_route,
+    &s_pool_put_route,
+    &s_pool_switch_route,
     &s_diag_asic_route,
     &s_knot_route,
     &s_settings_get_route,

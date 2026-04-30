@@ -198,11 +198,6 @@ void build_knot_json(const knot_peer_t *peers, size_t n_peers, int64_t now_us, b
  * ========================================================================= */
 
 typedef struct {
-    char     pool_host[64];
-    uint16_t pool_port;
-    char     wallet[64];
-    char     worker[64];
-    char     pool_pass[64];
     char     hostname[33];
     bool     display_en;
     bool     ota_skip_check;

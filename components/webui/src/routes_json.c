@@ -302,11 +302,6 @@ void build_knot_json(const knot_peer_t *peers, size_t n_peers, int64_t now_us, b
 
 void build_settings_json(const settings_snapshot_t *s, bb_json_t root)
 {
-    bb_json_obj_set_string(root, "pool_host",     s->pool_host);
-    bb_json_obj_set_number(root, "pool_port",     s->pool_port);
-    bb_json_obj_set_string(root, "wallet",        s->wallet);
-    bb_json_obj_set_string(root, "worker",        s->worker);
-    bb_json_obj_set_string(root, "pool_pass",     s->pool_pass);
     bb_json_obj_set_string(root, "hostname",      s->hostname);
     bb_json_obj_set_bool(root,   "display_en",    s->display_en);
     bb_json_obj_set_bool(root,   "ota_skip_check", s->ota_skip_check);

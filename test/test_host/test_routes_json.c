@@ -487,11 +487,6 @@ void test_knot_two_peers(void)
 void test_settings_happy_path(void)
 {
     settings_snapshot_t s = {0};
-    strncpy(s.pool_host, "pool.example.com", sizeof(s.pool_host) - 1);
-    s.pool_port = 3333;
-    strncpy(s.wallet,    "tb1qtest000",     sizeof(s.wallet)    - 1);
-    strncpy(s.worker,    "acme-worker",     sizeof(s.worker)    - 1);
-    strncpy(s.pool_pass, "x",              sizeof(s.pool_pass) - 1);
     strncpy(s.hostname,  "acme-miner",     sizeof(s.hostname)  - 1);
     s.display_en     = true;
     s.ota_skip_check = false;
@@ -501,9 +496,7 @@ void test_settings_happy_path(void)
     char *json = serialize_and_free(root);
 
     TEST_ASSERT_EQUAL_STRING(
-        "{\"pool_host\":\"pool.example.com\",\"pool_port\":3333,"
-        "\"wallet\":\"tb1qtest000\",\"worker\":\"acme-worker\","
-        "\"pool_pass\":\"x\",\"hostname\":\"acme-miner\","
+        "{\"hostname\":\"acme-miner\","
         "\"display_en\":true,\"ota_skip_check\":false}",
         json);
     bb_json_free_str(json);
@@ -511,13 +504,9 @@ void test_settings_happy_path(void)
 
 void test_settings_empty_optional_fields(void)
 {
-    /* pool_pass and hostname may be empty strings */
+    /* hostname may be empty string */
     settings_snapshot_t s = {0};
-    strncpy(s.pool_host, "stratum.example.com", sizeof(s.pool_host) - 1);
-    s.pool_port = 4444;
-    strncpy(s.wallet, "tb1qzero000", sizeof(s.wallet) - 1);
-    strncpy(s.worker, "test-user",   sizeof(s.worker) - 1);
-    /* pool_pass and hostname left as empty strings */
+    /* hostname left as empty string */
     s.display_en     = false;
     s.ota_skip_check = true;
 
@@ -526,9 +515,7 @@ void test_settings_empty_optional_fields(void)
     char *json = serialize_and_free(root);
 
     TEST_ASSERT_EQUAL_STRING(
-        "{\"pool_host\":\"stratum.example.com\",\"pool_port\":4444,"
-        "\"wallet\":\"tb1qzero000\",\"worker\":\"test-user\","
-        "\"pool_pass\":\"\",\"hostname\":\"\","
+        "{\"hostname\":\"\","
         "\"display_en\":false,\"ota_skip_check\":true}",
         json);
     bb_json_free_str(json);

@@ -18,7 +18,9 @@ Bitcoin mining firmware for ESP32-S3 boards with optional ASIC support.
 
 ### Flash
 
-Download the latest release for your board from the [releases page](https://github.com/dangernoodle-io/TaipanMiner/releases/latest). Each release ships two variants:
+Easiest path: open **<https://taipanminer.dangernoodle.io>** in Chrome or Edge, plug your device in via USB, and click Flash. The site bundles the latest release's factory bins and writes them via Web Serial — no CLI tools required.
+
+Or download the latest release for your board from the [releases page](https://github.com/dangernoodle-io/TaipanMiner/releases/latest). Each release ships two variants:
 
 - **`taipanminer-<board>-factory.bin`** — full image (bootloader + partition table + ota_data_initial + app). Use for **first-time flashing** of a fresh device.
 - **`taipanminer-<board>.bin`** — app-only. Use for OTA updates (see below); do **not** flash at offset `0` on a fresh device.

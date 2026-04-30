@@ -1,10 +1,21 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { stats, info, pool } from '../lib/stores'
-  import { fetchPool, putPool, switchPool, deletePoolSlot, type PoolConfigInput, type PoolPutBody } from '../lib/api'
+  import { fetchPool, putPool, switchPool, deletePoolSlot, type PoolConfigured, type PoolConfigInput, type PoolPutBody } from '../lib/api'
   import { fmtRelative } from '../lib/fmt'
+  import PoolRow from '../components/PoolRow.svelte'
 
-  type PoolForm = { host: string; port: number; wallet: string; worker: string; pool_pass: string }
+  const POOL_IDXS: (0 | 1)[] = [0, 1]
+
+  type PoolForm = {
+    host: string
+    port: number
+    wallet: string
+    worker: string
+    pool_pass: string
+    extranonce_subscribe: boolean  // TA-306
+    decode_coinbase: boolean       // TA-307
+  }
 
   // nbits is a 4-byte compact representation of the target. Difficulty 1
   // corresponds to target 0x00000000FFFF0000…, i.e. nbits 0x1d00ffff. Network
@@ -196,16 +207,41 @@
 
   let saving = false
   let saveMsg = ''
-  let rebootRequired = false
   let editingIdx: number | null = null  // 0 = primary, 1 = fallback
   let switching = false
+  // Same overlay machinery as switching, but flipped on after a save that
+  // forces a fresh stratum session (i.e. saving the active slot).
+  let reconnecting = false
   // Frozen snapshot of $pool taken at switch-click; rendered in place of the
   // live store while switching so the page doesn't flicker as the firmware
   // tears down the old session. Cleared once the new session is observed.
   let frozenPool: typeof $pool | null = null
-  $: displayPool = switching ? frozenPool : $pool
+  $: displayPool = (switching || reconnecting) ? frozenPool : $pool
 
-  let form: PoolForm = { host: '', port: 0, wallet: '', worker: '', pool_pass: '' }
+  /* TA-307: per-pool flag for the active session controls UI coinbase
+   * decoding. Defaults to true when no active pool / no config so the
+   * tiles render normally pre-connect. */
+  $: activeDecodeCoinbase = (() => {
+    const idx = displayPool?.active_pool_idx
+    if (idx === 0) return displayPool?.configured?.primary?.decode_coinbase ?? true
+    if (idx === 1) return displayPool?.configured?.fallback?.decode_coinbase ?? true
+    return true
+  })()
+
+  /* Parse-failed signal: flag is on, notify is non-empty, but no parser
+   * recognized any coinbase field. Used to badge the toggle so the user
+   * knows the tiles vanished because the parser couldn't read this pool's
+   * shape, not because they turned the flag off. */
+  $: coinbaseParseFailed = (() => {
+    if (!activeDecodeCoinbase) return false
+    const n = displayPool?.notify
+    if (!n || !n.coinb1 || n.coinb1.length < 84) return false
+    return coinbaseHeight(n.coinb1) == null
+        && coinbaseTotalReward(n.coinb2) == null
+        && coinbasePayoutSpk(n.coinb2) == null
+  })()
+
+  let form: PoolForm = { host: '', port: 0, wallet: '', worker: '', pool_pass: '', extranonce_subscribe: false, decode_coinbase: true }
   let autoRotate = false
   let hostname = ''
 
@@ -223,10 +259,12 @@
         port: cfg.port,
         wallet: cfg.wallet,
         worker: cfg.worker,
-        pool_pass: ''
+        pool_pass: '',
+        extranonce_subscribe: cfg.extranonce_subscribe ?? false,
+        decode_coinbase: cfg.decode_coinbase ?? true,
       }
     } else {
-      form = { host: '', port: 0, wallet: '', worker: '', pool_pass: '' }
+      form = { host: '', port: 0, wallet: '', worker: '', pool_pass: '', extranonce_subscribe: false, decode_coinbase: true }
     }
   }
 
@@ -235,92 +273,86 @@
     saveMsg = ''
   }
 
+  // Build a PUT slot for a non-edited pool by mirroring its current state.
+  // Omits pool_pass — firmware preserves it on missing key (see PR #280).
+  function slotFromCurrent(c: NonNullable<PoolConfigured>): PoolConfigInput {
+    const next: PoolConfigInput = {
+      host: c.host,
+      port: c.port,
+      worker: c.worker,
+      wallet: c.wallet,
+      pool_pass: '',
+      extranonce_subscribe: c.extranonce_subscribe ?? false,
+      decode_coinbase: c.decode_coinbase ?? true,
+    }
+    delete (next as Partial<PoolConfigInput>).pool_pass
+    return next
+  }
+
+  // Build a PUT slot from the form (the edited pool).
+  function slotFromForm(): PoolConfigInput {
+    return {
+      host: form.host.trim(),
+      port: form.port,
+      worker: form.worker.trim(),
+      wallet: form.wallet.trim(),
+      pool_pass: form.pool_pass,
+      extranonce_subscribe: form.extranonce_subscribe,
+      decode_coinbase: form.decode_coinbase,
+    }
+  }
+
   async function handleSave() {
     if (editingIdx === null) return
     saveMsg = ''
     saving = true
-    try {
-      const body: PoolPutBody = {
-        primary: $pool?.configured?.primary ? {
-          host: editingIdx === 0 ? form.host.trim() : $pool.configured?.primary.host,
-          port: editingIdx === 0 ? form.port : $pool.configured?.primary.port,
-          worker: editingIdx === 0 ? form.worker.trim() : $pool.configured?.primary.worker,
-          wallet: editingIdx === 0 ? form.wallet.trim() : $pool.configured?.primary.wallet,
-          pool_pass: editingIdx === 0 ? form.pool_pass : ''
-        } : {
-          host: form.host.trim(),
-          port: form.port,
-          worker: form.worker.trim(),
-          wallet: form.wallet.trim(),
-          pool_pass: form.pool_pass
-        },
-        fallback: editingIdx === 1 ? {
-          host: form.host.trim(),
-          port: form.port,
-          worker: form.worker.trim(),
-          wallet: form.wallet.trim(),
-          pool_pass: form.pool_pass
-        } : ($pool?.configured?.fallback ? {
-          host: $pool.configured?.fallback.host,
-          port: $pool.configured?.fallback.port,
-          worker: $pool.configured?.fallback.worker,
-          wallet: $pool.configured?.fallback.wallet,
-          pool_pass: ''
-        } : null)
-      }
-      const res = await putPool(body)
-      rebootRequired = res.reboot_required
-      saveMsg = res.reboot_required ? 'Saved. Reboot required.' : 'Saved.'
-      editingIdx = null
-      pool.set(await fetchPool())
-    } catch (e) {
-      saveMsg = `Save failed: ${(e as Error).message}`
-    } finally {
-      saving = false
+    /* If editing the currently-active slot, the save needs to drive a
+     * fresh stratum session before the user-visible state lines up with
+     * what they just entered. Mirror handleSwitch's freeze-and-poll so
+     * the page doesn't flicker with stale values during the reconnect. */
+    const editingActive = $pool?.active_pool_idx === editingIdx && $pool?.connected
+    const preAge = editingActive ? ($pool?.session_start_ago_s ?? null) : null
+    if (editingActive) {
+      frozenPool = $pool
+      reconnecting = true
     }
-  }
-
-  // Toggle a per-slot option (TA-306 extranonce_subscribe, TA-307 decode_coinbase).
-  // Builds a PUT body that includes both slots so the existing PUT handler is happy,
-  // omits pool_pass on both slots so the firmware preserves the existing values.
-  async function handleOptionToggle(
-    slot: 'primary' | 'fallback',
-    field: 'extranonce_subscribe' | 'decode_coinbase',
-    value: boolean,
-  ) {
-    const cfg = $pool?.configured
-    if (!cfg?.primary) return
-    saveMsg = ''
-    saving = true
     try {
-      const buildSlot = (
-        c: typeof cfg.primary,
-        slotName: 'primary' | 'fallback',
-      ): PoolConfigInput => {
-        const next: PoolConfigInput = {
-          host: c.host,
-          port: c.port,
-          worker: c.worker,
-          wallet: c.wallet,
-          pool_pass: '',  // actually omit below
-          extranonce_subscribe: c.extranonce_subscribe,
-          decode_coinbase: c.decode_coinbase,
-        }
-        // Drop pool_pass — firmware preserves on missing key.
-        delete (next as Partial<PoolConfigInput>).pool_pass
-        if (slotName === slot) next[field] = value
-        return next
-      }
+      const cfg = $pool?.configured
+      const edited = slotFromForm()
       const body: PoolPutBody = {
-        primary: buildSlot(cfg.primary, 'primary'),
-        fallback: cfg.fallback ? buildSlot(cfg.fallback, 'fallback') : null,
+        primary: editingIdx === 0
+          ? edited
+          : (cfg?.primary ? slotFromCurrent(cfg.primary) : edited),
+        fallback: editingIdx === 1
+          ? edited
+          : (cfg?.fallback ? slotFromCurrent(cfg.fallback) : null),
       }
       await putPool(body)
-      pool.set(await fetchPool())
+      saveMsg = 'Saved.'
+      editingIdx = null
+
+      if (editingActive) {
+        /* Wait for the firmware to bring up a fresh session under the new
+         * config. Same shape as handleSwitch — bounded poll, fresh-session
+         * detector via session_start_ago_s shrinking. */
+        const deadline = Date.now() + 15000
+        while (Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 750))
+          const p = await fetchPool()
+          pool.set(p)
+          if (!p.connected) continue
+          if (p.session_start_ago_s == null) continue
+          if (preAge == null || p.session_start_ago_s < preAge) break
+        }
+      } else {
+        pool.set(await fetchPool())
+      }
     } catch (e) {
       saveMsg = `Save failed: ${(e as Error).message}`
     } finally {
       saving = false
+      reconnecting = false
+      frozenPool = null
     }
   }
 
@@ -376,26 +408,21 @@
     }
   }
 
-  function truncWallet(w: string | undefined): string {
-    if (!w) return '—'
-    if (w.length <= 14) return w
-    return `${w.slice(0, 6)}…${w.slice(-4)}`
-  }
 </script>
 
-<div class="pool-grid" class:is-switching={switching}>
-  {#if switching}
+<div class="pool-grid" class:is-switching={switching || reconnecting}>
+  {#if switching || reconnecting}
     <div class="switching-overlay" role="status" aria-live="polite">
       <div class="spinner" aria-hidden="true"></div>
-      <div class="switching-msg">Switching pools…</div>
-      <div class="switching-sub">reconnecting stratum</div>
+      <div class="switching-msg">{reconnecting ? 'Reconnecting…' : 'Switching pools…'}</div>
+      <div class="switching-sub">{reconnecting ? 'applying changes' : 'reconnecting stratum'}</div>
     </div>
   {/if}
   <!-- Active pool status — read-only metrics from /api/pool (TA-281). -->
   <section class="card active">
     <header class="active-head">
       <h3>Active</h3>
-      {#if displayPool?.notify && coinbaseTag(displayPool.notify.coinb1, displayPool.notify.coinb2)}
+      {#if activeDecodeCoinbase && displayPool?.notify && coinbaseTag(displayPool.notify.coinb1, displayPool.notify.coinb2)}
         <span class="pool-tag has-tip">
           <span class="tag-prefix">scriptSig</span>
           {coinbaseTag(displayPool.notify.coinb1, displayPool.notify.coinb2)}
@@ -465,13 +492,13 @@
         {/if}
       </header>
       <div class="stratum-grid">
-        {#if coinbaseHeight(n.coinb1) != null}
+        {#if activeDecodeCoinbase && coinbaseHeight(n.coinb1) != null}
           <div class="sf">
             <div class="sk">block height</div>
             <div class="sv mono">{fmtNetDiff(coinbaseHeight(n.coinb1) ?? 0)}</div>
           </div>
         {/if}
-        {#if coinbaseTotalReward(n.coinb2) != null}
+        {#if activeDecodeCoinbase && coinbaseTotalReward(n.coinb2) != null}
           <div class="sf">
             <div class="sk">block reward</div>
             <div class="sv mono">{fmtBtc(coinbaseTotalReward(n.coinb2) ?? 0)}</div>
@@ -502,7 +529,7 @@
           <div class="sv mono">0x{n.version}</div>
         </div>
       </div>
-      {#if coinbasePayoutSpk(n.coinb2)}
+      {#if activeDecodeCoinbase && coinbasePayoutSpk(n.coinb2)}
         {@const spk = coinbasePayoutSpk(n.coinb2)}
         {@const addr = spk ? segwitAddress(spk) : null}
         <div class="payout-strip">
@@ -528,199 +555,23 @@
 
     {#if displayPool}
       <div class="pool-list">
-        <!-- Primary -->
-        <div class="pool-row" class:editing={editingIdx === 0}>
-          {#if editingIdx !== 0}
-            <div class="summary">
-              {#if displayPool.configured?.primary}
-                <div class="info">
-                  <div class="caption-row">
-                    <span class="kind-caption">Primary</span>
-                    {#if displayPool.active_pool_idx === 0 && displayPool.connected}
-                      <span class="active-tag">ACTIVE</span>
-                    {/if}
-                  </div>
-                  <div class="endpoint-line">
-                    <span class="ep-host">{displayPool.configured?.primary.host}</span>{#if displayPool.configured?.primary.port}<span class="ep-port">:{displayPool.configured?.primary.port}</span>{/if}
-                    <span class="meta-sep">·</span>
-                    <span class="ep-worker">{displayPool.configured?.primary.worker}</span>
-                    <span class="meta-sep">·</span>
-                    <span class="ep-wallet mono" title={displayPool.configured?.primary.wallet}>{truncWallet(displayPool.configured?.primary.wallet)}</span>
-                  </div>
-                  <div class="settings-line">
-                    <label class="setting-toggle" title="Send mining.extranonce.subscribe after authorize. Pools that don't support the extension just reject the request — harmless.">
-                      <input
-                        type="checkbox"
-                        checked={displayPool.configured?.primary?.extranonce_subscribe ?? false}
-                        disabled={saving}
-                        on:change={(e) => handleOptionToggle('primary', 'extranonce_subscribe', e.currentTarget.checked)}
-                      />
-                      <span>extranonce.subscribe</span>
-                      {#if displayPool.active_pool_idx === 0}
-                        <span class="subscribe-status {displayPool.extranonce_subscribe_status ?? 'off'}">{(displayPool.extranonce_subscribe_status ?? 'off').toUpperCase()}</span>
-                      {/if}
-                    </label>
-                    <label class="setting-toggle" title="Decode coinbase tx for block height, scriptSig tag, payout, and reward. Turn off for non-BTC SHA-256d pools whose coinbase shape we don't understand.">
-                      <input
-                        type="checkbox"
-                        checked={displayPool.configured?.primary?.decode_coinbase ?? true}
-                        disabled={saving}
-                        on:change={(e) => handleOptionToggle('primary', 'decode_coinbase', e.currentTarget.checked)}
-                      />
-                      <span>decode coinbase</span>
-                    </label>
-                  </div>
-                </div>
-                <div class="actions">
-                  {#if displayPool.active_pool_idx === 1 && displayPool.configured?.fallback}
-                    <button class="btn outline sm" on:click={() => handleSwitch(0)} disabled={switching}>{switching ? 'Switching…' : 'Switch'}</button>
-                  {/if}
-                  <button class="btn outline sm" on:click={() => startEdit(0)}>Edit</button>
-                  {#if displayPool.configured?.fallback}
-                    <button class="btn outline sm danger" on:click={() => handleRemove('primary')} disabled={saving} title="Remove primary; fallback will be promoted">Remove</button>
-                  {/if}
-                </div>
-              {:else}
-                <div class="info">
-                  <div class="kind-caption">Primary</div>
-                  <div class="placeholder">not configured</div>
-                </div>
-                <div class="actions">
-                  <button class="btn outline sm" on:click={() => startEdit(0)}>Configure</button>
-                </div>
-              {/if}
-            </div>
-          {:else}
-            <form class="edit-form" on:submit|preventDefault={handleSave}>
-              <div class="edit-head">
-                <span class="kind">Primary</span>
-              </div>
-              <div class="fields">
-                <label>
-                  <span class="lbl">Host</span>
-                  <input type="text" bind:value={form.host} maxlength="63" required />
-                </label>
-                <label class="narrow">
-                  <span class="lbl">Port</span>
-                  <input type="number" bind:value={form.port} min="1" max="65535" required />
-                </label>
-                <label>
-                  <span class="lbl">Worker</span>
-                  <input type="text" bind:value={form.worker} placeholder={hostname || $info?.worker_name || 'miner-1'} required />
-                </label>
-                <label class="wide">
-                  <span class="lbl">Wallet</span>
-                  <input type="text" bind:value={form.wallet} spellcheck="false" required />
-                </label>
-                <label>
-                  <span class="lbl">Password</span>
-                  <input type="text" bind:value={form.pool_pass} placeholder="x" />
-                </label>
-              </div>
-              <div class="actions">
-                <button type="submit" class="btn primary sm" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
-                <button type="button" class="btn outline sm" on:click={cancelEdit} disabled={saving}>Cancel</button>
-                {#if saveMsg}<span class="msg" class:warn={rebootRequired}>{saveMsg}</span>{/if}
-              </div>
-            </form>
-          {/if}
-        </div>
-
-        <!-- Fallback -->
-        <div class="pool-row" class:editing={editingIdx === 1} class:disabled={!displayPool.configured?.fallback && editingIdx !== 1}>
-          {#if editingIdx !== 1}
-            <div class="summary">
-              {#if displayPool.configured?.fallback}
-                <div class="info">
-                  <div class="caption-row">
-                    <span class="kind-caption">Fallback</span>
-                    {#if displayPool.active_pool_idx === 1 && displayPool.connected}
-                      <span class="active-tag">ACTIVE</span>
-                    {/if}
-                  </div>
-                  <div class="endpoint-line">
-                    <span class="ep-host">{displayPool.configured?.fallback.host}</span>{#if displayPool.configured?.fallback.port}<span class="ep-port">:{displayPool.configured?.fallback.port}</span>{/if}
-                    <span class="meta-sep">·</span>
-                    <span class="ep-worker">{displayPool.configured?.fallback.worker}</span>
-                    <span class="meta-sep">·</span>
-                    <span class="ep-wallet mono" title={displayPool.configured?.fallback.wallet}>{truncWallet(displayPool.configured?.fallback.wallet)}</span>
-                  </div>
-                  <div class="settings-line">
-                    <label class="setting-toggle" title="Send mining.extranonce.subscribe after authorize.">
-                      <input
-                        type="checkbox"
-                        checked={displayPool.configured?.fallback?.extranonce_subscribe ?? false}
-                        disabled={saving}
-                        on:change={(e) => handleOptionToggle('fallback', 'extranonce_subscribe', e.currentTarget.checked)}
-                      />
-                      <span>extranonce.subscribe</span>
-                      {#if displayPool.active_pool_idx === 1}
-                        <span class="subscribe-status {displayPool.extranonce_subscribe_status ?? 'off'}">{(displayPool.extranonce_subscribe_status ?? 'off').toUpperCase()}</span>
-                      {/if}
-                    </label>
-                    <label class="setting-toggle" title="Decode coinbase tx. Turn off for non-BTC SHA-256d pools.">
-                      <input
-                        type="checkbox"
-                        checked={displayPool.configured?.fallback?.decode_coinbase ?? true}
-                        disabled={saving}
-                        on:change={(e) => handleOptionToggle('fallback', 'decode_coinbase', e.currentTarget.checked)}
-                      />
-                      <span>decode coinbase</span>
-                    </label>
-                  </div>
-                </div>
-                <div class="actions">
-                  {#if displayPool.active_pool_idx === 0 && displayPool.configured?.primary}
-                    <button class="btn outline sm" on:click={() => handleSwitch(1)} disabled={switching}>{switching ? 'Switching…' : 'Switch'}</button>
-                  {/if}
-                  <button class="btn outline sm" on:click={() => startEdit(1)}>Edit</button>
-                  <button class="btn outline sm danger" on:click={() => handleRemove('fallback')} disabled={saving} title="Remove fallback pool">Remove</button>
-                </div>
-              {:else}
-                <div class="info">
-                  <div class="kind-caption">Fallback</div>
-                  <div class="placeholder">not configured · optional second pool for failover</div>
-                </div>
-                <div class="actions">
-                  <button class="btn outline sm" on:click={() => startEdit(1)}>+ Add</button>
-                </div>
-              {/if}
-            </div>
-          {:else}
-            <form class="edit-form" on:submit|preventDefault={handleSave}>
-              <div class="edit-head">
-                <span class="kind">Fallback</span>
-              </div>
-              <div class="fields">
-                <label>
-                  <span class="lbl">Host</span>
-                  <input type="text" bind:value={form.host} maxlength="63" required />
-                </label>
-                <label class="narrow">
-                  <span class="lbl">Port</span>
-                  <input type="number" bind:value={form.port} min="1" max="65535" required />
-                </label>
-                <label>
-                  <span class="lbl">Worker</span>
-                  <input type="text" bind:value={form.worker} placeholder={hostname || $info?.worker_name || 'miner-1'} required />
-                </label>
-                <label class="wide">
-                  <span class="lbl">Wallet</span>
-                  <input type="text" bind:value={form.wallet} spellcheck="false" required />
-                </label>
-                <label>
-                  <span class="lbl">Password</span>
-                  <input type="text" bind:value={form.pool_pass} placeholder="x" />
-                </label>
-              </div>
-              <div class="actions">
-                <button type="submit" class="btn primary sm" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
-                <button type="button" class="btn outline sm" on:click={cancelEdit} disabled={saving}>Cancel</button>
-                {#if saveMsg}<span class="msg" class:warn={rebootRequired}>{saveMsg}</span>{/if}
-              </div>
-            </form>
-          {/if}
-        </div>
+        {#each (POOL_IDXS) as idx (idx)}
+          <PoolRow
+            idx={idx}
+            displayPool={displayPool}
+            editing={editingIdx === idx}
+            bind:form
+            {saving}
+            {saveMsg}
+            {switching}
+            workerPlaceholder={hostname || $info?.worker_name || 'miner-1'}
+            on:edit={() => startEdit(idx)}
+            on:cancel-edit={cancelEdit}
+            on:save={handleSave}
+            on:switch={() => handleSwitch(idx)}
+            on:remove={() => handleRemove(idx === 0 ? 'primary' : 'fallback')}
+          />
+        {/each}
       </div>
     {/if}
   </section>
@@ -997,55 +848,6 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .active-tag {
-    display: inline-block;
-    font-size: 9px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--success);
-    background: color-mix(in srgb, var(--success) 12%, transparent);
-    padding: 1px 6px;
-    border-radius: 3px;
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* TA-306: extranonce.subscribe session status badge */
-  .subscribe-status {
-    display: inline-block;
-    font-size: 9px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    padding: 1px 5px;
-    border-radius: 3px;
-    font-variant-numeric: tabular-nums;
-    color: var(--muted);
-    background: color-mix(in srgb, var(--muted) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent);
-  }
-  .subscribe-status.active {
-    color: var(--success);
-    background: color-mix(in srgb, var(--success) 12%, transparent);
-    border-color: color-mix(in srgb, var(--success) 50%, transparent);
-  }
-  .subscribe-status.rejected {
-    color: var(--warning);
-    background: color-mix(in srgb, var(--warning) 12%, transparent);
-    border-color: color-mix(in srgb, var(--warning) 50%, transparent);
-  }
-  .subscribe-status.pending {
-    color: var(--muted);
-    background: color-mix(in srgb, var(--muted) 10%, transparent);
-    border-color: color-mix(in srgb, var(--muted) 30%, transparent);
-  }
-  .subscribe-status.off {
-    opacity: 0.55;
-    color: var(--muted);
-    background: color-mix(in srgb, var(--muted) 8%, transparent);
-    border-color: color-mix(in srgb, var(--muted) 20%, transparent);
-  }
-
   .loading, .error { font-size: 12px; color: var(--muted); }
   .error { color: var(--danger); }
 
@@ -1153,240 +955,11 @@
 
   .rotate.disabled-ctrl { opacity: 0.6; }
 
-  /* Pool list */
+  /* Pool list — rows + edit form live in components/PoolRow + PoolEditForm. */
   .pool-list {
     display: flex;
     flex-direction: column;
   }
 
-  .pool-row + .pool-row {
-    border-top: 1px dashed var(--border);
-  }
-
-  .pool-row.disabled { opacity: 0.5; }
-  .pool-row.editing { background: var(--bg); }
-
-  .summary {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 4px;
-    font-size: 12px;
-  }
-
-  .summary .info {
-    flex: 1 1 auto;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .summary .caption-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 2px;
-  }
-
-  .summary .caption-row .kind-caption { margin-bottom: 0; }
-
-  .summary .kind-caption {
-    color: var(--label);
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    font-size: 11px;
-    font-weight: 700;
-    margin-bottom: 2px;
-  }
-
-  .summary .endpoint-line {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    color: var(--text);
-    font-size: 14px;
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-  }
-
-  .summary .endpoint-line .ep-host {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-  }
-
-  .summary .endpoint-line .ep-port {
-    color: var(--muted);
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
-    flex-shrink: 0;
-    margin-left: -8px;
-  }
-
-  .summary .endpoint-line .ep-worker,
-  .summary .endpoint-line .ep-wallet {
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 500;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-  }
-
-  .summary .endpoint-line .meta-sep {
-    flex-shrink: 0;
-    opacity: 0.4;
-    color: var(--muted);
-  }
-
-  .summary .settings-line {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 14px;
-    margin-top: 6px;
-    font-size: 11px;
-  }
-
-  .summary .setting-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--label);
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    font-size: 10px;
-    cursor: pointer;
-  }
-
-  .summary .setting-toggle input[type="checkbox"] {
-    width: 12px;
-    height: 12px;
-    cursor: pointer;
-  }
-
-  .summary .setting-toggle input[type="checkbox"]:disabled {
-    cursor: progress;
-  }
-
-  .summary .actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
-  }
-
-  .placeholder {
-    color: var(--muted);
-    font-style: italic;
-    font-size: 11px;
-  }
-
-  .btn.danger {
-    color: var(--danger);
-    border-color: color-mix(in srgb, var(--danger) 50%, transparent);
-  }
-  .btn.danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
-
-  .edit-head .kind {
-    color: var(--label);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-size: 10px;
-    font-weight: 600;
-  }
-
-  @media (max-width: 720px) {
-    .summary {
-      flex-wrap: wrap;
-      row-gap: 8px;
-    }
-    .summary .info {
-      flex-basis: 100%;
-      order: 3;
-    }
-    .summary .actions {
-      flex-basis: 100%;
-      justify-content: flex-end;
-      order: 4;
-    }
-    .summary .endpoint-line { font-size: 13px; }
-    .summary .endpoint-line { flex-wrap: wrap; }
-  }
-
   .mono { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
-
-  /* Edit form (inline) */
-  .edit-form {
-    padding: 12px 4px;
-  }
-
-  .edit-head {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 10px;
-  }
-
-  .fields {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 10px 12px;
-    margin-bottom: 10px;
-  }
-
-  .fields .narrow { max-width: 120px; }
-  .fields .wide { grid-column: 1 / -1; }
-
-  label {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .lbl {
-    font-size: 9px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--label);
-    font-weight: 600;
-  }
-
-  input[type="text"], input[type="number"] {
-    width: 100%;
-    box-sizing: border-box;
-    min-width: 0;
-    padding: 7px 10px;
-    background: var(--input);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    font-size: 12px;
-    font-family: inherit;
-    font-variant-numeric: tabular-nums;
-    transition: border-color 0.15s;
-  }
-
-  input:focus { outline: none; border-color: var(--accent); }
-  input:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  .actions {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-
-
-  .msg {
-    font-size: 11px;
-    color: var(--success);
-  }
-
-  .msg.warn { color: var(--warning); }
 </style>

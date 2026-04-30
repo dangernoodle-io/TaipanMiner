@@ -233,14 +233,13 @@ export async function patchSettings(patch: Partial<Settings>): Promise<{ status:
   return res.json()
 }
 
-export async function putPool(body: PoolPutBody): Promise<{ reboot_required: boolean }> {
+export async function putPool(body: PoolPutBody): Promise<void> {
   const res = await fetch(`${baseUrl}/api/pool`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   })
   if (!res.ok) throw new Error(`pool put failed: ${res.status}`)
-  return res.json()
 }
 
 export async function switchPool(idx: 0 | 1): Promise<void> {

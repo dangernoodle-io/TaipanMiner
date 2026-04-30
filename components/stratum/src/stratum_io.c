@@ -68,6 +68,11 @@ static int s_consecutive_fail_count = 0;
 
 /* TA-306: extranonce.subscribe runtime status (per-session, reset on reconnect). */
 static volatile stratum_extranonce_sub_status_t s_extranonce_sub_status = STRATUM_EXNX_SUB_OFF;
+/* esp_timer timestamp when subscribe was sent; 0 when not pending. Some
+ * pools silently drop the request rather than returning an error response,
+ * so we downgrade PENDING → REJECTED after this many microseconds. */
+static int64_t s_extranonce_sub_sent_us = 0;
+#define STRATUM_EXNX_SUB_TIMEOUT_US (5LL * 1000 * 1000)
 
 // Line buffer for reading from socket
 static char s_linebuf[4096];
@@ -544,6 +549,7 @@ static void process_message(const char *line)
             }
         } else if (s_state.extranonce_subscribe_id != 0 && id == s_state.extranonce_subscribe_id) {
             s_state.extranonce_subscribe_id = 0;
+            s_extranonce_sub_sent_us = 0;
             if (result_item && bb_json_item_is_true(result_item)) {
                 s_extranonce_sub_status = STRATUM_EXNX_SUB_ACTIVE;
                 bb_log_i(TAG, "extranonce.subscribe: active");
@@ -704,9 +710,11 @@ void stratum_task(void *arg)
             if (sub_id >= 0) {
                 s_state.extranonce_subscribe_id = sub_id;
                 s_extranonce_sub_status = STRATUM_EXNX_SUB_PENDING;
+                s_extranonce_sub_sent_us = esp_timer_get_time();
             } else {
                 bb_log_w(TAG, "extranonce.subscribe send failed, session continues");
                 s_extranonce_sub_status = STRATUM_EXNX_SUB_REJECTED;
+                s_extranonce_sub_sent_us = 0;
             }
         }
 
@@ -813,6 +821,19 @@ void stratum_task(void *arg)
                 }
             }
 
+            /* TA-306: downgrade subscribe status if the pool ignored the
+             * request entirely (no JSON-RPC response). Keeps the UI from
+             * sitting on PENDING forever for non-supporting pools. */
+            if (s_extranonce_sub_status == STRATUM_EXNX_SUB_PENDING &&
+                s_extranonce_sub_sent_us != 0 &&
+                (esp_timer_get_time() - s_extranonce_sub_sent_us) > STRATUM_EXNX_SUB_TIMEOUT_US) {
+                bb_log_w(TAG, "extranonce.subscribe: no response in %lld ms, marking rejected",
+                         (long long)(STRATUM_EXNX_SUB_TIMEOUT_US / 1000));
+                s_extranonce_sub_status = STRATUM_EXNX_SUB_REJECTED;
+                s_extranonce_sub_sent_us = 0;
+                s_state.extranonce_subscribe_id = 0;
+            }
+
             // App-level keepalive — keep NAT table alive on routers that ignore TCP keepalives
             {
                 uint32_t now_ms = pdTICKS_TO_MS(xTaskGetTickCount());
@@ -849,6 +870,7 @@ reconnect:
         s_state.keepalive_id = 0;
         s_state.extranonce_subscribe_id = 0;
         s_extranonce_sub_status = STRATUM_EXNX_SUB_OFF;
+        s_extranonce_sub_sent_us = 0;
         s_state.version_mask = 0;
         memset(&s_state.job, 0, sizeof(s_state.job));
         s_last_share_tick = 0;

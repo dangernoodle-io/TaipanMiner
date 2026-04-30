@@ -533,29 +533,9 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
         fallback_ptr = &fallback;
     }
 
-    // Determine if reboot is needed by comparing against current values
-    bool reboot_required = false;
-    if (strcmp(primary.host, taipan_config_pool_host_idx(TAIPAN_POOL_PRIMARY)) != 0 ||
-        primary.port != taipan_config_pool_port_idx(TAIPAN_POOL_PRIMARY) ||
-        strcmp(primary.wallet, taipan_config_wallet_addr_idx(TAIPAN_POOL_PRIMARY)) != 0 ||
-        strcmp(primary.worker, taipan_config_worker_name_idx(TAIPAN_POOL_PRIMARY)) != 0 ||
-        strcmp(primary.pass, taipan_config_pool_pass_idx(TAIPAN_POOL_PRIMARY)) != 0) {
-        reboot_required = true;
-    }
-
-    bool current_fallback_configured = taipan_config_pool_configured(TAIPAN_POOL_FALLBACK);
-    bool new_fallback_configured = (fallback_ptr != NULL);
-    if (current_fallback_configured != new_fallback_configured) {
-        reboot_required = true;
-    } else if (new_fallback_configured) {
-        if (strcmp(fallback.host, taipan_config_pool_host_idx(TAIPAN_POOL_FALLBACK)) != 0 ||
-            fallback.port != taipan_config_pool_port_idx(TAIPAN_POOL_FALLBACK) ||
-            strcmp(fallback.wallet, taipan_config_wallet_addr_idx(TAIPAN_POOL_FALLBACK)) != 0 ||
-            strcmp(fallback.worker, taipan_config_worker_name_idx(TAIPAN_POOL_FALLBACK)) != 0 ||
-            strcmp(fallback.pass, taipan_config_pool_pass_idx(TAIPAN_POOL_FALLBACK)) != 0) {
-            reboot_required = true;
-        }
-    }
+    /* Snapshot the active idx before we overwrite cache so we can detect
+     * whether the edit landed on the live session's slot. */
+    int active_idx = stratum_get_active_pool_idx();
 
     // Set pools atomically
     bb_err_t err = taipan_config_set_pools(&primary, fallback_ptr);
@@ -570,12 +550,17 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
 
     bb_json_free(root);
 
-    // Response: 200 with reboot_required flag
-    char resp[64];
-    snprintf(resp, sizeof(resp), "{\"reboot_required\":%s}",
-             reboot_required ? "true" : "false");
-    bb_http_resp_set_header(req, "Content-Type", "application/json");
-    return bb_http_resp_send(req, resp, strlen(resp));
+    /* If the active slot was edited (any field), force a stratum reconnect
+     * so the new config takes effect on a fresh session. The UI mirrors
+     * the switch-pool overlay during this window. Inactive-slot edits
+     * just persist; user picks them up via Switch or auto-failover. */
+    if (active_idx == TAIPAN_POOL_PRIMARY ||
+        active_idx == TAIPAN_POOL_FALLBACK) {
+        stratum_request_reconnect();
+    }
+
+    bb_http_resp_set_status(req, 204);
+    return bb_http_resp_send(req, "", 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -1215,12 +1200,7 @@ static const bb_route_t s_pool_route = {
 // ---------------------------------------------------------------------------
 
 static const bb_route_response_t s_pool_put_responses[] = {
-    { 200, "application/json",
-      "{\"type\":\"object\","
-      "\"properties\":{"
-      "\"reboot_required\":{\"type\":\"boolean\"}},"
-      "\"required\":[\"reboot_required\"]}",
-      "pool config saved" },
+    { 204, NULL, NULL, "pool config saved" },
     { 400, "text/plain", NULL, "validation error" },
     { 500, "text/plain", NULL, "save failed" },
     { 0 },

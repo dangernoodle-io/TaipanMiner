@@ -89,34 +89,21 @@
 
   .card.full { padding: 0; }
 
-  h3 {
-    margin: 0 0 12px 0;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--label);
-    font-weight: 600;
-  }
+  /* card h3 typography lives in ui-kit utilities.css; only the bottom gap
+     before .tile-grid is page-specific. */
+  h3 { margin-bottom: 12px; }
 
   .tile-grid {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
     align-items: flex-start;
-    gap: 18px;
-    flex-wrap: wrap;
+    gap: 14px 18px;
   }
-
-  .tile-grid > :global(.tile) { text-align: left; }
-  .tile-grid > :global(.tile:last-child) { text-align: right; }
 
   @media (max-width: 720px) {
     .tile-grid {
-      display: grid;
       grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
-      gap: 14px 18px;
     }
-    .tile-grid > :global(.tile),
-    .tile-grid > :global(.tile:last-child) { text-align: left; }
   }
 
   .duty-bar {

@@ -71,6 +71,16 @@
   pointer-events: none;
 }
 
+/* ---- card title (uppercase 12px label) ---- */
+.card h3 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--label);
+  font-weight: 600;
+}
+
 /* ---- text helpers ---- */
 .muted {
   color: var(--muted);

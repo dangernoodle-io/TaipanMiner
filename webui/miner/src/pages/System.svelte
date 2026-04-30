@@ -190,14 +190,8 @@
     gap: 14px;
   }
 
-  h3 {
-    margin: 0 0 12px 0;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--label);
-    font-weight: 600;
-  }
+  /* card h3 typography lives in ui-kit utilities.css. */
+  h3 { margin-bottom: 12px; }
 
   dl { margin: 0; }
 

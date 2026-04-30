@@ -914,14 +914,9 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 
-  h3 {
-    margin: 0;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--label);
-    font-weight: 600;
-  }
+  /* card h3 typography lives in ui-kit utilities.css; this page's h3s sit
+     inside flex headers that handle their own spacing, so margin: 0 from
+     the shared rule is correct as-is. */
 
   .pending-tag {
     display: inline-block;

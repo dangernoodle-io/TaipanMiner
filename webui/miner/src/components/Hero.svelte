@@ -114,8 +114,8 @@
         <div class="sl">last share</div>
       </div>
       <div class="stat">
-        <div class="sv">{fmtDiff($stats.best_diff)}{#if diffMult}<span class="mult"> · {diffMult.toFixed(0)}×</span>{/if}</div>
-        <div class="sl">best diff</div>
+        <div class="sv">{fmtDiff($stats.best_diff)}</div>
+        <div class="sl">best diff {#if diffMult}({diffMult.toFixed(0)}×){/if}</div>
       </div>
       <div class="stat">
         <div class="sv">{fmtDuration($stats.uptime_s)}</div>
@@ -337,32 +337,25 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .sparkline {
-    display: grid;
-    grid-template-rows: auto auto auto;
-    justify-items: stretch;
-    text-align: center;
-    min-width: 110px;
-  }
-
-  .spark-labels, .spark-ticks {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    font-size: 10px;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .spark-ticks {
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--muted);
-  }
-
   .row {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-    gap: 12px 18px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+
+  .row .stat { text-align: left; }
+  .row .stat:last-child { text-align: right; }
+
+  @media (max-width: 720px) {
+    .row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+      gap: 12px 18px;
+    }
+    .row .stat,
+    .row .stat:last-child { text-align: left; }
   }
 
   .stat .sv {
@@ -390,9 +383,4 @@
     color: var(--warning);
   }
 
-  .mult {
-    color: var(--muted);
-    font-weight: normal;
-    font-size: 13px;
-  }
 </style>

@@ -99,9 +99,24 @@
   }
 
   .tile-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
-    gap: 14px 18px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+
+  .tile-grid > :global(.tile) { text-align: left; }
+  .tile-grid > :global(.tile:last-child) { text-align: right; }
+
+  @media (max-width: 720px) {
+    .tile-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+      gap: 14px 18px;
+    }
+    .tile-grid > :global(.tile),
+    .tile-grid > :global(.tile:last-child) { text-align: left; }
   }
 
   .duty-bar {

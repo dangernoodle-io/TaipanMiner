@@ -54,7 +54,7 @@
         <StatTile label="Efficiency"    value={$power?.efficiency_jth ?? null}                                   unit="J/TH" />
         <StatTile label="ASIC Voltage"  value={$power?.vcore_mv != null ? $power.vcore_mv / 1000 : null}         unit="V"    />
         <StatTile label="ASIC Current"  value={$power?.icore_ma != null ? $power.icore_ma / 1000 : null}         unit="A"    />
-        <StatTile label="Input Voltage" value={$power?.vin_mv != null ? $power.vin_mv / 1000 : null}             unit="V"    />
+        <StatTile label="Input Voltage" value={$power?.vin_mv != null ? $power.vin_mv / 1000 : null}             unit="V"    flag={$power?.vin_low ? 'warn' : null} />
       </div>
     </section>
 

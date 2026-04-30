@@ -8,6 +8,7 @@
 #include "unity.h"
 #include "routes_json.h"
 #include "bb_json.h"
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -167,6 +168,7 @@ void test_pool_disconnected(void)
         "\"current_difficulty\":512,\"latency_ms\":null,"
         "\"extranonce1\":null,\"extranonce2_size\":null,\"version_mask\":null,"
         "\"notify\":null,\"active_pool_idx\":null,"
+        "\"extranonce_subscribe_status\":\"off\","
         "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
@@ -241,6 +243,31 @@ void test_pool_with_active_idx_and_configured_slots(void)
     bb_json_free_str(json);
 }
 
+/* TA-306: cover the three non-default switch arms in build_pool_json's
+ * extranonce_subscribe_status emission. status=0 is hit by every other
+ * test; this verifies pending/active/rejected stringify correctly. */
+static void exercise_subscribe_status(int status, const char *expected)
+{
+    pool_snapshot_t s = {0};
+    strncpy(s.host, "pool.example.com", sizeof(s.host) - 1);
+    s.port = 3333;
+    s.active_pool_idx = -1;
+    s.extranonce_subscribe_status = status;
+
+    bb_json_t root = bb_json_obj_new();
+    build_pool_json(&s, root);
+    char *json = serialize_and_free(root);
+
+    char needle[64];
+    snprintf(needle, sizeof(needle), "\"extranonce_subscribe_status\":\"%s\"", expected);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(json, needle), needle);
+    bb_json_free_str(json);
+}
+
+void test_pool_subscribe_status_pending(void)  { exercise_subscribe_status(1, "pending"); }
+void test_pool_subscribe_status_active(void)   { exercise_subscribe_status(2, "active"); }
+void test_pool_subscribe_status_rejected(void) { exercise_subscribe_status(3, "rejected"); }
+
 void test_pool_connected_with_notify(void)
 {
     pool_snapshot_t s = {0};
@@ -295,6 +322,7 @@ void test_pool_connected_with_notify(void)
         "\"ntime\":\"65a1b2c3\","
         "\"clean_jobs\":true},"
         "\"active_pool_idx\":null,"
+        "\"extranonce_subscribe_status\":\"off\","
         "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
@@ -329,6 +357,7 @@ void test_pool_version_mask_zero(void)
         "\"current_difficulty\":512,\"latency_ms\":null,"
         "\"extranonce1\":\"dead\",\"extranonce2_size\":4,\"version_mask\":null,"
         "\"notify\":null,\"active_pool_idx\":null,"
+        "\"extranonce_subscribe_status\":\"off\","
         "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
@@ -360,6 +389,7 @@ void test_pool_latency_positive(void)
         "\"current_difficulty\":512,\"latency_ms\":42,"
         "\"extranonce1\":null,\"extranonce2_size\":null,\"version_mask\":null,"
         "\"notify\":null,\"active_pool_idx\":null,"
+        "\"extranonce_subscribe_status\":\"off\","
         "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
@@ -391,6 +421,7 @@ void test_pool_latency_negative(void)
         "\"current_difficulty\":512,\"latency_ms\":null,"
         "\"extranonce1\":null,\"extranonce2_size\":null,\"version_mask\":null,"
         "\"notify\":null,\"active_pool_idx\":null,"
+        "\"extranonce_subscribe_status\":\"off\","
         "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);

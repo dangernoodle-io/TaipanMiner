@@ -151,6 +151,8 @@ typedef struct {
     /* Configured pools (TA-290/TA-202). */
     pool_cfg_summary_t configured[2];
     int                active_pool_idx;  /* -1 if not connected */
+    /* TA-306: enum value (off/pending/active/rejected) for the active session */
+    int                extranonce_subscribe_status;
 } pool_snapshot_t;
 
 void build_pool_json(const pool_snapshot_t *s, bb_json_t root);

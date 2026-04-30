@@ -934,6 +934,134 @@ void test_handle_notify_missing_field_at_index_0(void)
 }
 
 // ---------------------------------------------------------------------------
+// TA-306: handle_set_extranonce tests
+// ---------------------------------------------------------------------------
+
+void test_handle_set_extranonce_valid_round_trip(void)
+{
+    bb_json_t params = bb_json_parse("[\"deadbeef\",4]", 0);
+    TEST_ASSERT_NOT_NULL(params);
+
+    stratum_state_t st;
+    memset(&st, 0, sizeof(st));
+
+    bool ok = stratum_machine_handle_set_extranonce(&st, params);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_STRING("deadbeef", st.extranonce1_hex);
+    TEST_ASSERT_EQUAL_INT(4, (int)st.extranonce1_len);
+    TEST_ASSERT_EQUAL_UINT8(0xde, st.extranonce1[0]);
+    TEST_ASSERT_EQUAL_UINT8(0xad, st.extranonce1[1]);
+    TEST_ASSERT_EQUAL_UINT8(0xbe, st.extranonce1[2]);
+    TEST_ASSERT_EQUAL_UINT8(0xef, st.extranonce1[3]);
+    TEST_ASSERT_EQUAL_INT(4, st.extranonce2_size);
+
+    bb_json_free(params);
+}
+
+void test_handle_set_extranonce_not_array(void)
+{
+    bb_json_t params = bb_json_parse("{\"en1\":\"deadbeef\",\"en2\":4}", 0);
+    TEST_ASSERT_NOT_NULL(params);
+
+    stratum_state_t st;
+    memset(&st, 0, sizeof(st));
+
+    bool ok = stratum_machine_handle_set_extranonce(&st, params);
+    TEST_ASSERT_FALSE(ok);
+
+    bb_json_free(params);
+}
+
+void test_handle_set_extranonce_array_too_short(void)
+{
+    bb_json_t params = bb_json_parse("[\"deadbeef\"]", 0);
+    TEST_ASSERT_NOT_NULL(params);
+
+    stratum_state_t st;
+    memset(&st, 0, sizeof(st));
+
+    bool ok = stratum_machine_handle_set_extranonce(&st, params);
+    TEST_ASSERT_FALSE(ok);
+
+    bb_json_free(params);
+}
+
+void test_handle_set_extranonce_en1_not_string(void)
+{
+    bb_json_t params = bb_json_parse("[12345,4]", 0);
+    TEST_ASSERT_NOT_NULL(params);
+
+    stratum_state_t st;
+    memset(&st, 0, sizeof(st));
+
+    bool ok = stratum_machine_handle_set_extranonce(&st, params);
+    TEST_ASSERT_FALSE(ok);
+
+    bb_json_free(params);
+}
+
+void test_handle_set_extranonce_en1_too_long(void)
+{
+    /* MAX_EXTRANONCE1_SIZE = 8, so 18 hex chars = 9 bytes → reject */
+    bb_json_t params = bb_json_parse("[\"0102030405060708ff\",4]", 0);
+    TEST_ASSERT_NOT_NULL(params);
+
+    stratum_state_t st;
+    memset(&st, 0, sizeof(st));
+
+    bool ok = stratum_machine_handle_set_extranonce(&st, params);
+    TEST_ASSERT_FALSE(ok);
+
+    bb_json_free(params);
+}
+
+void test_handle_set_extranonce_en2_not_number(void)
+{
+    bb_json_t params = bb_json_parse("[\"deadbeef\",\"4\"]", 0);
+    TEST_ASSERT_NOT_NULL(params);
+
+    stratum_state_t st;
+    memset(&st, 0, sizeof(st));
+
+    bool ok = stratum_machine_handle_set_extranonce(&st, params);
+    TEST_ASSERT_FALSE(ok);
+
+    bb_json_free(params);
+}
+
+void test_handle_set_extranonce_en2_negative(void)
+{
+    bb_json_t params = bb_json_parse("[\"deadbeef\",-1]", 0);
+    TEST_ASSERT_NOT_NULL(params);
+
+    stratum_state_t st;
+    memset(&st, 0, sizeof(st));
+    st.extranonce2_size = 4;  // pre-existing
+
+    bool ok = stratum_machine_handle_set_extranonce(&st, params);
+    TEST_ASSERT_FALSE(ok);
+    TEST_ASSERT_EQUAL_INT(4, st.extranonce2_size);  // unchanged
+
+    bb_json_free(params);
+}
+
+void test_handle_set_extranonce_en2_too_large(void)
+{
+    bb_json_t params = bb_json_parse("[\"deadbeef\",17]", 0);
+    TEST_ASSERT_NOT_NULL(params);
+
+    stratum_state_t st;
+    memset(&st, 0, sizeof(st));
+    st.extranonce2_size = 4;
+
+    bool ok = stratum_machine_handle_set_extranonce(&st, params);
+    TEST_ASSERT_FALSE(ok);
+    TEST_ASSERT_EQUAL_INT(4, st.extranonce2_size);  // unchanged
+
+    bb_json_free(params);
+}
+
+// ---------------------------------------------------------------------------
 // TA-273 Phase 4: reject classifier tests
 // ---------------------------------------------------------------------------
 

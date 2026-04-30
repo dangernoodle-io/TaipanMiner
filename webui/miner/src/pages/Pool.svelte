@@ -556,6 +556,9 @@
                         on:change={(e) => handleOptionToggle('primary', 'extranonce_subscribe', e.currentTarget.checked)}
                       />
                       <span>extranonce.subscribe</span>
+                      {#if displayPool.active_pool_idx === 0}
+                        <span class="subscribe-status {displayPool.extranonce_subscribe_status ?? 'off'}">{(displayPool.extranonce_subscribe_status ?? 'off').toUpperCase()}</span>
+                      {/if}
                     </label>
                     <label class="setting-toggle" title="Decode coinbase tx for block height, scriptSig tag, payout, and reward. Turn off for non-BTC SHA-256d pools whose coinbase shape we don't understand.">
                       <input
@@ -651,6 +654,9 @@
                         on:change={(e) => handleOptionToggle('fallback', 'extranonce_subscribe', e.currentTarget.checked)}
                       />
                       <span>extranonce.subscribe</span>
+                      {#if displayPool.active_pool_idx === 1}
+                        <span class="subscribe-status {displayPool.extranonce_subscribe_status ?? 'off'}">{(displayPool.extranonce_subscribe_status ?? 'off').toUpperCase()}</span>
+                      {/if}
                     </label>
                     <label class="setting-toggle" title="Decode coinbase tx. Turn off for non-BTC SHA-256d pools.">
                       <input
@@ -1002,6 +1008,42 @@
     padding: 1px 6px;
     border-radius: 3px;
     font-variant-numeric: tabular-nums;
+  }
+
+  /* TA-306: extranonce.subscribe session status badge */
+  .subscribe-status {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    background: color-mix(in srgb, var(--muted) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent);
+  }
+  .subscribe-status.active {
+    color: var(--success);
+    background: color-mix(in srgb, var(--success) 12%, transparent);
+    border-color: color-mix(in srgb, var(--success) 50%, transparent);
+  }
+  .subscribe-status.rejected {
+    color: var(--warning);
+    background: color-mix(in srgb, var(--warning) 12%, transparent);
+    border-color: color-mix(in srgb, var(--warning) 50%, transparent);
+  }
+  .subscribe-status.pending {
+    color: var(--muted);
+    background: color-mix(in srgb, var(--muted) 10%, transparent);
+    border-color: color-mix(in srgb, var(--muted) 30%, transparent);
+  }
+  .subscribe-status.off {
+    opacity: 0.55;
+    color: var(--muted);
+    background: color-mix(in srgb, var(--muted) 8%, transparent);
+    border-color: color-mix(in srgb, var(--muted) 20%, transparent);
   }
 
   .loading, .error { font-size: 12px; color: var(--muted); }

@@ -66,6 +66,9 @@ static volatile int s_active_pool_idx = TAIPAN_POOL_PRIMARY;
 static int s_consecutive_fail_count = 0;
 #define STRATUM_FAILOVER_THRESHOLD 3
 
+/* TA-306: extranonce.subscribe runtime status (per-session, reset on reconnect). */
+static volatile stratum_extranonce_sub_status_t s_extranonce_sub_status = STRATUM_EXNX_SUB_OFF;
+
 // Line buffer for reading from socket
 static char s_linebuf[4096];
 static int s_linebuf_len = 0;
@@ -150,6 +153,11 @@ int stratum_get_pool_rtt_ms(void)
 int stratum_get_active_pool_idx(void)
 {
     return s_stratum_connected ? s_active_pool_idx : -1;
+}
+
+stratum_extranonce_sub_status_t stratum_get_extranonce_subscribe_status(void)
+{
+    return s_extranonce_sub_status;
 }
 
 bool stratum_get_session_snapshot(stratum_session_snapshot_t *out)
@@ -384,6 +392,22 @@ static void handle_notify(bb_json_t params)
     stratum_backoff_reset(&s_backoff);  // reset on successful job receipt
 }
 
+// Handle mining.set_extranonce (TA-306). Pool can roll extranonce1 mid-session
+// when we've subscribed via mining.extranonce.subscribe. Updates s_state in
+// place; the next work cycle picks up the new values via the existing
+// extranonce2_roll path. In-flight ASIC work prepared with the old
+// extranonce1 will be rejected as "stale" by the pool — acceptable because
+// the work loop runs every 500ms.
+static void handle_set_extranonce(bb_json_t params)
+{
+    if (!stratum_machine_handle_set_extranonce(&s_state, params)) {
+        bb_log_w(TAG, "invalid set_extranonce params");
+        return;
+    }
+    bb_log_i(TAG, "set_extranonce: en1=%s en2_size=%d",
+             s_state.extranonce1_hex, s_state.extranonce2_size);
+}
+
 // Handle mining.set_difficulty
 static void handle_set_difficulty(bb_json_t params)
 {
@@ -457,7 +481,9 @@ static void process_message(const char *line)
     if (method && bb_json_item_is_string(method)) {
         // Server notification
         const char *method_str = bb_json_item_get_string(method);
-        if (strcmp(method_str, "mining.notify") == 0) {
+        if (strcmp(method_str, "mining.set_extranonce") == 0) {
+            handle_set_extranonce(params);
+        } else if (strcmp(method_str, "mining.notify") == 0) {
             handle_notify(params);
         } else if (strcmp(method_str, "mining.set_difficulty") == 0) {
             handle_set_difficulty(params);
@@ -515,6 +541,15 @@ static void process_message(const char *line)
                 handle_configure_result(result_item);
             } else {
                 bb_log_w(TAG, "pool does not support mining.configure, version rolling disabled");
+            }
+        } else if (s_state.extranonce_subscribe_id != 0 && id == s_state.extranonce_subscribe_id) {
+            s_state.extranonce_subscribe_id = 0;
+            if (result_item && bb_json_item_is_true(result_item)) {
+                s_extranonce_sub_status = STRATUM_EXNX_SUB_ACTIVE;
+                bb_log_i(TAG, "extranonce.subscribe: active");
+            } else {
+                s_extranonce_sub_status = STRATUM_EXNX_SUB_REJECTED;
+                bb_log_w(TAG, "extranonce.subscribe: rejected");
             }
         } else if (s_state.keepalive_id != 0 && id == s_state.keepalive_id) {
             bb_log_d(TAG, "keepalive ack id=%d", id);
@@ -663,6 +698,18 @@ void stratum_task(void *arg)
             }
         }
 
+        /* TA-306: send mining.extranonce.subscribe if the active slot requests it */
+        if (taipan_config_pool_extranonce_subscribe_idx(s_active_pool_idx)) {
+            int sub_id = stratum_request("mining.extranonce.subscribe", "[]");
+            if (sub_id >= 0) {
+                s_state.extranonce_subscribe_id = sub_id;
+                s_extranonce_sub_status = STRATUM_EXNX_SUB_PENDING;
+            } else {
+                bb_log_w(TAG, "extranonce.subscribe send failed, session continues");
+                s_extranonce_sub_status = STRATUM_EXNX_SUB_REJECTED;
+            }
+        }
+
         // Wait for authorize response, set_difficulty, and initial notify
         bool job_received = false;
         for (int i = 0; i < 50; i++) {  // 5s timeout
@@ -800,6 +847,8 @@ reconnect:
         s_state.authorize_id = 0;
         s_state.configure_id = 0;
         s_state.keepalive_id = 0;
+        s_state.extranonce_subscribe_id = 0;
+        s_extranonce_sub_status = STRATUM_EXNX_SUB_OFF;
         s_state.version_mask = 0;
         memset(&s_state.job, 0, sizeof(s_state.job));
         s_last_share_tick = 0;

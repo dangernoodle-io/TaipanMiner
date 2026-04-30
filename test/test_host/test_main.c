@@ -92,6 +92,9 @@ void test_pool_with_active_idx_and_configured_slots(void);
 void test_pool_options_round_trip(void);
 void test_pool_options_legacy_set_pool_preserves_flags(void);
 void test_pool_options_idx_out_of_range_safe(void);
+void test_pool_subscribe_status_pending(void);
+void test_pool_subscribe_status_active(void);
+void test_pool_subscribe_status_rejected(void);
 
 // Forward declarations from test_crc.c
 void test_crc5_chain_inactive(void);
@@ -240,6 +243,15 @@ void test_build_work_with_version_mask(void);
 void test_build_work_increments_seq_multiple_times(void);
 void test_build_work_with_varying_extranonce2(void);
 void test_build_work_with_small_extranonce2_size(void);
+// TA-306: set_extranonce handler tests
+void test_handle_set_extranonce_valid_round_trip(void);
+void test_handle_set_extranonce_not_array(void);
+void test_handle_set_extranonce_array_too_short(void);
+void test_handle_set_extranonce_en1_not_string(void);
+void test_handle_set_extranonce_en1_too_long(void);
+void test_handle_set_extranonce_en2_not_number(void);
+void test_handle_set_extranonce_en2_negative(void);
+void test_handle_set_extranonce_en2_too_large(void);
 // NULL guard tests
 void test_build_configure_null_buf(void);
 void test_build_configure_zero_size(void);
@@ -735,6 +747,15 @@ int main(void) {
     RUN_TEST(test_handle_notify_wrong_type_for_version);
     RUN_TEST(test_handle_notify_ta186_non_monotonic_job_id);
     RUN_TEST(test_subscribe_then_notify_work_seq_unchanged);
+    // TA-306: set_extranonce handler tests
+    RUN_TEST(test_handle_set_extranonce_valid_round_trip);
+    RUN_TEST(test_handle_set_extranonce_not_array);
+    RUN_TEST(test_handle_set_extranonce_array_too_short);
+    RUN_TEST(test_handle_set_extranonce_en1_not_string);
+    RUN_TEST(test_handle_set_extranonce_en1_too_long);
+    RUN_TEST(test_handle_set_extranonce_en2_not_number);
+    RUN_TEST(test_handle_set_extranonce_en2_negative);
+    RUN_TEST(test_handle_set_extranonce_en2_too_large);
     // TA-273 Phase 3: build_work tests
     RUN_TEST(test_build_work_null_state);
     RUN_TEST(test_build_work_null_output);
@@ -1010,6 +1031,9 @@ int main(void) {
     RUN_TEST(test_pool_latency_positive);
     RUN_TEST(test_pool_latency_negative);
     RUN_TEST(test_pool_with_active_idx_and_configured_slots);
+    RUN_TEST(test_pool_subscribe_status_pending);
+    RUN_TEST(test_pool_subscribe_status_active);
+    RUN_TEST(test_pool_subscribe_status_rejected);
     RUN_TEST(test_diag_asic_empty);
     RUN_TEST(test_diag_asic_three_events);
     RUN_TEST(test_diag_asic_future_ts_clamps_to_zero);

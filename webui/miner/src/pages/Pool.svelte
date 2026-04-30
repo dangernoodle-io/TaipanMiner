@@ -241,7 +241,7 @@
         && coinbasePayoutSpk(n.coinb2) == null
   })()
 
-  let form: PoolForm = { host: '', port: 0, wallet: '', worker: '', pool_pass: '' }
+  let form: PoolForm = { host: '', port: 0, wallet: '', worker: '', pool_pass: '', extranonce_subscribe: false, decode_coinbase: true }
   let autoRotate = false
   let hostname = ''
 

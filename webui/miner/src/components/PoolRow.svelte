@@ -26,7 +26,7 @@
   export let switching: boolean = false
   export let workerPlaceholder: string = 'miner-1'
 
-  $: kind = idx === 0 ? 'Primary' : 'Fallback'
+  $: kind = (idx === 0 ? 'Primary' : 'Fallback') as 'Primary' | 'Fallback'
   $: cfg = idx === 0 ? displayPool?.configured?.primary : displayPool?.configured?.fallback
   $: otherCfg = idx === 0 ? displayPool?.configured?.fallback : displayPool?.configured?.primary
   $: isActive = displayPool?.active_pool_idx === idx && displayPool?.connected

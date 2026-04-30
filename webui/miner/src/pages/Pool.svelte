@@ -94,7 +94,7 @@
   function startEdit(idx: number) {
     editingIdx = idx
     saveMsg = ''
-    const cfg = idx === 0 ? $pool?.configured.primary : $pool?.configured.fallback
+    const cfg = idx === 0 ? $pool?.configured?.primary : $pool?.configured?.fallback
     if (cfg) {
       form = {
         host: cfg.host,
@@ -119,11 +119,11 @@
     saving = true
     try {
       const body: PoolPutBody = {
-        primary: $pool?.configured.primary ? {
-          host: editingIdx === 0 ? form.host.trim() : $pool.configured.primary.host,
-          port: editingIdx === 0 ? form.port : $pool.configured.primary.port,
-          worker: editingIdx === 0 ? form.worker.trim() : $pool.configured.primary.worker,
-          wallet: editingIdx === 0 ? form.wallet.trim() : $pool.configured.primary.wallet,
+        primary: $pool?.configured?.primary ? {
+          host: editingIdx === 0 ? form.host.trim() : $pool.configured?.primary.host,
+          port: editingIdx === 0 ? form.port : $pool.configured?.primary.port,
+          worker: editingIdx === 0 ? form.worker.trim() : $pool.configured?.primary.worker,
+          wallet: editingIdx === 0 ? form.wallet.trim() : $pool.configured?.primary.wallet,
           pool_pass: editingIdx === 0 ? form.pool_pass : ''
         } : {
           host: form.host.trim(),
@@ -138,11 +138,11 @@
           worker: form.worker.trim(),
           wallet: form.wallet.trim(),
           pool_pass: form.pool_pass
-        } : ($pool?.configured.fallback ? {
-          host: $pool.configured.fallback.host,
-          port: $pool.configured.fallback.port,
-          worker: $pool.configured.fallback.worker,
-          wallet: $pool.configured.fallback.wallet,
+        } : ($pool?.configured?.fallback ? {
+          host: $pool.configured?.fallback.host,
+          port: $pool.configured?.fallback.port,
+          worker: $pool.configured?.fallback.worker,
+          wallet: $pool.configured?.fallback.wallet,
           pool_pass: ''
         } : null)
       }
@@ -271,14 +271,14 @@
             <div class="summary">
               <span class="idx">1</span>
               <span class="kind">Primary</span>
-              {#if $pool.configured.primary}
-                <span class="endpoint">{$pool.configured.primary.host}{#if $pool.configured.primary.port}:{$pool.configured.primary.port}{/if}</span>
-                <span class="worker">{$pool.configured.primary.worker}</span>
-                <span class="wallet mono" title={$pool.configured.primary.wallet}>{truncWallet($pool.configured.primary.wallet)}</span>
+              {#if $pool.configured?.primary}
+                <span class="endpoint">{$pool.configured?.primary.host}{#if $pool.configured?.primary.port}:{$pool.configured?.primary.port}{/if}</span>
+                <span class="worker">{$pool.configured?.primary.worker}</span>
+                <span class="wallet mono" title={$pool.configured?.primary.wallet}>{truncWallet($pool.configured?.primary.wallet)}</span>
                 <span class="pass">••••</span>
                 {#if $pool.active_pool_idx === 0 && $pool.connected}
                   <span class="active-tag">ACTIVE</span>
-                {:else if $pool.active_pool_idx === 1 && $pool.configured.fallback}
+                {:else if $pool.active_pool_idx === 1 && $pool.configured?.fallback}
                   <button class="btn outline sm" on:click={() => handleSwitch(0)} disabled={switching}>{switching ? 'Switching…' : 'Switch'}</button>
                 {:else}
                   <button class="btn outline sm" on:click={() => startEdit(0)}>Edit</button>
@@ -326,19 +326,19 @@
         </div>
 
         <!-- Fallback -->
-        <div class="pool-row" class:editing={editingIdx === 1} class:disabled={!$pool.configured.fallback && editingIdx !== 1}>
+        <div class="pool-row" class:editing={editingIdx === 1} class:disabled={!$pool.configured?.fallback && editingIdx !== 1}>
           {#if editingIdx !== 1}
             <div class="summary">
               <span class="idx">2</span>
               <span class="kind">Fallback</span>
-              {#if $pool.configured.fallback}
-                <span class="endpoint">{$pool.configured.fallback.host}{#if $pool.configured.fallback.port}:{$pool.configured.fallback.port}{/if}</span>
-                <span class="worker">{$pool.configured.fallback.worker}</span>
-                <span class="wallet mono" title={$pool.configured.fallback.wallet}>{truncWallet($pool.configured.fallback.wallet)}</span>
+              {#if $pool.configured?.fallback}
+                <span class="endpoint">{$pool.configured?.fallback.host}{#if $pool.configured?.fallback.port}:{$pool.configured?.fallback.port}{/if}</span>
+                <span class="worker">{$pool.configured?.fallback.worker}</span>
+                <span class="wallet mono" title={$pool.configured?.fallback.wallet}>{truncWallet($pool.configured?.fallback.wallet)}</span>
                 <span class="pass">••••</span>
                 {#if $pool.active_pool_idx === 1 && $pool.connected}
                   <span class="active-tag">ACTIVE</span>
-                {:else if $pool.active_pool_idx === 0 && $pool.configured.primary}
+                {:else if $pool.active_pool_idx === 0 && $pool.configured?.primary}
                   <button class="btn outline sm" on:click={() => handleSwitch(1)} disabled={switching}>{switching ? 'Switching…' : 'Switch'}</button>
                 {:else}
                   <button class="btn outline sm" on:click={() => startEdit(1)}>Edit</button>

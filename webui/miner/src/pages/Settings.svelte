@@ -25,7 +25,8 @@
     loading = true
     loadErr = ''
     try {
-      saved = await fetchSettings()
+      const s = await fetchSettings()
+      saved = s
       displayOn = !!saved.display_en
       otaSkip = !!saved.ota_skip_check
     } catch (e) {

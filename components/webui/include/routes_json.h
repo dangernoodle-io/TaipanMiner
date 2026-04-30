@@ -100,6 +100,17 @@ void build_stats_json(const stats_snapshot_t *s, bb_json_t root);
 #define ROUTES_JSON_MAX_MERKLE      16
 #define ROUTES_JSON_MAX_COINB       256
 
+/* Configured pools (TA-290/TA-202). Top-level host/port/worker/wallet
+ * keep reflecting the *active* connection; these expose the persisted
+ * config so the UI can render both rows even when fallback is idle. */
+typedef struct {
+    char     host[64];
+    uint16_t port;
+    char     worker[64];
+    char     wallet[64];
+    bool     configured;  /* false → emit null sub-object */
+} pool_cfg_summary_t;
+
 typedef struct {
     char     host[64];
     uint16_t port;
@@ -132,6 +143,10 @@ typedef struct {
     uint32_t nbits;
     uint32_t ntime;
     bool     clean_jobs;
+
+    /* Configured pools (TA-290/TA-202). */
+    pool_cfg_summary_t configured[2];
+    int                active_pool_idx;  /* -1 if not connected */
 } pool_snapshot_t;
 
 void build_pool_json(const pool_snapshot_t *s, bb_json_t root);
@@ -183,11 +198,6 @@ void build_knot_json(const knot_peer_t *peers, size_t n_peers, int64_t now_us, b
  * ========================================================================= */
 
 typedef struct {
-    char     pool_host[64];
-    uint16_t pool_port;
-    char     wallet[64];
-    char     worker[64];
-    char     pool_pass[64];
     char     hostname[33];
     bool     display_en;
     bool     ota_skip_check;

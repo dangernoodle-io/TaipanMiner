@@ -61,6 +61,11 @@ static int64_t s_inflight_send_us[STRATUM_INFLIGHT_MAX] = {0};
 static double s_pool_rtt_ms_ema = 0.0;
 static bool s_pool_rtt_initialized = false;
 
+// Pool failover state (TA-202)
+static volatile int s_active_pool_idx = TAIPAN_POOL_PRIMARY;
+static int s_consecutive_fail_count = 0;
+#define STRATUM_FAILOVER_THRESHOLD 3
+
 // Line buffer for reading from socket
 static char s_linebuf[4096];
 static int s_linebuf_len = 0;
@@ -99,6 +104,23 @@ void stratum_set_wifi_kick_cb(stratum_wifi_kick_cb_t cb)
     s_wifi_kick_cb = cb;
 }
 
+bb_err_t stratum_request_switch_pool(int idx)
+{
+    if (idx < 0 || idx >= TAIPAN_POOL_COUNT) {
+        return BB_ERR_INVALID_ARG;
+    }
+    if (!taipan_config_pool_configured(idx)) {
+        return BB_ERR_INVALID_ARG;
+    }
+    if (idx == s_active_pool_idx) {
+        return BB_OK;  // no-op
+    }
+    s_active_pool_idx = idx;
+    s_consecutive_fail_count = 0;
+    s_reconnect_requested = true;
+    return BB_OK;
+}
+
 uint32_t stratum_get_reconnect_delay_ms(void)
 {
     return s_backoff.delay_ms;
@@ -123,6 +145,11 @@ double stratum_get_difficulty(void)
 int stratum_get_pool_rtt_ms(void)
 {
     return s_pool_rtt_initialized ? (int)s_pool_rtt_ms_ema : -1;
+}
+
+int stratum_get_active_pool_idx(void)
+{
+    return s_stratum_connected ? s_active_pool_idx : -1;
 }
 
 bool stratum_get_session_snapshot(stratum_session_snapshot_t *out)
@@ -676,6 +703,16 @@ void stratum_task(void *arg)
             if (n > 0) {
                 process_message(line);
             } else if (n < 0) {
+                s_consecutive_fail_count++;
+                if (s_consecutive_fail_count >= STRATUM_FAILOVER_THRESHOLD) {
+                    int other_idx = (s_active_pool_idx == 0) ? 1 : 0;
+                    if (taipan_config_pool_configured(other_idx)) {
+                        bb_log_w(TAG, "failover: switching to pool slot %d after %d failures",
+                                 other_idx, STRATUM_FAILOVER_THRESHOLD);
+                        s_active_pool_idx = other_idx;
+                        s_consecutive_fail_count = 0;
+                    }
+                }
                 break;  // connection error
             }
 

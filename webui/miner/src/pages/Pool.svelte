@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { stats, info, settings, pool } from '../lib/stores'
-  import { fetchSettings, patchSettings, type Settings } from '../lib/api'
+  import { stats, info, pool } from '../lib/stores'
+  import { fetchPool, putPool, switchPool, type PoolConfigInput, type PoolPutBody } from '../lib/api'
   import { fmtRelative } from '../lib/fmt'
 
-  type PoolForm = { pool_host: string; pool_port: number; wallet: string; worker: string; pool_pass: string }
+  type PoolForm = { host: string; port: number; wallet: string; worker: string; pool_pass: string }
 
   // nbits is a 4-byte compact representation of the target. Difficulty 1
   // corresponds to target 0x00000000FFFF0000…, i.e. nbits 0x1d00ffff. Network
@@ -77,49 +77,34 @@
   }
 
 
-  let loading = true
-  let loadErr = ''
   let saving = false
   let saveMsg = ''
   let rebootRequired = false
   let editingIdx: number | null = null  // 0 = primary, 1 = fallback
+  let switching = false
 
-  let saved: Settings | null = null
-  let form: PoolForm = { pool_host: '', pool_port: 0, wallet: '', worker: '', pool_pass: '' }
-
-  // UI-only — fallback + rotation (firmware pending · TA-202 / TA-203)
-  let fallbackConfigured = false
+  let form: PoolForm = { host: '', port: 0, wallet: '', worker: '', pool_pass: '' }
   let autoRotate = false
   let hostname = ''
 
-  async function load() {
-    loading = true
-    loadErr = ''
-    try {
-      const s = await fetchSettings()
-      saved = s
-    } catch (e) {
-      loadErr = (e as Error).message
-    } finally {
-      loading = false
-    }
-  }
-
-  onMount(load)
+  onMount(() => {
+    // No-op; pool store auto-polls via stores.ts
+  })
 
   function startEdit(idx: number) {
     editingIdx = idx
     saveMsg = ''
-    if (idx === 0 && saved) {
+    const cfg = idx === 0 ? $pool?.configured?.primary : $pool?.configured?.fallback
+    if (cfg) {
       form = {
-        pool_host: saved.pool_host ?? '',
-        pool_port: saved.pool_port ?? 0,
-        wallet: saved.wallet ?? '',
-        worker: saved.worker ?? '',
-        pool_pass: saved.pool_pass ?? ''
+        host: cfg.host,
+        port: cfg.port,
+        wallet: cfg.wallet,
+        worker: cfg.worker,
+        pool_pass: ''
       }
     } else {
-      form = { pool_host: '', pool_port: 0, wallet: '', worker: '', pool_pass: '' }
+      form = { host: '', port: 0, wallet: '', worker: '', pool_pass: '' }
     }
   }
 
@@ -129,25 +114,59 @@
   }
 
   async function handleSave() {
-    if (editingIdx !== 0) return  // only primary is wired to firmware
+    if (editingIdx === null) return
     saveMsg = ''
     saving = true
     try {
-      const res = await patchSettings({
-        pool_host: form.pool_host.trim(),
-        pool_port: form.pool_port,
-        wallet: form.wallet.trim(),
-        worker: form.worker.trim(),
-        pool_pass: form.pool_pass
-      })
+      const body: PoolPutBody = {
+        primary: $pool?.configured?.primary ? {
+          host: editingIdx === 0 ? form.host.trim() : $pool.configured?.primary.host,
+          port: editingIdx === 0 ? form.port : $pool.configured?.primary.port,
+          worker: editingIdx === 0 ? form.worker.trim() : $pool.configured?.primary.worker,
+          wallet: editingIdx === 0 ? form.wallet.trim() : $pool.configured?.primary.wallet,
+          pool_pass: editingIdx === 0 ? form.pool_pass : ''
+        } : {
+          host: form.host.trim(),
+          port: form.port,
+          worker: form.worker.trim(),
+          wallet: form.wallet.trim(),
+          pool_pass: form.pool_pass
+        },
+        fallback: editingIdx === 1 ? {
+          host: form.host.trim(),
+          port: form.port,
+          worker: form.worker.trim(),
+          wallet: form.wallet.trim(),
+          pool_pass: form.pool_pass
+        } : ($pool?.configured?.fallback ? {
+          host: $pool.configured?.fallback.host,
+          port: $pool.configured?.fallback.port,
+          worker: $pool.configured?.fallback.worker,
+          wallet: $pool.configured?.fallback.wallet,
+          pool_pass: ''
+        } : null)
+      }
+      const res = await putPool(body)
       rebootRequired = res.reboot_required
       saveMsg = res.reboot_required ? 'Saved. Reboot required.' : 'Saved.'
       editingIdx = null
-      await load()
+      pool.set(await fetchPool())
     } catch (e) {
       saveMsg = `Save failed: ${(e as Error).message}`
     } finally {
       saving = false
+    }
+  }
+
+  async function handleSwitch(idx: 0 | 1) {
+    switching = true
+    try {
+      await switchPool(idx)
+      pool.set(await fetchPool())
+    } catch (e) {
+      saveMsg = `Switch failed: ${(e as Error).message}`
+    } finally {
+      switching = false
     }
   }
 
@@ -244,11 +263,7 @@
       </label>
     </header>
 
-    {#if loading}
-      <div class="loading">Loading…</div>
-    {:else if loadErr}
-      <div class="error">{loadErr}</div>
-    {:else}
+    {#if $pool}
       <div class="pool-list">
         <!-- Primary -->
         <div class="pool-row" class:editing={editingIdx === 0}>
@@ -256,11 +271,21 @@
             <div class="summary">
               <span class="idx">1</span>
               <span class="kind">Primary</span>
-              <span class="endpoint">{saved?.pool_host || '—'}{#if saved?.pool_port}:{saved.pool_port}{/if}</span>
-              <span class="worker">{saved?.worker || '—'}</span>
-              <span class="wallet mono" title={saved?.wallet}>{truncWallet(saved?.wallet)}</span>
-              <span class="pass">{saved?.pool_pass ? '••••' : '—'}</span>
-              <button class="btn outline sm" on:click={() => startEdit(0)}>Edit</button>
+              {#if $pool.configured?.primary}
+                <span class="endpoint">{$pool.configured?.primary.host}{#if $pool.configured?.primary.port}:{$pool.configured?.primary.port}{/if}</span>
+                <span class="worker">{$pool.configured?.primary.worker}</span>
+                <span class="wallet mono" title={$pool.configured?.primary.wallet}>{truncWallet($pool.configured?.primary.wallet)}</span>
+                <span class="pass">••••</span>
+                {#if $pool.active_pool_idx === 0 && $pool.connected}
+                  <span class="active-tag">ACTIVE</span>
+                {:else if $pool.active_pool_idx === 1 && $pool.configured?.fallback}
+                  <button class="btn outline sm" on:click={() => handleSwitch(0)} disabled={switching}>{switching ? 'Switching…' : 'Switch'}</button>
+                {/if}
+                <button class="btn outline sm" on:click={() => startEdit(0)}>Edit</button>
+              {:else}
+                <span class="placeholder">not configured</span>
+                <button class="btn outline sm" on:click={() => startEdit(0)}>Configure</button>
+              {/if}
             </div>
           {:else}
             <form class="edit-form" on:submit|preventDefault={handleSave}>
@@ -271,11 +296,11 @@
               <div class="fields">
                 <label>
                   <span class="lbl">Host</span>
-                  <input type="text" bind:value={form.pool_host} maxlength="63" required />
+                  <input type="text" bind:value={form.host} maxlength="63" required />
                 </label>
                 <label class="narrow">
                   <span class="lbl">Port</span>
-                  <input type="number" bind:value={form.pool_port} min="1" max="65535" required />
+                  <input type="number" bind:value={form.port} min="1" max="65535" required />
                 </label>
                 <label>
                   <span class="lbl">Worker</span>
@@ -300,54 +325,59 @@
         </div>
 
         <!-- Fallback -->
-        <div class="pool-row" class:editing={editingIdx === 1} class:disabled={!fallbackConfigured}>
+        <div class="pool-row" class:editing={editingIdx === 1} class:disabled={!$pool.configured?.fallback && editingIdx !== 1}>
           {#if editingIdx !== 1}
             <div class="summary">
               <span class="idx">2</span>
               <span class="kind">Fallback</span>
-              {#if fallbackConfigured}
-                <span class="endpoint">—</span>
-                <span class="worker">—</span>
-                <span class="wallet">—</span>
-                <span class="pass">—</span>
-                <button class="btn outline sm" on:click={() => startEdit(1)} disabled>Edit</button>
+              {#if $pool.configured?.fallback}
+                <span class="endpoint">{$pool.configured?.fallback.host}{#if $pool.configured?.fallback.port}:{$pool.configured?.fallback.port}{/if}</span>
+                <span class="worker">{$pool.configured?.fallback.worker}</span>
+                <span class="wallet mono" title={$pool.configured?.fallback.wallet}>{truncWallet($pool.configured?.fallback.wallet)}</span>
+                <span class="pass">••••</span>
+                {#if $pool.active_pool_idx === 1 && $pool.connected}
+                  <span class="active-tag">ACTIVE</span>
+                {:else if $pool.active_pool_idx === 0 && $pool.configured?.primary}
+                  <button class="btn outline sm" on:click={() => handleSwitch(1)} disabled={switching}>{switching ? 'Switching…' : 'Switch'}</button>
+                {/if}
+                <button class="btn outline sm" on:click={() => startEdit(1)}>Edit</button>
               {:else}
                 <span class="placeholder">not configured · optional second pool for failover</span>
-                <button class="btn outline sm" on:click={() => { fallbackConfigured = true; startEdit(1) }} disabled>+ Add</button>
-                <span class="pending-tag">TA-202</span>
+                <button class="btn outline sm" on:click={() => startEdit(1)}>+ Add</button>
               {/if}
             </div>
           {:else}
-            <form class="edit-form" on:submit|preventDefault>
+            <form class="edit-form" on:submit|preventDefault={handleSave}>
               <div class="edit-head">
                 <span class="idx">2</span>
                 <span class="kind">Fallback</span>
-                <span class="pending-tag">firmware pending · TA-202</span>
               </div>
               <div class="fields">
                 <label>
                   <span class="lbl">Host</span>
-                  <input type="text" bind:value={form.pool_host} disabled />
+                  <input type="text" bind:value={form.host} maxlength="63" required />
                 </label>
                 <label class="narrow">
                   <span class="lbl">Port</span>
-                  <input type="number" bind:value={form.pool_port} disabled />
+                  <input type="number" bind:value={form.port} min="1" max="65535" required />
                 </label>
                 <label>
                   <span class="lbl">Worker</span>
-                  <input type="text" bind:value={form.worker} disabled />
+                  <input type="text" bind:value={form.worker} placeholder={hostname || $info?.worker_name || 'miner-1'} required />
                 </label>
                 <label class="wide">
                   <span class="lbl">Wallet</span>
-                  <input type="text" bind:value={form.wallet} disabled />
+                  <input type="text" bind:value={form.wallet} spellcheck="false" required />
                 </label>
                 <label>
                   <span class="lbl">Password</span>
-                  <input type="text" bind:value={form.pool_pass} disabled />
+                  <input type="text" bind:value={form.pool_pass} placeholder="x" />
                 </label>
               </div>
               <div class="actions">
-                <button type="button" class="btn outline sm" on:click={cancelEdit}>Cancel</button>
+                <button type="submit" class="btn primary sm" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+                <button type="button" class="btn outline sm" on:click={cancelEdit} disabled={saving}>Cancel</button>
+                {#if saveMsg}<span class="msg" class:warn={rebootRequired}>{saveMsg}</span>{/if}
               </div>
             </form>
           {/if}
@@ -474,6 +504,19 @@
     letter-spacing: 0.5px;
     color: var(--warning);
     background: rgba(243, 156, 18, 0.12);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .active-tag {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--success);
+    background: color-mix(in srgb, var(--success) 12%, transparent);
     padding: 1px 6px;
     border-radius: 3px;
     font-variant-numeric: tabular-nums;

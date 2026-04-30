@@ -213,6 +213,29 @@ void build_pool_json(const pool_snapshot_t *s, bb_json_t root)
     } else {
         bb_json_obj_set_null(root, "notify");
     }
+
+    /* active_pool_idx — -1 if not connected */
+    if (s->active_pool_idx >= 0) {
+        bb_json_obj_set_number(root, "active_pool_idx", (double)s->active_pool_idx);
+    } else {
+        bb_json_obj_set_null(root, "active_pool_idx");
+    }
+
+    /* configured pools — expose persisted config (TA-290/TA-202) */
+    bb_json_t cfg_obj = bb_json_obj_new();
+    for (int i = 0; i < 2; i++) {
+        if (s->configured[i].configured) {
+            bb_json_t pool_cfg = bb_json_obj_new();
+            bb_json_obj_set_string(pool_cfg, "host",   s->configured[i].host);
+            bb_json_obj_set_number(pool_cfg, "port",   (double)s->configured[i].port);
+            bb_json_obj_set_string(pool_cfg, "worker", s->configured[i].worker);
+            bb_json_obj_set_string(pool_cfg, "wallet", s->configured[i].wallet);
+            bb_json_obj_set_obj(cfg_obj, (i == 0) ? "primary" : "fallback", pool_cfg);
+        } else {
+            bb_json_obj_set_null(cfg_obj, (i == 0) ? "primary" : "fallback");
+        }
+    }
+    bb_json_obj_set_obj(root, "configured", cfg_obj);
 }
 
 /* ============================================================================
@@ -279,11 +302,6 @@ void build_knot_json(const knot_peer_t *peers, size_t n_peers, int64_t now_us, b
 
 void build_settings_json(const settings_snapshot_t *s, bb_json_t root)
 {
-    bb_json_obj_set_string(root, "pool_host",     s->pool_host);
-    bb_json_obj_set_number(root, "pool_port",     s->pool_port);
-    bb_json_obj_set_string(root, "wallet",        s->wallet);
-    bb_json_obj_set_string(root, "worker",        s->worker);
-    bb_json_obj_set_string(root, "pool_pass",     s->pool_pass);
     bb_json_obj_set_string(root, "hostname",      s->hostname);
     bb_json_obj_set_bool(root,   "display_en",    s->display_en);
     bb_json_obj_set_bool(root,   "ota_skip_check", s->ota_skip_check);

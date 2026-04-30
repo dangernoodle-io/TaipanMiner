@@ -157,6 +157,13 @@ export interface PoolNotify {
   clean_jobs: boolean
 }
 
+export interface PoolConfigured {
+  host: string
+  port: number
+  worker: string
+  wallet: string
+}
+
 export interface Pool {
   host: string
   port: number
@@ -170,6 +177,24 @@ export interface Pool {
   extranonce2_size: number | null
   version_mask: string | null
   notify: PoolNotify | null
+  active_pool_idx: 0 | 1 | null
+  configured: {
+    primary: PoolConfigured | null
+    fallback: PoolConfigured | null
+  }
+}
+
+export interface PoolConfigInput {
+  host: string
+  port: number
+  worker: string
+  wallet: string
+  pool_pass: string
+}
+
+export interface PoolPutBody {
+  primary: PoolConfigInput
+  fallback: PoolConfigInput | null
 }
 
 export const fetchPool = () => getJson<Pool>('/api/pool')
@@ -178,11 +203,6 @@ export interface DiagAsic { recent_drops: RecentDrop[] }
 export const fetchDiagAsic = () => getJson<DiagAsic>('/api/diag/asic')
 
 export interface Settings {
-  pool_host: string
-  pool_port: number
-  wallet: string
-  worker: string
-  pool_pass: string
   hostname: string
   display_en?: boolean
   ota_skip_check?: boolean
@@ -203,6 +223,35 @@ export async function patchSettings(patch: Partial<Settings>): Promise<{ status:
   })
   if (!res.ok) throw new Error(`settings patch failed: ${res.status}`)
   return res.json()
+}
+
+export async function putPool(body: PoolPutBody): Promise<{ reboot_required: boolean }> {
+  const res = await fetch(`${baseUrl}/api/pool`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  if (!res.ok) throw new Error(`pool put failed: ${res.status}`)
+  return res.json()
+}
+
+export async function switchPool(idx: 0 | 1): Promise<void> {
+  const res = await fetch(`${baseUrl}/api/pool/switch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idx })
+  })
+  if (!res.ok) throw new Error(`switch pool failed: ${res.status}`)
+}
+
+// DELETE /api/pool/fallback — clear fallback slot.
+// DELETE /api/pool/primary  — promote fallback to primary; 409 if no fallback.
+export async function deletePoolSlot(slot: 'primary' | 'fallback'): Promise<void> {
+  const res = await fetch(`${baseUrl}/api/pool/${slot}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(body || `delete pool ${slot} failed: ${res.status}`)
+  }
 }
 
 export async function postReboot(): Promise<void> {

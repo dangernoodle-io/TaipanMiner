@@ -77,6 +77,19 @@ void test_register_manifest_returns_ok(void);
 void test_register_manifest_registers_six_keys(void);
 void test_register_manifest_idempotent_via_clear(void);
 
+// Forward declarations from test_taipan_config_pools.c
+void test_set_pools_null_primary_rejected(void);
+void test_set_pools_primary_only_clears_fallback(void);
+void test_set_pools_writes_both_slots(void);
+void test_pool_configured_requires_all_fields(void);
+void test_pool_configured_rejects_out_of_range_idx(void);
+void test_pool_idx_accessors_out_of_range_safe(void);
+void test_legacy_primary_accessors_alias_idx_zero(void);
+void test_set_pools_truncates_oversized_fields(void);
+void test_legacy_set_pool_preserves_fallback(void);
+void test_legacy_set_pool_no_fallback_leaves_slot_clear(void);
+void test_pool_with_active_idx_and_configured_slots(void);
+
 // Forward declarations from test_crc.c
 void test_crc5_chain_inactive(void);
 void test_crc5_reg_write_a8(void);
@@ -581,6 +594,16 @@ int main(void) {
     RUN_TEST(test_register_manifest_returns_ok);
     RUN_TEST(test_register_manifest_registers_six_keys);
     RUN_TEST(test_register_manifest_idempotent_via_clear);
+    RUN_TEST(test_set_pools_null_primary_rejected);
+    RUN_TEST(test_set_pools_primary_only_clears_fallback);
+    RUN_TEST(test_set_pools_writes_both_slots);
+    RUN_TEST(test_pool_configured_requires_all_fields);
+    RUN_TEST(test_pool_configured_rejects_out_of_range_idx);
+    RUN_TEST(test_pool_idx_accessors_out_of_range_safe);
+    RUN_TEST(test_legacy_primary_accessors_alias_idx_zero);
+    RUN_TEST(test_set_pools_truncates_oversized_fields);
+    RUN_TEST(test_legacy_set_pool_preserves_fallback);
+    RUN_TEST(test_legacy_set_pool_no_fallback_leaves_slot_clear);
 
     // CRC tests
     RUN_TEST(test_crc5_chain_inactive);
@@ -980,6 +1003,7 @@ int main(void) {
     RUN_TEST(test_pool_version_mask_zero);
     RUN_TEST(test_pool_latency_positive);
     RUN_TEST(test_pool_latency_negative);
+    RUN_TEST(test_pool_with_active_idx_and_configured_slots);
     RUN_TEST(test_diag_asic_empty);
     RUN_TEST(test_diag_asic_three_events);
     RUN_TEST(test_diag_asic_future_ts_clamps_to_zero);

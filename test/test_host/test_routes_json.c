@@ -153,6 +153,7 @@ void test_pool_disconnected(void)
     s.has_session_start = false;
     s.current_difficulty = 512.0;
     s.latency_ms        = -1;  /* no sample yet */
+    s.active_pool_idx   = -1;  /* not connected */
     /* extranonce1_len=0, has_notify=false */
 
     bb_json_t root = bb_json_obj_new();
@@ -165,8 +166,68 @@ void test_pool_disconnected(void)
         "\"connected\":false,\"session_start_ago_s\":null,"
         "\"current_difficulty\":512,\"latency_ms\":null,"
         "\"extranonce1\":null,\"extranonce2_size\":null,\"version_mask\":null,"
-        "\"notify\":null}",
+        "\"notify\":null,\"active_pool_idx\":null,"
+        "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
+    bb_json_free_str(json);
+}
+
+void test_pool_with_active_idx_and_configured_slots(void)
+{
+    /* Exercises: active_pool_idx >= 0 path + both `configured[]` slots
+     * populated + non-empty merkle_branches array (the multi-pool +
+     * notify hot path). */
+    pool_snapshot_t s = {0};
+    strncpy(s.host, "primary.example.com", sizeof(s.host) - 1);
+    s.port = 3333;
+    strncpy(s.worker, "worker-a", sizeof(s.worker) - 1);
+    strncpy(s.wallet, "tb1qa", sizeof(s.wallet) - 1);
+    s.connected           = true;
+    s.has_session_start   = true;
+    s.session_start_ago_s = 5;
+    s.current_difficulty  = 1024.0;
+    s.latency_ms          = 10;
+    s.active_pool_idx     = 1;  /* fallback active */
+    s.extranonce1[0] = 0xab; s.extranonce1_len = 1;
+    s.extranonce2_size = 4;
+    s.version_mask     = 0;
+
+    /* notify with one merkle branch */
+    s.has_notify = true;
+    strncpy(s.job_id, "j1", sizeof(s.job_id) - 1);
+    memset(s.prevhash, 0xff, 32);
+    s.coinb1[0] = 0xaa; s.coinb1_len = 1;
+    s.coinb2[0] = 0xbb; s.coinb2_len = 1;
+    memset(s.merkle_branches[0], 0x11, 32);
+    s.merkle_count = 1;
+    s.version  = 0x20000000;
+    s.nbits    = 0x1703a30c;
+    s.ntime    = 0x65a1b2c3;
+    s.clean_jobs = false;
+
+    /* Both slots configured */
+    s.configured[0].configured = true;
+    strncpy(s.configured[0].host,   "primary.example.com",  sizeof(s.configured[0].host)   - 1);
+    s.configured[0].port = 3333;
+    strncpy(s.configured[0].worker, "worker-a",             sizeof(s.configured[0].worker) - 1);
+    strncpy(s.configured[0].wallet, "tb1qa",                sizeof(s.configured[0].wallet) - 1);
+
+    s.configured[1].configured = true;
+    strncpy(s.configured[1].host,   "fallback.example.com", sizeof(s.configured[1].host)   - 1);
+    s.configured[1].port = 3334;
+    strncpy(s.configured[1].worker, "worker-b",             sizeof(s.configured[1].worker) - 1);
+    strncpy(s.configured[1].wallet, "tb1qb",                sizeof(s.configured[1].wallet) - 1);
+
+    bb_json_t root = bb_json_obj_new();
+    build_pool_json(&s, root);
+    char *json = serialize_and_free(root);
+
+    /* spot-check: active_pool_idx is numeric, configured.primary/fallback are
+     * objects (not null), merkle branch is hex-encoded. */
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"active_pool_idx\":1"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"primary\":{\"host\":\"primary.example.com\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"fallback\":{\"host\":\"fallback.example.com\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"merkle_branches\":[\"1111111111111111111111111111111111111111111111111111111111111111\"]"));
     bb_json_free_str(json);
 }
 
@@ -182,6 +243,7 @@ void test_pool_connected_with_notify(void)
     s.session_start_ago_s = 120;
     s.current_difficulty = 8192.0;
     s.latency_ms         = 42;  /* sample available */
+    s.active_pool_idx    = -1;  /* snapshot not showing actual index */
 
     /* extranonce: 2 bytes = "aabb" */
     s.extranonce1[0] = 0xaa;
@@ -221,7 +283,9 @@ void test_pool_connected_with_notify(void)
         "\"version\":\"20000000\","
         "\"nbits\":\"1703a30c\","
         "\"ntime\":\"65a1b2c3\","
-        "\"clean_jobs\":true}}",
+        "\"clean_jobs\":true},"
+        "\"active_pool_idx\":null,"
+        "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
 }
@@ -237,6 +301,7 @@ void test_pool_version_mask_zero(void)
     s.session_start_ago_s = 5;
     s.current_difficulty = 512.0;
     s.latency_ms        = -1;  /* no sample yet */
+    s.active_pool_idx   = -1;  /* no active pool */
     s.extranonce1[0] = 0xde; s.extranonce1[1] = 0xad;
     s.extranonce1_len  = 2;
     s.extranonce2_size = 4;
@@ -253,7 +318,8 @@ void test_pool_version_mask_zero(void)
         "\"connected\":true,\"session_start_ago_s\":5,"
         "\"current_difficulty\":512,\"latency_ms\":null,"
         "\"extranonce1\":\"dead\",\"extranonce2_size\":4,\"version_mask\":null,"
-        "\"notify\":null}",
+        "\"notify\":null,\"active_pool_idx\":null,"
+        "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
 }
@@ -269,6 +335,7 @@ void test_pool_latency_positive(void)
     s.session_start_ago_s = 10;
     s.current_difficulty = 512.0;
     s.latency_ms        = 42;  /* sample available */
+    s.active_pool_idx   = -1;  /* no pool active */
     s.extranonce1_len   = 0;   /* no subscribe yet */
     s.has_notify        = false;
 
@@ -282,7 +349,8 @@ void test_pool_latency_positive(void)
         "\"connected\":true,\"session_start_ago_s\":10,"
         "\"current_difficulty\":512,\"latency_ms\":42,"
         "\"extranonce1\":null,\"extranonce2_size\":null,\"version_mask\":null,"
-        "\"notify\":null}",
+        "\"notify\":null,\"active_pool_idx\":null,"
+        "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
 }
@@ -298,6 +366,7 @@ void test_pool_latency_negative(void)
     s.session_start_ago_s = 5;
     s.current_difficulty = 512.0;
     s.latency_ms        = -1;  /* no sample yet */
+    s.active_pool_idx   = -1;  /* no active pool */
     s.extranonce1_len   = 0;
     s.has_notify        = false;
 
@@ -311,7 +380,8 @@ void test_pool_latency_negative(void)
         "\"connected\":true,\"session_start_ago_s\":5,"
         "\"current_difficulty\":512,\"latency_ms\":null,"
         "\"extranonce1\":null,\"extranonce2_size\":null,\"version_mask\":null,"
-        "\"notify\":null}",
+        "\"notify\":null,\"active_pool_idx\":null,"
+        "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
 }
@@ -476,11 +546,6 @@ void test_knot_two_peers(void)
 void test_settings_happy_path(void)
 {
     settings_snapshot_t s = {0};
-    strncpy(s.pool_host, "pool.example.com", sizeof(s.pool_host) - 1);
-    s.pool_port = 3333;
-    strncpy(s.wallet,    "tb1qtest000",     sizeof(s.wallet)    - 1);
-    strncpy(s.worker,    "acme-worker",     sizeof(s.worker)    - 1);
-    strncpy(s.pool_pass, "x",              sizeof(s.pool_pass) - 1);
     strncpy(s.hostname,  "acme-miner",     sizeof(s.hostname)  - 1);
     s.display_en     = true;
     s.ota_skip_check = false;
@@ -490,9 +555,7 @@ void test_settings_happy_path(void)
     char *json = serialize_and_free(root);
 
     TEST_ASSERT_EQUAL_STRING(
-        "{\"pool_host\":\"pool.example.com\",\"pool_port\":3333,"
-        "\"wallet\":\"tb1qtest000\",\"worker\":\"acme-worker\","
-        "\"pool_pass\":\"x\",\"hostname\":\"acme-miner\","
+        "{\"hostname\":\"acme-miner\","
         "\"display_en\":true,\"ota_skip_check\":false}",
         json);
     bb_json_free_str(json);
@@ -500,13 +563,9 @@ void test_settings_happy_path(void)
 
 void test_settings_empty_optional_fields(void)
 {
-    /* pool_pass and hostname may be empty strings */
+    /* hostname may be empty string */
     settings_snapshot_t s = {0};
-    strncpy(s.pool_host, "stratum.example.com", sizeof(s.pool_host) - 1);
-    s.pool_port = 4444;
-    strncpy(s.wallet, "tb1qzero000", sizeof(s.wallet) - 1);
-    strncpy(s.worker, "test-user",   sizeof(s.worker) - 1);
-    /* pool_pass and hostname left as empty strings */
+    /* hostname left as empty string */
     s.display_en     = false;
     s.ota_skip_check = true;
 
@@ -515,9 +574,7 @@ void test_settings_empty_optional_fields(void)
     char *json = serialize_and_free(root);
 
     TEST_ASSERT_EQUAL_STRING(
-        "{\"pool_host\":\"stratum.example.com\",\"pool_port\":4444,"
-        "\"wallet\":\"tb1qzero000\",\"worker\":\"test-user\","
-        "\"pool_pass\":\"\",\"hostname\":\"\","
+        "{\"hostname\":\"\","
         "\"display_en\":false,\"ota_skip_check\":true}",
         json);
     bb_json_free_str(json);

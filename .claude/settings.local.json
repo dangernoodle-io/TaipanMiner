@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__plugin_ouroboros-mcp_ouroboros__search",
+      "mcp__plugin_ouroboros-mcp_ouroboros__get",
+      "mcp__plugin_ouroboros-mcp_ouroboros__item"
+    ]
+  }
+}

@@ -6,6 +6,77 @@
 
   type PoolForm = { pool_host: string; pool_port: number; wallet: string; worker: string; pool_pass: string }
 
+  // nbits is a 4-byte compact representation of the target. Difficulty 1
+  // corresponds to target 0x00000000FFFF0000…, i.e. nbits 0x1d00ffff. Network
+  // difficulty = difficulty1_target / target.
+  function nbitsToDifficulty(nbits: string): number {
+    const word = parseInt(nbits, 16)
+    if (!Number.isFinite(word) || word === 0) return 0
+    const exp = word >>> 24
+    const mantissa = word & 0x007fffff
+    if (mantissa === 0) return 0
+    const targetExp = (exp - 3) * 8
+    // difficulty = (0xffff << ((0x1d - 3) * 8)) / (mantissa << ((exp - 3) * 8))
+    //            = (0xffff / mantissa) * 2 ** ((0x1d - exp) * 8)
+    return (0xffff / mantissa) * Math.pow(2, (0x1d - exp) * 8)
+  }
+
+  function fmtNetDiff(d: number): string {
+    if (!Number.isFinite(d) || d <= 0) return '—'
+    if (d >= 1e12) return (d / 1e12).toFixed(2) + 'T'
+    if (d >= 1e9)  return (d / 1e9).toFixed(2) + 'G'
+    if (d >= 1e6)  return (d / 1e6).toFixed(2) + 'M'
+    if (d >= 1e3)  return (d / 1e3).toFixed(2) + 'k'
+    return d.toFixed(0)
+  }
+
+  // Extract printable scriptSig tag after the BIP34 height push. Pools usually
+  // embed their brand here (e.g. "Hashed Max-DGB-Pool", "/ViaBTC/").
+  function coinbaseTag(coinb1: string, coinb2: string): string | null {
+    if (!coinb1) return null
+    let off = 41
+    const sigLen = parseInt(coinb1.slice(off * 2, off * 2 + 2), 16)
+    if (!Number.isFinite(sigLen) || sigLen >= 0xfd) return null
+    off += 1
+    const pushLen = parseInt(coinb1.slice(off * 2, off * 2 + 2), 16)
+    if (!Number.isFinite(pushLen) || pushLen < 1 || pushLen > 8) return null
+    off += 1 + pushLen
+    const tail = coinb1.slice(off * 2) + (coinb2 ?? '')
+    let txt = ''
+    for (let i = 0; i + 1 < tail.length; i += 2) {
+      const b = parseInt(tail.slice(i, i + 2), 16)
+      if (b >= 0x20 && b <= 0x7e) txt += String.fromCharCode(b)
+      else if (txt.length >= 4) break
+      else txt = ''
+    }
+    txt = txt.trim().replace(/^[\/\-\s]+|[\/\-\s]+$/g, '')
+    return txt.length >= 3 ? txt : null
+  }
+
+  // BIP34: block height is push-encoded at the start of the coinbase scriptSig.
+  // coinb1 layout: version(4) + in_count(1) + prev(32) + prev_idx(4) + scriptSig_len(varint) + scriptSig…
+  function coinbaseHeight(coinb1: string): number | null {
+    if (!coinb1 || coinb1.length < 84) return null
+    let off = 41 // bytes of fixed prefix; scriptSig length varint follows
+    const lenByte = parseInt(coinb1.slice(off * 2, off * 2 + 2), 16)
+    if (!Number.isFinite(lenByte)) return null
+    off += 1
+    if (lenByte >= 0xfd) return null // longer varints unused for coinbase scriptSig
+    const pushLen = parseInt(coinb1.slice(off * 2, off * 2 + 2), 16)
+    if (!Number.isFinite(pushLen) || pushLen < 1 || pushLen > 8) return null
+    off += 1
+    const bytes: number[] = []
+    for (let i = 0; i < pushLen; i++) {
+      const b = parseInt(coinb1.slice((off + i) * 2, (off + i) * 2 + 2), 16)
+      if (!Number.isFinite(b)) return null
+      bytes.push(b)
+    }
+    let h = 0
+    for (let i = bytes.length - 1; i >= 0; i--) h = h * 256 + bytes[i]
+    return h
+  }
+
+
   let loading = true
   let loadErr = ''
   let saving = false
@@ -90,7 +161,12 @@
 <div class="pool-grid">
   <!-- Active pool status — read-only metrics from /api/pool (TA-281). -->
   <section class="card active">
-    <h3>Active</h3>
+    <header class="active-head">
+      <h3>Active</h3>
+      {#if $pool?.notify && coinbaseTag($pool.notify.coinb1, $pool.notify.coinb2)}
+        <span class="pool-tag" title="coinbase scriptSig tag">{coinbaseTag($pool.notify.coinb1, $pool.notify.coinb2)}</span>
+      {/if}
+    </header>
     <div class="status-row">
       <div class="who">
         <div class="host">
@@ -102,9 +178,6 @@
         </div>
         <div class="sub">
           worker {$pool?.worker ?? '—'}
-          {#if $pool?.session_start_ago_s != null}
-            · session {fmtRelative($pool.session_start_ago_s)}
-          {/if}
         </div>
       </div>
       <div class="metrics">
@@ -113,20 +186,52 @@
           <div class="k">diff</div>
         </div>
         <div class="m">
-          <div class="v">{$stats ? fmtRelative($stats.last_share_ago_s) : '—'}</div>
-          <div class="k">last share</div>
+          <div class="v">{$pool?.session_start_ago_s != null ? fmtRelative($pool.session_start_ago_s) : '—'}</div>
+          <div class="k">session</div>
         </div>
         <div class="m">
-          {#if $stats}
-            <div class="v">{$stats.session_shares}<span class="sep">/</span><span class="rej">{$stats.session_rejected}</span></div>
-          {:else}
-            <div class="v">—</div>
-          {/if}
-          <div class="k">shares</div>
+          <div class="v muted">—</div>
+          <div class="k">latency <span class="pending-tag">TA-118</span></div>
         </div>
       </div>
     </div>
   </section>
+
+  <!-- Stratum notify preview (TA-288). -->
+  {#if $pool?.notify}
+    {@const n = $pool.notify}
+    <section class="card stratum">
+      <header class="stratum-head">
+        <h3>Current Job</h3>
+        <span class="job-id" title="job_id">#{n.job_id}</span>
+        {#if n.clean_jobs}
+          <span class="clean" title="clean_jobs flag set in mining.notify">CLEAN</span>
+        {/if}
+      </header>
+      <div class="stratum-grid">
+        {#if coinbaseHeight(n.coinb1) != null}
+          <div class="sf">
+            <div class="sk">block height</div>
+            <div class="sv mono">{fmtNetDiff(coinbaseHeight(n.coinb1) ?? 0)}</div>
+          </div>
+        {/if}
+        <div class="sf">
+          <div class="sk">prev block</div>
+          <div class="sv mono" title={n.prev_hash}>
+            {n.prev_hash.slice(0, 8)}…{n.prev_hash.slice(-8)}
+          </div>
+        </div>
+        <div class="sf">
+          <div class="sk">version</div>
+          <div class="sv mono">0x{n.version}</div>
+        </div>
+        <div class="sf">
+          <div class="sk">network diff</div>
+          <div class="sv mono">{fmtNetDiff(nbitsToDifficulty(n.nbits))}</div>
+        </div>
+      </div>
+    </section>
+  {/if}
 
   <!-- Pool rows -->
   <section class="card pools">
@@ -261,6 +366,98 @@
 
   .card.pending { opacity: 0.75; }
 
+  .stratum-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .active-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .metrics .v.muted { color: var(--muted); }
+
+  .pool-tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text);
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+    margin-left: 6px;
+  }
+
+  .stratum-head .job-id {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .stratum-head .clean {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--success);
+    border: 1px solid color-mix(in srgb, var(--success) 50%, transparent);
+    background: color-mix(in srgb, var(--success) 12%, transparent);
+  }
+
+  .stratum-grid {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+
+  .stratum-grid .sf { text-align: left; }
+  .stratum-grid .sf:last-child { text-align: right; }
+
+  @media (max-width: 720px) {
+    .stratum-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px 18px;
+    }
+    .stratum-grid .sf,
+    .stratum-grid .sf:last-child { text-align: left; }
+  }
+
+  .sf .sk {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--label);
+    margin-bottom: 2px;
+    text-align: inherit;
+  }
+
+  .sf .sv {
+    font-size: 13px;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    text-align: inherit;
+  }
+
+  .sf .sv.mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
   h3 {
     margin: 0;
     font-size: 12px;
@@ -344,8 +541,6 @@
     margin-top: 2px;
   }
 
-  .m .sep { color: var(--muted); margin: 0 3px; }
-  .m .rej { color: var(--warning); }
 
   /* Hostname strip */
   .hostname { padding: 10px 16px; }
@@ -414,6 +609,25 @@
     font-size: 12px;
   }
 
+  @media (max-width: 720px) {
+    .summary {
+      grid-template-columns: 24px 80px 1fr auto;
+      grid-template-areas:
+        "idx kind endpoint edit"
+        ".   .    worker   ."
+        ".   .    wallet   ."
+        ".   .    pass     .";
+      row-gap: 4px;
+    }
+    .summary .idx { grid-area: idx; }
+    .summary .kind { grid-area: kind; }
+    .summary .endpoint { grid-area: endpoint; }
+    .summary .worker { grid-area: worker; color: var(--muted); }
+    .summary .wallet { grid-area: wallet; color: var(--muted); }
+    .summary .pass { grid-area: pass; color: var(--muted); }
+    .summary > button { grid-area: edit; }
+  }
+
   .idx {
     color: var(--muted);
     font-size: 11px;
@@ -473,7 +687,7 @@
   }
 
   .fields .narrow { max-width: 120px; }
-  .fields .wide { grid-column: span 2; }
+  .fields .wide { grid-column: 1 / -1; }
 
   label {
     display: flex;
@@ -490,6 +704,9 @@
   }
 
   input[type="text"], input[type="number"] {
+    width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
     padding: 7px 10px;
     background: var(--input);
     color: var(--text);

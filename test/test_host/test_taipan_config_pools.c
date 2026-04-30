@@ -12,6 +12,9 @@ static taipan_pool_cfg_t make_pool(const char *host, uint16_t port,
     strncpy(p.wallet, wallet, sizeof(p.wallet) - 1);
     strncpy(p.worker, worker, sizeof(p.worker) - 1);
     strncpy(p.pass,   pass,   sizeof(p.pass)   - 1);
+    /* Defaults match firmware NVS load defaults: TA-306 off, TA-307 on. */
+    p.extranonce_subscribe = false;
+    p.decode_coinbase      = true;
     return p;
 }
 
@@ -178,4 +181,46 @@ void test_set_pools_truncates_oversized_fields(void)
     const char *got = taipan_config_pool_host_idx(TAIPAN_POOL_PRIMARY);
     TEST_ASSERT_TRUE(strlen(got) < sizeof(primary.host));
     TEST_ASSERT_EQUAL('h', got[0]);
+}
+
+void test_pool_options_round_trip(void)
+{
+    /* TA-306 / TA-307 per-slot bool fields: round-trip through set_pools
+     * and expose via the *_idx accessors. */
+    taipan_pool_cfg_t primary  = make_pool("p.example.com", 3333, "bc1qa", "w-a", "x");
+    taipan_pool_cfg_t fallback = make_pool("f.example.com", 3334, "bc1qb", "w-b", "y");
+    primary.extranonce_subscribe  = true;
+    primary.decode_coinbase       = false;
+    fallback.extranonce_subscribe = false;
+    fallback.decode_coinbase      = true;
+
+    TEST_ASSERT_EQUAL(BB_OK, taipan_config_set_pools(&primary, &fallback));
+    TEST_ASSERT_TRUE(taipan_config_pool_extranonce_subscribe_idx(TAIPAN_POOL_PRIMARY));
+    TEST_ASSERT_FALSE(taipan_config_pool_decode_coinbase_idx(TAIPAN_POOL_PRIMARY));
+    TEST_ASSERT_FALSE(taipan_config_pool_extranonce_subscribe_idx(TAIPAN_POOL_FALLBACK));
+    TEST_ASSERT_TRUE(taipan_config_pool_decode_coinbase_idx(TAIPAN_POOL_FALLBACK));
+}
+
+void test_pool_options_legacy_set_pool_preserves_flags(void)
+{
+    /* The legacy single-slot setter doesn't accept the new bool fields, so
+     * it must read-back the current values rather than reset them. */
+    taipan_pool_cfg_t primary = make_pool("p.example.com", 3333, "bc1qa", "w-a", "x");
+    primary.extranonce_subscribe = true;
+    primary.decode_coinbase      = false;
+    TEST_ASSERT_EQUAL(BB_OK, taipan_config_set_pools(&primary, NULL));
+
+    TEST_ASSERT_EQUAL(BB_OK,
+        taipan_config_set_pool("new.example.com", 9999, "bc1qnew", "new-w", "np"));
+    TEST_ASSERT_TRUE(taipan_config_pool_extranonce_subscribe_idx(TAIPAN_POOL_PRIMARY));
+    TEST_ASSERT_FALSE(taipan_config_pool_decode_coinbase_idx(TAIPAN_POOL_PRIMARY));
+}
+
+void test_pool_options_idx_out_of_range_safe(void)
+{
+    /* Bounds-safe defaults: extranonce false, decode true. */
+    TEST_ASSERT_FALSE(taipan_config_pool_extranonce_subscribe_idx(-1));
+    TEST_ASSERT_FALSE(taipan_config_pool_extranonce_subscribe_idx(TAIPAN_POOL_COUNT));
+    TEST_ASSERT_TRUE(taipan_config_pool_decode_coinbase_idx(-1));
+    TEST_ASSERT_TRUE(taipan_config_pool_decode_coinbase_idx(TAIPAN_POOL_COUNT));
 }

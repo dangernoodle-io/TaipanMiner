@@ -218,16 +218,26 @@ void test_pool_with_active_idx_and_configured_slots(void)
     strncpy(s.configured[1].worker, "worker-b",             sizeof(s.configured[1].worker) - 1);
     strncpy(s.configured[1].wallet, "tb1qb",                sizeof(s.configured[1].wallet) - 1);
 
+    /* TA-306 / TA-307 toggles: distinct values per slot to confirm wiring. */
+    s.configured[0].extranonce_subscribe = true;
+    s.configured[0].decode_coinbase      = false;
+    s.configured[1].extranonce_subscribe = false;
+    s.configured[1].decode_coinbase      = true;
+
     bb_json_t root = bb_json_obj_new();
     build_pool_json(&s, root);
     char *json = serialize_and_free(root);
 
     /* spot-check: active_pool_idx is numeric, configured.primary/fallback are
-     * objects (not null), merkle branch is hex-encoded. */
+     * objects (not null), merkle branch is hex-encoded, per-pool option
+     * bools are emitted distinctly per slot. */
     TEST_ASSERT_NOT_NULL(strstr(json, "\"active_pool_idx\":1"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"primary\":{\"host\":\"primary.example.com\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"fallback\":{\"host\":\"fallback.example.com\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"merkle_branches\":[\"1111111111111111111111111111111111111111111111111111111111111111\"]"));
+    /* Primary: extranonce on, decode off. Fallback: extranonce off, decode on. */
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"extranonce_subscribe\":true,\"decode_coinbase\":false"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"extranonce_subscribe\":false,\"decode_coinbase\":true"));
     bb_json_free_str(json);
 }
 

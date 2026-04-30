@@ -89,6 +89,9 @@ void test_set_pools_truncates_oversized_fields(void);
 void test_legacy_set_pool_preserves_fallback(void);
 void test_legacy_set_pool_no_fallback_leaves_slot_clear(void);
 void test_pool_with_active_idx_and_configured_slots(void);
+void test_pool_options_round_trip(void);
+void test_pool_options_legacy_set_pool_preserves_flags(void);
+void test_pool_options_idx_out_of_range_safe(void);
 
 // Forward declarations from test_crc.c
 void test_crc5_chain_inactive(void);
@@ -604,6 +607,9 @@ int main(void) {
     RUN_TEST(test_set_pools_truncates_oversized_fields);
     RUN_TEST(test_legacy_set_pool_preserves_fallback);
     RUN_TEST(test_legacy_set_pool_no_fallback_leaves_slot_clear);
+    RUN_TEST(test_pool_options_round_trip);
+    RUN_TEST(test_pool_options_legacy_set_pool_preserves_flags);
+    RUN_TEST(test_pool_options_idx_out_of_range_safe);
 
     // CRC tests
     RUN_TEST(test_crc5_chain_inactive);

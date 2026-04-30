@@ -230,6 +230,10 @@ void build_pool_json(const pool_snapshot_t *s, bb_json_t root)
             bb_json_obj_set_number(pool_cfg, "port",   (double)s->configured[i].port);
             bb_json_obj_set_string(pool_cfg, "worker", s->configured[i].worker);
             bb_json_obj_set_string(pool_cfg, "wallet", s->configured[i].wallet);
+            bb_json_obj_set_bool(pool_cfg, "extranonce_subscribe",
+                                 s->configured[i].extranonce_subscribe);
+            bb_json_obj_set_bool(pool_cfg, "decode_coinbase",
+                                 s->configured[i].decode_coinbase);
             bb_json_obj_set_obj(cfg_obj, (i == 0) ? "primary" : "fallback", pool_cfg);
         } else {
             bb_json_obj_set_null(cfg_obj, (i == 0) ? "primary" : "fallback");

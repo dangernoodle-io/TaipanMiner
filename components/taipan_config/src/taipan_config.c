@@ -73,6 +73,17 @@ bb_err_t taipan_config_init(void)
         return err;
     }
 
+    {
+        uint8_t v = 0;
+        /* TA-306 default OFF, TA-307 default ON */
+        if (bb_nv_get_u8(TAIPAN_NS, "pool_enxsub",  &v, 0) == BB_OK) {
+            s_config.pools[0].extranonce_subscribe = (v != 0);
+        }
+        if (bb_nv_get_u8(TAIPAN_NS, "pool_dcdcb",   &v, 1) == BB_OK) {
+            s_config.pools[0].decode_coinbase = (v != 0);
+        }
+    }
+
     // Load fallback pool (index 1)
     err = bb_nv_get_str(TAIPAN_NS, "pool_host_2", s_config.pools[1].host, sizeof(s_config.pools[1].host), "");
     if (err != BB_OK) {
@@ -102,6 +113,16 @@ bb_err_t taipan_config_init(void)
     if (err != BB_OK) {
         bb_log_e(TAG, "failed to load pool_port_2");
         return err;
+    }
+
+    {
+        uint8_t v = 0;
+        if (bb_nv_get_u8(TAIPAN_NS, "pool_enxsub2", &v, 0) == BB_OK) {
+            s_config.pools[1].extranonce_subscribe = (v != 0);
+        }
+        if (bb_nv_get_u8(TAIPAN_NS, "pool_dcdcb2",  &v, 1) == BB_OK) {
+            s_config.pools[1].decode_coinbase = (v != 0);
+        }
     }
 
     // Load hostname
@@ -138,6 +159,9 @@ bb_err_t taipan_config_init(void)
     return 0;
 #else
     memset(&s_config, 0, sizeof(s_config));
+    /* Host default: decode_coinbase ON for both slots, matching ESP load. */
+    s_config.pools[0].decode_coinbase = true;
+    s_config.pools[1].decode_coinbase = true;
     return 0;
 #endif
 }
@@ -180,6 +204,22 @@ const char *taipan_config_pool_pass_idx(int idx)
         return "";
     }
     return s_config.pools[idx].pass;
+}
+
+bool taipan_config_pool_extranonce_subscribe_idx(int idx)
+{
+    if (idx < 0 || idx >= TAIPAN_POOL_COUNT) {
+        return false;
+    }
+    return s_config.pools[idx].extranonce_subscribe;
+}
+
+bool taipan_config_pool_decode_coinbase_idx(int idx)
+{
+    if (idx < 0 || idx >= TAIPAN_POOL_COUNT) {
+        return true;  /* default-on; bounds-safe fallback matches expected UX */
+    }
+    return s_config.pools[idx].decode_coinbase;
 }
 
 bool taipan_config_pool_configured(int idx)
@@ -227,6 +267,11 @@ bb_err_t taipan_config_set_pools(const taipan_pool_cfg_t *primary,
     err = bb_nv_set_str(TAIPAN_NS, "pool_pass", primary->pass);
     if (err != BB_OK) return err;
 
+    err = bb_nv_set_u8(TAIPAN_NS, "pool_enxsub", primary->extranonce_subscribe ? 1 : 0);
+    if (err != BB_OK) return err;
+    err = bb_nv_set_u8(TAIPAN_NS, "pool_dcdcb",  primary->decode_coinbase      ? 1 : 0);
+    if (err != BB_OK) return err;
+
     // Write fallback pool (index 1) or clear if NULL
     if (fallback) {
         err = bb_nv_set_str(TAIPAN_NS, "pool_host_2", fallback->host);
@@ -242,6 +287,11 @@ bb_err_t taipan_config_set_pools(const taipan_pool_cfg_t *primary,
         if (err != BB_OK) return err;
 
         err = bb_nv_set_str(TAIPAN_NS, "pool_pass_2", fallback->pass);
+        if (err != BB_OK) return err;
+
+        err = bb_nv_set_u8(TAIPAN_NS, "pool_enxsub2", fallback->extranonce_subscribe ? 1 : 0);
+        if (err != BB_OK) return err;
+        err = bb_nv_set_u8(TAIPAN_NS, "pool_dcdcb2",  fallback->decode_coinbase      ? 1 : 0);
         if (err != BB_OK) return err;
     } else {
         // Clear fallback by writing empty strings and 0 port
@@ -259,6 +309,12 @@ bb_err_t taipan_config_set_pools(const taipan_pool_cfg_t *primary,
 
         err = bb_nv_set_str(TAIPAN_NS, "pool_pass_2", "");
         if (err != BB_OK) return err;
+
+        /* Reset fallback bools to their defaults so a re-add starts clean. */
+        err = bb_nv_set_u8(TAIPAN_NS, "pool_enxsub2", 0);
+        if (err != BB_OK) return err;
+        err = bb_nv_set_u8(TAIPAN_NS, "pool_dcdcb2",  1);
+        if (err != BB_OK) return err;
     }
 #endif
 
@@ -272,6 +328,8 @@ bb_err_t taipan_config_set_pools(const taipan_pool_cfg_t *primary,
     s_config.pools[0].worker[sizeof(s_config.pools[0].worker) - 1] = '\0';
     strncpy(s_config.pools[0].pass, primary->pass, sizeof(s_config.pools[0].pass) - 1);
     s_config.pools[0].pass[sizeof(s_config.pools[0].pass) - 1] = '\0';
+    s_config.pools[0].extranonce_subscribe = primary->extranonce_subscribe;
+    s_config.pools[0].decode_coinbase      = primary->decode_coinbase;
 
     if (fallback) {
         strncpy(s_config.pools[1].host, fallback->host, sizeof(s_config.pools[1].host) - 1);
@@ -283,8 +341,12 @@ bb_err_t taipan_config_set_pools(const taipan_pool_cfg_t *primary,
         s_config.pools[1].worker[sizeof(s_config.pools[1].worker) - 1] = '\0';
         strncpy(s_config.pools[1].pass, fallback->pass, sizeof(s_config.pools[1].pass) - 1);
         s_config.pools[1].pass[sizeof(s_config.pools[1].pass) - 1] = '\0';
+        s_config.pools[1].extranonce_subscribe = fallback->extranonce_subscribe;
+        s_config.pools[1].decode_coinbase      = fallback->decode_coinbase;
     } else {
         memset(&s_config.pools[1], 0, sizeof(s_config.pools[1]));
+        /* Reset fallback bools to their defaults on clear. */
+        s_config.pools[1].decode_coinbase = true;
     }
 
     return BB_OK;
@@ -305,6 +367,10 @@ bb_err_t taipan_config_set_pool(const char *pool_host, uint16_t pool_port,
     primary.worker[sizeof(primary.worker) - 1] = '\0';
     strncpy(primary.pass, pool_pass, sizeof(primary.pass) - 1);
     primary.pass[sizeof(primary.pass) - 1] = '\0';
+    /* Preserve existing primary toggle state — the legacy setter doesn't
+     * accept these fields. */
+    primary.extranonce_subscribe = s_config.pools[0].extranonce_subscribe;
+    primary.decode_coinbase      = s_config.pools[0].decode_coinbase;
 
     // Read current fallback from cache
     taipan_pool_cfg_t current_fallback = s_config.pools[1];
@@ -434,6 +500,42 @@ bb_err_t taipan_config_register_manifest(void)
             .default_ = "",
             .max_len = 63,
             .desc = "fallback pool password",
+            .reboot_required = false,
+            .provisioning_only = false,
+        },
+        {
+            .key = "pool_enxsub",
+            .type = "u8",
+            .default_ = "0",
+            .max_len = 0,
+            .desc = "primary: send mining.extranonce.subscribe (TA-306)",
+            .reboot_required = false,
+            .provisioning_only = false,
+        },
+        {
+            .key = "pool_enxsub2",
+            .type = "u8",
+            .default_ = "0",
+            .max_len = 0,
+            .desc = "fallback: send mining.extranonce.subscribe (TA-306)",
+            .reboot_required = false,
+            .provisioning_only = false,
+        },
+        {
+            .key = "pool_dcdcb",
+            .type = "u8",
+            .default_ = "1",
+            .max_len = 0,
+            .desc = "primary: UI decodes coinbase tx (TA-307)",
+            .reboot_required = false,
+            .provisioning_only = false,
+        },
+        {
+            .key = "pool_dcdcb2",
+            .type = "u8",
+            .default_ = "1",
+            .max_len = 0,
+            .desc = "fallback: UI decodes coinbase tx (TA-307)",
             .reboot_required = false,
             .provisioning_only = false,
         },

@@ -30,6 +30,13 @@ typedef struct {
     char wallet[64];
     char worker[32];
     char pass[64];
+    /* TA-306: whether to send mining.extranonce.subscribe after authorize. */
+    bool extranonce_subscribe;
+    /* TA-307: whether the UI should attempt to decode coinbase tx fields
+     * (block height, scriptSig tag, payout, reward) for this pool. Default
+     * true; set false for non-BTC SHA-256d pools whose coinbase doesn't
+     * follow BIP34. Firmware just persists + exposes; UI consults. */
+    bool decode_coinbase;
 } taipan_pool_cfg_t;
 
 /* Per-index getters. idx must be 0 or 1. Returns "" or 0 for unset. */
@@ -38,6 +45,8 @@ uint16_t    taipan_config_pool_port_idx(int idx);
 const char *taipan_config_wallet_addr_idx(int idx);
 const char *taipan_config_worker_name_idx(int idx);
 const char *taipan_config_pool_pass_idx(int idx);
+bool        taipan_config_pool_extranonce_subscribe_idx(int idx);
+bool        taipan_config_pool_decode_coinbase_idx(int idx);
 
 /* True iff a pool is configured at this idx (host + port + wallet + worker all set). */
 bool taipan_config_pool_configured(int idx);

@@ -109,6 +109,10 @@ typedef struct {
     char     worker[64];
     char     wallet[64];
     bool     configured;  /* false → emit null sub-object */
+    /* TA-306: per-pool user pref to send mining.extranonce.subscribe */
+    bool     extranonce_subscribe;
+    /* TA-307: per-pool user pref for UI coinbase decoding */
+    bool     decode_coinbase;
 } pool_cfg_summary_t;
 
 typedef struct {

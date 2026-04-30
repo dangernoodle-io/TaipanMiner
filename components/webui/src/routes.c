@@ -338,6 +338,10 @@ static bb_err_t pool_handler(bb_http_request_t *req)
             s.configured[i].port = taipan_config_pool_port_idx(i);
             strncpy(s.configured[i].worker, taipan_config_worker_name_idx(i), sizeof(s.configured[i].worker) - 1);
             strncpy(s.configured[i].wallet, taipan_config_wallet_addr_idx(i), sizeof(s.configured[i].wallet) - 1);
+            s.configured[i].extranonce_subscribe =
+                taipan_config_pool_extranonce_subscribe_idx(i);
+            s.configured[i].decode_coinbase =
+                taipan_config_pool_decode_coinbase_idx(i);
         }
     }
     s.active_pool_idx = stratum_get_active_pool_idx();
@@ -428,9 +432,32 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
         return BB_ERR_INVALID_ARG;
     }
 
+    /* pool_pass: if the field is *missing* from the JSON, preserve the
+     * existing value. If present (even as empty string), use it. Lets the
+     * UI PUT only the fields it wants to change without clobbering
+     * passwords that aren't displayed client-side. */
     j = bb_json_obj_get_item(primary_obj, "pool_pass");
     if (j && bb_json_item_is_string(j)) {
         strncpy(primary.pass, bb_json_item_get_string(j), sizeof(primary.pass) - 1);
+    } else {
+        strncpy(primary.pass,
+                taipan_config_pool_pass_idx(TAIPAN_POOL_PRIMARY),
+                sizeof(primary.pass) - 1);
+    }
+
+    /* TA-306 / TA-307 toggles. Missing fields preserve current value. */
+    primary.extranonce_subscribe =
+        taipan_config_pool_extranonce_subscribe_idx(TAIPAN_POOL_PRIMARY);
+    primary.decode_coinbase =
+        taipan_config_pool_decode_coinbase_idx(TAIPAN_POOL_PRIMARY);
+    {
+        bool b;
+        if (bb_json_obj_get_bool(primary_obj, "extranonce_subscribe", &b)) {
+            primary.extranonce_subscribe = b;
+        }
+        if (bb_json_obj_get_bool(primary_obj, "decode_coinbase", &b)) {
+            primary.decode_coinbase = b;
+        }
     }
 
     // Parse fallback pool (optional; null or missing clears it)
@@ -482,6 +509,24 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
         j = bb_json_obj_get_item(fallback_obj, "pool_pass");
         if (j && bb_json_item_is_string(j)) {
             strncpy(fallback.pass, bb_json_item_get_string(j), sizeof(fallback.pass) - 1);
+        } else {
+            strncpy(fallback.pass,
+                    taipan_config_pool_pass_idx(TAIPAN_POOL_FALLBACK),
+                    sizeof(fallback.pass) - 1);
+        }
+
+        fallback.extranonce_subscribe =
+            taipan_config_pool_extranonce_subscribe_idx(TAIPAN_POOL_FALLBACK);
+        fallback.decode_coinbase =
+            taipan_config_pool_decode_coinbase_idx(TAIPAN_POOL_FALLBACK);
+        {
+            bool b;
+            if (bb_json_obj_get_bool(fallback_obj, "extranonce_subscribe", &b)) {
+                fallback.extranonce_subscribe = b;
+            }
+            if (bb_json_obj_get_bool(fallback_obj, "decode_coinbase", &b)) {
+                fallback.decode_coinbase = b;
+            }
         }
 
         fallback_ptr = &fallback;
@@ -1196,7 +1241,9 @@ static const bb_route_t s_pool_put_route = {
         "\"port\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":65535},"
         "\"wallet\":{\"type\":\"string\"},"
         "\"worker\":{\"type\":\"string\"},"
-        "\"pool_pass\":{\"type\":\"string\"}},"
+        "\"pool_pass\":{\"type\":\"string\"},"
+        "\"extranonce_subscribe\":{\"type\":\"boolean\"},"
+        "\"decode_coinbase\":{\"type\":\"boolean\"}},"
         "\"required\":[\"host\",\"port\",\"wallet\",\"worker\"]},"
         "\"fallback\":{\"type\":[\"object\",\"null\"],"
         "\"properties\":{"
@@ -1204,7 +1251,9 @@ static const bb_route_t s_pool_put_route = {
         "\"port\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":65535},"
         "\"wallet\":{\"type\":\"string\"},"
         "\"worker\":{\"type\":\"string\"},"
-        "\"pool_pass\":{\"type\":\"string\"}},"
+        "\"pool_pass\":{\"type\":\"string\"},"
+        "\"extranonce_subscribe\":{\"type\":\"boolean\"},"
+        "\"decode_coinbase\":{\"type\":\"boolean\"}},"
         "\"required\":[\"host\",\"port\",\"wallet\",\"worker\"]}},"
         "\"required\":[\"primary\"]}",
     .responses            = s_pool_put_responses,

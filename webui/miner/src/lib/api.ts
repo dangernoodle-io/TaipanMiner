@@ -162,6 +162,10 @@ export interface PoolConfigured {
   port: number
   worker: string
   wallet: string
+  // TA-306: send mining.extranonce.subscribe after authorize.
+  extranonce_subscribe: boolean
+  // TA-307: UI decodes coinbase tx fields (height, scriptSig tag, payout, reward).
+  decode_coinbase: boolean
 }
 
 export interface Pool {
@@ -190,6 +194,9 @@ export interface PoolConfigInput {
   worker: string
   wallet: string
   pool_pass: string
+  // Optional on PUT — omitting preserves the current value.
+  extranonce_subscribe?: boolean
+  decode_coinbase?: boolean
 }
 
 export interface PoolPutBody {

@@ -280,6 +280,50 @@
     }
   }
 
+  // Toggle a per-slot option (TA-306 extranonce_subscribe, TA-307 decode_coinbase).
+  // Builds a PUT body that includes both slots so the existing PUT handler is happy,
+  // omits pool_pass on both slots so the firmware preserves the existing values.
+  async function handleOptionToggle(
+    slot: 'primary' | 'fallback',
+    field: 'extranonce_subscribe' | 'decode_coinbase',
+    value: boolean,
+  ) {
+    const cfg = $pool?.configured
+    if (!cfg?.primary) return
+    saveMsg = ''
+    saving = true
+    try {
+      const buildSlot = (
+        c: typeof cfg.primary,
+        slotName: 'primary' | 'fallback',
+      ): PoolConfigInput => {
+        const next: PoolConfigInput = {
+          host: c.host,
+          port: c.port,
+          worker: c.worker,
+          wallet: c.wallet,
+          pool_pass: '',  // actually omit below
+          extranonce_subscribe: c.extranonce_subscribe,
+          decode_coinbase: c.decode_coinbase,
+        }
+        // Drop pool_pass — firmware preserves on missing key.
+        delete (next as Partial<PoolConfigInput>).pool_pass
+        if (slotName === slot) next[field] = value
+        return next
+      }
+      const body: PoolPutBody = {
+        primary: buildSlot(cfg.primary, 'primary'),
+        fallback: cfg.fallback ? buildSlot(cfg.fallback, 'fallback') : null,
+      }
+      await putPool(body)
+      pool.set(await fetchPool())
+    } catch (e) {
+      saveMsg = `Save failed: ${(e as Error).message}`
+    } finally {
+      saving = false
+    }
+  }
+
   async function handleRemove(slot: 'primary' | 'fallback') {
     const isPromote = slot === 'primary'
     const msg = isPromote
@@ -504,15 +548,23 @@
                     <span class="ep-wallet mono" title={displayPool.configured?.primary.wallet}>{truncWallet(displayPool.configured?.primary.wallet)}</span>
                   </div>
                   <div class="settings-line">
-                    <label class="setting-toggle disabled-ctrl" title="extranonce subscription — pending TA-306">
-                      <input type="checkbox" disabled />
+                    <label class="setting-toggle" title="Send mining.extranonce.subscribe after authorize. Pools that don't support the extension just reject the request — harmless.">
+                      <input
+                        type="checkbox"
+                        checked={displayPool.configured?.primary?.extranonce_subscribe ?? false}
+                        disabled={saving}
+                        on:change={(e) => handleOptionToggle('primary', 'extranonce_subscribe', e.currentTarget.checked)}
+                      />
                       <span>extranonce.subscribe</span>
-                      <span class="pending-tag">TA-306</span>
                     </label>
-                    <label class="setting-toggle disabled-ctrl" title="decode coinbase tx — pending TA-307">
-                      <input type="checkbox" checked disabled />
+                    <label class="setting-toggle" title="Decode coinbase tx for block height, scriptSig tag, payout, and reward. Turn off for non-BTC SHA-256d pools whose coinbase shape we don't understand.">
+                      <input
+                        type="checkbox"
+                        checked={displayPool.configured?.primary?.decode_coinbase ?? true}
+                        disabled={saving}
+                        on:change={(e) => handleOptionToggle('primary', 'decode_coinbase', e.currentTarget.checked)}
+                      />
                       <span>decode coinbase</span>
-                      <span class="pending-tag">TA-307</span>
                     </label>
                   </div>
                 </div>
@@ -591,15 +643,23 @@
                     <span class="ep-wallet mono" title={displayPool.configured?.fallback.wallet}>{truncWallet(displayPool.configured?.fallback.wallet)}</span>
                   </div>
                   <div class="settings-line">
-                    <label class="setting-toggle disabled-ctrl" title="extranonce subscription — pending TA-306">
-                      <input type="checkbox" disabled />
+                    <label class="setting-toggle" title="Send mining.extranonce.subscribe after authorize.">
+                      <input
+                        type="checkbox"
+                        checked={displayPool.configured?.fallback?.extranonce_subscribe ?? false}
+                        disabled={saving}
+                        on:change={(e) => handleOptionToggle('fallback', 'extranonce_subscribe', e.currentTarget.checked)}
+                      />
                       <span>extranonce.subscribe</span>
-                      <span class="pending-tag">TA-306</span>
                     </label>
-                    <label class="setting-toggle disabled-ctrl" title="decode coinbase tx — pending TA-307">
-                      <input type="checkbox" checked disabled />
+                    <label class="setting-toggle" title="Decode coinbase tx. Turn off for non-BTC SHA-256d pools.">
+                      <input
+                        type="checkbox"
+                        checked={displayPool.configured?.fallback?.decode_coinbase ?? true}
+                        disabled={saving}
+                        on:change={(e) => handleOptionToggle('fallback', 'decode_coinbase', e.currentTarget.checked)}
+                      />
                       <span>decode coinbase</span>
-                      <span class="pending-tag">TA-307</span>
                     </label>
                   </div>
                 </div>
@@ -1159,15 +1219,17 @@
     text-transform: uppercase;
     letter-spacing: 0.4px;
     font-size: 10px;
-    cursor: not-allowed;
+    cursor: pointer;
   }
-
-  .summary .setting-toggle.disabled-ctrl { opacity: 0.55; }
 
   .summary .setting-toggle input[type="checkbox"] {
     width: 12px;
     height: 12px;
-    cursor: not-allowed;
+    cursor: pointer;
+  }
+
+  .summary .setting-toggle input[type="checkbox"]:disabled {
+    cursor: progress;
   }
 
   .summary .actions {

@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "bb_json.h"
+#include "bb_nv.h"
 #include "work.h"
 
 // Stratum v1 client task — runs on Core 0, priority 5
@@ -57,3 +58,10 @@ int stratum_get_pool_rtt_ms(void);
 // Handles both [code, "message", "data"] array and {"code": N, ...} object forms.
 // Returns the error code, or -1 if absent/unparseable.
 int stratum_parse_error_code(bb_json_t error_item);
+
+// Get active pool index: 0 = primary, 1 = fallback. Returns -1 if not connected.
+int stratum_get_active_pool_idx(void);
+
+// Manually switch to idx and trigger reconnect. Returns BB_ERR_INVALID_ARG
+// if idx out of range or that pool slot isn't configured.
+bb_err_t stratum_request_switch_pool(int idx);

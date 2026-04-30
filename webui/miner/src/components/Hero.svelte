@@ -1,6 +1,5 @@
 <script lang="ts">
   import { stats, connected, hasAsic, pool } from '../lib/stores'
-  import Sparkline from './Sparkline.svelte'
   import { fmtDuration, fmtRelative, fmtHashGhs } from '../lib/fmt'
 
   function fmtDiff(d: number): string {
@@ -28,6 +27,28 @@
   $: acceptRate = accepted + rejected > 0 ? (100 * accepted) / (accepted + rejected) : null
   $: sharesPerHour = $stats && $stats.uptime_s > 60 ? (accepted * 3600) / $stats.uptime_s : null
   $: diffMult = $stats && $pool && $pool.current_difficulty > 0 ? $stats.best_diff / $pool.current_difficulty : null
+
+  const REJECT_REASONS: { key: string; label: string; color: string }[] = [
+    { key: 'job_not_found',  label: 'job not found',  color: '#f39c12' },
+    { key: 'low_difficulty', label: 'low diff',       color: '#e74c3c' },
+    { key: 'duplicate',      label: 'duplicate',      color: '#3498db' },
+    { key: 'stale_prevhash', label: 'stale prevhash', color: '#9b59b6' },
+    { key: 'other',          label: 'other',          color: '#7f8c8d' }
+  ]
+  $: rejectSegments = (() => {
+    const r = $stats?.rejected
+    if (!r) return [] as { key: string; label: string; color: string; count: number }[]
+    return REJECT_REASONS
+      .map((d) => ({ ...d, count: (r as any)[d.key] as number }))
+      .filter((p) => p.count > 0)
+  })()
+  $: rejectTotal = rejectSegments.reduce((a, b) => a + b.count, 0)
+
+  $: sparkPts = [ghs1m ?? 0, ghs10m ?? 0, ghs1h ?? 0]
+  $: sparkMax = Math.max(...sparkPts, 0.0001)
+  $: sparkMin = Math.min(...sparkPts, 0)
+  $: sparkRange = Math.max(sparkMax - sparkMin, 0.0001)
+  $: sparkY = sparkPts.map((v) => 14 - ((v - sparkMin) / sparkRange) * 12)
 </script>
 
 {#if $stats}
@@ -63,7 +84,15 @@
           <div class="cell"><span class="p" class:bad={err10m != null && err10m > 1}>{fmtPct(err10m)}</span></div>
           <div class="cell"><span class="p" class:bad={err1h != null && err1h > 1}>{fmtPct(err1h)}</span></div>
         </div>
-        <Sparkline points={[ghs1m ?? 0, ghs10m ?? 0, ghs1h ?? 0]} width={180} height={16} />
+        <svg class="rolling-spark" width="100%" height="16" preserveAspectRatio="none">
+          <line x1="9%"      y1={sparkY[0]} x2="16.67%" y2={sparkY[0]} stroke="var(--accent)" stroke-width="1.5" />
+          <line x1="16.67%"  y1={sparkY[0]} x2="50%"    y2={sparkY[1]} stroke="var(--accent)" stroke-width="1.5" />
+          <line x1="50%"     y1={sparkY[1]} x2="83.33%" y2={sparkY[2]} stroke="var(--accent)" stroke-width="1.5" />
+          <line x1="83.33%"  y1={sparkY[2]} x2="91%"    y2={sparkY[2]} stroke="var(--accent)" stroke-width="1.5" />
+          <circle cx="16.67%" cy={sparkY[0]} r="2" fill="var(--accent)" />
+          <circle cx="50%"    cy={sparkY[1]} r="2" fill="var(--accent)" />
+          <circle cx="83.33%" cy={sparkY[2]} r="2" fill="var(--accent)" />
+        </svg>
       </div>
     </div>
 
@@ -94,6 +123,18 @@
       </div>
     </div>
   </div>
+  {#if rejectSegments.length > 0}
+    <div class="reject-strip" role="region" aria-label="Rejected share breakdown">
+      <span class="rs-title">Rejected</span>
+      {#each rejectSegments as s (s.key)}
+        <span class="rs-item">
+          <span class="rs-dot" style="background: {s.color}"></span>
+          <span class="rs-label">{s.label}</span>
+          <span class="rs-count">{s.count}</span>
+        </span>
+      {/each}
+    </div>
+  {/if}
 {/if}
 
 <style>
@@ -109,6 +150,17 @@
     margin-bottom: 16px;
     padding-bottom: 14px;
     border-bottom: 1px dashed var(--border);
+    flex-wrap: wrap;
+  }
+
+  @media (max-width: 720px) {
+    .top {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .rolling {
+      width: 100%;
+    }
   }
 
   .primary {
@@ -159,7 +211,14 @@
   .rolling {
     display: grid;
     gap: 3px;
-    min-width: 190px;
+    min-width: 0;
+    flex-shrink: 1;
+  }
+
+  .rolling-spark {
+    width: 100%;
+    height: 16px;
+    overflow: visible;
   }
 
   .rolling-head {
@@ -207,6 +266,52 @@
   .rolling-row.err .cell .p.bad {
     color: var(--warning);
   }
+
+  .reject-strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+    padding: 8px 20px;
+    border-bottom-left-radius: 7px;
+    border-bottom-right-radius: 7px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .rs-title {
+    color: var(--warning);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+    font-size: 10px;
+  }
+
+  .rs-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--label);
+  }
+
+  .rs-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+
+  .rs-label {
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    font-size: 10px;
+  }
+
+  .rs-count {
+    color: var(--text);
+    font-weight: 600;
+  }
+
 
   .value {
     font-size: 34px;

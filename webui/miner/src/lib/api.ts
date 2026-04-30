@@ -53,6 +53,17 @@ export interface Stats {
   asic_hw_error_pct_10m: number | null
   asic_hw_error_pct_1h: number | null
   asic_chips?: Chip[]
+  rejected?: RejectedBreakdown
+}
+
+export interface RejectedBreakdown {
+  total: number
+  job_not_found: number
+  low_difficulty: number
+  duplicate: number
+  stale_prevhash: number
+  other: number
+  other_last_code: number
 }
 
 export interface InfoNetwork {

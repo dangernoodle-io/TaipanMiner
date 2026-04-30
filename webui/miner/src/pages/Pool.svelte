@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { stats, info, pool } from '../lib/stores'
-  import { fetchPool, putPool, switchPool, type PoolConfigInput, type PoolPutBody } from '../lib/api'
+  import { fetchPool, putPool, switchPool, deletePoolSlot, type PoolConfigInput, type PoolPutBody } from '../lib/api'
   import { fmtRelative } from '../lib/fmt'
 
   type PoolForm = { host: string; port: number; wallet: string; worker: string; pool_pass: string }
@@ -280,6 +280,27 @@
     }
   }
 
+  async function handleRemove(slot: 'primary' | 'fallback') {
+    const isPromote = slot === 'primary'
+    const msg = isPromote
+      ? 'Remove the primary pool? The fallback will be promoted to primary.'
+      : 'Remove the fallback pool? Auto-failover will be disabled.'
+    if (!confirm(msg)) return
+    saveMsg = ''
+    saving = true
+    // Freeze the view while the firmware reshuffles slots, similar to switch.
+    frozenPool = $pool
+    try {
+      await deletePoolSlot(slot)
+      pool.set(await fetchPool())
+    } catch (e) {
+      saveMsg = `Remove failed: ${(e as Error).message}`
+    } finally {
+      saving = false
+      frozenPool = null
+    }
+  }
+
   async function handleSwitch(idx: 0 | 1) {
     // Freeze the displayed pool BEFORE flipping `switching` so the first
     // reactive tick already sees a stable view.
@@ -449,28 +470,56 @@
         <div class="pool-row" class:editing={editingIdx === 0}>
           {#if editingIdx !== 0}
             <div class="summary">
-              <span class="idx">1</span>
-              <span class="kind">Primary</span>
               {#if displayPool.configured?.primary}
-                <span class="endpoint">{displayPool.configured?.primary.host}{#if displayPool.configured?.primary.port}:{displayPool.configured?.primary.port}{/if}</span>
-                <span class="worker">{displayPool.configured?.primary.worker}</span>
-                <span class="wallet mono" title={displayPool.configured?.primary.wallet}>{truncWallet(displayPool.configured?.primary.wallet)}</span>
-                <span class="pass">••••</span>
-                {#if displayPool.active_pool_idx === 0 && displayPool.connected}
-                  <span class="active-tag">ACTIVE</span>
-                {:else if displayPool.active_pool_idx === 1 && displayPool.configured?.fallback}
-                  <button class="btn outline sm" on:click={() => handleSwitch(0)} disabled={switching}>{switching ? 'Switching…' : 'Switch'}</button>
-                {/if}
-                <button class="btn outline sm" on:click={() => startEdit(0)}>Edit</button>
+                <div class="info">
+                  <div class="caption-row">
+                    <span class="kind-caption">Primary</span>
+                    {#if displayPool.active_pool_idx === 0 && displayPool.connected}
+                      <span class="active-tag">ACTIVE</span>
+                    {/if}
+                  </div>
+                  <div class="endpoint-line">
+                    <span class="ep-host">{displayPool.configured?.primary.host}</span>{#if displayPool.configured?.primary.port}<span class="ep-port">:{displayPool.configured?.primary.port}</span>{/if}
+                    <span class="meta-sep">·</span>
+                    <span class="ep-worker">{displayPool.configured?.primary.worker}</span>
+                    <span class="meta-sep">·</span>
+                    <span class="ep-wallet mono" title={displayPool.configured?.primary.wallet}>{truncWallet(displayPool.configured?.primary.wallet)}</span>
+                  </div>
+                  <div class="settings-line">
+                    <label class="setting-toggle disabled-ctrl" title="extranonce subscription — pending TA-306">
+                      <input type="checkbox" disabled />
+                      <span>extranonce.subscribe</span>
+                      <span class="pending-tag">TA-306</span>
+                    </label>
+                    <label class="setting-toggle disabled-ctrl" title="decode coinbase tx — pending TA-307">
+                      <input type="checkbox" checked disabled />
+                      <span>decode coinbase</span>
+                      <span class="pending-tag">TA-307</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="actions">
+                  {#if displayPool.active_pool_idx === 1 && displayPool.configured?.fallback}
+                    <button class="btn outline sm" on:click={() => handleSwitch(0)} disabled={switching}>{switching ? 'Switching…' : 'Switch'}</button>
+                  {/if}
+                  <button class="btn outline sm" on:click={() => startEdit(0)}>Edit</button>
+                  {#if displayPool.configured?.fallback}
+                    <button class="btn outline sm danger" on:click={() => handleRemove('primary')} disabled={saving} title="Remove primary; fallback will be promoted">Remove</button>
+                  {/if}
+                </div>
               {:else}
-                <span class="placeholder">not configured</span>
-                <button class="btn outline sm" on:click={() => startEdit(0)}>Configure</button>
+                <div class="info">
+                  <div class="kind-caption">Primary</div>
+                  <div class="placeholder">not configured</div>
+                </div>
+                <div class="actions">
+                  <button class="btn outline sm" on:click={() => startEdit(0)}>Configure</button>
+                </div>
               {/if}
             </div>
           {:else}
             <form class="edit-form" on:submit|preventDefault={handleSave}>
               <div class="edit-head">
-                <span class="idx">1</span>
                 <span class="kind">Primary</span>
               </div>
               <div class="fields">
@@ -508,28 +557,54 @@
         <div class="pool-row" class:editing={editingIdx === 1} class:disabled={!displayPool.configured?.fallback && editingIdx !== 1}>
           {#if editingIdx !== 1}
             <div class="summary">
-              <span class="idx">2</span>
-              <span class="kind">Fallback</span>
               {#if displayPool.configured?.fallback}
-                <span class="endpoint">{displayPool.configured?.fallback.host}{#if displayPool.configured?.fallback.port}:{displayPool.configured?.fallback.port}{/if}</span>
-                <span class="worker">{displayPool.configured?.fallback.worker}</span>
-                <span class="wallet mono" title={displayPool.configured?.fallback.wallet}>{truncWallet(displayPool.configured?.fallback.wallet)}</span>
-                <span class="pass">••••</span>
-                {#if displayPool.active_pool_idx === 1 && displayPool.connected}
-                  <span class="active-tag">ACTIVE</span>
-                {:else if displayPool.active_pool_idx === 0 && displayPool.configured?.primary}
-                  <button class="btn outline sm" on:click={() => handleSwitch(1)} disabled={switching}>{switching ? 'Switching…' : 'Switch'}</button>
-                {/if}
-                <button class="btn outline sm" on:click={() => startEdit(1)}>Edit</button>
+                <div class="info">
+                  <div class="caption-row">
+                    <span class="kind-caption">Fallback</span>
+                    {#if displayPool.active_pool_idx === 1 && displayPool.connected}
+                      <span class="active-tag">ACTIVE</span>
+                    {/if}
+                  </div>
+                  <div class="endpoint-line">
+                    <span class="ep-host">{displayPool.configured?.fallback.host}</span>{#if displayPool.configured?.fallback.port}<span class="ep-port">:{displayPool.configured?.fallback.port}</span>{/if}
+                    <span class="meta-sep">·</span>
+                    <span class="ep-worker">{displayPool.configured?.fallback.worker}</span>
+                    <span class="meta-sep">·</span>
+                    <span class="ep-wallet mono" title={displayPool.configured?.fallback.wallet}>{truncWallet(displayPool.configured?.fallback.wallet)}</span>
+                  </div>
+                  <div class="settings-line">
+                    <label class="setting-toggle disabled-ctrl" title="extranonce subscription — pending TA-306">
+                      <input type="checkbox" disabled />
+                      <span>extranonce.subscribe</span>
+                      <span class="pending-tag">TA-306</span>
+                    </label>
+                    <label class="setting-toggle disabled-ctrl" title="decode coinbase tx — pending TA-307">
+                      <input type="checkbox" checked disabled />
+                      <span>decode coinbase</span>
+                      <span class="pending-tag">TA-307</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="actions">
+                  {#if displayPool.active_pool_idx === 0 && displayPool.configured?.primary}
+                    <button class="btn outline sm" on:click={() => handleSwitch(1)} disabled={switching}>{switching ? 'Switching…' : 'Switch'}</button>
+                  {/if}
+                  <button class="btn outline sm" on:click={() => startEdit(1)}>Edit</button>
+                  <button class="btn outline sm danger" on:click={() => handleRemove('fallback')} disabled={saving} title="Remove fallback pool">Remove</button>
+                </div>
               {:else}
-                <span class="placeholder">not configured · optional second pool for failover</span>
-                <button class="btn outline sm" on:click={() => startEdit(1)}>+ Add</button>
+                <div class="info">
+                  <div class="kind-caption">Fallback</div>
+                  <div class="placeholder">not configured · optional second pool for failover</div>
+                </div>
+                <div class="actions">
+                  <button class="btn outline sm" on:click={() => startEdit(1)}>+ Add</button>
+                </div>
               {/if}
             </div>
           {:else}
             <form class="edit-form" on:submit|preventDefault={handleSave}>
               <div class="edit-head">
-                <span class="idx">2</span>
                 <span class="kind">Fallback</span>
               </div>
               <div class="fields">
@@ -952,41 +1027,131 @@
   .pool-row.editing { background: var(--bg); }
 
   .summary {
-    display: grid;
-    grid-template-columns: 24px 80px 1fr 120px 140px 50px auto;
+    display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 4px;
+    padding: 12px 4px;
     font-size: 12px;
   }
 
-  @media (max-width: 720px) {
-    .summary {
-      grid-template-columns: 24px 80px 1fr auto;
-      grid-template-areas:
-        "idx kind endpoint edit"
-        ".   .    worker   ."
-        ".   .    wallet   ."
-        ".   .    pass     .";
-      row-gap: 4px;
-    }
-    .summary .idx { grid-area: idx; }
-    .summary .kind { grid-area: kind; }
-    .summary .endpoint { grid-area: endpoint; }
-    .summary .worker { grid-area: worker; color: var(--muted); }
-    .summary .wallet { grid-area: wallet; color: var(--muted); }
-    .summary .pass { grid-area: pass; color: var(--muted); }
-    .summary > button { grid-area: edit; }
+  .summary .info {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
 
-  .idx {
-    color: var(--muted);
+  .summary .caption-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 2px;
+  }
+
+  .summary .caption-row .kind-caption { margin-bottom: 0; }
+
+  .summary .kind-caption {
+    color: var(--label);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
     font-size: 11px;
-    font-variant-numeric: tabular-nums;
-    text-align: center;
+    font-weight: 700;
+    margin-bottom: 2px;
   }
 
-  .kind {
+  .summary .endpoint-line {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .summary .endpoint-line .ep-host {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .summary .endpoint-line .ep-port {
+    color: var(--muted);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+    margin-left: -8px;
+  }
+
+  .summary .endpoint-line .ep-worker,
+  .summary .endpoint-line .ep-wallet {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .summary .endpoint-line .meta-sep {
+    flex-shrink: 0;
+    opacity: 0.4;
+    color: var(--muted);
+  }
+
+  .summary .settings-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-top: 6px;
+    font-size: 11px;
+  }
+
+  .summary .setting-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--label);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    font-size: 10px;
+    cursor: not-allowed;
+  }
+
+  .summary .setting-toggle.disabled-ctrl { opacity: 0.55; }
+
+  .summary .setting-toggle input[type="checkbox"] {
+    width: 12px;
+    height: 12px;
+    cursor: not-allowed;
+  }
+
+  .summary .actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .placeholder {
+    color: var(--muted);
+    font-style: italic;
+    font-size: 11px;
+  }
+
+  .btn.danger {
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+  }
+  .btn.danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+
+  .edit-head .kind {
     color: var(--label);
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -994,26 +1159,22 @@
     font-weight: 600;
   }
 
-  .endpoint {
-    color: var(--text);
-    font-weight: 500;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .worker, .wallet, .pass {
-    color: var(--label);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .placeholder {
-    grid-column: 3 / 7;
-    color: var(--muted);
-    font-style: italic;
-    font-size: 11px;
+  @media (max-width: 720px) {
+    .summary {
+      flex-wrap: wrap;
+      row-gap: 8px;
+    }
+    .summary .info {
+      flex-basis: 100%;
+      order: 3;
+    }
+    .summary .actions {
+      flex-basis: 100%;
+      justify-content: flex-end;
+      order: 4;
+    }
+    .summary .endpoint-line { font-size: 13px; }
+    .summary .endpoint-line { flex-wrap: wrap; }
   }
 
   .mono { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }

@@ -47,7 +47,7 @@
 
     <div class="actions">
       <button class="btn outline" on:click={cancel}>{cancelLabel}</button>
-      <button class="btn {danger ? 'danger' : 'primary'}" on:click={confirm} autofocus>{confirmLabel}</button>
+      <button class="btn {danger ? 'danger' : 'primary'}" on:click={confirm}>{confirmLabel}</button>
     </div>
   </div>
 {/if}

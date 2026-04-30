@@ -3,6 +3,7 @@
   import uPlot from 'uplot'
   import 'uplot/dist/uPlot.min.css'
   import { history, hasAsic, type HistorySample } from '../lib/stores'
+  import { fmtHashGhs } from '../lib/fmt'
   import { get } from 'svelte/store'
 
   type MetricKey =
@@ -18,14 +19,8 @@
     format?: (v: number) => string  // custom tooltip/axis formatter (e.g. hashrate unit autoscale)
   }
 
-  // Hashrate is stored internally in GH/s; on tdongle it's ~0.000222 GH/s,
-  // on bitaxe it's ~1200 GH/s. Auto-scale the display unit so both read well.
-  function fmtHashrate(ghs: number): string {
-    if (ghs >= 1000) return (ghs / 1000).toFixed(2) + ' TH/s'
-    if (ghs >= 1) return ghs.toFixed(1) + ' GH/s'
-    if (ghs >= 0.001) return (ghs * 1000).toFixed(1) + ' MH/s'
-    return (ghs * 1e6).toFixed(1) + ' kH/s'
-  }
+  // Hashrate is stored internally in GH/s; fmtHashGhs auto-scales the display unit.
+  const fmtHashrate = fmtHashGhs
 
   // ASIC-only metrics are filtered out on boards without ASIC (tdongle).
   interface MetricDefInternal extends MetricDef { asicOnly?: boolean }

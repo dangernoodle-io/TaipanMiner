@@ -1,13 +1,6 @@
 <script lang="ts">
   import { stats, connected, hasAsic, pool } from '../lib/stores'
-  import { fmtDuration, fmtRelative, fmtHashGhs } from '../lib/fmt'
-
-  function fmtDiff(d: number): string {
-    if (d >= 1e9) return (d / 1e9).toFixed(2) + 'G'
-    if (d >= 1e6) return (d / 1e6).toFixed(2) + 'M'
-    if (d >= 1e3) return (d / 1e3).toFixed(2) + 'k'
-    return d.toFixed(0)
-  }
+  import { fmtDuration, fmtRelative, fmtHashGhs, fmtDiff, fmtPct, fmtGhsNum, fmtGhsUnit } from '../lib/fmt'
 
   $: ghs = $stats?.asic_total_ghs ?? ($stats?.hashrate ? $stats.hashrate / 1e9 : null)
   $: ghs1m = $stats?.asic_total_ghs_1m ?? null
@@ -19,9 +12,6 @@
   $: err1m = $stats?.asic_hw_error_pct_1m ?? null
   $: err10m = $stats?.asic_hw_error_pct_10m ?? null
   $: err1h = $stats?.asic_hw_error_pct_1h ?? null
-  function fmtPct(v: number | null): string { return v == null ? '—' : v.toFixed(2) + '%' }
-  function fmtGhsNum(v: number | null): string { return v == null ? '—' : v >= 1000 ? (v/1000).toFixed(2) : v.toFixed(0) }
-  function fmtGhsUnit(v: number | null): string { return v == null ? '' : v >= 1000 ? 'TH/s' : 'GH/s' }
   $: accepted = $stats?.session_shares ?? 0
   $: rejected = $stats?.session_rejected ?? 0
   $: acceptRate = accepted + rejected > 0 ? (100 * accepted) / (accepted + rejected) : null

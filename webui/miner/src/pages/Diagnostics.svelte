@@ -421,24 +421,7 @@
     letter-spacing: 1px;
   }
 
-  .hint {
-    margin: 0 0 14px 0;
-    font-size: 12px;
-    color: var(--muted);
-    line-height: 1.5;
-  }
-
-  code {
-    font-family: ui-monospace, Menlo, monospace;
-    font-size: 11px;
-    background: var(--input);
-    padding: 1px 5px;
-    border-radius: 3px;
-    color: var(--text);
-  }
-
-
-  input[type="text"], input[type="search"], select {
+  input[type="search"], select {
     padding: 8px 10px;
     background: var(--input);
     color: var(--text);

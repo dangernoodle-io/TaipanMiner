@@ -1,7 +1,7 @@
 <script lang="ts">
   import { info, otaCheck, otaInstall, otaUpload, rebooting, startRebootRecovery } from '../lib/stores'
   import { fetchOtaCheck, triggerOtaUpdate, fetchOtaStatus, uploadOta } from '../lib/api'
-  import { fmtBuildTime } from '../lib/fmt'
+  import { fmtBuildTime, fmtBytes } from '../lib/fmt'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
 
   let installConfirmOpen = false
@@ -222,11 +222,7 @@
     uploadConfirmOpen = true
   }
 
-  function fmtSize(b: number): string {
-    if (b < 1024) return `${b} B`
-    if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`
-    return `${(b / 1024 / 1024).toFixed(1)} MB`
-  }
+  const fmtSize = fmtBytes
 </script>
 
 <div class="page">

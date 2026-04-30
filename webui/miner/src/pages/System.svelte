@@ -1,7 +1,7 @@
 <script lang="ts">
   import { stats, info } from '../lib/stores'
   import Donut from '../components/Donut.svelte'
-  import { fmtBytes, fmtUnixTs, fmtBuildTime, fmtDuration } from '../lib/fmt'
+  import { fmtBytes, fmtUnixTs, fmtBuildTime, fmtDuration, rssiBars } from '../lib/fmt'
 
   type Dot = 'ok' | 'warn' | 'err' | 'idle'
   $: healthRows = [
@@ -12,15 +12,6 @@
                            : $info?.validated === false ? 'warn'
                            : 'idle') as Dot }
   ]
-
-  function rssiBars(r: number | null | undefined): string {
-    if (r == null) return ''
-    if (r >= -55) return '▮▮▮▮'
-    if (r >= -65) return '▮▮▮▯'
-    if (r >= -75) return '▮▮▯▯'
-    if (r >= -85) return '▮▯▯▯'
-    return '▯▯▯▯'
-  }
 
   $: heapUsed = $info?.total_heap != null && $info?.free_heap != null
     ? $info.total_heap - $info.free_heap

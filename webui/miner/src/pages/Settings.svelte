@@ -278,15 +278,6 @@
     color: var(--muted);
   }
 
-  .toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    color: var(--text);
-    font-size: 12px;
-  }
-
   /* ASIC per-chip table */
   .asic-head, .asic-row {
     display: grid;

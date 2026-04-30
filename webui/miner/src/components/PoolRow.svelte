@@ -2,6 +2,8 @@
   import { createEventDispatcher } from 'svelte'
   import PoolEditForm from './PoolEditForm.svelte'
   import type { Pool, PoolConfigured } from '../lib/api'
+  import { truncWallet } from '../lib/fmt'
+  import { coinbaseHeight } from '../lib/coinbase'
 
   type PoolForm = {
     host: string
@@ -54,16 +56,11 @@
     const enabled = cfg?.decode_coinbase ?? true
     if (!enabled) return { text: 'OFF', cls: 'off' }
     if (!isActive) return { text: 'ON', cls: 'on' }
-    /* Active + flag on: parse-failed if notify is non-empty but parsers
-     * return null on every coinbase field. Otherwise active. */
+    /* Active + flag on: parse-failed if notify is non-empty but coinbaseHeight
+     * returns null (same signal as the inline check). */
     const n = displayPool?.notify
     if (n && n.coinb1 && n.coinb1.length >= 84) {
-      // Light parse: just check the BIP34 height push; if that fails the
-      // others almost certainly fail too. No need to call all four parsers.
-      const lenByte = parseInt(n.coinb1.slice(82, 84), 16)
-      if (!Number.isFinite(lenByte) || lenByte >= 0xfd) return { text: 'PARSE FAILED', cls: 'rejected' }
-      const pushLen = parseInt(n.coinb1.slice(84, 86), 16)
-      if (!Number.isFinite(pushLen) || pushLen < 1 || pushLen > 8) return { text: 'PARSE FAILED', cls: 'rejected' }
+      if (coinbaseHeight(n.coinb1) == null) return { text: 'PARSE FAILED', cls: 'rejected' }
     }
     return { text: 'ACTIVE', cls: 'active' }
   })()
@@ -76,11 +73,7 @@
     remove: void
   }>()
 
-  function truncWallet(w: string | undefined): string {
-    if (!w) return '—'
-    if (w.length <= 14) return w
-    return `${w.slice(0, 6)}…${w.slice(-4)}`
-  }
+
 </script>
 
 <div class="pool-row" class:editing class:disabled={!cfg && !editing}>

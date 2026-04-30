@@ -100,6 +100,7 @@ export interface Power {
   pcore_mw: number | null
   efficiency_jth: number | null
   vin_mv: number | null
+  vin_low: boolean | null
   board_temp_c: number | null
   vr_temp_c: number | null
 }

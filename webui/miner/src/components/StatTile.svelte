@@ -4,10 +4,12 @@
   export let unit: string = ''
   export let danger: number | null = null
   export let warn: number | null = null
+  export let flag: 'warn' | 'danger' | null = null
 
   $: numeric = typeof value === 'number' ? value : null
   $: status =
-    numeric === null || (danger === null && warn === null) ? ''
+    flag !== null ? flag
+    : numeric === null || (danger === null && warn === null) ? ''
     : danger !== null && numeric >= danger ? 'danger'
     : warn !== null && numeric >= warn ? 'warn'
     : ''

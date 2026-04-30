@@ -153,6 +153,7 @@ void test_pool_disconnected(void)
     s.has_session_start = false;
     s.current_difficulty = 512.0;
     s.latency_ms        = -1;  /* no sample yet */
+    s.active_pool_idx   = -1;  /* not connected */
     /* extranonce1_len=0, has_notify=false */
 
     bb_json_t root = bb_json_obj_new();
@@ -165,7 +166,8 @@ void test_pool_disconnected(void)
         "\"connected\":false,\"session_start_ago_s\":null,"
         "\"current_difficulty\":512,\"latency_ms\":null,"
         "\"extranonce1\":null,\"extranonce2_size\":null,\"version_mask\":null,"
-        "\"notify\":null}",
+        "\"notify\":null,\"active_pool_idx\":null,"
+        "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
 }
@@ -182,6 +184,7 @@ void test_pool_connected_with_notify(void)
     s.session_start_ago_s = 120;
     s.current_difficulty = 8192.0;
     s.latency_ms         = 42;  /* sample available */
+    s.active_pool_idx    = -1;  /* snapshot not showing actual index */
 
     /* extranonce: 2 bytes = "aabb" */
     s.extranonce1[0] = 0xaa;
@@ -221,7 +224,9 @@ void test_pool_connected_with_notify(void)
         "\"version\":\"20000000\","
         "\"nbits\":\"1703a30c\","
         "\"ntime\":\"65a1b2c3\","
-        "\"clean_jobs\":true}}",
+        "\"clean_jobs\":true},"
+        "\"active_pool_idx\":null,"
+        "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
 }
@@ -237,6 +242,7 @@ void test_pool_version_mask_zero(void)
     s.session_start_ago_s = 5;
     s.current_difficulty = 512.0;
     s.latency_ms        = -1;  /* no sample yet */
+    s.active_pool_idx   = -1;  /* no active pool */
     s.extranonce1[0] = 0xde; s.extranonce1[1] = 0xad;
     s.extranonce1_len  = 2;
     s.extranonce2_size = 4;
@@ -253,7 +259,8 @@ void test_pool_version_mask_zero(void)
         "\"connected\":true,\"session_start_ago_s\":5,"
         "\"current_difficulty\":512,\"latency_ms\":null,"
         "\"extranonce1\":\"dead\",\"extranonce2_size\":4,\"version_mask\":null,"
-        "\"notify\":null}",
+        "\"notify\":null,\"active_pool_idx\":null,"
+        "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
 }
@@ -269,6 +276,7 @@ void test_pool_latency_positive(void)
     s.session_start_ago_s = 10;
     s.current_difficulty = 512.0;
     s.latency_ms        = 42;  /* sample available */
+    s.active_pool_idx   = -1;  /* no pool active */
     s.extranonce1_len   = 0;   /* no subscribe yet */
     s.has_notify        = false;
 
@@ -282,7 +290,8 @@ void test_pool_latency_positive(void)
         "\"connected\":true,\"session_start_ago_s\":10,"
         "\"current_difficulty\":512,\"latency_ms\":42,"
         "\"extranonce1\":null,\"extranonce2_size\":null,\"version_mask\":null,"
-        "\"notify\":null}",
+        "\"notify\":null,\"active_pool_idx\":null,"
+        "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
 }
@@ -298,6 +307,7 @@ void test_pool_latency_negative(void)
     s.session_start_ago_s = 5;
     s.current_difficulty = 512.0;
     s.latency_ms        = -1;  /* no sample yet */
+    s.active_pool_idx   = -1;  /* no active pool */
     s.extranonce1_len   = 0;
     s.has_notify        = false;
 
@@ -311,7 +321,8 @@ void test_pool_latency_negative(void)
         "\"connected\":true,\"session_start_ago_s\":5,"
         "\"current_difficulty\":512,\"latency_ms\":null,"
         "\"extranonce1\":null,\"extranonce2_size\":null,\"version_mask\":null,"
-        "\"notify\":null}",
+        "\"notify\":null,\"active_pool_idx\":null,"
+        "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
 }

@@ -36,6 +36,9 @@
 #include "knot.h"
 #include "routes_json.h"
 
+/* Forward declaration: stratum_get_active_pool_idx from TA-202 phase B (provisional) */
+extern int stratum_get_active_pool_idx(void);
+
 static const char *TAG = "web";
 
 // ============================================================================
@@ -301,6 +304,18 @@ static bb_err_t pool_handler(bb_http_request_t *req)
         s.ntime      = job->ntime;
         s.clean_jobs = job->clean_jobs;
     }
+
+    // Configured pools (TA-290/TA-202 phase D) — expose persisted config.
+    for (int i = 0; i < TAIPAN_POOL_COUNT; i++) {
+        s.configured[i].configured = taipan_config_pool_configured(i);
+        if (s.configured[i].configured) {
+            strncpy(s.configured[i].host,   taipan_config_pool_host_idx(i),   sizeof(s.configured[i].host)   - 1);
+            s.configured[i].port = taipan_config_pool_port_idx(i);
+            strncpy(s.configured[i].worker, taipan_config_worker_name_idx(i), sizeof(s.configured[i].worker) - 1);
+            strncpy(s.configured[i].wallet, taipan_config_wallet_addr_idx(i), sizeof(s.configured[i].wallet) - 1);
+        }
+    }
+    s.active_pool_idx = stratum_get_active_pool_idx();
 
     bb_json_t root = bb_json_obj_new();
     build_pool_json(&s, root);

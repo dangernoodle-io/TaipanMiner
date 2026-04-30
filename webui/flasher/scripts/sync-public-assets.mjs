@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const assets = ['logo.svg', 'favicon.svg']
+const assets = ['favicon.svg']
 
 for (const name of assets) {
   const src = resolve(here, '../../ui-kit/assets/' + name)

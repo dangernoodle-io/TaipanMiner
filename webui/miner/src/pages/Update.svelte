@@ -492,23 +492,6 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .progress-block {
-    margin-top: 14px;
-  }
-
-  .progress {
-    height: 6px;
-    background: var(--border);
-    border-radius: 3px;
-    overflow: hidden;
-  }
-
-  .progress-fill {
-    height: 100%;
-    background: var(--accent);
-    transition: width 0.2s ease;
-  }
-
   /* DEV-only mock panel — dashed border signals it's not part of the real flow.
    * Lifted above the RebootOverlay (z-index 100) so the dev controls remain
    * usable when "Rebooting on" is toggled to inspect the overlay. */

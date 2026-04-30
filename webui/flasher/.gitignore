@@ -1,4 +1,5 @@
 node_modules
 dist
-.vite
+src/generated
+public/firmware/
 public/favicon.svg

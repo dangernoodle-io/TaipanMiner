@@ -64,3 +64,101 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* ---- card modifier ---- */
+.card.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* ---- text helpers ---- */
+.muted {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+
+.subtitle {
+  color: var(--label);
+  font-size: 13px;
+  margin: 0;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  margin: 0 0 0.75rem;
+  padding: 8px 10px;
+  border-left: 2px solid var(--border);
+  background: color-mix(in srgb, var(--label) 5%, transparent);
+}
+
+/* ---- status messages ---- */
+.error-msg {
+  margin-top: 12px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.warn-msg {
+  margin-top: 8px;
+  color: var(--warning);
+  font-size: 12px;
+}
+
+.success-msg {
+  margin-top: 12px;
+  color: var(--success);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* ---- banners ---- */
+.banner {
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.banner.danger {
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+.banner.warning {
+  background: color-mix(in srgb, var(--warning) 15%, transparent);
+  border: 1px solid var(--warning);
+  color: var(--warning);
+}
+
+.banner.success {
+  background: color-mix(in srgb, var(--success) 15%, transparent);
+  border: 1px solid var(--success);
+  color: var(--success);
+}
+
+.banner.info {
+  background: color-mix(in srgb, var(--info) 15%, transparent);
+  border: 1px solid var(--info);
+  color: var(--info);
+}
+
+/* ---- progress bar ---- */
+.progress-block {
+  margin-top: 14px;
+}
+
+.progress {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}

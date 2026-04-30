@@ -1,4 +1,4 @@
-# <img src="logo.svg" width="80" align="absmiddle" alt="TaipanMiner logo"> TaipanMiner
+# <img src="webui/ui-kit/assets/logo.svg" width="80" align="absmiddle" alt="TaipanMiner logo"> TaipanMiner
 
 [![Build](https://github.com/dangernoodle-io/TaipanMiner/actions/workflows/build.yml/badge.svg)](https://github.com/dangernoodle-io/TaipanMiner/actions/workflows/build.yml)
 [![Release](https://github.com/dangernoodle-io/TaipanMiner/actions/workflows/release.yml/badge.svg)](https://github.com/dangernoodle-io/TaipanMiner/actions/workflows/release.yml)

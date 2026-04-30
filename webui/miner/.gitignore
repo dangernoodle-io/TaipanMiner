@@ -8,3 +8,4 @@ dist
 .DS_Store
 .vite
 public/logo.svg
+public/favicon.svg

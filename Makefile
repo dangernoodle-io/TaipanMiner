@@ -6,36 +6,6 @@ help: ## Show available targets
 	@grep -E '^[a-zA-Z_%-]+:.*##' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-# PlatformIO does not regenerate sdkconfig.<env> when sdkconfig.defaults or the
-# per-board overlay changes — so a stale on-disk sdkconfig.<env> can mask
-# defaults edits (e.g. a CONFIG_LWIP_MAX_SOCKETS reduction that breaks an
-# httpd_start invariant only on fresh CI builds). Regenerate any sdkconfig.<env>
-# whose source inputs are newer.
-.PHONY: _sdkconfig-fresh-% _sdkconfig-fresh-all
-
-_sdkconfig-fresh-%:
-	@if [ -f sdkconfig.$* ]; then \
-		srcs="sdkconfig.defaults"; \
-		[ -f "sdkconfig/$*" ] && srcs="$$srcs sdkconfig/$*"; \
-		if [ -n "$$(find $$srcs -newer sdkconfig.$* 2>/dev/null)" ]; then \
-			echo "stale sdkconfig.$*: regenerating from defaults"; \
-			rm -f sdkconfig.$*; \
-		fi; \
-	fi
-
-_sdkconfig-fresh-all:
-	@for f in sdkconfig.*; do \
-		[ -f "$$f" ] || continue; \
-		case $$f in *.bak|*.orig) continue;; esac; \
-		env=$${f#sdkconfig.}; \
-		srcs="sdkconfig.defaults"; \
-		[ -f "sdkconfig/$$env" ] && srcs="$$srcs sdkconfig/$$env"; \
-		if [ -n "$$(find $$srcs -newer "$$f" 2>/dev/null)" ]; then \
-			echo "stale $$f: regenerating from defaults"; \
-			rm -f "$$f"; \
-		fi; \
-	done
-
 webui: ## Build web UI (Svelte SPA) into webui/dist/
 	cd webui && npm ci && npm run build
 
@@ -51,10 +21,10 @@ test: ## Run host unit tests
 coverage: test ## Coverage report (gcovr)
 	gcovr --root . --filter 'components/' --print-summary --coveralls gcovr-coveralls.json
 
-build: _sdkconfig-fresh-all ## Build default envs (tdongle-s3 + bitaxe-601)
+build: ## Build default envs (tdongle-s3 + bitaxe-601)
 	$(PIO) run
 
-build-%: _sdkconfig-fresh-% ## Build specific env (e.g. make build-tdongle-s3)
+build-%: ## Build specific env (e.g. make build-tdongle-s3)
 	$(PIO) run -e $*
 
 compile-db: ## Generate compile_commands.json for all boards (clangd LSP)

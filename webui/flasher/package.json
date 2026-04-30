@@ -1,29 +1,30 @@
 {
-  "name": "prov",
+  "name": "flasher",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "sync:assets": "node scripts/sync-public-assets.mjs",
-    "predev": "pnpm run sync:assets",
+    "gen:boards": "node scripts/gen-boards.mjs",
+    "gen:assets": "node scripts/gen-assets.mjs",
+    "predev": "pnpm run sync:assets && pnpm run gen:boards && pnpm run gen:assets",
+    "prebuild": "pnpm run sync:assets && pnpm run gen:boards && pnpm run gen:assets",
+    "precheck": "pnpm run sync:assets && pnpm run gen:boards && pnpm run gen:assets",
     "dev": "vite",
-    "prebuild": "pnpm run sync:assets",
     "build": "vite build",
     "preview": "vite preview",
-    "precheck": "pnpm run sync:assets",
     "check": "svelte-check --tsconfig ./tsconfig.json"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
     "@tsconfig/svelte": "^5.0.4",
-    "lightningcss": "^1.32.0",
     "svelte": "^5.55.5",
     "svelte-check": "^4.4.6",
-    "terser": "^5.46.2",
     "typescript": "^5.4.5",
     "vite": "^8.0.10"
   },
   "dependencies": {
+    "esptool-js": "^0.6.0",
     "tslib": "^2.6.2",
     "ui-kit": "workspace:*"
   }

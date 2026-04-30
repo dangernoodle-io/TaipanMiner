@@ -82,6 +82,11 @@
   let rebootRequired = false
   let editingIdx: number | null = null  // 0 = primary, 1 = fallback
   let switching = false
+  // Frozen snapshot of $pool taken at switch-click; rendered in place of the
+  // live store while switching so the page doesn't flicker as the firmware
+  // tears down the old session. Cleared once the new session is observed.
+  let frozenPool: typeof $pool | null = null
+  $: displayPool = switching ? frozenPool : $pool
 
   let form: PoolForm = { host: '', port: 0, wallet: '', worker: '', pool_pass: '' }
   let autoRotate = false
@@ -159,14 +164,33 @@
   }
 
   async function handleSwitch(idx: 0 | 1) {
+    // Freeze the displayed pool BEFORE flipping `switching` so the first
+    // reactive tick already sees a stable view.
+    frozenPool = $pool
+    // Snapshot pre-switch session age. The firmware flips active_pool_idx
+    // synchronously and only tears down the stratum socket on the next loop
+    // iteration, so checking idx+connected post-call returns true instantly
+    // while the *old* session is still up. Wait for a fresh session
+    // (new session_start_ago_s smaller than the pre-switch value).
+    const preAge = $pool?.session_start_ago_s ?? null
     switching = true
     try {
       await switchPool(idx)
-      pool.set(await fetchPool())
+      const deadline = Date.now() + 15000
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 750))
+        const p = await fetchPool()
+        pool.set(p)
+        if (p.active_pool_idx !== idx) continue
+        if (!p.connected) continue
+        if (p.session_start_ago_s == null) continue
+        if (preAge == null || p.session_start_ago_s < preAge) break
+      }
     } catch (e) {
       saveMsg = `Switch failed: ${(e as Error).message}`
     } finally {
       switching = false
+      frozenPool = null
     }
   }
 
@@ -177,39 +201,46 @@
   }
 </script>
 
-<div class="pool-grid">
+<div class="pool-grid" class:is-switching={switching}>
+  {#if switching}
+    <div class="switching-overlay" role="status" aria-live="polite">
+      <div class="spinner" aria-hidden="true"></div>
+      <div class="switching-msg">Switching pools…</div>
+      <div class="switching-sub">reconnecting stratum</div>
+    </div>
+  {/if}
   <!-- Active pool status — read-only metrics from /api/pool (TA-281). -->
   <section class="card active">
     <header class="active-head">
       <h3>Active</h3>
-      {#if $pool?.notify && coinbaseTag($pool.notify.coinb1, $pool.notify.coinb2)}
-        <span class="pool-tag" title="coinbase scriptSig tag">{coinbaseTag($pool.notify.coinb1, $pool.notify.coinb2)}</span>
+      {#if displayPool?.notify && coinbaseTag(displayPool.notify.coinb1, displayPool.notify.coinb2)}
+        <span class="pool-tag" title="coinbase scriptSig tag">{coinbaseTag(displayPool.notify.coinb1, displayPool.notify.coinb2)}</span>
       {/if}
     </header>
     <div class="status-row">
       <div class="who">
         <div class="host">
-          <span class="dot" class:connected={$pool?.connected === true}
-                            class:disconnected={$pool?.connected === false}
-                            class:unknown={$pool == null}
+          <span class="dot" class:connected={displayPool?.connected === true}
+                            class:disconnected={displayPool?.connected === false}
+                            class:unknown={displayPool == null}
                 aria-hidden="true"></span>
-          {$pool?.host ?? '—'}:{$pool?.port ?? '—'}
+          {displayPool?.host ?? '—'}:{displayPool?.port ?? '—'}
         </div>
         <div class="sub">
-          worker {$pool?.worker ?? '—'}
+          worker {displayPool?.worker ?? '—'}
         </div>
       </div>
       <div class="metrics">
         <div class="m">
-          <div class="v">{$pool?.current_difficulty ?? '—'}</div>
+          <div class="v">{displayPool?.current_difficulty ?? '—'}</div>
           <div class="k">diff</div>
         </div>
         <div class="m">
-          <div class="v">{$pool?.session_start_ago_s != null ? fmtRelative($pool.session_start_ago_s) : '—'}</div>
+          <div class="v">{displayPool?.session_start_ago_s != null ? fmtRelative(displayPool.session_start_ago_s) : '—'}</div>
           <div class="k">session</div>
         </div>
         <div class="m">
-          <div class="v">{$pool?.latency_ms != null ? `${$pool.latency_ms} ms` : '—'}</div>
+          <div class="v">{displayPool?.latency_ms != null ? `${displayPool.latency_ms} ms` : '—'}</div>
           <div class="k">latency</div>
         </div>
       </div>
@@ -217,8 +248,8 @@
   </section>
 
   <!-- Stratum notify preview (TA-288). -->
-  {#if $pool?.notify}
-    {@const n = $pool.notify}
+  {#if displayPool?.notify}
+    {@const n = displayPool.notify}
     <section class="card stratum">
       <header class="stratum-head">
         <h3>Current Job</h3>
@@ -263,7 +294,7 @@
       </label>
     </header>
 
-    {#if $pool}
+    {#if displayPool}
       <div class="pool-list">
         <!-- Primary -->
         <div class="pool-row" class:editing={editingIdx === 0}>
@@ -271,14 +302,14 @@
             <div class="summary">
               <span class="idx">1</span>
               <span class="kind">Primary</span>
-              {#if $pool.configured?.primary}
-                <span class="endpoint">{$pool.configured?.primary.host}{#if $pool.configured?.primary.port}:{$pool.configured?.primary.port}{/if}</span>
-                <span class="worker">{$pool.configured?.primary.worker}</span>
-                <span class="wallet mono" title={$pool.configured?.primary.wallet}>{truncWallet($pool.configured?.primary.wallet)}</span>
+              {#if displayPool.configured?.primary}
+                <span class="endpoint">{displayPool.configured?.primary.host}{#if displayPool.configured?.primary.port}:{displayPool.configured?.primary.port}{/if}</span>
+                <span class="worker">{displayPool.configured?.primary.worker}</span>
+                <span class="wallet mono" title={displayPool.configured?.primary.wallet}>{truncWallet(displayPool.configured?.primary.wallet)}</span>
                 <span class="pass">••••</span>
-                {#if $pool.active_pool_idx === 0 && $pool.connected}
+                {#if displayPool.active_pool_idx === 0 && displayPool.connected}
                   <span class="active-tag">ACTIVE</span>
-                {:else if $pool.active_pool_idx === 1 && $pool.configured?.fallback}
+                {:else if displayPool.active_pool_idx === 1 && displayPool.configured?.fallback}
                   <button class="btn outline sm" on:click={() => handleSwitch(0)} disabled={switching}>{switching ? 'Switching…' : 'Switch'}</button>
                 {/if}
                 <button class="btn outline sm" on:click={() => startEdit(0)}>Edit</button>
@@ -325,19 +356,19 @@
         </div>
 
         <!-- Fallback -->
-        <div class="pool-row" class:editing={editingIdx === 1} class:disabled={!$pool.configured?.fallback && editingIdx !== 1}>
+        <div class="pool-row" class:editing={editingIdx === 1} class:disabled={!displayPool.configured?.fallback && editingIdx !== 1}>
           {#if editingIdx !== 1}
             <div class="summary">
               <span class="idx">2</span>
               <span class="kind">Fallback</span>
-              {#if $pool.configured?.fallback}
-                <span class="endpoint">{$pool.configured?.fallback.host}{#if $pool.configured?.fallback.port}:{$pool.configured?.fallback.port}{/if}</span>
-                <span class="worker">{$pool.configured?.fallback.worker}</span>
-                <span class="wallet mono" title={$pool.configured?.fallback.wallet}>{truncWallet($pool.configured?.fallback.wallet)}</span>
+              {#if displayPool.configured?.fallback}
+                <span class="endpoint">{displayPool.configured?.fallback.host}{#if displayPool.configured?.fallback.port}:{displayPool.configured?.fallback.port}{/if}</span>
+                <span class="worker">{displayPool.configured?.fallback.worker}</span>
+                <span class="wallet mono" title={displayPool.configured?.fallback.wallet}>{truncWallet(displayPool.configured?.fallback.wallet)}</span>
                 <span class="pass">••••</span>
-                {#if $pool.active_pool_idx === 1 && $pool.connected}
+                {#if displayPool.active_pool_idx === 1 && displayPool.connected}
                   <span class="active-tag">ACTIVE</span>
-                {:else if $pool.active_pool_idx === 0 && $pool.configured?.primary}
+                {:else if displayPool.active_pool_idx === 0 && displayPool.configured?.primary}
                   <button class="btn outline sm" on:click={() => handleSwitch(1)} disabled={switching}>{switching ? 'Switching…' : 'Switch'}</button>
                 {/if}
                 <button class="btn outline sm" on:click={() => startEdit(1)}>Edit</button>
@@ -392,6 +423,51 @@
     display: grid;
     grid-template-columns: 1fr;
     gap: 14px;
+    position: relative;
+  }
+
+  .pool-grid.is-switching > :global(section.card) {
+    filter: blur(1px);
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .switching-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: color-mix(in srgb, var(--bg) 70%, transparent);
+    backdrop-filter: blur(2px);
+    border-radius: 6px;
+  }
+
+  .spinner {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 3px solid color-mix(in srgb, var(--accent) 25%, transparent);
+    border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .switching-msg {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .switching-sub {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
   }
 
   .card.pending { opacity: 0.75; }

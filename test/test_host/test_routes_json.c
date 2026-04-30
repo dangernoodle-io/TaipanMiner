@@ -172,6 +172,65 @@ void test_pool_disconnected(void)
     bb_json_free_str(json);
 }
 
+void test_pool_with_active_idx_and_configured_slots(void)
+{
+    /* Exercises: active_pool_idx >= 0 path + both `configured[]` slots
+     * populated + non-empty merkle_branches array (the multi-pool +
+     * notify hot path). */
+    pool_snapshot_t s = {0};
+    strncpy(s.host, "primary.example.com", sizeof(s.host) - 1);
+    s.port = 3333;
+    strncpy(s.worker, "worker-a", sizeof(s.worker) - 1);
+    strncpy(s.wallet, "tb1qa", sizeof(s.wallet) - 1);
+    s.connected           = true;
+    s.has_session_start   = true;
+    s.session_start_ago_s = 5;
+    s.current_difficulty  = 1024.0;
+    s.latency_ms          = 10;
+    s.active_pool_idx     = 1;  /* fallback active */
+    s.extranonce1[0] = 0xab; s.extranonce1_len = 1;
+    s.extranonce2_size = 4;
+    s.version_mask     = 0;
+
+    /* notify with one merkle branch */
+    s.has_notify = true;
+    strncpy(s.job_id, "j1", sizeof(s.job_id) - 1);
+    memset(s.prevhash, 0xff, 32);
+    s.coinb1[0] = 0xaa; s.coinb1_len = 1;
+    s.coinb2[0] = 0xbb; s.coinb2_len = 1;
+    memset(s.merkle_branches[0], 0x11, 32);
+    s.merkle_count = 1;
+    s.version  = 0x20000000;
+    s.nbits    = 0x1703a30c;
+    s.ntime    = 0x65a1b2c3;
+    s.clean_jobs = false;
+
+    /* Both slots configured */
+    s.configured[0].configured = true;
+    strncpy(s.configured[0].host,   "primary.example.com",  sizeof(s.configured[0].host)   - 1);
+    s.configured[0].port = 3333;
+    strncpy(s.configured[0].worker, "worker-a",             sizeof(s.configured[0].worker) - 1);
+    strncpy(s.configured[0].wallet, "tb1qa",                sizeof(s.configured[0].wallet) - 1);
+
+    s.configured[1].configured = true;
+    strncpy(s.configured[1].host,   "fallback.example.com", sizeof(s.configured[1].host)   - 1);
+    s.configured[1].port = 3334;
+    strncpy(s.configured[1].worker, "worker-b",             sizeof(s.configured[1].worker) - 1);
+    strncpy(s.configured[1].wallet, "tb1qb",                sizeof(s.configured[1].wallet) - 1);
+
+    bb_json_t root = bb_json_obj_new();
+    build_pool_json(&s, root);
+    char *json = serialize_and_free(root);
+
+    /* spot-check: active_pool_idx is numeric, configured.primary/fallback are
+     * objects (not null), merkle branch is hex-encoded. */
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"active_pool_idx\":1"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"primary\":{\"host\":\"primary.example.com\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"fallback\":{\"host\":\"fallback.example.com\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"merkle_branches\":[\"1111111111111111111111111111111111111111111111111111111111111111\"]"));
+    bb_json_free_str(json);
+}
+
 void test_pool_connected_with_notify(void)
 {
     pool_snapshot_t s = {0};

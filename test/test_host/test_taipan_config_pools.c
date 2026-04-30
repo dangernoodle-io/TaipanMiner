@@ -124,6 +124,42 @@ void test_legacy_primary_accessors_alias_idx_zero(void)
     TEST_ASSERT_EQUAL_STRING("lp", taipan_config_pool_pass());
 }
 
+void test_legacy_set_pool_preserves_fallback(void)
+{
+    // Seed a fallback first.
+    taipan_pool_cfg_t primary  = make_pool("p.example.com", 3333, "bc1qa", "w-a", "x");
+    taipan_pool_cfg_t fallback = make_pool("f.example.com", 3334, "bc1qb", "w-b", "y");
+    TEST_ASSERT_EQUAL(BB_OK, taipan_config_set_pools(&primary, &fallback));
+
+    // Legacy single-slot setter should round-trip into the primary slot
+    // while preserving the fallback (read from the in-memory cache).
+    TEST_ASSERT_EQUAL(BB_OK,
+        taipan_config_set_pool("new-primary.example.com", 9999,
+                               "bc1qnew", "new-worker", "np"));
+    TEST_ASSERT_EQUAL_STRING("new-primary.example.com",
+                             taipan_config_pool_host_idx(TAIPAN_POOL_PRIMARY));
+    TEST_ASSERT_EQUAL_UINT16(9999, taipan_config_pool_port_idx(TAIPAN_POOL_PRIMARY));
+    TEST_ASSERT_EQUAL_STRING("bc1qnew",
+                             taipan_config_wallet_addr_idx(TAIPAN_POOL_PRIMARY));
+    TEST_ASSERT_EQUAL_STRING("f.example.com",
+                             taipan_config_pool_host_idx(TAIPAN_POOL_FALLBACK));
+    TEST_ASSERT_TRUE(taipan_config_pool_configured(TAIPAN_POOL_FALLBACK));
+}
+
+void test_legacy_set_pool_no_fallback_leaves_slot_clear(void)
+{
+    // Start with no fallback; legacy setter should not invent one.
+    taipan_pool_cfg_t primary = make_pool("solo.example.com", 1111, "bc1qsolo", "solo", "x");
+    TEST_ASSERT_EQUAL(BB_OK, taipan_config_set_pools(&primary, NULL));
+    TEST_ASSERT_FALSE(taipan_config_pool_configured(TAIPAN_POOL_FALLBACK));
+
+    TEST_ASSERT_EQUAL(BB_OK,
+        taipan_config_set_pool("solo2.example.com", 2222, "bc1qsolo2", "solo2", "y"));
+    TEST_ASSERT_FALSE(taipan_config_pool_configured(TAIPAN_POOL_FALLBACK));
+    TEST_ASSERT_EQUAL_STRING("solo2.example.com",
+                             taipan_config_pool_host_idx(TAIPAN_POOL_PRIMARY));
+}
+
 void test_set_pools_truncates_oversized_fields(void)
 {
     // host buffer is 64 bytes — fill with 80 chars to confirm truncation

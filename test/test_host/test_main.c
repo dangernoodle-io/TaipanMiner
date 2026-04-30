@@ -86,6 +86,9 @@ void test_pool_configured_rejects_out_of_range_idx(void);
 void test_pool_idx_accessors_out_of_range_safe(void);
 void test_legacy_primary_accessors_alias_idx_zero(void);
 void test_set_pools_truncates_oversized_fields(void);
+void test_legacy_set_pool_preserves_fallback(void);
+void test_legacy_set_pool_no_fallback_leaves_slot_clear(void);
+void test_pool_with_active_idx_and_configured_slots(void);
 
 // Forward declarations from test_crc.c
 void test_crc5_chain_inactive(void);
@@ -599,6 +602,8 @@ int main(void) {
     RUN_TEST(test_pool_idx_accessors_out_of_range_safe);
     RUN_TEST(test_legacy_primary_accessors_alias_idx_zero);
     RUN_TEST(test_set_pools_truncates_oversized_fields);
+    RUN_TEST(test_legacy_set_pool_preserves_fallback);
+    RUN_TEST(test_legacy_set_pool_no_fallback_leaves_slot_clear);
 
     // CRC tests
     RUN_TEST(test_crc5_chain_inactive);
@@ -998,6 +1003,7 @@ int main(void) {
     RUN_TEST(test_pool_version_mask_zero);
     RUN_TEST(test_pool_latency_positive);
     RUN_TEST(test_pool_latency_negative);
+    RUN_TEST(test_pool_with_active_idx_and_configured_slots);
     RUN_TEST(test_diag_asic_empty);
     RUN_TEST(test_diag_asic_three_events);
     RUN_TEST(test_diag_asic_future_ts_clamps_to_zero);

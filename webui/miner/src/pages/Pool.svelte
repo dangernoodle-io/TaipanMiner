@@ -53,6 +53,123 @@
     return txt.length >= 3 ? txt : null
   }
 
+  // Parse coinb2 outputs and return total value in satoshis (subsidy + fees).
+  function coinbaseTotalReward(coinb2: string): number | null {
+    if (!coinb2) return null
+    try {
+      const b: number[] = []
+      for (let i = 0; i + 1 < coinb2.length; i += 2) b.push(parseInt(coinb2.slice(i, i + 2), 16))
+      let off = 4 // nSequence
+      const nout = b[off++]
+      let total = 0
+      for (let k = 0; k < nout; k++) {
+        let v = 0
+        for (let i = 7; i >= 0; i--) v = v * 256 + b[off + i]
+        off += 8
+        const sl = b[off++]
+        off += sl
+        total += v
+      }
+      return total
+    } catch { return null }
+  }
+
+  // Return bech32(m) address for a witness-program scriptPubKey, or null.
+  // Supports v0 (P2WPKH/P2WSH) and v1 (P2TR).
+  const BECH32_CHARS = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l'
+  function bech32Polymod(values: number[]): number {
+    const G = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]
+    let chk = 1
+    for (const v of values) {
+      const top = chk >>> 25
+      chk = ((chk & 0x1ffffff) << 5) ^ v
+      for (let i = 0; i < 5; i++) if ((top >> i) & 1) chk ^= G[i]
+    }
+    return chk
+  }
+  function bech32HrpExpand(hrp: string): number[] {
+    const out: number[] = []
+    for (let i = 0; i < hrp.length; i++) out.push(hrp.charCodeAt(i) >> 5)
+    out.push(0)
+    for (let i = 0; i < hrp.length; i++) out.push(hrp.charCodeAt(i) & 0x1f)
+    return out
+  }
+  function bech32Checksum(hrp: string, data: number[], spec: 'bech32' | 'bech32m'): number[] {
+    const constN = spec === 'bech32m' ? 0x2bc830a3 : 1
+    const values = bech32HrpExpand(hrp).concat(data, [0, 0, 0, 0, 0, 0])
+    const polymod = bech32Polymod(values) ^ constN
+    return [0, 1, 2, 3, 4, 5].map(i => (polymod >> (5 * (5 - i))) & 31)
+  }
+  function convertBits(bytes: number[], from: number, to: number, pad: boolean): number[] | null {
+    let acc = 0, bits = 0
+    const out: number[] = []
+    const maxv = (1 << to) - 1
+    for (const b of bytes) {
+      if (b < 0 || b >> from) return null
+      acc = (acc << from) | b
+      bits += from
+      while (bits >= to) {
+        bits -= to
+        out.push((acc >> bits) & maxv)
+      }
+    }
+    if (pad && bits) out.push((acc << (to - bits)) & maxv)
+    else if (!pad && (bits >= from || ((acc << (to - bits)) & maxv))) return null
+    return out
+  }
+  function segwitAddress(spkHex: string, hrp = 'bc'): string | null {
+    if (!spkHex || spkHex.length < 4) return null
+    const v = parseInt(spkHex.slice(0, 2), 16)
+    const len = parseInt(spkHex.slice(2, 4), 16)
+    if (spkHex.length !== (2 + len) * 2) return null
+    let witver: number
+    if (v === 0x00) witver = 0
+    else if (v >= 0x51 && v <= 0x60) witver = v - 0x50
+    else return null
+    if (witver === 0 && len !== 20 && len !== 32) return null
+    if (len < 2 || len > 40) return null
+    const program: number[] = []
+    for (let i = 4; i + 1 < spkHex.length; i += 2) program.push(parseInt(spkHex.slice(i, i + 2), 16))
+    const conv = convertBits(program, 8, 5, true)
+    if (!conv) return null
+    const data = [witver].concat(conv)
+    const spec = witver === 0 ? 'bech32' : 'bech32m'
+    const checksum = bech32Checksum(hrp, data, spec)
+    return hrp + '1' + data.concat(checksum).map(d => BECH32_CHARS[d]).join('')
+  }
+
+  // Extract first output's scriptPubKey hex from coinb2 (= miner payout).
+  function coinbasePayoutSpk(coinb2: string): string | null {
+    if (!coinb2) return null
+    try {
+      let off = 4 + 1 // nSequence + out_count varint (assume <0xfd)
+      off += 8 // value
+      const sl = parseInt(coinb2.slice(off * 2, off * 2 + 2), 16)
+      off += 1
+      return coinb2.slice(off * 2, (off + sl) * 2)
+    } catch { return null }
+  }
+
+  function fmtBtc(sats: number): string {
+    return (sats / 1e8).toFixed(4) + ' BTC'
+  }
+
+  function fmtNtimeAge(ntimeHex: string): string | null {
+    const t = parseInt(ntimeHex, 16)
+    if (!Number.isFinite(t) || t <= 0) return null
+    const ago = Math.floor(Date.now() / 1000) - t
+    if (ago < 0) return 'now'
+    if (ago < 60) return `${ago}s ago`
+    if (ago < 3600) return `${Math.floor(ago / 60)}m ago`
+    return `${Math.floor(ago / 3600)}h ago`
+  }
+
+  function truncAddr(a: string): string {
+    if (!a) return '—'
+    if (a.length <= 16) return a
+    return `${a.slice(0, 8)}…${a.slice(-6)}`
+  }
+
   // BIP34: block height is push-encoded at the start of the coinbase scriptSig.
   // coinb1 layout: version(4) + in_count(1) + prev(32) + prev_idx(4) + scriptSig_len(varint) + scriptSig…
   function coinbaseHeight(coinb1: string): number | null {
@@ -214,7 +331,13 @@
     <header class="active-head">
       <h3>Active</h3>
       {#if displayPool?.notify && coinbaseTag(displayPool.notify.coinb1, displayPool.notify.coinb2)}
-        <span class="pool-tag" title="coinbase scriptSig tag">{coinbaseTag(displayPool.notify.coinb1, displayPool.notify.coinb2)}</span>
+        <span class="pool-tag has-tip">
+          <span class="tag-prefix">scriptSig</span>
+          {coinbaseTag(displayPool.notify.coinb1, displayPool.notify.coinb2)}
+          <span class="tip" role="tooltip">
+            Block template upstream, read from the coinbase scriptSig. Not necessarily the stratum endpoint you're connected to — proxies and relays often forward another pool's template.
+          </span>
+        </span>
       {/if}
     </header>
     <div class="status-row">
@@ -265,21 +388,47 @@
             <div class="sv mono">{fmtNetDiff(coinbaseHeight(n.coinb1) ?? 0)}</div>
           </div>
         {/if}
+        {#if coinbaseTotalReward(n.coinb2) != null}
+          <div class="sf">
+            <div class="sk">block reward</div>
+            <div class="sv mono">{fmtBtc(coinbaseTotalReward(n.coinb2) ?? 0)}</div>
+          </div>
+        {/if}
+        <div class="sf">
+          <div class="sk">merkle depth</div>
+          <div class="sv mono">{n.merkle_branches.length}</div>
+        </div>
+        <div class="sf">
+          <div class="sk">network diff</div>
+          <div class="sv mono">{fmtNetDiff(nbitsToDifficulty(n.nbits))}</div>
+        </div>
         <div class="sf">
           <div class="sk">prev block</div>
           <div class="sv mono" title={n.prev_hash}>
             {n.prev_hash.slice(0, 8)}…{n.prev_hash.slice(-8)}
           </div>
         </div>
+        {#if fmtNtimeAge(n.ntime)}
+          <div class="sf">
+            <div class="sk">template age</div>
+            <div class="sv mono">{fmtNtimeAge(n.ntime)}</div>
+          </div>
+        {/if}
         <div class="sf">
           <div class="sk">version</div>
           <div class="sv mono">0x{n.version}</div>
         </div>
-        <div class="sf">
-          <div class="sk">network diff</div>
-          <div class="sv mono">{fmtNetDiff(nbitsToDifficulty(n.nbits))}</div>
-        </div>
       </div>
+      {#if coinbasePayoutSpk(n.coinb2)}
+        {@const spk = coinbasePayoutSpk(n.coinb2)}
+        {@const addr = spk ? segwitAddress(spk) : null}
+        <div class="payout-strip">
+          <span class="sk">payout</span>
+          <span class="sv mono" title={addr ?? spk ?? ''}>
+            {addr ?? 'non-segwit ' + (spk ?? '')}
+          </span>
+        </div>
+      {/if}
     </section>
   {/if}
 
@@ -487,6 +636,55 @@
   }
 
 
+  .pool-tag.has-tip {
+    position: relative;
+    cursor: help;
+    overflow: visible;
+    max-width: none;
+  }
+
+  .has-tip .tip {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 50;
+    width: max-content;
+    max-width: 280px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--bg-elevated, #1f1f1f);
+    color: var(--text);
+    border: 1px solid var(--border);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.45;
+    text-transform: none;
+    letter-spacing: 0;
+    white-space: normal;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-2px);
+    transition: opacity 80ms ease-out, transform 80ms ease-out;
+  }
+
+  .has-tip:hover .tip,
+  .has-tip:focus-within .tip {
+    opacity: 1;
+    transform: translateY(0);
+    transition-delay: 300ms;
+  }
+
+  .pool-tag .tag-prefix {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--label);
+    font-weight: 700;
+    margin-right: 6px;
+    opacity: 0.85;
+  }
+
   .pool-tag {
     display: inline-block;
     font-size: 11px;
@@ -520,6 +718,41 @@
     color: var(--success);
     border: 1px solid color-mix(in srgb, var(--success) 50%, transparent);
     background: color-mix(in srgb, var(--success) 12%, transparent);
+  }
+
+  .payout-strip {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border);
+  }
+
+  .payout-strip .sk {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--label);
+  }
+
+  .payout-strip .sv {
+    font-size: 12px;
+    color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  @media (max-width: 720px) {
+    .payout-strip {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 4px;
+    }
   }
 
   .stratum-grid {

@@ -345,6 +345,7 @@ static bb_err_t pool_handler(bb_http_request_t *req)
         }
     }
     s.active_pool_idx = stratum_get_active_pool_idx();
+    s.extranonce_subscribe_status = (int)stratum_get_extranonce_subscribe_status();
 
     bb_json_t root = bb_json_obj_new();
     build_pool_json(&s, root);

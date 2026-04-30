@@ -147,6 +147,42 @@ bool stratum_machine_handle_subscribe_result(stratum_state_t *st, bb_json_t resu
     return true;
 }
 
+bool stratum_machine_handle_set_extranonce(stratum_state_t *st, bb_json_t params)
+{
+    if (!st || !params) return false;
+
+    /* mining.set_extranonce params: [extranonce1_hex, extranonce2_size] */
+    if (!bb_json_item_is_array(params) || bb_json_arr_size(params) < 2) {
+        return false;
+    }
+
+    bb_json_t en1 = bb_json_arr_get_item(params, 0);
+    if (!en1 || !bb_json_item_is_string(en1)) {
+        return false;
+    }
+    const char *en1_str = bb_json_item_get_string(en1);
+    size_t hex_len = strlen(en1_str);
+    if (hex_len > MAX_EXTRANONCE1_SIZE * 2) {
+        return false;
+    }
+
+    bb_json_t en2sz = bb_json_arr_get_item(params, 1);
+    if (!en2sz || !bb_json_item_is_number(en2sz)) {
+        return false;
+    }
+    int new_en2_size = bb_json_item_get_int(en2sz);
+    if (new_en2_size < 0 || new_en2_size > 16) {
+        return false;
+    }
+
+    /* Apply atomically — both fields validated. */
+    strncpy(st->extranonce1_hex, en1_str, sizeof(st->extranonce1_hex) - 1);
+    st->extranonce1_hex[sizeof(st->extranonce1_hex) - 1] = '\0';
+    st->extranonce1_len = hex_to_bytes(st->extranonce1_hex, st->extranonce1, MAX_EXTRANONCE1_SIZE);
+    st->extranonce2_size = new_en2_size;
+    return true;
+}
+
 bool stratum_machine_handle_set_difficulty(stratum_state_t *st, bb_json_t params)
 {
     if (!st || !params) return false;

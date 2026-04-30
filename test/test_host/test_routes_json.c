@@ -167,6 +167,7 @@ void test_pool_disconnected(void)
         "\"current_difficulty\":512,\"latency_ms\":null,"
         "\"extranonce1\":null,\"extranonce2_size\":null,\"version_mask\":null,"
         "\"notify\":null,\"active_pool_idx\":null,"
+        "\"extranonce_subscribe_status\":\"off\","
         "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
@@ -295,6 +296,7 @@ void test_pool_connected_with_notify(void)
         "\"ntime\":\"65a1b2c3\","
         "\"clean_jobs\":true},"
         "\"active_pool_idx\":null,"
+        "\"extranonce_subscribe_status\":\"off\","
         "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
@@ -329,6 +331,7 @@ void test_pool_version_mask_zero(void)
         "\"current_difficulty\":512,\"latency_ms\":null,"
         "\"extranonce1\":\"dead\",\"extranonce2_size\":4,\"version_mask\":null,"
         "\"notify\":null,\"active_pool_idx\":null,"
+        "\"extranonce_subscribe_status\":\"off\","
         "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
@@ -360,6 +363,7 @@ void test_pool_latency_positive(void)
         "\"current_difficulty\":512,\"latency_ms\":42,"
         "\"extranonce1\":null,\"extranonce2_size\":null,\"version_mask\":null,"
         "\"notify\":null,\"active_pool_idx\":null,"
+        "\"extranonce_subscribe_status\":\"off\","
         "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
@@ -391,6 +395,7 @@ void test_pool_latency_negative(void)
         "\"current_difficulty\":512,\"latency_ms\":null,"
         "\"extranonce1\":null,\"extranonce2_size\":null,\"version_mask\":null,"
         "\"notify\":null,\"active_pool_idx\":null,"
+        "\"extranonce_subscribe_status\":\"off\","
         "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);

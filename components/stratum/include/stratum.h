@@ -62,6 +62,17 @@ int stratum_parse_error_code(bb_json_t error_item);
 // Get active pool index: 0 = primary, 1 = fallback. Returns -1 if not connected.
 int stratum_get_active_pool_idx(void);
 
+// TA-306: Status of mining.extranonce.subscribe for the active session.
+// Resets to OFF on each reconnect, then becomes PENDING/ACTIVE/REJECTED if
+// the active slot's user pref enables it.
+typedef enum {
+    STRATUM_EXNX_SUB_OFF      = 0,
+    STRATUM_EXNX_SUB_PENDING  = 1,
+    STRATUM_EXNX_SUB_ACTIVE   = 2,
+    STRATUM_EXNX_SUB_REJECTED = 3,
+} stratum_extranonce_sub_status_t;
+stratum_extranonce_sub_status_t stratum_get_extranonce_subscribe_status(void);
+
 // Manually switch to idx and trigger reconnect. Returns BB_ERR_INVALID_ARG
 // if idx out of range or that pool slot isn't configured.
 bb_err_t stratum_request_switch_pool(int idx);

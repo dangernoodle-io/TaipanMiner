@@ -182,6 +182,7 @@ export interface Pool {
   version_mask: string | null
   notify: PoolNotify | null
   active_pool_idx: 0 | 1 | null
+  extranonce_subscribe_status: 'off' | 'pending' | 'active' | 'rejected'
   configured: {
     primary: PoolConfigured | null
     fallback: PoolConfigured | null

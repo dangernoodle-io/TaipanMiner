@@ -221,6 +221,18 @@ void build_pool_json(const pool_snapshot_t *s, bb_json_t root)
         bb_json_obj_set_null(root, "active_pool_idx");
     }
 
+    /* TA-306: extranonce.subscribe status for the active session */
+    {
+        const char *sub_str;
+        switch (s->extranonce_subscribe_status) {
+            case 1:  sub_str = "pending";  break;
+            case 2:  sub_str = "active";   break;
+            case 3:  sub_str = "rejected"; break;
+            default: sub_str = "off";      break;
+        }
+        bb_json_obj_set_string(root, "extranonce_subscribe_status", sub_str);
+    }
+
     /* configured pools — expose persisted config (TA-290/TA-202) */
     bb_json_t cfg_obj = bb_json_obj_new();
     for (int i = 0; i < 2; i++) {

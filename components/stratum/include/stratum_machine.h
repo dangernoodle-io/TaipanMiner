@@ -31,6 +31,7 @@ typedef struct {
     int      subscribe_id;
     int      authorize_id;
     int      keepalive_id;
+    int      extranonce_subscribe_id;  // TA-306
 
     // Most recent job from mining.notify
     stratum_job_t job;
@@ -83,6 +84,12 @@ bool stratum_machine_handle_set_difficulty(stratum_state_t *st, bb_json_t params
 
 // Handle mining.notify params: parse all fields into st->job.
 bool stratum_machine_handle_notify(stratum_state_t *st, bb_json_t params);
+
+// TA-306: Handle mining.set_extranonce params from the pool.
+// Params shape: [extranonce1_hex, extranonce2_size]. Updates st->extranonce1*
+// and st->extranonce2_size in place. Returns false on parse/validation failure
+// (caller should log; do NOT abort the session).
+bool stratum_machine_handle_set_extranonce(stratum_state_t *st, bb_json_t params);
 
 // ---------------------------------------------------------------------------
 // Work builder — pure math, reads state, writes out.

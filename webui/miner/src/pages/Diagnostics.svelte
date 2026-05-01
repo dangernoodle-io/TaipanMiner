@@ -3,6 +3,7 @@
   import { postReboot, setLogLevel, fetchLogLevels, fetchDiagAsic, type LogLevel, type RecentDrop } from '../lib/api'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
   import { startRebootRecovery } from '../lib/stores'
+  import { SseClient, type SseStatus } from '../lib/sse'
 
   let recentDrops: RecentDrop[] = []
   let diagInterval: ReturnType<typeof setInterval> | null = null
@@ -25,59 +26,15 @@
   let lines: string[] = []
   let autoscroll = true
   let filter = ''
-  let es: EventSource | null = null
-  let status: 'connected' | 'disconnected' | 'external' | 'connecting' = 'connecting'
+  let status: SseStatus = 'connecting'
   let wasDisconnected = false
-
-  /* Reconnect state machine. The previous version held only `es` and a flat
-   * 3s setTimeout, which raced when onerror fired twice and could orphan an
-   * EventSource that then silently held the server's single SSE slot —
-   * leaving the page in a permanent "Disconnected" loop until reload. */
-  let pendingRetry: ReturnType<typeof setTimeout> | null = null
-  let lastMessageAt = 0
-  const STALL_THRESHOLD_MS = 20000     /* two missed 10s server pings */
-  const STALL_CHECK_INTERVAL_MS = 5000
-  const RETRY_INITIAL_MS = 3000
-  const RETRY_MAX_MS = 20000
-  let retryDelay = RETRY_INITIAL_MS
-  let stallTimer: ReturnType<typeof setInterval> | null = null
-  /* Surface next-retry countdown in the UI. nextRetryAt is the absolute ms
-   * timestamp; tickNow is a 1s clock to drive the countdown reactivity. */
   let nextRetryAt: number | null = null
   let tickNow = Date.now()
   let tickTimer: ReturnType<typeof setInterval> | null = null
+  let sse: SseClient | null = null
   $: retryInS = nextRetryAt != null
     ? Math.max(0, Math.ceil((nextRetryAt - tickNow) / 1000))
     : null
-
-  function cancelPendingRetry() {
-    if (pendingRetry !== null) {
-      clearTimeout(pendingRetry)
-      pendingRetry = null
-    }
-    nextRetryAt = null
-  }
-
-  function teardownEs() {
-    if (es) {
-      es.onopen = null
-      es.onmessage = null
-      es.onerror = null
-      es.close()
-      es = null
-    }
-  }
-
-  function scheduleRetry() {
-    cancelPendingRetry()
-    nextRetryAt = Date.now() + retryDelay
-    pendingRetry = setTimeout(() => {
-      pendingRetry = null
-      nextRetryAt = null
-      start()
-    }, retryDelay)
-    retryDelay = Math.min(RETRY_MAX_MS, retryDelay * 2)
-  }
 
   // Log levels — fetched from GET /api/log/level
   let availableLevels: LogLevel[] = ['none', 'error', 'warn', 'info', 'debug', 'verbose']
@@ -144,72 +101,48 @@
     ? lines.filter((l) => l.toLowerCase().includes(filter.toLowerCase()))
     : lines
 
-  function start() {
-    cancelPendingRetry()
-    teardownEs()
-    status = 'connecting'
-    lastMessageAt = Date.now()
-    es = new EventSource(`${baseUrl}/api/logs?source=browser`)
-    es.onopen = () => {
-      status = 'connected'
-      lastMessageAt = Date.now()
-      retryDelay = RETRY_INITIAL_MS
-      if (wasDisconnected) {
-        wasDisconnected = false
-        // Device may have rebooted — re-query tag list (levels reset on reboot).
-        loadLevels()
-      }
-    }
-    es.onmessage = (e) => {
-      lastMessageAt = Date.now()
-      lines = lines.concat(e.data)
-      if (lines.length > LOG_MAX_LINES) lines = lines.slice(-LOG_MAX_LINES)
-      if (autoscroll) {
-        queueMicrotask(() => {
-          if (panel) panel.scrollTop = panel.scrollHeight
-        })
-      }
-    }
-    es.onerror = () => {
-      teardownEs()
-      wasDisconnected = true
-      fetch(`${baseUrl}/api/logs/status`)
-        .then((r) => r.json())
-        .then((d: { active: boolean; client: string }) => {
-          status = d.active && d.client === 'external' ? 'external' : 'disconnected'
-        })
-        .catch(() => { status = 'disconnected' })
-      scheduleRetry()
-    }
-  }
-
-  function stop() {
-    cancelPendingRetry()
-    teardownEs()
-    if (stallTimer !== null) { clearInterval(stallTimer); stallTimer = null }
-    document.removeEventListener('visibilitychange', onVisibilityChange)
-    status = 'disconnected'
-  }
-
-  function checkStall() {
-    if (!es || es.readyState !== EventSource.OPEN) return
-    if (Date.now() - lastMessageAt > STALL_THRESHOLD_MS) {
-      /* Server keepalive is 10s; missing two pings = dead stream. */
-      teardownEs()
-      status = 'disconnected'
-      wasDisconnected = true
-      scheduleRetry()
-    }
+  function startStream() {
+    sse = new SseClient({
+      url: `${baseUrl}/api/logs?source=browser`,
+      onOpen: () => {
+        if (wasDisconnected) {
+          wasDisconnected = false
+          // Device may have rebooted — re-query tag list (levels reset on reboot).
+          loadLevels()
+        }
+      },
+      onMessage: (data) => {
+        lines = lines.concat(data)
+        if (lines.length > LOG_MAX_LINES) lines = lines.slice(-LOG_MAX_LINES)
+        if (autoscroll) {
+          queueMicrotask(() => {
+            if (panel) panel.scrollTop = panel.scrollHeight
+          })
+        }
+      },
+      onStatusChange: (s) => {
+        status = s
+        if (s === 'disconnected' || s === 'external') wasDisconnected = true
+      },
+      onRetryAtChange: (at) => { nextRetryAt = at },
+      resolveErrorStatus: async () => {
+        try {
+          const r = await fetch(`${baseUrl}/api/logs/status`)
+          const d: { active: boolean; client: string } = await r.json()
+          return d.active && d.client === 'external' ? 'external' : 'disconnected'
+        } catch {
+          return 'disconnected'
+        }
+      },
+    })
+    sse.start()
   }
 
   function onVisibilityChange() {
     if (document.visibilityState !== 'visible') return
     /* Tab was hidden long enough to stall — reconnect immediately rather
      * than waiting for the next 5s stall-check tick. */
-    if (Date.now() - lastMessageAt > STALL_THRESHOLD_MS) {
-      retryDelay = RETRY_INITIAL_MS
-      start()
-    }
+    if (sse?.isStale()) sse.reconnectNow()
   }
 
   function clear() {
@@ -247,16 +180,17 @@
   }
 
   onMount(() => {
-    start()
+    startStream()
     loadLevels()
     loadDiagAsic()
     diagInterval = setInterval(loadDiagAsic, 10000)
-    stallTimer = setInterval(checkStall, STALL_CHECK_INTERVAL_MS)
     tickTimer = setInterval(() => { tickNow = Date.now() }, 1000)
     document.addEventListener('visibilitychange', onVisibilityChange)
   })
   onDestroy(() => {
-    stop()
+    sse?.destroy()
+    sse = null
+    document.removeEventListener('visibilitychange', onVisibilityChange)
     if (diagInterval !== null) clearInterval(diagInterval)
     if (tickTimer !== null) clearInterval(tickTimer)
   })

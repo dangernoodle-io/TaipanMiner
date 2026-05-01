@@ -91,8 +91,8 @@
   {:else}
     {#if $hasAsic}
       <!-- ASIC (per-chip) -->
-      <h2>
-        ASIC <span class="pending-tag">TA-97{#if chipCount > 1} · TA-194{/if}</span>
+      <h2 class="section-head">
+        ASIC <span class="tag pending">TA-97{#if chipCount > 1} · TA-194{/if}</span>
       </h2>
       <div class="settings pending">
         <div class="asic-head">
@@ -120,7 +120,7 @@
       </div>
 
       <!-- Fan -->
-      <h2>Fan <span class="pending-tag">TA-141</span></h2>
+      <h2 class="section-head">Fan <span class="tag pending">TA-141</span></h2>
       <div class="settings pending">
         <div class="row">
           <span class="k">Mode</span>
@@ -141,7 +141,7 @@
     {/if}
 
     <!-- General -->
-    <h2>General</h2>
+    <h2 class="section-head">General</h2>
     <div class="settings">
       <div class="row">
         <span class="k">OLED display</span>
@@ -160,7 +160,7 @@
     </div>
 
     <!-- Network / WiFi (hostname lives here) -->
-    <h2>Network <span class="pending-tag">TA-204 · TA-206</span></h2>
+    <h2 class="section-head">Network <span class="tag pending">TA-204 · TA-206</span></h2>
     <div class="settings pending">
       <div class="row">
         <span class="k">Hostname</span>
@@ -190,29 +190,8 @@
     max-width: 640px;
   }
 
-  h2 {
-    color: var(--accent);
-    margin: 24px 0 10px 0;
-    font-size: 13px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-  }
-
+  h2 { margin: 24px 0 10px 0; }
   h2:first-of-type { margin-top: 0; }
-
-  .pending-tag {
-    font-size: 9px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--warning);
-    background: rgba(243, 156, 18, 0.12);
-    padding: 1px 6px;
-    border-radius: 3px;
-  }
 
   .settings {
     display: flex;

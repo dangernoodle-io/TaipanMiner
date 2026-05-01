@@ -1,4 +1,37 @@
 /* App-level shared styles. Component-specific overrides live in each .svelte. */
+/*
+ * ─── Primitive index ─────────────────────────────────────────────────────────
+ *
+ *  .conn-dot              8px connection-state circle
+ *    .conn-dot.connected    green + pulse animation
+ *    .conn-dot.disconnected red
+ *    .conn-dot.unknown      muted gray
+ *
+ *  .spinner               spin animation; size via --spinner-size (default 28px)
+ *    .spinner.lg            42px preset (e.g. RebootOverlay)
+ *
+ *  .tag                   small uppercase chip (9px, accent-border)
+ *    .tag.pending           warning-color variant (TA-xxx badges)
+ *
+ *  .status-pill           inline state badge (8px)
+ *    .status-pill.active / .on    green
+ *    .status-pill.off             muted
+ *    .status-pill.rejected        warning
+ *    .status-pill.pending         warning (alias)
+ *
+ *  .card-footer           dashed top border, flex space-between, mobile column
+ *    .card-footer.flush     no border, tighter margins (indicator-row variant)
+ *  .field-key / .field-val  label/value typography inside .card-footer
+ *
+ *  .btn.outline.danger    outline destructive button (red text, faint red border)
+ *
+ *  .modal-backdrop        fixed inset overlay (rgba black + blur)
+ *  .modal-panel           centered surface card with shadow
+ *
+ *  .section-head          accent-uppercase h2 typography (same as .card h2)
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
 
 /* ---- card ---- */
 .card {
@@ -153,6 +186,186 @@
   background: color-mix(in srgb, var(--info) 15%, transparent);
   border: 1px solid var(--info);
   color: var(--info);
+}
+
+/* ---- conn-dot ---- */
+.conn-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--muted);
+}
+
+.conn-dot.connected {
+  background: var(--success);
+  animation: conn-dot-pulse 2s ease-in-out infinite;
+}
+
+.conn-dot.disconnected {
+  background: var(--danger);
+}
+
+.conn-dot.unknown {
+  background: var(--muted);
+}
+
+@keyframes conn-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ---- spinner ---- */
+.spinner {
+  width: var(--spinner-size, 28px);
+  height: var(--spinner-size, 28px);
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent);
+  animation: spinner-spin 0.8s linear infinite;
+}
+
+.spinner.lg {
+  --spinner-size: 42px;
+  border-color: var(--input);
+  border-top-color: var(--accent);
+  margin: 0 auto 18px;
+  animation-duration: 0.9s;
+}
+
+@keyframes spinner-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ---- tag ---- */
+.tag {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tag.pending {
+  color: var(--warning);
+  background: rgba(243, 156, 18, 0.12);
+}
+
+/* ---- status-pill ---- */
+.status-pill {
+  display: inline-block;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  padding: 1px 4px;
+  border-radius: 2px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent);
+}
+
+.status-pill.active,
+.status-pill.on {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  border-color: color-mix(in srgb, var(--success) 50%, transparent);
+}
+
+.status-pill.rejected,
+.status-pill.pending {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border-color: color-mix(in srgb, var(--warning) 50%, transparent);
+}
+
+.status-pill.off {
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 6%, transparent);
+  border-color: color-mix(in srgb, var(--muted) 35%, transparent);
+}
+
+/* ---- card-footer ---- */
+.card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 18px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.card-footer.flush {
+  border-top: none;
+  margin-top: 4px;
+  padding-top: 0;
+}
+
+@media (max-width: 720px) {
+  .card-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+}
+
+.field-key {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--label);
+  margin-bottom: 2px;
+}
+
+.field-val {
+  font-size: 12px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- btn outline danger ---- */
+.btn.outline.danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+}
+
+.btn.outline.danger:hover:not(:disabled) {
+  filter: none;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+/* ---- modal-backdrop + modal-panel ---- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  z-index: 40;
+}
+
+.modal-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* ---- section-head / card h2 typography ---- */
+.card h2,
+.section-head {
+  color: var(--accent);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
 }
 
 /* ---- progress bar ---- */

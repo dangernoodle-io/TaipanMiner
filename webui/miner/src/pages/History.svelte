@@ -180,6 +180,8 @@
         },
         {
           scale: 'a',
+          size: 72,
+          gap: 8,
           stroke: '#e5ad30',
           grid: { stroke: '#1a3a52', width: 1 },
           ticks: { stroke: '#1a3a52', width: 1 },
@@ -188,6 +190,8 @@
         {
           scale: 'b',
           side: 1,
+          size: 72,
+          gap: 8,
           stroke: '#b0b0b0',
           grid: { show: false },
           ticks: { stroke: '#1a3a52', width: 1 }

@@ -6,6 +6,7 @@
   import { nbitsToDifficulty, coinbaseTag, coinbaseHeight, coinbaseTotalReward, coinbasePayoutSpk, segwitAddress } from '../lib/coinbase'
   import PoolRow from '../components/PoolRow.svelte'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
+  import ModalSpinner from '../components/ModalSpinner.svelte'
 
   const POOL_IDXS: (0 | 1)[] = [0, 1]
 
@@ -236,13 +237,11 @@
 </script>
 
 <div class="pool-grid" class:is-switching={switching || reconnecting}>
-  {#if switching || reconnecting}
-    <div class="switching-overlay" role="status" aria-live="polite">
-      <div class="spinner" aria-hidden="true"></div>
-      <div class="switching-msg">{reconnecting ? 'Reconnecting…' : 'Switching pools…'}</div>
-      <div class="switching-sub">{reconnecting ? 'applying changes' : 'reconnecting stratum'}</div>
-    </div>
-  {/if}
+  <ModalSpinner
+    visible={switching || reconnecting}
+    label={reconnecting ? 'Reconnecting…' : 'Switching pools…'}
+    sublabel={reconnecting ? 'applying changes' : 'reconnecting stratum'}
+  />
   <!-- Active pool status — read-only metrics from /api/pool (TA-281). -->
   <section class="card active">
     <header class="active-head">
@@ -260,9 +259,9 @@
     <div class="status-row">
       <div class="who">
         <div class="host">
-          <span class="dot" class:connected={displayPool?.connected === true}
-                            class:disconnected={displayPool?.connected === false}
-                            class:unknown={displayPool == null}
+          <span class="conn-dot" class:connected={displayPool?.connected === true}
+                               class:disconnected={displayPool?.connected === false}
+                               class:unknown={displayPool == null}
                 aria-hidden="true"></span>
           {displayPool?.host ?? '—'}:{displayPool?.port ?? '—'}
         </div>
@@ -286,19 +285,19 @@
       </div>
     </div>
     {#if displayPool?.extranonce1 || displayPool?.version_mask}
-      <div class="session-strip">
+      <div class="card-footer">
         {#if displayPool?.extranonce1}
           <div class="sf">
-            <div class="sk">extranonce1</div>
-            <div class="sv mono" title="server-assigned per-session nonce prefix">
+            <div class="field-key">extranonce1</div>
+            <div class="field-val mono" title="server-assigned per-session nonce prefix">
               {displayPool.extranonce1}{displayPool.extranonce2_size != null ? ` · ${displayPool.extranonce2_size}B en2` : ''}
             </div>
           </div>
         {/if}
         {#if displayPool?.version_mask}
           <div class="sf">
-            <div class="sk">version mask</div>
-            <div class="sv mono" title="BIP-320 version-rolling bits">0x{displayPool.version_mask}</div>
+            <div class="field-key">version mask</div>
+            <div class="field-val mono" title="BIP-320 version-rolling bits">0x{displayPool.version_mask}</div>
           </div>
         {/if}
       </div>
@@ -357,9 +356,9 @@
       {#if activeDecodeCoinbase && coinbasePayoutSpk(n.coinb2)}
         {@const spk = coinbasePayoutSpk(n.coinb2)}
         {@const addr = spk ? segwitAddress(spk) : null}
-        <div class="payout-strip">
-          <span class="sk">payout</span>
-          <span class="sv mono" title={addr ?? spk ?? ''}>
+        <div class="card-footer">
+          <span class="field-key">payout</span>
+          <span class="field-val mono" title={addr ?? spk ?? ''}>
             {addr ?? 'non-segwit ' + (spk ?? '')}
           </span>
         </div>
@@ -374,7 +373,7 @@
       <label class="rotate" class:disabled-ctrl={true}>
         <input type="checkbox" bind:checked={autoRotate} disabled />
         <span>Auto rotate</span>
-        <span class="pending-tag">TA-203</span>
+        <span class="tag pending">TA-203</span>
       </label>
     </header>
 
@@ -425,45 +424,6 @@
     pointer-events: none;
     user-select: none;
   }
-
-  .switching-overlay {
-    position: absolute;
-    inset: 0;
-    z-index: 10;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    background: color-mix(in srgb, var(--bg) 70%, transparent);
-    backdrop-filter: blur(2px);
-    border-radius: 6px;
-  }
-
-  .spinner {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    border: 3px solid color-mix(in srgb, var(--accent) 25%, transparent);
-    border-top-color: var(--accent);
-    animation: spin 0.8s linear infinite;
-  }
-
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .switching-msg {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text);
-  }
-
-  .switching-sub {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--muted);
-  }
-
 
   .stratum-head {
     display: flex;
@@ -564,46 +524,11 @@
     background: color-mix(in srgb, var(--success) 12%, transparent);
   }
 
-  .payout-strip,
-  .session-strip {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 18px;
-    margin-top: 12px;
-    padding-top: 10px;
-    border-top: 1px dashed var(--border);
-  }
-
-  .session-strip .sf { min-width: 0; }
-  .session-strip .sf:last-child { text-align: right; }
-  .session-strip .sk {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--label);
-    margin-bottom: 2px;
-  }
-  .session-strip .sv {
-    font-size: 12px;
-    color: var(--text);
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .payout-strip .sk {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--label);
-  }
-
-  .payout-strip .sv {
-    font-size: 12px;
-    color: var(--text);
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* session / payout strip: sf children need min-width guard for long mono values */
+  .card-footer .sf { min-width: 0; }
+  .card-footer .sf:last-child { text-align: right; }
+  /* mono field-val values in strips need overflow clipping */
+  .card-footer .field-val {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -611,17 +536,7 @@
   }
 
   @media (max-width: 720px) {
-    .session-strip {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 8px;
-    }
-    .session-strip .sf:last-child { text-align: left; }
-    .payout-strip {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 4px;
-    }
+    .card-footer .sf:last-child { text-align: left; }
   }
 
   .stratum-grid {
@@ -669,19 +584,6 @@
      inside flex headers that handle their own spacing, so margin: 0 from
      the shared rule is correct as-is. */
 
-  .pending-tag {
-    display: inline-block;
-    font-size: 9px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--warning);
-    background: rgba(243, 156, 18, 0.12);
-    padding: 1px 6px;
-    border-radius: 3px;
-    font-variant-numeric: tabular-nums;
-  }
-
   /* Active card */
   .active h3 { margin-bottom: 12px; }
 
@@ -701,18 +603,6 @@
     align-items: center;
     gap: 8px;
   }
-
-  .dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    background: var(--muted);
-  }
-  .dot.connected { background: var(--success); }
-  .dot.disconnected { background: var(--danger); }
-  .dot.unknown { background: var(--muted); }
 
   .who .sub {
     font-size: 11px;

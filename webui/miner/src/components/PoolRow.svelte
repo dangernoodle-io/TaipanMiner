@@ -84,7 +84,7 @@
           <div class="caption-row">
             <span class="kind-caption">{kind}</span>
             {#if isActive}
-              <span class="active-tag">ACTIVE</span>
+              <span class="status-pill active">ACTIVE</span>
             {/if}
           </div>
           <div class="endpoint-line">
@@ -124,7 +124,7 @@
           {/if}
           <button class="btn outline sm" on:click={() => dispatch('edit')}>Edit</button>
           {#if canRemove}
-            <button class="btn outline sm danger" on:click={() => dispatch('remove')} disabled={saving} title={removeTitle}>Remove</button>
+            <button class="btn outline danger sm" on:click={() => dispatch('remove')} disabled={saving} title={removeTitle}>Remove</button>
           {/if}
         </div>
       {:else}
@@ -253,19 +253,6 @@
     font-size: 11px;
   }
 
-  .active-tag {
-    display: inline-block;
-    font-size: 9px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--success);
-    background: color-mix(in srgb, var(--success) 12%, transparent);
-    padding: 1px 6px;
-    border-radius: 3px;
-    font-variant-numeric: tabular-nums;
-  }
-
   /* Per-toggle status indicators (read-only on the summary row;
    * mutation lives in the edit form). */
   .settings-line {
@@ -285,47 +272,6 @@
   }
 
   .setting-label { color: var(--label); font-weight: 600; }
-
-  .status-pill {
-    display: inline-block;
-    font-size: 8px;
-    font-weight: 600;
-    letter-spacing: 0.4px;
-    padding: 1px 4px;
-    border-radius: 2px;
-    font-variant-numeric: tabular-nums;
-    color: var(--muted);
-    background: color-mix(in srgb, var(--muted) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent);
-  }
-  .status-pill.active, .status-pill.on {
-    color: var(--success);
-    background: color-mix(in srgb, var(--success) 12%, transparent);
-    border-color: color-mix(in srgb, var(--success) 50%, transparent);
-  }
-  .status-pill.rejected {
-    color: var(--warning);
-    background: color-mix(in srgb, var(--warning) 12%, transparent);
-    border-color: color-mix(in srgb, var(--warning) 50%, transparent);
-  }
-  .status-pill.off {
-    color: var(--muted);
-    background: color-mix(in srgb, var(--muted) 6%, transparent);
-    border-color: color-mix(in srgb, var(--muted) 35%, transparent);
-  }
-
-  /* Outline-style danger override; the global .btn.danger fills the
-   * background which collides with the red text. We want a quieter
-   * destructive button on a row that already shows lots of state. */
-  .btn.danger {
-    background: transparent;
-    color: var(--danger);
-    border-color: color-mix(in srgb, var(--danger) 50%, transparent);
-  }
-  .btn.danger:hover:not(:disabled) {
-    filter: none;
-    background: color-mix(in srgb, var(--danger) 12%, transparent);
-  }
 
   .mono { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
 

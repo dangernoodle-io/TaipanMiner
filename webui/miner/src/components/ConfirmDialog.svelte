@@ -33,8 +33,8 @@
 </script>
 
 {#if open}
-  <div class="backdrop" on:click={cancel} role="presentation"></div>
-  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+  <div class="modal-backdrop" on:click={cancel} role="presentation"></div>
+  <div class="modal-panel dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
     <h3 id="confirm-title">{title}</h3>
     <p>{message}</p>
 
@@ -53,26 +53,14 @@
 {/if}
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(2px);
-    z-index: 40;
-  }
-
   .dialog {
     position: fixed;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
     padding: 20px 22px;
     width: min(420px, calc(100vw - 32px));
     z-index: 41;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   }
 
   h3 {

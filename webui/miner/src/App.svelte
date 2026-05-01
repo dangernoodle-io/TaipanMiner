@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { start, stop } from './lib/stores'
+  import { start, stop, stats, connected, power, pool } from './lib/stores'
   import { route } from './lib/router'
   import AlertBanner from './components/AlertBanner.svelte'
+  import type { Alert } from './components/AlertBanner.svelte'
   import Header from './components/Header.svelte'
   import Nav from './components/Nav.svelte'
   import LiveTitle from './components/LiveTitle.svelte'
@@ -22,6 +23,29 @@
     start()
     return () => stop()
   })
+
+  $: alerts = (() => {
+    const list: Alert[] = []
+    if (!$connected) {
+      list.push({ key: 'disconnected', severity: 'danger', message: 'Miner unreachable' })
+    }
+    if ($stats?.asic_temp_c && $stats.asic_temp_c > 75) {
+      list.push({ key: 'temp', severity: 'warning', message: `High temperature: ${$stats.asic_temp_c.toFixed(1)}°C` })
+    }
+    if ($power?.vin_low) {
+      list.push({
+        key: 'vin_low',
+        severity: 'warning',
+        message: $power.vin_mv != null
+          ? `Input voltage low: ${($power.vin_mv / 1000).toFixed(2)}V`
+          : 'Input voltage low'
+      })
+    }
+    if ($pool && !$pool.current_difficulty) {
+      list.push({ key: 'pool_diff', severity: 'info', message: 'Waiting for pool difficulty' })
+    }
+    return list
+  })()
 </script>
 
 <LiveTitle />
@@ -29,7 +53,7 @@
 <main>
   <Header />
   <div class="sticky-nav"><Nav /></div>
-  <AlertBanner />
+  <AlertBanner {alerts} />
 
   {#if $route === 'system'}
     <System />

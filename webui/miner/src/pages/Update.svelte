@@ -385,16 +385,8 @@
     gap: 16px;
   }
 
-  h2 {
-    color: var(--accent);
-    margin: 0 0 14px 0;
-    font-size: 14px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-  }
+  /* card h2 typography base from ui-kit; override size (14px here vs 13px global) */
+  h2 { margin: 0 0 14px 0; font-size: 14px; }
 
   .info-row {
     display: flex;

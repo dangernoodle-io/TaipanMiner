@@ -10,7 +10,7 @@
 
 <div class="pool-strip">
   <div class="left">
-    <span class="dot {dotClass}" aria-hidden="true"></span>
+    <span class="conn-dot {dotClass}" aria-hidden="true"></span>
     {#if $pool}
       <strong>{$pool.host}:{$pool.port}</strong>
     {:else}
@@ -47,32 +47,6 @@
   .right { justify-self: end; text-align: right; }
 
   strong { color: var(--text); font-weight: 600; }
-
-  .dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-
-  .dot.connected {
-    background: var(--success);
-    animation: pulse 2s ease-in-out infinite;
-  }
-
-  .dot.disconnected {
-    background: var(--danger);
-  }
-
-  .dot.unknown {
-    background: var(--muted);
-  }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-  }
 
   .loading {
     color: var(--label);

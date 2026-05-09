@@ -96,8 +96,9 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     env:
-      IDF_CCACHE_ENABLE: '1'
-      CCACHE_DIR: ~/.cache/ccache
+      CCACHE_DIR: /home/runner/.cache/ccache
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
     strategy:
       matrix:
         env: [tdongle-s3, bitaxe-601, bitaxe-403, bitaxe-650]
@@ -128,30 +129,42 @@ jobs:
           path: ~/.platformio
           key: ${{ runner.os }}-pio-toolchain-${{ hashFiles('platformio.ini') }}
           restore-keys: ${{ runner.os }}-pio-toolchain-
-      - name: Cache ccache (deterministic; no restore-keys)
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/ccache
-          key: ${{ runner.os }}-ccache-${{ matrix.env }}-${{ hashFiles('platformio.ini', 'scripts/fetch_breadboard.py', 'dependencies.lock', 'sdkconfig.defaults', 'sdkconfig/**') }}
       - name: Install tools
         run: |
           sudo apt-get install -y ccache
           pip install platformio
+      - name: Initialize ccache dir
+        run: |
+          mkdir -p "$CCACHE_DIR"
+          ccache --max-size=2G
+          ccache --zero-stats
+      - name: Symlink ccache for ESP toolchains (PATH backup if CMake launcher fails)
+        run: |
+          for cc in xtensa-esp32s3-elf-gcc xtensa-esp32s3-elf-g++ riscv32-esp-elf-gcc riscv32-esp-elf-g++; do
+            sudo ln -sf /usr/bin/ccache /usr/lib/ccache/$cc
+          done
+          echo "/usr/lib/ccache" >> "$GITHUB_PATH"
+      - name: Cache ccache (deterministic; no restore-keys)
+        uses: actions/cache@v5
+        with:
+          path: /home/runner/.cache/ccache
+          key: ${{ runner.os }}-ccache-${{ matrix.env }}-${{ hashFiles('platformio.ini', 'scripts/fetch_breadboard.py', 'dependencies.lock', 'sdkconfig.defaults', 'sdkconfig/**') }}
       - name: Static analysis
         run: make check-${{ matrix.env }}
       - name: Build firmware
         run: make build-${{ matrix.env }}
       - name: ccache stats
         if: always()
-        run: ccache -s
+        run: ccache -s -v
 
   debug:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.include_debug == 'true'
     needs: test
     runs-on: ubuntu-latest
     env:
-      IDF_CCACHE_ENABLE: '1'
-      CCACHE_DIR: ~/.cache/ccache
+      CCACHE_DIR: /home/runner/.cache/ccache
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
     strategy:
       matrix:
         env: [tdongle-s3-debug, bitaxe-601-debug, bitaxe-403-debug, bitaxe-650-debug]
@@ -182,22 +195,33 @@ jobs:
           path: ~/.platformio
           key: ${{ runner.os }}-pio-toolchain-${{ hashFiles('platformio.ini') }}
           restore-keys: ${{ runner.os }}-pio-toolchain-
-      - name: Cache ccache (deterministic; no restore-keys)
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/ccache
-          key: ${{ runner.os }}-ccache-${{ matrix.env }}-${{ hashFiles('platformio.ini', 'scripts/fetch_breadboard.py', 'dependencies.lock', 'sdkconfig.defaults', 'sdkconfig/**') }}
       - name: Install tools
         run: |
           sudo apt-get install -y ccache
           pip install platformio
+      - name: Initialize ccache dir
+        run: |
+          mkdir -p "$CCACHE_DIR"
+          ccache --max-size=2G
+          ccache --zero-stats
+      - name: Symlink ccache for ESP toolchains (PATH backup if CMake launcher fails)
+        run: |
+          for cc in xtensa-esp32s3-elf-gcc xtensa-esp32s3-elf-g++ riscv32-esp-elf-gcc riscv32-esp-elf-g++; do
+            sudo ln -sf /usr/bin/ccache /usr/lib/ccache/$cc
+          done
+          echo "/usr/lib/ccache" >> "$GITHUB_PATH"
+      - name: Cache ccache (deterministic; no restore-keys)
+        uses: actions/cache@v5
+        with:
+          path: /home/runner/.cache/ccache
+          key: ${{ runner.os }}-ccache-${{ matrix.env }}-${{ hashFiles('platformio.ini', 'scripts/fetch_breadboard.py', 'dependencies.lock', 'sdkconfig.defaults', 'sdkconfig/**') }}
       - name: Static analysis
         run: make check-${{ matrix.env }}
       - name: Build debug firmware
         run: make build-${{ matrix.env }}
       - name: ccache stats
         if: always()
-        run: ccache -s
+        run: ccache -s -v
 
   summary:
     if: always()

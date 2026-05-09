@@ -26,6 +26,21 @@
     : null
   $: rssi = $health?.network?.rssi ?? null
   $: stratumFails = $health?.network?.stratum_fail_count ?? 0
+
+  // ASIC topology: model + expected chip count derive from the board.
+  // (Replace with backend fields once /api/stats exposes asic_chip_model + asic_expected_count.)
+  const BOARD_ASIC: Record<string, { model: string; expected_chips: number }> = {
+    'bitaxe-601': { model: 'BM1370',   expected_chips: 1 },
+    'bitaxe-650': { model: 'BM1370 ×2', expected_chips: 2 },
+    'bitaxe-403': { model: 'BM1368',   expected_chips: 1 },
+  }
+  $: asicSpec = $info?.board ? BOARD_ASIC[$info.board] : undefined
+  $: detectedChips = $stats?.asic_chips?.length ?? null
+  $: smallCoresPerChip = $stats?.asic_small_cores ?? null  // BOARD_SMALL_CORES (per-chip)
+  $: detectedCores = (detectedChips != null && smallCoresPerChip != null) ? detectedChips * smallCoresPerChip : null
+  $: expectedCores = (asicSpec && smallCoresPerChip != null) ? asicSpec.expected_chips * smallCoresPerChip : null
+  $: chipsBad = (asicSpec && detectedChips != null && detectedChips < asicSpec.expected_chips)
+  $: hasAsic = asicSpec != null
 </script>
 
 <div class="visual-row">
@@ -98,6 +113,27 @@
       <div><dt>IDF</dt><dd>{$info?.idf_version ?? '—'}</dd></div>
     </dl>
   </section>
+
+  {#if hasAsic}
+    <section class="card">
+      <h3>ASIC</h3>
+      <dl>
+        <div><dt>Model</dt><dd>{asicSpec?.model}</dd></div>
+        <div>
+          <dt>Chips</dt>
+          <dd class:bad={chipsBad}>
+            {detectedChips ?? '—'}<span class="dim"> / {asicSpec?.expected_chips}</span>
+          </dd>
+        </div>
+        <div>
+          <dt>Small cores</dt>
+          <dd class:bad={chipsBad}>
+            {detectedCores ?? '—'}<span class="dim"> / {expectedCores ?? '—'}</span>
+          </dd>
+        </div>
+      </dl>
+    </section>
+  {/if}
 
   <section class="card">
     <h3>Runtime</h3>
@@ -234,5 +270,6 @@
   .small { font-size: 11px; }
 
   .dim { color: var(--muted); }
+  dd.bad { color: var(--warning); }
   .bars { color: var(--accent); margin-left: 3px; }
 </style>

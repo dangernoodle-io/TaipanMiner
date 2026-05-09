@@ -5,6 +5,8 @@
   export let danger: number | null = null
   export let warn: number | null = null
   export let flag: 'warn' | 'danger' | null = null
+  export let decimals: number | null = null
+  export let progress: number | null = null  // 0-100, draws a subtle fill bar under .value
 
   $: numeric = typeof value === 'number' ? value : null
   $: status =
@@ -16,7 +18,7 @@
   $: display = value === null || value === undefined
     ? '—'
     : typeof value === 'number'
-      ? (value >= 100 ? value.toFixed(0) : value.toFixed(1))
+      ? (decimals !== null ? value.toFixed(decimals) : value >= 100 ? value.toFixed(0) : value.toFixed(1))
       : value
 </script>
 
@@ -24,6 +26,9 @@
   <div class="value">
     {display}{#if unit}<span class="unit">{unit}</span>{/if}
   </div>
+  {#if progress != null}
+    <div class="bar"><div class="bar-fill" style="width: {Math.max(0, Math.min(100, progress))}%"></div></div>
+  {/if}
   <div class="label">{label}</div>
 </div>
 
@@ -56,6 +61,21 @@
     letter-spacing: 0.5px;
     color: var(--label);
   }
+
+  .bar {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    margin: 1px 0 2px;
+  }
+  .bar-fill {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.5s ease;
+  }
+  .tile[data-status="warn"] .bar-fill { background: var(--warning); }
+  .tile[data-status="danger"] .bar-fill { background: var(--danger); }
 
   .tile[data-status="warn"] .value {
     color: var(--warning);

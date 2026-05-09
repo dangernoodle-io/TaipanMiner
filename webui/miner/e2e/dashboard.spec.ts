@@ -14,11 +14,11 @@ test.describe('Dashboard', () => {
     // value and the chip rate; first() matches the hero.
     await expect(page.getByText('485.5 GH/s').first()).toBeVisible()
 
-    // Heat / Fan / Power / Performance card headers are present (ASIC mode)
-    await expect(page.getByRole('heading', { name: 'Heat' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Fan' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Power' })).toBeVisible()
+    // Performance / Tuning / Cooling / Fan / Chips card headers (ASIC mode)
     await expect(page.getByRole('heading', { name: 'Performance' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Tuning' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Cooling' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Fan' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Chips' })).toBeVisible()
   })
 
@@ -36,7 +36,7 @@ test.describe('Dashboard', () => {
     await expect(page.getByText('485.5 GH/s').first()).toBeVisible()
 
     // ASIC cards should NOT be present
-    await expect(page.getByRole('heading', { name: 'Heat' })).not.toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Cooling' })).not.toBeVisible()
     await expect(page.getByRole('heading', { name: 'Fan' })).not.toBeVisible()
   })
 
@@ -47,9 +47,8 @@ test.describe('Dashboard', () => {
     // Wait for ASIC probe
     await expect(page.getByRole('heading', { name: 'Fan' })).toBeVisible()
 
-    // Click the Fan card — it has role=button via the section[role="button"]
-    // wrapper; locate by title attribute since there's no accessible name.
-    await page.locator('section[title="Edit fan settings"]').click()
+    // Click the Fan card's edit button (title attribute identifies it).
+    await page.locator('button[title="Edit fan settings"]').click()
 
     // Dialog appears
     await expect(page.getByRole('dialog')).toBeVisible()

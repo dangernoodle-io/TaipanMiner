@@ -73,6 +73,10 @@ const basePower = {
   icore_ma: 5000,
   pcore_mw: 25000,
   efficiency_jth: 25.5,
+  efficiency_jth_1m: 25.6,
+  efficiency_jth_10m: 25.8,
+  efficiency_jth_1h: 26.0,
+  expected_efficiency_jth: 24.0,
   vin_mv: 12000,
   vin_low: false,
   board_temp_c: 45,
@@ -175,29 +179,25 @@ describe('Dashboard', () => {
     expect(badge).toBeNull()
   })
 
-  it('shows duty-bar progress when fan.duty_pct is set', () => {
+  it('shows fan duty progress bar in fan card when duty_pct is set', () => {
     stats.set(baseStats as any)
     fan.set({ ...baseFan, duty_pct: 65 })
     hasAsic.set(true)
     render(Dashboard)
 
-    const dutyBar = document.querySelector('.duty-bar')
-    expect(dutyBar).not.toBeNull()
-
-    const dutyFill = document.querySelector('.duty-fill')
-    expect(dutyFill).not.toBeNull()
-    const width = dutyFill?.getAttribute('style')
-    expect(width).toContain('65%')
+    const fill = document.querySelector('.bar-fill')
+    expect(fill).not.toBeNull()
+    expect(fill?.getAttribute('style')).toContain('65%')
   })
 
-  it('does not show duty-bar when fan.duty_pct is null', () => {
+  it('does not show fan duty progress bar when duty_pct is null', () => {
     stats.set(baseStats as any)
     fan.set({ ...baseFan, duty_pct: null })
     hasAsic.set(true)
     render(Dashboard)
 
-    const dutyBar = document.querySelector('.duty-bar')
-    expect(dutyBar).toBeNull()
+    const fill = document.querySelector('.bar-fill')
+    expect(fill).toBeNull()
   })
 
   it('shows Power section when hasAsic', () => {
@@ -210,32 +210,31 @@ describe('Dashboard', () => {
     expect(sections.length).toBeGreaterThan(0)
   })
 
-  it('Fan section is clickable to open edit dialog', async () => {
+  it('cooling section edit button opens fan edit dialog', async () => {
     stats.set(baseStats as any)
     fan.set(baseFan)
     hasAsic.set(true)
     render(Dashboard)
 
-    const fanCard = document.querySelector('section.card.clickable')
-    expect(fanCard).not.toBeNull()
-    expect(fanCard?.getAttribute('role')).toBe('button')
+    const editBtn = document.querySelector('.header-edit')
+    expect(editBtn).not.toBeNull()
 
-    await fireEvent.click(fanCard!)
+    await fireEvent.click(editBtn!)
 
     let isOpen = false
     fanEditOpen.subscribe(val => { isOpen = val })()
     expect(isOpen).toBe(true)
   })
 
-  it('shows edit hint on Fan section', () => {
+  it('shows edit button on cooling section', () => {
     stats.set(baseStats as any)
     fan.set(baseFan)
     hasAsic.set(true)
     render(Dashboard)
 
-    const editHint = document.querySelector('.edit-hint')
-    expect(editHint).not.toBeNull()
-    expect(editHint?.textContent).toContain('edit')
+    const editBtn = document.querySelector('.header-edit')
+    expect(editBtn).not.toBeNull()
+    expect(editBtn?.textContent).toContain('edit')
   })
 
   it('renders ChipsCard when hasAsic and asic_chips present', () => {

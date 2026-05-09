@@ -42,6 +42,16 @@ jobs:
       - name: Webui unit tests with coverage
         working-directory: webui
         run: pnpm --filter miner run test --run --coverage
+      # NOTE: Playwright e2e tests (webui/miner/e2e/) are not run in CI.
+      # `playwright install` hangs at "extracting archive" on GH-hosted
+      # Linux runners (both 24.04 and 26.04, both --only-shell and full
+      # chromium, with and without --with-deps). Suspected cause: pipe
+      # deadlock between Playwright's extract subprocess and the
+      # actions runner shell on Linux + Node 26. Tests pass locally
+      # (pnpm --filter miner e2e). Ticketed for follow-up — likely
+      # need to wait for Playwright 1.61 (Ubuntu 26.04 support) or
+      # switch to the official mcr.microsoft.com/playwright Docker
+      # image as the runner.
       - name: Build miner
         working-directory: webui
         run: pnpm --filter miner run build

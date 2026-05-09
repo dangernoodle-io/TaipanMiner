@@ -1,0 +1,57 @@
+import { test, expect } from '@playwright/test'
+import { mockMinerApi, settingsFixture } from './fixtures/api'
+
+test.describe('Settings page', () => {
+  test('renders ASIC, Fan, General, Network sections on a bitaxe', async ({ page }) => {
+    await mockMinerApi(page)
+    await page.goto('/#/settings')
+
+    await expect(page.getByRole('heading', { name: /^ASIC/ })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /^Fan/ })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /^General/ })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /^Network/ })).toBeVisible()
+  })
+
+  test('clicking Fan Edit opens the FanEditDialog', async ({ page }) => {
+    await mockMinerApi(page)
+    await page.goto('/#/settings')
+
+    await page.getByRole('button', { name: 'Edit', exact: true }).click()
+    await expect(page.getByRole('dialog')).toBeVisible()
+  })
+
+  test('toggling OLED display sends PATCH /api/settings', async ({ page }) => {
+    let patched: unknown = null
+    await mockMinerApi(page)
+    // Override PATCH route after mockMinerApi (page.route is FIFO; this wins)
+    await page.route('**/api/settings', async (route) => {
+      if (route.request().method() === 'PATCH') {
+        patched = JSON.parse(route.request().postData() ?? '{}')
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', reboot_required: false }) })
+        return
+      }
+      // GET falls through to fixture
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(settingsFixture) })
+    })
+    await page.goto('/#/settings')
+
+    // Wait for load
+    await expect(page.getByRole('heading', { name: /^General/ })).toBeVisible()
+
+    // Find the OLED display row and toggle it. The actual <input> has
+    // opacity:0 (custom Toggle slider), so click the label that wraps it.
+    const oledRow = page.locator('.row').filter({ hasText: 'OLED display' })
+    await oledRow.locator('label.toggle').click()
+
+    // Status message confirms save
+    await expect(oledRow.getByText('Saved')).toBeVisible()
+    expect(patched).toMatchObject({ display_en: false })
+  })
+
+  test('shows error message when load fails', async ({ page }) => {
+    await mockMinerApi(page, { statusOverrides: { '/api/settings': 500 } })
+    await page.goto('/#/settings')
+
+    await expect(page.getByText(/Failed to load settings/)).toBeVisible()
+  })
+})

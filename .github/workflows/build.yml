@@ -25,45 +25,7 @@ jobs:
           node-version: '22'
           cache: 'pnpm'
           cache-dependency-path: webui/pnpm-lock.yaml
-      - name: Build webui for embed
-        working-directory: webui
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm --filter miner run build
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.11'
-      - name: Cache PlatformIO
-        uses: actions/cache@v5
-        with:
-          path: ~/.platformio
-          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini', 'scripts/fetch_breadboard.py', 'dependencies.lock', 'sdkconfig.defaults', 'sdkconfig/**') }}
-          restore-keys: ${{ runner.os }}-pio-
-      - name: Install tools
-        run: pip install platformio gcovr
-      - name: Test and coverage
-        run: make coverage
-      - name: Upload to Coveralls
-        uses: coverallsapp/github-action@v2
-        with:
-          file: gcovr-coveralls.json
-          format: coveralls
-        env:
-          COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_API_TOKEN }}
-
-  webui:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9.15.9
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'pnpm'
-          cache-dependency-path: webui/pnpm-lock.yaml
-      - name: Install deps
+      - name: Install webui deps
         working-directory: webui
         run: pnpm install --frozen-lockfile
       - name: Typecheck miner
@@ -77,9 +39,9 @@ jobs:
         env:
           VITE_FLASHER_FIXTURES: '1'
         run: pnpm --filter flasher run check
-      - name: Unit tests
+      - name: Webui unit tests with coverage
         working-directory: webui
-        run: pnpm --filter miner run test -- --run
+        run: pnpm --filter miner run test --run --coverage
       - name: Build miner
         working-directory: webui
         run: pnpm --filter miner run build
@@ -91,7 +53,33 @@ jobs:
         env:
           VITE_FLASHER_FIXTURES: '1'
         run: pnpm --filter flasher run build
-      - name: Upload dist artifact
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Cache pip
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-pio-gcovr
+      - name: Cache PlatformIO
+        uses: actions/cache@v5
+        with:
+          path: ~/.platformio
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini', 'scripts/fetch_breadboard.py', 'dependencies.lock', 'sdkconfig.defaults', 'sdkconfig/**') }}
+          restore-keys: ${{ runner.os }}-pio-
+      - name: Cache PlatformIO project libdeps
+        uses: actions/cache@v5
+        with:
+          path: |
+            **/.pio/libdeps
+            **/.pio/build/**/lib*
+          key: ${{ runner.os }}-pio-libdeps-${{ hashFiles('platformio.ini') }}
+          restore-keys: ${{ runner.os }}-pio-libdeps-
+      - name: Install tools
+        run: pip install platformio gcovr
+      - name: Native test and coverage
+        run: make coverage
+      - name: Upload webui-dist artifact
         uses: actions/upload-artifact@v4
         with:
           name: webui-dist
@@ -99,9 +87,13 @@ jobs:
             webui/miner/dist
             webui/prov/dist
           retention-days: 7
+      - name: Upload combined coverage to Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          files: gcovr-coveralls.json webui/miner/coverage/lcov.info
 
   build:
-    needs: [test, webui]
+    needs: test
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -117,6 +109,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
+      - name: Cache pip
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-pio
       - name: Cache cppcheck tool (shared across matrix shards)
         uses: actions/cache@v5
         with:
@@ -144,7 +141,7 @@ jobs:
 
   debug:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.include_debug == 'true'
-    needs: [test, webui]
+    needs: test
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -160,6 +157,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
+      - name: Cache pip
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-pio
       - name: Cache cppcheck tool (shared across matrix shards)
         uses: actions/cache@v5
         with:
@@ -187,12 +189,12 @@ jobs:
 
   summary:
     if: always()
-    needs: [test, webui, build]
+    needs: [test, build]
     runs-on: ubuntu-latest
     steps:
       - name: Check results
         run: |
-          if [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.webui.result }}" != "success" ] || [ "${{ needs.build.result }}" != "success" ]; then
-            echo "test=${{ needs.test.result }} webui=${{ needs.webui.result }} build=${{ needs.build.result }}"
+          if [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.build.result }}" != "success" ]; then
+            echo "test=${{ needs.test.result }} build=${{ needs.build.result }}"
             exit 1
           fi

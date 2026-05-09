@@ -19,6 +19,7 @@ components/http_server/src/*_gz.c
 webui/node_modules
 webui/dist
 webui/.env
+webui/*/coverage/
 /build.log
 /test.log
 /gcovr-coveralls.json

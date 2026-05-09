@@ -95,6 +95,9 @@ jobs:
   build:
     needs: test
     runs-on: ubuntu-latest
+    env:
+      IDF_CCACHE_ENABLE: '1'
+      CCACHE_DIR: ~/.cache/ccache
     strategy:
       matrix:
         env: [tdongle-s3, bitaxe-601, bitaxe-403, bitaxe-650]
@@ -138,11 +141,17 @@ jobs:
         run: make check-${{ matrix.env }}
       - name: Build firmware
         run: make build-${{ matrix.env }}
+      - name: ccache stats
+        if: always()
+        run: ccache -s
 
   debug:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.include_debug == 'true'
     needs: test
     runs-on: ubuntu-latest
+    env:
+      IDF_CCACHE_ENABLE: '1'
+      CCACHE_DIR: ~/.cache/ccache
     strategy:
       matrix:
         env: [tdongle-s3-debug, bitaxe-601-debug, bitaxe-403-debug, bitaxe-650-debug]
@@ -186,6 +195,9 @@ jobs:
         run: make check-${{ matrix.env }}
       - name: Build debug firmware
         run: make build-${{ matrix.env }}
+      - name: ccache stats
+        if: always()
+        run: ccache -s
 
   summary:
     if: always()

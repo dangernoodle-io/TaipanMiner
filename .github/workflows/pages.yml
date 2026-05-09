@@ -29,7 +29,7 @@ jobs:
           version: 9
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: webui/.nvmrc
           cache: pnpm
           cache-dependency-path: webui/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile

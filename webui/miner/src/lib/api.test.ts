@@ -445,3 +445,96 @@ describe('ping', () => {
     expect(result).toBe(false)
   })
 })
+
+// ---------------------------------------------------------------------------
+// uploadOta
+// ---------------------------------------------------------------------------
+
+import { uploadOta } from './api'
+
+/** Build a minimal XHR shim that calls the event listeners synchronously. */
+function makeXhrShim(opts: {
+  status: number
+  responseText?: string
+  failLoad?: boolean
+  failError?: boolean
+  failAbort?: boolean
+}) {
+  return class MockXHR {
+    open = vi.fn()
+    setRequestHeader = vi.fn()
+    send = vi.fn(() => {
+      // Fire upload progress first
+      this.upload.dispatchEvent('progress', { lengthComputable: true, loaded: 50, total: 100 })
+
+      if (opts.failError) {
+        this.dispatchEvent('error', {})
+        return
+      }
+      if (opts.failAbort) {
+        this.dispatchEvent('abort', {})
+        return
+      }
+      // Simulate load
+      ;(this as any).status = opts.status
+      ;(this as any).responseText = opts.responseText ?? ''
+      this.dispatchEvent('load', {})
+    })
+
+    status = 0
+    responseText = ''
+
+    _listeners: Record<string, ((e: any) => void)[]> = {}
+    upload = {
+      _listeners: {} as Record<string, ((e: any) => void)[]>,
+      addEventListener(type: string, cb: (e: any) => void) {
+        if (!this._listeners[type]) this._listeners[type] = []
+        this._listeners[type].push(cb)
+      },
+      dispatchEvent(type: string, e: any) {
+        ;(this._listeners[type] ?? []).forEach(cb => cb(e))
+      }
+    }
+
+    addEventListener(type: string, cb: (e: any) => void) {
+      if (!this._listeners[type]) this._listeners[type] = []
+      this._listeners[type].push(cb)
+    }
+    dispatchEvent(type: string, e: any) {
+      ;(this._listeners[type] ?? []).forEach(cb => cb(e))
+    }
+  }
+}
+
+describe('uploadOta', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('resolves with responseText on 200', async () => {
+    ;(globalThis as any).XMLHttpRequest = makeXhrShim({ status: 200, responseText: 'ok' })
+    const file = new File(['data'], 'fw.bin')
+    const onProgress = vi.fn()
+    const result = await uploadOta(file, onProgress)
+    expect(result).toBe('ok')
+    expect(onProgress).toHaveBeenCalledWith(50)
+  })
+
+  it('rejects on non-2xx status', async () => {
+    ;(globalThis as any).XMLHttpRequest = makeXhrShim({ status: 500, responseText: 'Internal Error' })
+    const file = new File(['data'], 'fw.bin')
+    await expect(uploadOta(file, vi.fn())).rejects.toThrow('upload failed: 500')
+  })
+
+  it('rejects on network error', async () => {
+    ;(globalThis as any).XMLHttpRequest = makeXhrShim({ status: 0, failError: true })
+    const file = new File(['data'], 'fw.bin')
+    await expect(uploadOta(file, vi.fn())).rejects.toThrow('network error')
+  })
+
+  it('rejects on abort', async () => {
+    ;(globalThis as any).XMLHttpRequest = makeXhrShim({ status: 0, failAbort: true })
+    const file = new File(['data'], 'fw.bin')
+    await expect(uploadOta(file, vi.fn())).rejects.toThrow('upload aborted')
+  })
+})

@@ -1,34 +1,105 @@
-import { describe, it, expect } from 'vitest'
-import { fmtHashGhs } from '../lib/fmt'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen } from '@testing-library/svelte'
+import { stats, connected, hasAsic, pool } from '../lib/stores'
 
-describe('Hero hashrate formatting', () => {
-  describe('fmtHashGhs', () => {
-    it('displays dash for NaN hashrate', () => {
-      expect(fmtHashGhs(NaN)).toBe('—')
-    })
+vi.mock('../lib/api', () => ({
+  fetchStats: vi.fn(),
+  fetchInfo: vi.fn(),
+  fetchPower: vi.fn(),
+  fetchFan: vi.fn(),
+  fetchSettings: vi.fn(),
+  fetchPool: vi.fn(),
+  fetchHealth: vi.fn(),
+  ping: vi.fn()
+}))
 
-    it('displays dash for undefined hashrate', () => {
-      expect(fmtHashGhs(undefined)).toBe('—')
-    })
+import HeroComponent from './Hero.svelte'
 
-    it('displays kH/s when hashrate < 0.001 GH/s', () => {
-      expect(fmtHashGhs(0.0005)).toBe('500.0 kH/s')
-      expect(fmtHashGhs(0.0001)).toBe('100.0 kH/s')
-    })
+const baseStats = {
+  session_shares: 10,
+  session_rejected: 1,
+  lifetime_shares: 1000,
+  last_share_ago_s: 30,
+  best_diff: 500000,
+  uptime_s: 3600,
+  temp_c: 40,
+  hashrate: 485e9,
+  hashrate_avg: 480e9,
+  hashrate_1m: null,
+  hashrate_10m: null,
+  hashrate_1h: null,
+  shares: null,
+  asic_hashrate: null,
+  asic_hashrate_avg: null,
+  asic_shares: null,
+  asic_temp_c: 72,
+  asic_freq_configured_mhz: null,
+  asic_freq_effective_mhz: null,
+  asic_small_cores: null,
+  asic_count: null,
+  expected_ghs: 485,
+  asic_total_ghs: 485.5,
+  asic_hw_error_pct: 0.01,
+  asic_total_ghs_1m: 484,
+  asic_total_ghs_10m: 486,
+  asic_total_ghs_1h: 483,
+  asic_hw_error_pct_1m: 0.01,
+  asic_hw_error_pct_10m: 0.01,
+  asic_hw_error_pct_1h: 0.02,
+  pool_effective_hashrate: null,
+  rejected: null
+}
 
-    it('displays MH/s when hashrate in 0.001-1 GH/s range', () => {
-      expect(fmtHashGhs(0.001)).toBe('1.0 MH/s')
-      expect(fmtHashGhs(0.5)).toBe('500.0 MH/s')
-    })
+describe('Hero (store-driven)', () => {
+  beforeEach(() => {
+    stats.set(null)
+    connected.set(false)
+    hasAsic.set(false)
+    pool.set(null)
+  })
 
-    it('displays GH/s when hashrate in 1-1000 GH/s range', () => {
-      expect(fmtHashGhs(1)).toBe('1.0 GH/s')
-      expect(fmtHashGhs(500)).toBe('500.0 GH/s')
-    })
+  it('renders nothing when stats is null', () => {
+    const { container } = render(HeroComponent)
+    expect(container.querySelector('.hero')).toBeNull()
+  })
 
-    it('displays TH/s when hashrate >= 1000 GH/s', () => {
-      expect(fmtHashGhs(1000)).toBe('1.00 TH/s')
-      expect(fmtHashGhs(1200)).toBe('1.20 TH/s')
-    })
+  it('renders hero section when stats is set', () => {
+    stats.set(baseStats as any)
+    render(HeroComponent)
+    expect(document.querySelector('.hero')).not.toBeNull()
+  })
+
+  it('shows session shares and rejected', () => {
+    stats.set(baseStats as any)
+    render(HeroComponent)
+    // shares label is present
+    expect(screen.getByText('shares (90.9%)')).toBeInTheDocument()
+  })
+
+  it('shows lifetime shares', () => {
+    stats.set(baseStats as any)
+    render(HeroComponent)
+    expect(screen.getByText('1,000')).toBeInTheDocument()
+  })
+
+  it('shows uptime', () => {
+    stats.set(baseStats as any)
+    render(HeroComponent)
+    // 3600s = 1h 0m
+    expect(screen.getByText('1h 0m')).toBeInTheDocument()
+  })
+
+  it('shows err metric when hasAsic=true', () => {
+    stats.set(baseStats as any)
+    hasAsic.set(true)
+    render(HeroComponent)
+    expect(screen.getByText('err')).toBeInTheDocument()
+  })
+
+  it('shows die temp when hasAsic=false', () => {
+    stats.set({ ...baseStats, temp_c: 68 } as any)
+    hasAsic.set(false)
+    render(HeroComponent)
+    expect(screen.getByText('Die Temp')).toBeInTheDocument()
   })
 })

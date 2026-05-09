@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { fmtHashGhs, fmtBytes, fmtUnixTs, fmtBuildTime, fmtDuration, fmtRelative, fmtTimestamp } from './fmt'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { fmtHashGhs, fmtBytes, fmtUnixTs, fmtBuildTime, fmtDuration, fmtRelative, fmtTimestamp, fmtNetDiff, fmtPoolDiff, fmtDiff, fmtBtc, fmtNtimeAge, truncAddr, truncWallet, fmtPct, fmtGhsNum, fmtGhsUnit, rssiBars } from './fmt'
 
 describe('fmt', () => {
   describe('fmtTimestamp', () => {
@@ -145,6 +145,266 @@ describe('fmt', () => {
       expect(fmtBytes(1024 * 1024)).toBe('1.0 MB')
       expect(fmtBytes(1024 * 1024 * 2.5)).toBe('2.5 MB')
       expect(fmtBytes(1024 * 1024 * 1024)).toBe('1024.0 MB')
+    })
+  })
+
+  describe('fmtNetDiff', () => {
+    it('returns dash for non-finite or non-positive', () => {
+      expect(fmtNetDiff(NaN)).toBe('—')
+      expect(fmtNetDiff(Infinity)).toBe('—')
+      expect(fmtNetDiff(0)).toBe('—')
+      expect(fmtNetDiff(-1)).toBe('—')
+    })
+
+    it('formats values < 1k as plain integer', () => {
+      expect(fmtNetDiff(1)).toBe('1')
+      expect(fmtNetDiff(999)).toBe('999')
+    })
+
+    it('formats values in k range', () => {
+      expect(fmtNetDiff(1e3)).toBe('1.00k')
+      expect(fmtNetDiff(1500)).toBe('1.50k')
+      expect(fmtNetDiff(999999)).toBe('1000.00k')
+    })
+
+    it('formats values in M range', () => {
+      expect(fmtNetDiff(1e6)).toBe('1.00M')
+      expect(fmtNetDiff(2.5e6)).toBe('2.50M')
+    })
+
+    it('formats values in G range', () => {
+      expect(fmtNetDiff(1e9)).toBe('1.00G')
+      expect(fmtNetDiff(85.3e9)).toBe('85.30G')
+    })
+
+    it('formats values in T range', () => {
+      expect(fmtNetDiff(1e12)).toBe('1.00T')
+      expect(fmtNetDiff(88.12e12)).toBe('88.12T')
+    })
+  })
+
+  describe('fmtPoolDiff', () => {
+    it('returns dash for null/undefined/non-finite', () => {
+      expect(fmtPoolDiff(null)).toBe('—')
+      expect(fmtPoolDiff(undefined)).toBe('—')
+      expect(fmtPoolDiff(NaN)).toBe('—')
+      expect(fmtPoolDiff(Infinity)).toBe('—')
+    })
+
+    it('rounds values >= 1 to integer', () => {
+      expect(fmtPoolDiff(1)).toBe('1')
+      expect(fmtPoolDiff(1.9)).toBe('2')
+      expect(fmtPoolDiff(100)).toBe('100')
+      expect(fmtPoolDiff(65536)).toBe('65536')
+    })
+
+    it('formats sub-1 values with 2 sig figs', () => {
+      expect(fmtPoolDiff(0.01)).toBe('0.010')
+      expect(fmtPoolDiff(0.5)).toBe('0.50')
+    })
+  })
+
+  describe('fmtDiff', () => {
+    it('formats plain values < 1k', () => {
+      expect(fmtDiff(0)).toBe('0')
+      expect(fmtDiff(999)).toBe('999')
+    })
+
+    it('formats k range', () => {
+      expect(fmtDiff(1000)).toBe('1.00k')
+      expect(fmtDiff(1500)).toBe('1.50k')
+    })
+
+    it('formats M range', () => {
+      expect(fmtDiff(1e6)).toBe('1.00M')
+      expect(fmtDiff(2.25e6)).toBe('2.25M')
+    })
+
+    it('formats G range', () => {
+      expect(fmtDiff(1e9)).toBe('1.00G')
+      expect(fmtDiff(3.5e9)).toBe('3.50G')
+    })
+  })
+
+  describe('fmtBtc', () => {
+    it('converts satoshis to BTC with 4 decimal places', () => {
+      expect(fmtBtc(0)).toBe('0.0000 BTC')
+      expect(fmtBtc(1e8)).toBe('1.0000 BTC')
+      expect(fmtBtc(312500000)).toBe('3.1250 BTC')
+      expect(fmtBtc(1)).toBe('0.0000 BTC')
+    })
+
+    it('handles sub-satoshi rounding', () => {
+      expect(fmtBtc(50000000)).toBe('0.5000 BTC')
+    })
+  })
+
+  describe('fmtNtimeAge', () => {
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('returns null for invalid/non-positive ntime', () => {
+      expect(fmtNtimeAge('00000000')).toBeNull()
+      expect(fmtNtimeAge('zzzzzzzz')).toBeNull()
+    })
+
+    it('returns "now" for future ntime', () => {
+      const futureTs = Math.floor(Date.now() / 1000) + 3600
+      const hex = futureTs.toString(16).padStart(8, '0')
+      expect(fmtNtimeAge(hex)).toBe('now')
+    })
+
+    it('formats recent ntime as seconds ago', () => {
+      const nowTs = Math.floor(Date.now() / 1000) - 30
+      const hex = nowTs.toString(16).padStart(8, '0')
+      expect(fmtNtimeAge(hex)).toBe('30s ago')
+    })
+
+    it('formats ntime in minutes range', () => {
+      const ts = Math.floor(Date.now() / 1000) - 300
+      const hex = ts.toString(16).padStart(8, '0')
+      expect(fmtNtimeAge(hex)).toBe('5m ago')
+    })
+
+    it('formats ntime in hours range', () => {
+      const ts = Math.floor(Date.now() / 1000) - 7200
+      const hex = ts.toString(16).padStart(8, '0')
+      expect(fmtNtimeAge(hex)).toBe('2h ago')
+    })
+  })
+
+  describe('truncAddr', () => {
+    it('returns dash for empty/falsy', () => {
+      expect(truncAddr('')).toBe('—')
+    })
+
+    it('returns full string if <= 16 chars', () => {
+      expect(truncAddr('abc')).toBe('abc')
+      expect(truncAddr('1234567890123456')).toBe('1234567890123456')
+    })
+
+    it('truncates long addresses with ellipsis', () => {
+      const addr = 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq'
+      const result = truncAddr(addr)
+      expect(result).toContain('…')
+      expect(result.startsWith(addr.slice(0, 8))).toBe(true)
+      expect(result.endsWith(addr.slice(-6))).toBe(true)
+    })
+  })
+
+  describe('truncWallet', () => {
+    it('returns dash for undefined/empty', () => {
+      expect(truncWallet(undefined)).toBe('—')
+      expect(truncWallet('')).toBe('—')
+    })
+
+    it('returns full string if <= 14 chars', () => {
+      expect(truncWallet('shortname')).toBe('shortname')
+      expect(truncWallet('12345678901234')).toBe('12345678901234')
+    })
+
+    it('truncates long wallet with ellipsis', () => {
+      const wallet = 'bc1pexamplewallet1234567890'
+      const result = truncWallet(wallet)
+      expect(result).toContain('…')
+      expect(result.startsWith(wallet.slice(0, 6))).toBe(true)
+      expect(result.endsWith(wallet.slice(-4))).toBe(true)
+    })
+  })
+
+  describe('fmtPct', () => {
+    it('returns dash for null', () => {
+      expect(fmtPct(null)).toBe('—')
+    })
+
+    it('formats percentage with 2 decimals', () => {
+      expect(fmtPct(0)).toBe('0.00%')
+      expect(fmtPct(100)).toBe('100.00%')
+      expect(fmtPct(3.14159)).toBe('3.14%')
+      expect(fmtPct(0.5)).toBe('0.50%')
+    })
+  })
+
+  describe('fmtGhsNum', () => {
+    it('returns dash for null', () => {
+      expect(fmtGhsNum(null)).toBe('—')
+    })
+
+    it('formats TH/s range (>= 1000 GH/s)', () => {
+      expect(fmtGhsNum(1000)).toBe('1.00')
+      expect(fmtGhsNum(1200)).toBe('1.20')
+    })
+
+    it('formats GH/s range (>= 1)', () => {
+      expect(fmtGhsNum(1)).toBe('1')
+      expect(fmtGhsNum(485)).toBe('485')
+    })
+
+    it('formats MH/s range (0.001 to <1)', () => {
+      expect(fmtGhsNum(0.001)).toBe('1.0')
+      expect(fmtGhsNum(0.5)).toBe('500.0')
+    })
+
+    it('formats kH/s range (< 0.001)', () => {
+      expect(fmtGhsNum(0.0001)).toBe('100.0')
+    })
+  })
+
+  describe('fmtGhsUnit', () => {
+    it('returns empty string for null', () => {
+      expect(fmtGhsUnit(null)).toBe('')
+    })
+
+    it('returns TH/s for >= 1000', () => {
+      expect(fmtGhsUnit(1000)).toBe('TH/s')
+      expect(fmtGhsUnit(5000)).toBe('TH/s')
+    })
+
+    it('returns GH/s for >= 1', () => {
+      expect(fmtGhsUnit(1)).toBe('GH/s')
+      expect(fmtGhsUnit(999)).toBe('GH/s')
+    })
+
+    it('returns MH/s for 0.001 to <1', () => {
+      expect(fmtGhsUnit(0.001)).toBe('MH/s')
+      expect(fmtGhsUnit(0.999)).toBe('MH/s')
+    })
+
+    it('returns kH/s for < 0.001', () => {
+      expect(fmtGhsUnit(0.0001)).toBe('kH/s')
+    })
+  })
+
+  describe('rssiBars', () => {
+    it('returns empty string for null/undefined', () => {
+      expect(rssiBars(null)).toBe('')
+      expect(rssiBars(undefined)).toBe('')
+    })
+
+    it('returns 4 filled bars for very strong signal (>= -55)', () => {
+      expect(rssiBars(-55)).toBe('▮▮▮▮')
+      expect(rssiBars(-30)).toBe('▮▮▮▮')
+    })
+
+    it('returns 3 bars for good signal (-65 to -56)', () => {
+      expect(rssiBars(-65)).toBe('▮▮▮▯')
+      expect(rssiBars(-60)).toBe('▮▮▮▯')
+    })
+
+    it('returns 2 bars for fair signal (-75 to -66)', () => {
+      expect(rssiBars(-75)).toBe('▮▮▯▯')
+      expect(rssiBars(-70)).toBe('▮▮▯▯')
+    })
+
+    it('returns 1 bar for weak signal (-85 to -76)', () => {
+      expect(rssiBars(-85)).toBe('▮▯▯▯')
+      expect(rssiBars(-80)).toBe('▮▯▯▯')
+    })
+
+    it('returns 0 bars for very weak signal (< -85)', () => {
+      expect(rssiBars(-86)).toBe('▯▯▯▯')
+      expect(rssiBars(-100)).toBe('▯▯▯▯')
     })
   })
 

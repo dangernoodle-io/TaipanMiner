@@ -9,7 +9,12 @@ describe('ConfirmDialog', () => {
   })
 
   it.skip('renders when open=true', () => {
-    // TODO: @testing-library/svelte-core 1.0 incompatible with Svelte 5 SSR exports
+    // BLOCKED: Svelte error: lifecycle_function_unavailable — `mount(...)` is not
+    // available on the server. vitest's jsdom environment resolves the Svelte SSR
+    // bundle instead of the client bundle because @sveltejs/vite-plugin-svelte
+    // defaults ssr=true in the test transform. Fix requires configuring
+    // vite-plugin-svelte with { compilerOptions: { runes: true } } and ensuring
+    // the client build is resolved in the test env — deferred to a follow-up PR.
     const { container } = render(ConfirmDialog, {
       props: {
         open: true,
@@ -22,7 +27,7 @@ describe('ConfirmDialog', () => {
   })
 
   it.skip('does not render when open=false', () => {
-    // TODO: @testing-library/svelte-core 1.0 incompatible with Svelte 5 SSR exports
+    // BLOCKED: same SSR mount issue as above
     const { container } = render(ConfirmDialog, {
       props: {
         open: false,
@@ -72,7 +77,7 @@ describe('ConfirmDialog', () => {
   })
 
   it.skip('closes dialog when confirm button is clicked', async () => {
-    // TODO: @testing-library/svelte-core 1.0 incompatible with Svelte 5 SSR exports
+    // BLOCKED: same SSR mount issue as 'renders when open=true'
     render(ConfirmDialog, {
       props: {
         open: true,
@@ -94,7 +99,7 @@ describe('ConfirmDialog', () => {
   })
 
   it.skip('closes dialog when cancel button is clicked', async () => {
-    // TODO: @testing-library/svelte-core 1.0 incompatible with Svelte 5 SSR exports
+    // BLOCKED: same SSR mount issue as 'renders when open=true'
     render(ConfirmDialog, {
       props: {
         open: true,
@@ -116,7 +121,7 @@ describe('ConfirmDialog', () => {
   })
 
   it.skip('hides skipKey checkbox when not provided', () => {
-    // TODO: @testing-library/svelte-core 1.0 incompatible with Svelte 5 SSR exports
+    // BLOCKED: same SSR mount issue as 'renders when open=true'
     render(ConfirmDialog, {
       props: {
         open: true,

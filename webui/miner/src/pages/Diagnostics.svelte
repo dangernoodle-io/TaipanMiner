@@ -1,205 +1,18 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
-  import { postReboot, setLogLevel, fetchLogLevels, fetchDiagAsic, type LogLevel, type RecentDrop } from '../lib/api'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
-  import { startRebootRecovery } from '../lib/stores'
-  import { SseClient, type SseStatus } from '../lib/sse'
+  import { createDiagnosticsState } from '../lib/diagnosticsState.svelte'
 
-  let recentDrops: RecentDrop[] = []
-  let diagInterval: ReturnType<typeof setInterval> | null = null
+  const ds = createDiagnosticsState()
 
-  async function loadDiagAsic() {
-    try {
-      const data = await fetchDiagAsic()
-      recentDrops = data.recent_drops
-    } catch {
-      recentDrops = []
-    }
-  }
-
-  const REBOOT_SKIP_KEY = 'taipanminer.skipRebootConfirm'
-
-  const LOG_MAX_LINES = 500
-  const baseUrl = import.meta.env.VITE_MINER_URL ?? ''
-
-  let panel: HTMLPreElement
-  let lines: string[] = []
-  let autoscroll = true
-  let filter = ''
-  let status: SseStatus = 'connecting'
-  let wasDisconnected = false
-  let nextRetryAt: number | null = null
-  let tickNow = Date.now()
-  let tickTimer: ReturnType<typeof setInterval> | null = null
-  let sse: SseClient | null = null
-  $: retryInS = nextRetryAt != null
-    ? Math.max(0, Math.ceil((nextRetryAt - tickNow) / 1000))
-    : null
-
-  // Log levels — fetched from GET /api/log/level
-  let availableLevels: LogLevel[] = ['none', 'error', 'warn', 'info', 'debug', 'verbose']
-  let tagLevels: { tag: string; level: LogLevel }[] = []
-  let levelsLoading = false
-  let levelsErr = ''
-  let selectedTag = ''
-  let selectedLevel: LogLevel = 'info'
-  let applying = false
-  let applyMsg = ''
-  let applyKind: '' | 'ok' | 'err' = ''
-
-  $: currentLevel = tagLevels.find((t) => t.tag === selectedTag)?.level ?? null
-  $: if (currentLevel && !applying) selectedLevel = currentLevel
-
-  async function loadLevels() {
-    levelsLoading = true
-    levelsErr = ''
-    try {
-      const data = await fetchLogLevels()
-      availableLevels = [...data.levels].sort((a, b) => a.localeCompare(b))
-      tagLevels = data.tags.map((t) => ({ ...t })).sort((a, b) => a.tag.localeCompare(b.tag))
-      if (!selectedTag && tagLevels.length) selectedTag = tagLevels[0].tag
-    } catch (e) {
-      levelsErr = (e as Error).message
-    } finally {
-      levelsLoading = false
-    }
-  }
-
-  function onLevelChange(e: Event) {
-    const target = e.currentTarget as HTMLSelectElement
-    selectedLevel = target.value as LogLevel
-    applyLevel()
-  }
-
-  async function applyLevel() {
-    if (!selectedTag) return
-    applying = true
-    applyMsg = ''
-    applyKind = ''
-    try {
-      await setLogLevel(selectedTag, selectedLevel)
-      const idx = tagLevels.findIndex((t) => t.tag === selectedTag)
-      if (idx >= 0) {
-        tagLevels[idx] = { ...tagLevels[idx], level: selectedLevel }
-        tagLevels = tagLevels
-      }
-      applyKind = 'ok'
-      applyMsg = `${selectedTag} → ${selectedLevel}`
-    } catch (e) {
-      applyKind = 'err'
-      applyMsg = (e as Error).message
-    } finally {
-      applying = false
-    }
-  }
-
-  let rebooting = false
-  let rebootMsg = ''
-  let showRebootDialog = false
-
-  $: filtered = filter
-    ? lines.filter((l) => l.toLowerCase().includes(filter.toLowerCase()))
-    : lines
-
-  function startStream() {
-    sse = new SseClient({
-      url: `${baseUrl}/api/logs?source=browser`,
-      onOpen: () => {
-        if (wasDisconnected) {
-          wasDisconnected = false
-          // Device may have rebooted — re-query tag list (levels reset on reboot).
-          loadLevels()
-        }
-      },
-      onMessage: (data) => {
-        lines = lines.concat(data)
-        if (lines.length > LOG_MAX_LINES) lines = lines.slice(-LOG_MAX_LINES)
-        if (autoscroll) {
-          queueMicrotask(() => {
-            if (panel) panel.scrollTop = panel.scrollHeight
-          })
-        }
-      },
-      onStatusChange: (s) => {
-        status = s
-        if (s === 'disconnected' || s === 'external') wasDisconnected = true
-      },
-      onRetryAtChange: (at) => { nextRetryAt = at },
-      resolveErrorStatus: async () => {
-        try {
-          const r = await fetch(`${baseUrl}/api/logs/status`)
-          const d: { active: boolean; client: string } = await r.json()
-          return d.active && d.client === 'external' ? 'external' : 'disconnected'
-        } catch {
-          return 'disconnected'
-        }
-      },
-    })
-    sse.start()
-  }
-
-  function onVisibilityChange() {
-    if (document.visibilityState !== 'visible') return
-    /* Tab was hidden long enough to stall — reconnect immediately rather
-     * than waiting for the next 5s stall-check tick. */
-    if (sse?.isStale()) sse.reconnectNow()
-  }
-
-  function clear() {
-    lines = []
-  }
-
-  function onPanelScroll() {
-    if (!panel) return
-    const atBottom = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 8
-    autoscroll = atBottom
-  }
-
-  function requestReboot() {
-    const skip = (() => {
-      try { return localStorage.getItem(REBOOT_SKIP_KEY) === '1' } catch { return false }
-    })()
-    if (skip) {
-      doReboot()
-    } else {
-      showRebootDialog = true
-    }
-  }
-
-  async function doReboot() {
-    rebooting = true
-    rebootMsg = ''
-    try {
-      await postReboot()
-      startRebootRecovery('Rebooting miner')
-    } catch (e) {
-      rebootMsg = `Reboot failed: ${(e as Error).message}`
-    } finally {
-      rebooting = false
-    }
-  }
-
-  onMount(() => {
-    startStream()
-    loadLevels()
-    loadDiagAsic()
-    diagInterval = setInterval(loadDiagAsic, 10000)
-    tickTimer = setInterval(() => { tickNow = Date.now() }, 1000)
-    document.addEventListener('visibilitychange', onVisibilityChange)
-  })
-  onDestroy(() => {
-    sse?.destroy()
-    sse = null
-    document.removeEventListener('visibilitychange', onVisibilityChange)
-    if (diagInterval !== null) clearInterval(diagInterval)
-    if (tickTimer !== null) clearInterval(tickTimer)
-  })
+  onMount(() => ds.init())
+  onDestroy(() => ds.destroy())
 </script>
 
 <div class="page">
   <div class="section">
     <h2>Recent telemetry drops</h2>
-    {#if recentDrops.length === 0}
+    {#if ds.recentDrops.length === 0}
       <p class="muted">No recent drops.</p>
     {:else}
       <table class="drops">
@@ -215,7 +28,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each recentDrops as d}
+          {#each ds.recentDrops as d}
             <tr>
               <td>{d.ts_ago_s}s</td>
               <td>{d.chip}</td>
@@ -234,11 +47,11 @@
   <div class="section">
     <div class="log-head">
       <h2>Live Logs
-        <span class="status" data-state={status}>
-          {#if status === 'connected'}Connected
-          {:else if status === 'connecting'}Connecting…
-          {:else if status === 'external'}External client connected
-          {:else}Disconnected {#if retryInS != null}— retrying in {retryInS}s{/if}{/if}
+        <span class="status" data-state={ds.status}>
+          {#if ds.status === 'connected'}Connected
+          {:else if ds.status === 'connecting'}Connecting…
+          {:else if ds.status === 'external'}External client connected
+          {:else}Disconnected {#if ds.retryInS != null}— retrying in {ds.retryInS}s{/if}{/if}
         </span>
       </h2>
     </div>
@@ -248,32 +61,32 @@
         class="filter"
         type="search"
         placeholder="Filter…"
-        bind:value={filter}
+        bind:value={ds.filter}
         spellcheck="false"
       />
 
       <select
         class="sm-select"
-        bind:value={selectedTag}
-        disabled={levelsLoading || applying || tagLevels.length === 0}
+        bind:value={ds.selectedTag}
+        disabled={ds.levelsLoading || ds.applying || ds.tagLevels.length === 0}
         title="Log tag"
       >
-        {#if tagLevels.length === 0}
+        {#if ds.tagLevels.length === 0}
           <option value="">—</option>
         {:else}
-          {#each tagLevels as t}
+          {#each ds.tagLevels as t}
             <option value={t.tag}>{t.tag}</option>
           {/each}
         {/if}
       </select>
       <select
         class="sm-select"
-        value={selectedLevel}
-        on:change={onLevelChange}
-        disabled={applying || !selectedTag}
+        value={ds.selectedLevel}
+        on:change={ds.onLevelChange}
+        disabled={ds.applying || !ds.selectedTag}
         title="Log level"
       >
-        {#each availableLevels as lv}
+        {#each ds.availableLevels as lv}
           <option value={lv}>{lv}</option>
         {/each}
       </select>
@@ -281,40 +94,40 @@
       <span class="spacer"></span>
 
       <label class="autoscroll">
-        <input type="checkbox" bind:checked={autoscroll} /> auto-scroll
+        <input type="checkbox" bind:checked={ds.autoscroll} /> auto-scroll
       </label>
-      <button class="btn outline sm" on:click={clear} disabled={!lines.length}>Clear</button>
+      <button class="btn outline sm" on:click={ds.clear} disabled={!ds.lines.length}>Clear</button>
     </div>
 
-    {#if applyMsg}<div class="status-msg" data-kind={applyKind}>{applyMsg}</div>{/if}
-    {#if levelsErr}<div class="status-msg" data-kind="err">{levelsErr}</div>{/if}
+    {#if ds.applyMsg}<div class="status-msg" data-kind={ds.applyKind}>{ds.applyMsg}</div>{/if}
+    {#if ds.levelsErr}<div class="status-msg" data-kind="err">{ds.levelsErr}</div>{/if}
 
-    <pre class="log-panel" bind:this={panel} on:scroll={onPanelScroll}>{#each filtered as l}{l}
+    <pre class="log-panel" bind:this={ds.panel} on:scroll={ds.onPanelScroll}>{#each ds.filtered as l}{l}
 {/each}</pre>
-    {#if filter}
+    {#if ds.filter}
       <div class="filter-hint">
-        {filtered.length} of {lines.length} lines match
+        {ds.filtered.length} of {ds.lines.length} lines match
       </div>
     {/if}
   </div>
 
   <div class="section">
     <h2>Device</h2>
-    <button class="btn danger" on:click={requestReboot} disabled={rebooting}>
-      {rebooting ? 'Rebooting…' : 'Reboot'}
+    <button class="btn danger" on:click={ds.requestReboot} disabled={ds.rebooting}>
+      {ds.rebooting ? 'Rebooting…' : 'Reboot'}
     </button>
-    {#if rebootMsg}<div class="status-msg">{rebootMsg}</div>{/if}
+    {#if ds.rebootMsg}<div class="status-msg">{ds.rebootMsg}</div>{/if}
   </div>
 </div>
 
 <ConfirmDialog
-  bind:open={showRebootDialog}
+  bind:open={ds.showRebootDialog}
   title="Reboot device?"
   message="Mining will be interrupted while the device restarts. It should return in about 15 seconds."
   confirmLabel="Reboot"
   danger
-  skipKey={REBOOT_SKIP_KEY}
-  on:confirm={doReboot}
+  skipKey={ds.REBOOT_SKIP_KEY}
+  on:confirm={ds.doReboot}
 />
 
 <style>

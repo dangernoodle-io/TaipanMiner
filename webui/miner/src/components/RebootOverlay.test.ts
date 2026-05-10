@@ -17,6 +17,7 @@ import RebootOverlay from './RebootOverlay.svelte'
 
 describe('RebootOverlay', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     rebooting.set({ active: false, reason: '', elapsed: 0, timedOut: false })
   })
 

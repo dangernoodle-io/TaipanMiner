@@ -17,6 +17,7 @@ import LiveTitle from './LiveTitle.svelte'
 
 describe('LiveTitle', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     stats.set(null)
     info.set(null)
     document.title = 'TaipanMiner'

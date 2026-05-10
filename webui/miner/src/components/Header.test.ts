@@ -43,6 +43,7 @@ import Header from './Header.svelte'
 
 describe('Header', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     info.set(null)
   })
 

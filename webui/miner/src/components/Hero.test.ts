@@ -52,6 +52,7 @@ const baseStats = {
 
 describe('Hero (store-driven)', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     stats.set(null)
     connected.set(false)
     hasAsic.set(false)

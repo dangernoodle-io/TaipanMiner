@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fetchScan, fetchVersion, postSave, type SaveBody } from './api'
 
 function mockFetch(status: number, body: unknown = {}): ReturnType<typeof vi.fn> {
@@ -12,8 +12,8 @@ function setFetch(status: number, body: unknown = {}): ReturnType<typeof vi.fn> 
   return spy
 }
 
-afterEach(() => {
-  vi.restoreAllMocks()
+beforeEach(() => {
+  vi.clearAllMocks()
 })
 
 describe('fetchScan', () => {

@@ -18,6 +18,7 @@ import PoolStrip from './PoolStrip.svelte'
 
 describe('PoolStrip', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     pool.set(null)
   })
 

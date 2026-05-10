@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { loadManifest, loadAsset, type ManifestAsset } from './release'
 
 function setFetch(status: number, body: unknown = {}): ReturnType<typeof vi.fn> {
@@ -8,8 +8,8 @@ function setFetch(status: number, body: unknown = {}): ReturnType<typeof vi.fn> 
   return spy
 }
 
-afterEach(() => {
-  vi.restoreAllMocks()
+beforeEach(() => {
+  vi.clearAllMocks()
 })
 
 const fakeManifest = {

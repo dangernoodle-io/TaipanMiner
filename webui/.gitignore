@@ -5,3 +5,5 @@ dist
 .env.local
 .env.development
 .env.production
+miner/playwright-report
+miner/test-results

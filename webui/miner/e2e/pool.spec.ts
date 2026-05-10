@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures'
 import { mockMinerApi, poolFixture } from './fixtures/api'
 
 test.describe('Pool page', () => {

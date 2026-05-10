@@ -132,6 +132,14 @@ jobs:
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
         run: pnpm --filter miner e2e
+      - name: Upload e2e coverage to Coveralls
+        if: always()
+        uses: coverallsapp/github-action@v2
+        with:
+          flag-name: e2e
+          parallel: true
+          files: webui/miner/coverage-e2e/lcov.info
+          fail-on-error: false
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
         if: failure()

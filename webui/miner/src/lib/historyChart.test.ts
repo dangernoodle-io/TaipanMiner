@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import type uPlot from 'uplot'
 import {
   ALL_METRICS, WINDOWS, DEFAULT_WINDOW_IDX,
   windowFilter, buildSeries, buildOptions, tooltipPlugin,
@@ -268,6 +269,15 @@ describe('buildOptions', () => {
   })
 })
 
+// uPlot Plugin hooks are typed as `Defs[P][] | Defs[P]` (ArraysOrFuncs).
+// Cast helpers for direct invocation in tests.
+function callInit(plugin: uPlot.Plugin, u: any, opts: any = {}) {
+  (plugin.hooks.init as Function)(u, opts)
+}
+function callSetCursor(plugin: uPlot.Plugin, u: any) {
+  (plugin.hooks.setCursor as Function)(u)
+}
+
 describe('tooltipPlugin', () => {
   it('returns an object with hooks', () => {
     const plugin = tooltipPlugin(ALL_METRICS)
@@ -279,15 +289,14 @@ describe('tooltipPlugin', () => {
   it('init hook appends a div to u.over', () => {
     const plugin = tooltipPlugin(ALL_METRICS)
     const div = document.createElement('div')
-    const fakeU = { over: div } as any
-    plugin.hooks.init!(fakeU, {})
+    callInit(plugin, { over: div })
     expect(div.querySelector('.uplot-tip')).not.toBeNull()
   })
 
   it('init hook tip has expected inline style properties', () => {
     const plugin = tooltipPlugin(ALL_METRICS)
     const div = document.createElement('div')
-    plugin.hooks.init!({ over: div } as any, {})
+    callInit(plugin, { over: div })
     const tip = div.querySelector('.uplot-tip') as HTMLDivElement
     expect(tip.style.position).toBe('absolute')
     expect(tip.style.display).toBe('none')
@@ -297,12 +306,12 @@ describe('tooltipPlugin', () => {
     const plugin = tooltipPlugin(ALL_METRICS)
     const over = document.createElement('div')
     document.body.appendChild(over)
-    plugin.hooks.init!({ over } as any, {})
+    callInit(plugin, { over })
 
-    plugin.hooks.setCursor!({
+    callSetCursor(plugin, {
       cursor: { left: 10, top: 10, idx: null },
       data: [], series: [], over, bbox: { width: 800, height: 340 }
-    } as any)
+    })
     const tip = over.querySelector('.uplot-tip') as HTMLDivElement
     expect(tip.style.display).toBe('none')
     document.body.removeChild(over)
@@ -312,13 +321,13 @@ describe('tooltipPlugin', () => {
     const plugin = tooltipPlugin(ALL_METRICS)
     const over = document.createElement('div')
     document.body.appendChild(over)
-    plugin.hooks.init!({ over } as any, {})
+    callInit(plugin, { over })
 
-    plugin.hooks.setCursor!({
+    callSetCursor(plugin, {
       cursor: { left: -1, top: 10, idx: 0 },
       data: [[1000], [42]], series: [{}, { show: true, scale: 'a' }],
       over, bbox: { width: 800, height: 340 }
-    } as any)
+    })
     const tip = over.querySelector('.uplot-tip') as HTMLDivElement
     expect(tip.style.display).toBe('none')
     document.body.removeChild(over)
@@ -331,16 +340,16 @@ describe('tooltipPlugin', () => {
     const plugin = tooltipPlugin(metrics)
     const over = document.createElement('div')
     document.body.appendChild(over)
-    plugin.hooks.init!({ over } as any, {})
+    callInit(plugin, { over })
 
-    plugin.hooks.setCursor!({
+    callSetCursor(plugin, {
       cursor: { left: 50, top: 50, idx: 0 },
       data: [[1000000], [NaN]],
       series: [{}, { show: true, scale: 'a' }],
       valToPos: () => 100,
       over,
       bbox: { width: 800, height: 340 }
-    } as any)
+    })
     const tip = over.querySelector('.uplot-tip') as HTMLDivElement
     expect(tip.style.display).toBe('none')
     document.body.removeChild(over)
@@ -353,16 +362,16 @@ describe('tooltipPlugin', () => {
     const plugin = tooltipPlugin(metrics)
     const over = document.createElement('div')
     document.body.appendChild(over)
-    plugin.hooks.init!({ over } as any, {})
+    callInit(plugin, { over })
 
-    plugin.hooks.setCursor!({
+    callSetCursor(plugin, {
       cursor: { left: 50, top: 50, idx: 0 },
       data: [[1000000], [485.5]],
       series: [{}, { show: true, scale: 'a' }],
       valToPos: () => 60,
       over,
       bbox: { width: 800, height: 340 }
-    } as any)
+    })
     const tip = over.querySelector('.uplot-tip') as HTMLDivElement
     expect(tip.style.display).toBe('block')
     expect(tip.innerHTML).toContain('Hashrate')
@@ -377,16 +386,16 @@ describe('tooltipPlugin', () => {
     const plugin = tooltipPlugin(metrics)
     const over = document.createElement('div')
     document.body.appendChild(over)
-    plugin.hooks.init!({ over } as any, {})
+    callInit(plugin, { over })
 
-    plugin.hooks.setCursor!({
+    callSetCursor(plugin, {
       cursor: { left: 50, top: 50, idx: 0 },
       data: [[1000000], [1.5]],
       series: [{}, { show: true, scale: 'a' }],
       valToPos: () => 60,
       over,
       bbox: { width: 800, height: 340 }
-    } as any)
+    })
     const tip = over.querySelector('.uplot-tip') as HTMLDivElement
     expect(tip.innerHTML).toContain('1.50 TH/s')
     document.body.removeChild(over)
@@ -400,9 +409,9 @@ describe('tooltipPlugin', () => {
     const plugin = tooltipPlugin(metrics)
     const over = document.createElement('div')
     document.body.appendChild(over)
-    plugin.hooks.init!({ over } as any, {})
+    callInit(plugin, { over })
 
-    plugin.hooks.setCursor!({
+    callSetCursor(plugin, {
       cursor: { left: 50, top: 50, idx: 0 },
       data: [[1000000], [485.5], [72]],
       // second series (temp_c) is hidden
@@ -410,7 +419,7 @@ describe('tooltipPlugin', () => {
       valToPos: () => 60,
       over,
       bbox: { width: 800, height: 340 }
-    } as any)
+    })
     const tip = over.querySelector('.uplot-tip') as HTMLDivElement
     expect(tip.innerHTML).toContain('Hashrate')
     expect(tip.innerHTML).not.toContain('Temp')
@@ -424,17 +433,17 @@ describe('tooltipPlugin', () => {
     const plugin = tooltipPlugin(metrics)
     const over = document.createElement('div')
     document.body.appendChild(over)
-    plugin.hooks.init!({ over } as any, {})
+    callInit(plugin, { over })
 
     // Put cursor near right edge; bbox.width=300, left=290 → should flip
-    plugin.hooks.setCursor!({
+    callSetCursor(plugin, {
       cursor: { left: 290, top: 50, idx: 0 },
       data: [[1000000], [485.5]],
       series: [{}, { show: true, scale: 'a' }],
       valToPos: () => 60,
       over,
       bbox: { width: 300, height: 400 }
-    } as any)
+    })
     const tip = over.querySelector('.uplot-tip') as HTMLDivElement
     // tip.style.left should be something smaller than 290 (flipped left)
     expect(tip.style.display).toBe('block')

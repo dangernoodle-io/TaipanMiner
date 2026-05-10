@@ -123,4 +123,72 @@ describe('FanEditDialog', () => {
     render(FanEditDialog)
     expect(screen.getByText(/PID following ASIC/)).toBeInTheDocument()
   })
+
+  it('shows PID source when pid_input_src=vr', () => {
+    fan.set({
+      ...fakeFan,
+      autofan: true,
+      pid_input_src: 'vr',
+      pid_input_c: null
+    })
+    fanEditOpen.set(true)
+    render(FanEditDialog)
+    expect(screen.getByText(/PID following VR/)).toBeInTheDocument()
+  })
+
+  it('shows pid_input_c temperature when autofan and pid_input_c set', () => {
+    fan.set({
+      ...fakeFan,
+      autofan: true,
+      pid_input_src: 'die',
+      pid_input_c: 68.4
+    })
+    fanEditOpen.set(true)
+    render(FanEditDialog)
+    expect(screen.getByText(/68.4/)).toBeInTheDocument()
+  })
+
+  it('submits form and shows Saved on success', async () => {
+    const { patchFan, fetchFan } = await import('../lib/api')
+    vi.mocked(patchFan).mockResolvedValue(undefined)
+    vi.mocked(fetchFan).mockResolvedValue({ ...fakeFan, manual_pct: 90 })
+    fan.set(fakeFan)
+    fanEditOpen.set(true)
+    render(FanEditDialog)
+    const saveBtn = screen.getByRole('button', { name: 'Save' })
+    await fireEvent.submit(saveBtn.closest('form')!)
+    // Wait for save to complete
+    await new Promise(r => setTimeout(r, 50))
+    expect(vi.mocked(patchFan)).toHaveBeenCalled()
+  })
+
+  it('shows error message when save fails', async () => {
+    const { patchFan } = await import('../lib/api')
+    vi.mocked(patchFan).mockRejectedValue(new Error('network error'))
+    fan.set(fakeFan)
+    fanEditOpen.set(true)
+    render(FanEditDialog)
+    const form = document.querySelector('form')!
+    await fireEvent.submit(form)
+    await new Promise(r => setTimeout(r, 50))
+    expect(document.querySelector('.msg.err')).not.toBeNull()
+  })
+
+  it('backdrop click does not close dialog while saving', async () => {
+    // When saving=true, close() is a no-op
+    fan.set(fakeFan)
+    fanEditOpen.set(true)
+    const { patchFan, fetchFan } = await import('../lib/api')
+    // Make patchFan never resolve so dialog stays in saving=true
+    vi.mocked(patchFan).mockImplementation(() => new Promise(() => {}))
+    vi.mocked(fetchFan).mockResolvedValue(fakeFan)
+    render(FanEditDialog)
+    const form = document.querySelector('form')!
+    fireEvent.submit(form) // do NOT await — leave it in-flight
+    await new Promise(r => setTimeout(r, 10))
+    const backdrop = document.querySelector('.modal-backdrop')!
+    await fireEvent.click(backdrop)
+    // Dialog still open because saving=true blocks close()
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+  })
 })

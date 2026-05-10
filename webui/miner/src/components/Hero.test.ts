@@ -102,4 +102,62 @@ describe('Hero (store-driven)', () => {
     render(HeroComponent)
     expect(screen.getByText('Die Temp')).toBeInTheDocument()
   })
+
+  it('shows err metric with bad class when err > 1', () => {
+    stats.set({ ...baseStats, asic_hw_error_pct: 2.5 } as any)
+    hasAsic.set(true)
+    render(HeroComponent)
+    expect(screen.getByText('err')).toBeInTheDocument()
+    const errVal = document.querySelector('.kv .v.bad')
+    expect(errVal).not.toBeNull()
+  })
+
+  it('shows die temp in bad class when temp_c > 75', () => {
+    stats.set({ ...baseStats, temp_c: 80 } as any)
+    hasAsic.set(false)
+    render(HeroComponent)
+    expect(screen.getByText('Die Temp')).toBeInTheDocument()
+    const badTemp = document.querySelector('.kv .v.bad')
+    expect(badTemp).not.toBeNull()
+  })
+
+  it('shows syncing pool-effective when uptime < 300', () => {
+    stats.set({ ...baseStats, uptime_s: 100, pool_effective_hashrate: null } as any)
+    render(HeroComponent)
+    expect(screen.getByText('syncing…')).toBeInTheDocument()
+  })
+
+  it('shows pool-effective hashrate when available and uptime >= 300', () => {
+    stats.set({ ...baseStats, uptime_s: 400, pool_effective_hashrate: 480e9 } as any)
+    render(HeroComponent)
+    expect(screen.getByText('pool-effective')).toBeInTheDocument()
+  })
+
+  it('shows best diff multiplier when pool.current_difficulty > 0', () => {
+    stats.set({ ...baseStats, best_diff: 1000000 } as any)
+    pool.set({ current_difficulty: 500000 } as any)
+    render(HeroComponent)
+    // diffMult = 2; displayed as "(2×)"
+    expect(screen.getByText(/best diff/)).toBeInTheDocument()
+  })
+
+  it('shows accept rate and shares/hr when uptime > 60', () => {
+    stats.set({ ...baseStats, session_shares: 5, session_rejected: 5, uptime_s: 120 } as any)
+    render(HeroComponent)
+    expect(screen.getByText('shares (50.0%)')).toBeInTheDocument()
+  })
+
+  it('shows connected dot when connected=true', () => {
+    stats.set(baseStats as any)
+    connected.set(true)
+    render(HeroComponent)
+    expect(document.querySelector('.conn-dot.connected')).not.toBeNull()
+  })
+
+  it('shows disconnected dot when connected=false', () => {
+    stats.set(baseStats as any)
+    connected.set(false)
+    render(HeroComponent)
+    expect(document.querySelector('.conn-dot.disconnected')).not.toBeNull()
+  })
 })

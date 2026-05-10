@@ -1,9 +1,13 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/svelte'
 import AlertBanner from './AlertBanner.svelte'
 import type { Alert } from './AlertBanner.svelte'
 
 describe('AlertBanner', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   it('renders nothing when alerts is empty', () => {
     const { container } = render(AlertBanner, { props: { alerts: [] } })
     expect(container.querySelector('.alert-banner')).toBeNull()

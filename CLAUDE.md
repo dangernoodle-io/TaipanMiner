@@ -152,7 +152,20 @@ TaipanMiner consumes shared infrastructure components from the breadboard librar
 
 **Dev loop**: `cd webui && npm run dev` with `VITE_MINER_URL=http://<miner-host>` in `webui/miner/.env.development` — dev server proxies `/api/*` to the miner. Run against any tdongle/bitaxe on the network without reflashing. Works side-by-side with `--port 5174` for multi-device compare. **Never use plain `.env`** — Vite loads it in production builds too, baking the dev URL into firmware so deployed devices phone home to the dev target.
 
-**Tests**: `cd webui && npm test -- --run` (vitest).
+**Tests**: `cd webui && pnpm --filter <pkg> test -- --run` (vitest); e2e via `pnpm --filter miner e2e` (Playwright). Each webui package (miner, prov, ui-kit, flasher) has its own `vitest.config.ts` mirroring miner's.
+
+**Testing patterns** (use these consistently — see `webui/miner/src/lib/otaState.test.ts` for canonical examples):
+
+- **State machines**: page logic lives in `lib/<page>State.svelte.ts` (Svelte 5 runes outside components, factory `create<Page>State()` returning getters/setters + actions). The `.svelte.ts` extension opts in to runes outside `.svelte` files. Pure transforms live in `lib/<page>Helpers.ts`. Components are thin shells: `const ps = createPageState()` (don't name the binding `state` — Svelte's compiler treats `$state` in templates as a store-prefix on a local `state` variable).
+- **Components consuming a state machine MUST be in runes mode** (`$state`/`$derived`, never `$:`). svelte-check must report 0 `non_reactive_update` warnings.
+- **Mock patterns**:
+  - `vi.mock('./api', () => ({ fnA: vi.fn() }))` — sync factory for plain function stubs.
+  - `vi.mock('./stores', async () => { const { writable } = await import('svelte/store'); return { storeA: writable(initial) } })` — async factory **only** when the factory needs svelte/store helpers. Never use `require()`.
+  - `vi.mock('../lib/<page>State.svelte', () => ({ create<Page>State: () => stub }))` for page tests; combine with `vi.hoisted({ stub: ... })` when the stub is referenced elsewhere in the file.
+  - `beforeEach(() => { vi.clearAllMocks(); /* reset test-local stores */ })`.
+- **DOM events**: use Svelte 5 property-style (`onclick={...}`), not deprecated `on:click`. Component-to-parent communication uses callback props (e.g. `onsave?: () => void`), not `createEventDispatcher`.
+- **E2e is the regression net for runes-reactivity bugs that unit tests miss** — run `pnpm --filter miner e2e` locally before pushing any refactor that touches a page.
+- **Coverage**: `pnpm --filter <pkg> test --coverage`. The `webui-check` CI job uploads lcov from all four packages to Coveralls.
 
 **To add a web asset to the SPA**: edit the Svelte source. Assets bundled by Vite are included automatically in `dist/`. Only provisioning-mode static files need manual `bb_embed_assets` entries.
 

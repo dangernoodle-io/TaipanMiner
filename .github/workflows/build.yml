@@ -42,6 +42,9 @@ jobs:
       - name: Webui unit tests with coverage
         working-directory: webui
         run: pnpm --filter miner run test --run --coverage
+      - name: Webui prov unit tests with coverage
+        working-directory: webui
+        run: pnpm --filter prov run test --run --coverage
       - name: Build miner
         working-directory: webui
         run: pnpm --filter miner run build
@@ -66,7 +69,7 @@ jobs:
         with:
           parallel: true
           flag-name: webui
-          files: webui/miner/coverage/lcov.info
+          files: webui/miner/coverage/lcov.info webui/prov/coverage/lcov.info
 
   native-test:
     runs-on: ubuntu-latest

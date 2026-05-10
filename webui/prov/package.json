@@ -11,17 +11,23 @@
     "build": "vite build",
     "preview": "vite preview",
     "precheck": "pnpm run sync:assets",
-    "check": "svelte-check --tsconfig ./tsconfig.json"
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/svelte": "^5.3.1",
     "@tsconfig/svelte": "^5.0.4",
+    "@vitest/coverage-v8": "^4.1.5",
+    "jsdom": "^29.0.2",
     "lightningcss": "^1.32.0",
     "svelte": "^5.55.5",
     "svelte-check": "^4.4.6",
     "terser": "^5.46.2",
     "typescript": "^5.4.5",
-    "vite": "^8.0.11"
+    "vite": "^8.0.11",
+    "vitest": "^4.1.5"
   },
   "dependencies": {
     "tslib": "^2.6.2",

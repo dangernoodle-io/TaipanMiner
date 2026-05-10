@@ -1,140 +1,14 @@
 <script lang="ts">
-  import { info, otaCheck, otaInstall, otaUpload, rebooting, startRebootRecovery } from '../lib/stores'
-  import { fetchOtaCheck, triggerOtaUpdate, fetchOtaStatus, uploadOta } from '../lib/api'
+  import { info, otaCheck, otaInstall, otaUpload, rebooting } from '../lib/stores'
   import { fmtBuildTime, fmtBytes } from '../lib/fmt'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
+  import { createOtaState } from '../lib/otaState.svelte'
+  import { firmwareName, minerBusy } from '../lib/otaHelpers'
 
-  let installConfirmOpen = false
-  let uploadConfirmOpen = false
+  const os = createOtaState()
 
-  async function handleCheck() {
-    otaCheck.set({ checking: true, result: null, msg: 'Checking for updates…', kind: '' })
-    const deadline = Date.now() + 15000
-    try {
-      while (Date.now() < deadline) {
-        const res = await fetchOtaCheck()
-        if (res !== 'pending') {
-          if (res.update_available) {
-            otaCheck.set({
-              checking: false, result: res,
-              msg: `Update available: ${res.latest_version} (current ${res.current_version})`,
-              kind: 'avail'
-            })
-          } else {
-            otaCheck.set({
-              checking: false, result: res,
-              msg: `Firmware is up to date (${res.current_version})`,
-              kind: 'ok'
-            })
-          }
-          return
-        }
-        await new Promise((r) => setTimeout(r, 2000))
-      }
-      otaCheck.set({ checking: false, result: null, msg: 'Failed to check for updates (timeout).', kind: 'err' })
-    } catch (e) {
-      otaCheck.set({ checking: false, result: null, msg: `Failed to check: ${(e as Error).message}.`, kind: 'err' })
-    }
-  }
-
-  function requestInstall() {
-    if (!$otaCheck.result?.update_available) return
-    installConfirmOpen = true
-  }
-
-  async function handleInstall() {
-    const current = $otaCheck.result
-    if (!current?.update_available) return
-    otaInstall.set({ installing: true, pct: 0, state: '', msg: 'Starting OTA install…', kind: '' })
-    try {
-      await triggerOtaUpdate()
-      const deadline = Date.now() + 600000
-      while (Date.now() < deadline) {
-        const s = await fetchOtaStatus().catch(() => null)
-        if (s) {
-          /* Skip the brief 'idle' window between triggerOtaUpdate() returning
-           * and the OTA task flipping to in_progress — otherwise the bar shows
-           * "Idle… 0%" before the first real progress tick. */
-          if (s.in_progress || s.progress_pct > 0) {
-            otaInstall.set({
-              installing: true,
-              pct: s.progress_pct,
-              state: s.state,
-              msg: `${s.state.charAt(0).toUpperCase()}${s.state.slice(1)}… ${s.progress_pct.toFixed(0)}%`,
-              kind: ''
-            })
-          }
-          /* Firmware sets state='complete' and progress_pct=100 before the
-           * 500ms reboot delay; in_progress stays true until esp_restart().
-           * After reboot, status flips back to idle/0/false. So 'complete'
-           * is the only reliable success signal — don't gate on !in_progress. */
-          if (s.state === 'complete') {
-            otaInstall.set({ installing: false, pct: 100, state: s.state, msg: 'Install complete. Miner is rebooting.', kind: 'ok' })
-            otaCheck.set({ checking: false, result: null, msg: '', kind: '' })
-            startRebootRecovery('Applying firmware update')
-            return
-          }
-          if (s.state === 'error' || (!s.in_progress && s.state !== 'idle' && s.progress_pct < 100)) {
-            otaInstall.set({ installing: false, pct: s.progress_pct, state: s.state, msg: `Install ended: ${s.state}.`, kind: 'err' })
-            return
-          }
-        }
-        await new Promise((r) => setTimeout(r, 2000))
-      }
-      otaInstall.update((v) => ({ ...v, installing: false, msg: 'Install timed out.', kind: 'err' }))
-    } catch (e) {
-      otaInstall.update((v) => ({ ...v, installing: false, msg: `Install failed: ${(e as Error).message}.`, kind: 'err' }))
-    }
-  }
-
-  // --- Manual upload ---
-  let fileInput: HTMLInputElement
-  let selectedFile: File | null = null
-  let dragOver = false
-
-  function onFileSelect(e: Event) {
-    const target = e.target as HTMLInputElement
-    selectedFile = target.files?.[0] ?? null
-    otaUpload.set({ uploading: false, pct: 0, msg: '', kind: '' })
-  }
-
-  function onDrop(e: DragEvent) {
-    e.preventDefault()
-    dragOver = false
-    const f = e.dataTransfer?.files?.[0]
-    if (f) {
-      selectedFile = f
-      otaUpload.set({ uploading: false, pct: 0, msg: '', kind: '' })
-    }
-  }
-
-  function requestUpload() {
-    if (!selectedFile) return
-    uploadConfirmOpen = true
-  }
-
-  async function handleUpload() {
-    if (!selectedFile) return
-    otaUpload.set({ uploading: true, pct: 0, msg: 'Uploading… 0%', kind: '' })
-    try {
-      await uploadOta(selectedFile, (pct) => {
-        otaUpload.set({ uploading: true, pct, msg: `Uploading… ${pct.toFixed(0)}%`, kind: '' })
-      })
-      otaUpload.set({ uploading: false, pct: 100, msg: 'Upload complete. Miner is rebooting to apply the firmware.', kind: 'ok' })
-      selectedFile = null
-      if (fileInput) fileInput.value = ''
-      startRebootRecovery('Applying uploaded firmware')
-    } catch (e) {
-      otaUpload.update((v) => ({ ...v, uploading: false, msg: `Upload failed: ${(e as Error).message}.`, kind: 'err' }))
-    }
-  }
-
-  $: firmwareName = $info?.board ? `taipanminer-${$info.board}.bin` : 'firmware.bin'
-
-  /* The miner is unreachable while it reboots — either because the OTA flow
-   * just completed (kind==='ok') or because the reboot overlay is up. Gate all
-   * action buttons on this so the UI matches what the device can actually do. */
-  $: minerBusy = $rebooting.active || $otaInstall.kind === 'ok' || $otaUpload.kind === 'ok'
+  const fwName = $derived(firmwareName($info))
+  const busy = $derived(minerBusy($rebooting, $otaInstall, $otaUpload))
 
   /* DEV-only mock panel: pin the UI to specific states so we can iterate on
    * styling and alignment without performing real OTA. Each setter is granular
@@ -145,8 +19,8 @@
     otaCheck.set({ checking: false, result: null, msg: '', kind: '' })
     otaInstall.set({ installing: false, pct: 0, state: '', msg: '', kind: '' })
     otaUpload.set({ uploading: false, pct: 0, msg: '', kind: '' })
-    selectedFile = null
-    if (fileInput) fileInput.value = ''
+    os.selectedFile = null
+    if (os.fileInput) os.fileInput.value = ''
     rebooting.set({ active: false, reason: '', elapsed: 0, timedOut: false })
   }
 
@@ -212,14 +86,14 @@
   }
   function mockOpenInstallConfirm() {
     if (!$otaCheck.result?.update_available) mockCheckAvailable()
-    installConfirmOpen = true
+    os.installConfirmOpen = true
   }
   function mockOpenUploadConfirm() {
-    if (!selectedFile) {
+    if (!os.selectedFile) {
       const blob = new Blob(['mock firmware'], { type: 'application/octet-stream' })
-      selectedFile = new File([blob], firmwareName, { type: 'application/octet-stream' })
+      os.selectedFile = new File([blob], fwName, { type: 'application/octet-stream' })
     }
-    uploadConfirmOpen = true
+    os.uploadConfirmOpen = true
   }
 
   const fmtSize = fmtBytes
@@ -234,11 +108,11 @@
     <div class="info-row"><span class="k">Build</span><span>{fmtBuildTime($info?.build_date, $info?.build_time)}</span></div>
 
     <div class="row-actions">
-      <button class="btn primary" on:click={handleCheck} disabled={$otaCheck.checking || $otaInstall.installing || minerBusy}>
+      <button class="btn primary" on:click={os.handleCheck} disabled={$otaCheck.checking || $otaInstall.installing || busy}>
         {$otaCheck.checking ? 'Checking…' : 'Check for Updates'}
       </button>
       {#if $otaCheck.result?.update_available}
-        <button class="btn primary" on:click={requestInstall} disabled={$otaInstall.installing || minerBusy}>
+        <button class="btn primary" on:click={os.requestInstall} disabled={$otaInstall.installing || busy}>
           {$otaInstall.installing ? 'Installing…' : `Install ${$otaCheck.result.latest_version}`}
         </button>
       {/if}
@@ -259,37 +133,37 @@
   <!-- Manual upload -->
   <div class="card">
     <h2>Manual Upload</h2>
-    <p class="hint">Upload <code>{firmwareName}</code> directly. The miner flashes to the inactive OTA slot and reboots.</p>
+    <p class="hint">Upload <code>{fwName}</code> directly. The miner flashes to the inactive OTA slot and reboots.</p>
 
     <div
       class="dropzone"
-      class:drag-over={dragOver}
-      on:dragover|preventDefault={() => (dragOver = true)}
-      on:dragleave={() => (dragOver = false)}
-      on:drop={onDrop}
+      class:drag-over={os.dragOver}
+      on:dragover={os.onDragOver}
+      on:dragleave={os.onDragLeave}
+      on:drop={os.onDrop}
       role="region"
       aria-label="Firmware drop zone"
     >
-      {#if selectedFile}
+      {#if os.selectedFile}
         <div class="file-info">
-          <div class="file-name">{selectedFile.name}</div>
-          <div class="file-size">{fmtSize(selectedFile.size)}</div>
+          <div class="file-name">{os.selectedFile.name}</div>
+          <div class="file-size">{fmtSize(os.selectedFile.size)}</div>
         </div>
       {:else}
         <div class="dz-msg">
-          Drag <code>{firmwareName}</code> here, or
-          <button class="btn outline sm" on:click={() => fileInput.click()} type="button" disabled={minerBusy}>choose file</button>
+          Drag <code>{fwName}</code> here, or
+          <button class="btn outline sm" on:click={() => os.fileInput?.click()} type="button" disabled={busy}>choose file</button>
         </div>
       {/if}
-      <input type="file" accept=".bin,application/octet-stream" bind:this={fileInput} on:change={onFileSelect} hidden />
+      <input type="file" accept=".bin,application/octet-stream" bind:this={os.fileInput} on:change={os.onFileSelect} hidden />
     </div>
 
-    {#if selectedFile}
+    {#if os.selectedFile}
       <div class="row-actions">
-        <button class="btn primary" on:click={requestUpload} disabled={$otaUpload.uploading || minerBusy}>
+        <button class="btn primary" on:click={os.requestUpload} disabled={$otaUpload.uploading || busy}>
           {$otaUpload.uploading ? `Uploading ${$otaUpload.pct.toFixed(0)}%` : 'Flash firmware'}
         </button>
-        <button class="btn outline" on:click={() => { selectedFile = null; if (fileInput) fileInput.value = '' }} disabled={$otaUpload.uploading || minerBusy}>
+        <button class="btn outline" on:click={() => { os.selectedFile = null; if (os.fileInput) os.fileInput.value = '' }} disabled={$otaUpload.uploading || busy}>
           Clear
         </button>
       </div>
@@ -357,25 +231,25 @@
 </div>
 
 <ConfirmDialog
-  open={installConfirmOpen}
+  open={os.installConfirmOpen}
   title="Install firmware?"
   message={$otaCheck.result
     ? `Install ${$otaCheck.result.latest_version}? The miner will reboot after flashing.`
     : 'Install firmware? The miner will reboot after flashing.'}
   confirmLabel="Install"
-  on:confirm={() => { installConfirmOpen = false; handleInstall() }}
-  on:cancel={() => (installConfirmOpen = false)}
+  on:confirm={() => { os.installConfirmOpen = false; os.handleInstall() }}
+  on:cancel={() => (os.installConfirmOpen = false)}
 />
 
 <ConfirmDialog
-  open={uploadConfirmOpen}
+  open={os.uploadConfirmOpen}
   title="Flash firmware?"
-  message={selectedFile
-    ? `Flash "${selectedFile.name}" (${fmtSize(selectedFile.size)})? The miner will reboot after upload.`
+  message={os.selectedFile
+    ? `Flash "${os.selectedFile.name}" (${fmtSize(os.selectedFile.size)})? The miner will reboot after upload.`
     : 'Flash firmware? The miner will reboot after upload.'}
   confirmLabel="Flash"
-  on:confirm={() => { uploadConfirmOpen = false; handleUpload() }}
-  on:cancel={() => (uploadConfirmOpen = false)}
+  on:confirm={() => { os.uploadConfirmOpen = false; os.handleUpload() }}
+  on:cancel={() => (os.uploadConfirmOpen = false)}
 />
 
 <style>

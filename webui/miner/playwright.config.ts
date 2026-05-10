@@ -29,12 +29,18 @@ export default defineConfig({
               reports: ['lcovonly'],
               entryFilter: (entry) => {
                 const url = entry.url || ''
+                // Filter out absolute  file system and node_modules entries
                 if (url.includes('/node_modules/')) return false
                 if (url.includes('/@fs/')) return false
-                if (url.includes('/ui-kit/')) return false
+                // Filter out non-source files: styles, assets, vite internals, routing, etc.
+                if (url.includes('?svelte&type=style')) return false
                 if (url.includes('-svelte&type=style')) return false
-                if (url.endsWith('.css')) return false
-                if (url.endsWith('.svg') || url.endsWith('.png') || url.endsWith('.ico')) return false
+                if (url.includes('.css')) return false
+                if (url.includes('.svg') || url.includes('.png') || url.includes('.ico')) return false
+                if (url.includes('@vite/')) return false
+                if (url.includes('.vite/')) return false
+                if (url.includes('#/')) return false
+                // Keep everything else for sourceFilter to process
                 return true
               },
               sourceFilter: (sourcePath) => {
@@ -45,11 +51,25 @@ export default defineConfig({
                 return /(^|\/)src\//.test(sourcePath)
               },
               sourcePath: (filePath) => {
-                let p = filePath.replace(/^127\.0\.0\.1-5173\//, '')
+                let p = filePath
+                // Strip http:// protocol if present
+                p = p.replace(/^https?:\/\/[^/]+/, '')
+                // Strip dev-server URL prefix (127.0.0.1-5173/)
+                p = p.replace(/^127\.0\.0\.1-5173\//, '')
+                // Strip Vite/@fs/ prefix with absolute path
                 p = p.replace(/^@fs\/.*?\/webui\/miner\//, '')
-                p = p.replace(/^\//, '')
-                const idx = p.indexOf('src/')
-                if (idx > 0) p = p.slice(idx)
+                // Strip leading slashes
+                p = p.replace(/^\/+/, '')
+                // Remove Vite query params and fragments
+                p = p.split('?')[0]
+                p = p.split('#')[0]
+                // Ensure path starts with src/
+                if (!p.startsWith('src/')) {
+                  const srcIdx = p.indexOf('src/')
+                  if (srcIdx >= 0) {
+                    p = p.slice(srcIdx)
+                  }
+                }
                 return p
               },
             },

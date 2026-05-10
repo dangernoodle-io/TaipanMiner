@@ -15,7 +15,7 @@
 #include "tps546.h"
 #include "emc2101.h"
 #include "pid.h"
-#include "taipan_config.h"
+#include "config.h"
 #include "mining.h"
 #include "diag.h"
 #include "stratum.h"
@@ -372,14 +372,14 @@ void asic_mining_task(void *arg)
     // Ticks at 5000 ms — our existing temp tick cadence (AxeOS uses 100 ms but
     // a separate task; we fold it into the existing 5s tick to keep the patch small).
     // Start with die target; actual setpoint is selected per-tick via ratio.
-    s_pid_setpoint = (float)taipan_config_die_target_c();
-    s_pid_output   = (float)taipan_config_min_fan_pct();
+    s_pid_setpoint = (float)config_die_target_c();
+    s_pid_output   = (float)config_min_fan_pct();
     s_pid_input    = s_pid_setpoint;
     pid_init(&s_pid, &s_pid_input, &s_pid_output, &s_pid_setpoint,
              5.0f, 0.1f, 2.0f, PID_P_ON_E, PID_REVERSE);
     pid_set_clock(&s_pid, s_pid_now_ms);
     pid_set_sample_time(&s_pid, 5000);
-    pid_set_output_limits(&s_pid, (float)taipan_config_min_fan_pct(), 100.0f);
+    pid_set_output_limits(&s_pid, (float)config_min_fan_pct(), 100.0f);
 
     for (;;) {
         // Pause/resume coalescing. bb_ota_pull triggers a check-phase pause/resume
@@ -712,11 +712,11 @@ void asic_mining_task(void *arg)
             if (!temp_ok) {
                 // Fail-safe: temp read failed → max cooling
                 fan_duty = 100;
-            } else if (taipan_config_autofan_enabled()) {
+            } else if (config_autofan_enabled()) {
                 // Refresh live-tunable targets and min from config each tick
-                float die_target = (float)taipan_config_die_target_c();
-                float vr_target  = (float)taipan_config_vr_target_c();
-                float new_min    = (float)taipan_config_min_fan_pct();
+                float die_target = (float)config_die_target_c();
+                float vr_target  = (float)config_vr_target_c();
+                float new_min    = (float)config_min_fan_pct();
                 pid_set_output_limits(&s_pid, new_min, 100.0f);
 
                 // TA-141: Apply independent EMA filter (alpha=0.2) to die temperature
@@ -770,7 +770,7 @@ void asic_mining_task(void *arg)
                 fan_duty = (int)s_pid_output;
             } else {
                 // Manual mode
-                fan_duty = (int)taipan_config_manual_fan_pct();
+                fan_duty = (int)config_manual_fan_pct();
             }
 
             emc2101_set_duty_pct(fan_duty);

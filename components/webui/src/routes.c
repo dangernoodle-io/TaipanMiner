@@ -15,7 +15,7 @@
 #include "mining.h"
 #include "asic_drop_log.h"
 #include "bb_nv.h"
-#include "taipan_config.h"
+#include "config.h"
 #include "bb_wifi.h"
 #include "bb_prov.h"
 #include "bb_mdns.h"
@@ -124,13 +124,13 @@ static bb_err_t taipan_prov_save_cb(bb_http_request_t *req, const char *body, in
     }
 
     // Validate and save hostname
-    if (taipan_config_set_hostname(hostname) != BB_OK) {
+    if (config_set_hostname(hostname) != BB_OK) {
         bb_http_resp_send_err(req, 400, "Invalid hostname");
         return BB_ERR_INVALID_ARG;
     }
 
     // Use atomic setter (TA-290 phase C): construct primary pool, preserve fallback.
-    taipan_pool_cfg_t primary = {0};
+    pool_cfg_t primary = {0};
     strncpy(primary.host,   pool_host, sizeof(primary.host)   - 1);
     primary.port = port;
     strncpy(primary.wallet, wallet,    sizeof(primary.wallet) - 1);
@@ -138,17 +138,17 @@ static bb_err_t taipan_prov_save_cb(bb_http_request_t *req, const char *body, in
     strncpy(primary.pass,   pool_pass, sizeof(primary.pass)   - 1);
 
     // Preserve any existing fallback config (factory provisioning is primary-only).
-    taipan_pool_cfg_t fallback = {0};
-    bool has_fallback = taipan_config_pool_configured(TAIPAN_POOL_FALLBACK);
+    pool_cfg_t fallback = {0};
+    bool has_fallback = config_pool_configured(POOL_FALLBACK);
     if (has_fallback) {
-        strncpy(fallback.host,   taipan_config_pool_host_idx(TAIPAN_POOL_FALLBACK),   sizeof(fallback.host)   - 1);
-        fallback.port = taipan_config_pool_port_idx(TAIPAN_POOL_FALLBACK);
-        strncpy(fallback.wallet, taipan_config_wallet_addr_idx(TAIPAN_POOL_FALLBACK), sizeof(fallback.wallet) - 1);
-        strncpy(fallback.worker, taipan_config_worker_name_idx(TAIPAN_POOL_FALLBACK), sizeof(fallback.worker) - 1);
-        strncpy(fallback.pass,   taipan_config_pool_pass_idx(TAIPAN_POOL_FALLBACK),   sizeof(fallback.pass)   - 1);
+        strncpy(fallback.host,   config_pool_host_idx(POOL_FALLBACK),   sizeof(fallback.host)   - 1);
+        fallback.port = config_pool_port_idx(POOL_FALLBACK);
+        strncpy(fallback.wallet, config_wallet_addr_idx(POOL_FALLBACK), sizeof(fallback.wallet) - 1);
+        strncpy(fallback.worker, config_worker_name_idx(POOL_FALLBACK), sizeof(fallback.worker) - 1);
+        strncpy(fallback.pass,   config_pool_pass_idx(POOL_FALLBACK),   sizeof(fallback.pass)   - 1);
     }
 
-    bb_err_t err = taipan_config_set_pools(&primary, has_fallback ? &fallback : NULL);
+    bb_err_t err = config_set_pools(&primary, has_fallback ? &fallback : NULL);
     if (err != BB_OK) {
         bb_http_resp_send_err(req, 500, "Failed to save config");
         return BB_ERR_INVALID_ARG;
@@ -284,7 +284,7 @@ static bb_err_t stats_handler(bb_http_request_t *req)
 
 // ----------------------------------------------------------------------------
 // /api/pool — TA-281/TA-286
-// Locked shape: pool config (always populated from taipan_config_*) +
+// Locked shape: pool config (always populated from config_*) +
 // session-scoped negotiated values (extranonce1, extranonce2_size,
 // version_mask) + most-recent stratum mining.notify exposed as a `notify`
 // sub-object. Pre-stratum-connect, connected=false, session_start_ago_s/
@@ -304,14 +304,14 @@ static bb_err_t pool_handler(bb_http_request_t *req)
     // failover or manual switch. Falls back to primary when not connected.
     {
         int idx = stratum_get_active_pool_idx();
-        if (idx < 0) idx = TAIPAN_POOL_PRIMARY;
-        const char *h = taipan_config_pool_host_idx(idx);
+        if (idx < 0) idx = POOL_PRIMARY;
+        const char *h = config_pool_host_idx(idx);
         if (h) strncpy(s.host, h, sizeof(s.host) - 1);
-        const char *wk = taipan_config_worker_name_idx(idx);
+        const char *wk = config_worker_name_idx(idx);
         if (wk) strncpy(s.worker, wk, sizeof(s.worker) - 1);
-        const char *wa = taipan_config_wallet_addr_idx(idx);
+        const char *wa = config_wallet_addr_idx(idx);
         if (wa) strncpy(s.wallet, wa, sizeof(s.wallet) - 1);
-        s.port = taipan_config_pool_port_idx(idx);
+        s.port = config_pool_port_idx(idx);
     }
 
     // session_start_ago_s — null pre-connect; wrap-safe diff in ms then /1000.
@@ -365,17 +365,17 @@ static bb_err_t pool_handler(bb_http_request_t *req)
     }
 
     // Configured pools (TA-290/TA-202 phase D) — expose persisted config.
-    for (int i = 0; i < TAIPAN_POOL_COUNT; i++) {
-        s.configured[i].configured = taipan_config_pool_configured(i);
+    for (int i = 0; i < POOL_COUNT; i++) {
+        s.configured[i].configured = config_pool_configured(i);
         if (s.configured[i].configured) {
-            strncpy(s.configured[i].host,   taipan_config_pool_host_idx(i),   sizeof(s.configured[i].host)   - 1);
-            s.configured[i].port = taipan_config_pool_port_idx(i);
-            strncpy(s.configured[i].worker, taipan_config_worker_name_idx(i), sizeof(s.configured[i].worker) - 1);
-            strncpy(s.configured[i].wallet, taipan_config_wallet_addr_idx(i), sizeof(s.configured[i].wallet) - 1);
+            strncpy(s.configured[i].host,   config_pool_host_idx(i),   sizeof(s.configured[i].host)   - 1);
+            s.configured[i].port = config_pool_port_idx(i);
+            strncpy(s.configured[i].worker, config_worker_name_idx(i), sizeof(s.configured[i].worker) - 1);
+            strncpy(s.configured[i].wallet, config_wallet_addr_idx(i), sizeof(s.configured[i].wallet) - 1);
             s.configured[i].extranonce_subscribe =
-                taipan_config_pool_extranonce_subscribe_idx(i);
+                config_pool_extranonce_subscribe_idx(i);
             s.configured[i].decode_coinbase =
-                taipan_config_pool_decode_coinbase_idx(i);
+                config_pool_decode_coinbase_idx(i);
         }
     }
     s.active_pool_idx = stratum_get_active_pool_idx();
@@ -435,7 +435,7 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
         return BB_ERR_INVALID_ARG;
     }
 
-    taipan_pool_cfg_t primary = {0};
+    pool_cfg_t primary = {0};
     bb_json_t j;
 
     j = bb_json_obj_get_item(primary_obj, "host");
@@ -487,15 +487,15 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
         strncpy(primary.pass, bb_json_item_get_string(j), sizeof(primary.pass) - 1);
     } else {
         strncpy(primary.pass,
-                taipan_config_pool_pass_idx(TAIPAN_POOL_PRIMARY),
+                config_pool_pass_idx(POOL_PRIMARY),
                 sizeof(primary.pass) - 1);
     }
 
     /* TA-306 / TA-307 toggles. Missing fields preserve current value. */
     primary.extranonce_subscribe =
-        taipan_config_pool_extranonce_subscribe_idx(TAIPAN_POOL_PRIMARY);
+        config_pool_extranonce_subscribe_idx(POOL_PRIMARY);
     primary.decode_coinbase =
-        taipan_config_pool_decode_coinbase_idx(TAIPAN_POOL_PRIMARY);
+        config_pool_decode_coinbase_idx(POOL_PRIMARY);
     {
         bool b;
         if (bb_json_obj_get_bool(primary_obj, "extranonce_subscribe", &b)) {
@@ -507,8 +507,8 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
     }
 
     // Parse fallback pool (optional; null or missing clears it)
-    taipan_pool_cfg_t fallback = {0};
-    taipan_pool_cfg_t *fallback_ptr = NULL;
+    pool_cfg_t fallback = {0};
+    pool_cfg_t *fallback_ptr = NULL;
 
     bb_json_t fallback_obj = bb_json_obj_get_item(root, "fallback");
     if (fallback_obj && bb_json_item_is_object(fallback_obj)) {
@@ -557,14 +557,14 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
             strncpy(fallback.pass, bb_json_item_get_string(j), sizeof(fallback.pass) - 1);
         } else {
             strncpy(fallback.pass,
-                    taipan_config_pool_pass_idx(TAIPAN_POOL_FALLBACK),
+                    config_pool_pass_idx(POOL_FALLBACK),
                     sizeof(fallback.pass) - 1);
         }
 
         fallback.extranonce_subscribe =
-            taipan_config_pool_extranonce_subscribe_idx(TAIPAN_POOL_FALLBACK);
+            config_pool_extranonce_subscribe_idx(POOL_FALLBACK);
         fallback.decode_coinbase =
-            taipan_config_pool_decode_coinbase_idx(TAIPAN_POOL_FALLBACK);
+            config_pool_decode_coinbase_idx(POOL_FALLBACK);
         {
             bool b;
             if (bb_json_obj_get_bool(fallback_obj, "extranonce_subscribe", &b)) {
@@ -583,7 +583,7 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
     int active_idx = stratum_get_active_pool_idx();
 
     // Set pools atomically
-    bb_err_t err = taipan_config_set_pools(&primary, fallback_ptr);
+    bb_err_t err = config_set_pools(&primary, fallback_ptr);
     if (err != BB_OK) {
         bb_json_free(root);
         bb_http_resp_set_status(req, 500);
@@ -599,8 +599,8 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
      * so the new config takes effect on a fresh session. The UI mirrors
      * the switch-pool overlay during this window. Inactive-slot edits
      * just persist; user picks them up via Switch or auto-failover. */
-    if (active_idx == TAIPAN_POOL_PRIMARY ||
-        active_idx == TAIPAN_POOL_FALLBACK) {
+    if (active_idx == POOL_PRIMARY ||
+        active_idx == POOL_FALLBACK) {
         stratum_request_reconnect();
     }
 
@@ -679,28 +679,28 @@ static bb_err_t pool_delete_fallback_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
 
-    if (!taipan_config_pool_configured(TAIPAN_POOL_FALLBACK)) {
+    if (!config_pool_configured(POOL_FALLBACK)) {
         // Idempotent: already absent → 204.
         bb_http_resp_set_status(req, 204);
         return bb_http_resp_send(req, "", 0);
     }
 
-    taipan_pool_cfg_t primary = {0};
-    strncpy(primary.host,   taipan_config_pool_host_idx(TAIPAN_POOL_PRIMARY),   sizeof(primary.host)   - 1);
-    primary.port = taipan_config_pool_port_idx(TAIPAN_POOL_PRIMARY);
-    strncpy(primary.wallet, taipan_config_wallet_addr_idx(TAIPAN_POOL_PRIMARY), sizeof(primary.wallet) - 1);
-    strncpy(primary.worker, taipan_config_worker_name_idx(TAIPAN_POOL_PRIMARY), sizeof(primary.worker) - 1);
-    strncpy(primary.pass,   taipan_config_pool_pass_idx(TAIPAN_POOL_PRIMARY),   sizeof(primary.pass)   - 1);
+    pool_cfg_t primary = {0};
+    strncpy(primary.host,   config_pool_host_idx(POOL_PRIMARY),   sizeof(primary.host)   - 1);
+    primary.port = config_pool_port_idx(POOL_PRIMARY);
+    strncpy(primary.wallet, config_wallet_addr_idx(POOL_PRIMARY), sizeof(primary.wallet) - 1);
+    strncpy(primary.worker, config_worker_name_idx(POOL_PRIMARY), sizeof(primary.worker) - 1);
+    strncpy(primary.pass,   config_pool_pass_idx(POOL_PRIMARY),   sizeof(primary.pass)   - 1);
 
-    bb_err_t err = taipan_config_set_pools(&primary, NULL);
+    bb_err_t err = config_set_pools(&primary, NULL);
     if (err != BB_OK) {
         bb_http_resp_send_err(req, 500, "save failed");
         return err;
     }
 
     // If we were running on the fallback, fall back to primary.
-    if (stratum_get_active_pool_idx() == TAIPAN_POOL_FALLBACK) {
-        stratum_request_switch_pool(TAIPAN_POOL_PRIMARY);
+    if (stratum_get_active_pool_idx() == POOL_FALLBACK) {
+        stratum_request_switch_pool(POOL_PRIMARY);
     }
 
     bb_http_resp_set_status(req, 204);
@@ -711,7 +711,7 @@ static bb_err_t pool_delete_primary_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
 
-    if (!taipan_config_pool_configured(TAIPAN_POOL_FALLBACK)) {
+    if (!config_pool_configured(POOL_FALLBACK)) {
         bb_http_resp_set_status(req, 409);
         bb_http_resp_set_header(req, "Content-Type", "text/plain");
         static const char *msg = "cannot remove primary without a fallback configured";
@@ -719,21 +719,21 @@ static bb_err_t pool_delete_primary_handler(bb_http_request_t *req)
     }
 
     // Snapshot fallback into a struct, write it as the new primary, clear fallback.
-    taipan_pool_cfg_t new_primary = {0};
-    strncpy(new_primary.host,   taipan_config_pool_host_idx(TAIPAN_POOL_FALLBACK),   sizeof(new_primary.host)   - 1);
-    new_primary.port = taipan_config_pool_port_idx(TAIPAN_POOL_FALLBACK);
-    strncpy(new_primary.wallet, taipan_config_wallet_addr_idx(TAIPAN_POOL_FALLBACK), sizeof(new_primary.wallet) - 1);
-    strncpy(new_primary.worker, taipan_config_worker_name_idx(TAIPAN_POOL_FALLBACK), sizeof(new_primary.worker) - 1);
-    strncpy(new_primary.pass,   taipan_config_pool_pass_idx(TAIPAN_POOL_FALLBACK),   sizeof(new_primary.pass)   - 1);
+    pool_cfg_t new_primary = {0};
+    strncpy(new_primary.host,   config_pool_host_idx(POOL_FALLBACK),   sizeof(new_primary.host)   - 1);
+    new_primary.port = config_pool_port_idx(POOL_FALLBACK);
+    strncpy(new_primary.wallet, config_wallet_addr_idx(POOL_FALLBACK), sizeof(new_primary.wallet) - 1);
+    strncpy(new_primary.worker, config_worker_name_idx(POOL_FALLBACK), sizeof(new_primary.worker) - 1);
+    strncpy(new_primary.pass,   config_pool_pass_idx(POOL_FALLBACK),   sizeof(new_primary.pass)   - 1);
 
-    bb_err_t err = taipan_config_set_pools(&new_primary, NULL);
+    bb_err_t err = config_set_pools(&new_primary, NULL);
     if (err != BB_OK) {
         bb_http_resp_send_err(req, 500, "save failed");
         return err;
     }
 
     // Force a reconnect onto the new primary regardless of which slot was active.
-    stratum_request_switch_pool(TAIPAN_POOL_PRIMARY);
+    stratum_request_switch_pool(POOL_PRIMARY);
 
     bb_http_resp_set_status(req, 204);
     return bb_http_resp_send(req, "", 0);
@@ -812,11 +812,11 @@ static bb_err_t fan_handler(bb_http_request_t *req)
     fan_snapshot_t s = {
         .fan_rpm      = -1,
         .fan_duty_pct = -1,
-        .autofan      = taipan_config_autofan_enabled(),
-        .die_target_c = (int)taipan_config_die_target_c(),
-        .vr_target_c  = (int)taipan_config_vr_target_c(),
-        .manual_pct    = (int)taipan_config_manual_fan_pct(),
-        .min_pct       = (int)taipan_config_min_fan_pct(),
+        .autofan      = config_autofan_enabled(),
+        .die_target_c = (int)config_die_target_c(),
+        .vr_target_c  = (int)config_vr_target_c(),
+        .manual_pct    = (int)config_manual_fan_pct(),
+        .min_pct       = (int)config_min_fan_pct(),
         .die_ema_c     = -1.0f,
         .vr_ema_c      = -1.0f,
         .pid_input_c   = -1.0f,
@@ -867,7 +867,7 @@ static bb_err_t fan_post_handler(bb_http_request_t *req)
             bb_http_resp_send_err(req, 400, "Invalid autofan value");
             return BB_ERR_INVALID_ARG;
         }
-        taipan_config_set_autofan_enabled(autofan);
+        config_set_autofan_enabled(autofan);
     }
 
     bb_url_decode_field(body, "die_target_c", val, sizeof(val));
@@ -877,7 +877,7 @@ static bb_err_t fan_post_handler(bb_http_request_t *req)
             bb_http_resp_send_err(req, 400, "Invalid die_target_c value");
             return BB_ERR_INVALID_ARG;
         }
-        taipan_config_set_die_target_c((uint16_t)temp);
+        config_set_die_target_c((uint16_t)temp);
     }
 
     bb_url_decode_field(body, "vr_target_c", val, sizeof(val));
@@ -887,7 +887,7 @@ static bb_err_t fan_post_handler(bb_http_request_t *req)
             bb_http_resp_send_err(req, 400, "Invalid vr_target_c value");
             return BB_ERR_INVALID_ARG;
         }
-        taipan_config_set_vr_target_c((uint16_t)temp);
+        config_set_vr_target_c((uint16_t)temp);
     }
 
     bb_url_decode_field(body, "manual_pct", val, sizeof(val));
@@ -897,7 +897,7 @@ static bb_err_t fan_post_handler(bb_http_request_t *req)
             bb_http_resp_send_err(req, 400, "Invalid manual_pct value");
             return BB_ERR_INVALID_ARG;
         }
-        taipan_config_set_manual_fan_pct((uint16_t)pct);
+        config_set_manual_fan_pct((uint16_t)pct);
     }
 
     bb_url_decode_field(body, "min_pct", val, sizeof(val));
@@ -907,7 +907,7 @@ static bb_err_t fan_post_handler(bb_http_request_t *req)
             bb_http_resp_send_err(req, 400, "Invalid min_pct value");
             return BB_ERR_INVALID_ARG;
         }
-        taipan_config_set_min_fan_pct((uint16_t)pct);
+        config_set_min_fan_pct((uint16_t)pct);
     }
 
     bb_http_resp_set_status(req, 204);
@@ -953,8 +953,8 @@ static bb_err_t knot_handler(bb_http_request_t *req)
 
 static void taipan_info_extender(bb_json_t root)
 {
-    bb_json_obj_set_string(root, "worker_name", taipan_config_worker_name());
-    bb_json_obj_set_string(root, "hostname", taipan_config_hostname());
+    bb_json_obj_set_string(root, "worker_name", config_worker_name());
+    bb_json_obj_set_string(root, "hostname", config_hostname());
 
     const char *ssid = bb_nv_config_wifi_ssid();
     if (ssid) bb_json_obj_set_string(root, "ssid", ssid);
@@ -1025,7 +1025,7 @@ static bb_err_t settings_get_handler(bb_http_request_t *req)
 
     settings_snapshot_t s = {0};
     {
-        const char *hn = taipan_config_hostname();
+        const char *hn = config_hostname();
         if (hn) strncpy(s.hostname, hn, sizeof(s.hostname) - 1);
     }
     s.display_en     = bb_nv_config_display_enabled();
@@ -1072,11 +1072,11 @@ static bb_err_t apply_settings(bb_http_request_t *req, bool partial, bool *out_r
     }
 
     // Extract fields — use current values as defaults for PATCH
-    const char *pool_host = taipan_config_pool_host();
-    uint16_t pool_port = taipan_config_pool_port();
-    const char *wallet = taipan_config_wallet_addr();
-    const char *worker = taipan_config_worker_name();
-    const char *pool_pass = taipan_config_pool_pass();
+    const char *pool_host = config_pool_host();
+    uint16_t pool_port = config_pool_port();
+    const char *wallet = config_wallet_addr();
+    const char *worker = config_worker_name();
+    const char *pool_pass = config_pool_pass();
     bool reboot_required = false;
 
     bb_json_t j;
@@ -1102,11 +1102,11 @@ static bb_err_t apply_settings(bb_http_request_t *req, bool partial, bool *out_r
     // pool_pass is optional even for POST
 
     // Compare against current values to determine if reboot is needed
-    if (strcmp(pool_host, taipan_config_pool_host()) != 0 ||
-        pool_port != taipan_config_pool_port() ||
-        strcmp(wallet, taipan_config_wallet_addr()) != 0 ||
-        strcmp(worker, taipan_config_worker_name()) != 0 ||
-        strcmp(pool_pass, taipan_config_pool_pass()) != 0) {
+    if (strcmp(pool_host, config_pool_host()) != 0 ||
+        pool_port != config_pool_port() ||
+        strcmp(wallet, config_wallet_addr()) != 0 ||
+        strcmp(worker, config_worker_name()) != 0 ||
+        strcmp(pool_pass, config_pool_pass()) != 0) {
         reboot_required = true;
     }
 
@@ -1128,7 +1128,7 @@ static bb_err_t apply_settings(bb_http_request_t *req, bool partial, bool *out_r
 
     // Save mining config if any mining field was provided
     if (reboot_required) {
-        bb_err_t err = taipan_config_set_pool(pool_host, pool_port, wallet, worker, pool_pass);
+        bb_err_t err = config_set_pool(pool_host, pool_port, wallet, worker, pool_pass);
         if (err != BB_OK) {
             bb_json_free(root);
             bb_http_resp_set_status(req, 500);
@@ -1235,7 +1235,7 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
     }
 
     // Extract fields — use current values as defaults for PATCH
-    const char *hostname = taipan_config_hostname();
+    const char *hostname = config_hostname();
     bool reboot_required = false;
 
     bb_json_t j;
@@ -1246,9 +1246,9 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
     // Check if hostname was provided and validate it
     bool hostname_changed = false;
     if (bb_json_obj_get_item(root, "hostname")) {
-        if (strcmp(hostname, taipan_config_hostname()) != 0) {
+        if (strcmp(hostname, config_hostname()) != 0) {
             hostname_changed = true;
-            if (hostname[0] != '\0' && taipan_config_set_hostname(hostname) != BB_OK) {
+            if (hostname[0] != '\0' && config_set_hostname(hostname) != BB_OK) {
                 bb_json_free(root);
                 bb_http_resp_send_err(req, 400, "invalid hostname");
                 return BB_ERR_INVALID_ARG;

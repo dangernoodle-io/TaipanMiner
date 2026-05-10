@@ -67,7 +67,7 @@ For clangd-based C/C++ IntelliSense (via the `espidf-clangd-lsp` Claude Code plu
 
 - `src/` — app entry point, version, UI layer (`src/ui/`)
 - `components/` — ESP-IDF components:
-  - Local: `mining`, `stratum`, `board`, `asic`, `led`, `ota_validator`, `taipan_config`, `webui`
+  - Local: `mining`, `stratum`, `board`, `asic`, `led`, `ota_validator`, `config`, `webui`
   - From breadboard: `log_stream`, `nv_config`, `ota_pull`, `ota_push`, `http_server`, `bb_wifi`, `bb_prov`, `bb_mdns`, `bb_display`, `bb_display_st77xx` (tdongle-s3), `bb_display_ssd1306` (bitaxe-*)
 - `components/board/include/boards/` — per-board pin/peripheral headers
 - `sdkconfig/` — hand-authored sdkconfig deltas per board
@@ -82,7 +82,7 @@ TaipanMiner consumes shared infrastructure components from the breadboard librar
 - **Namespace isolation**: `BB_NV_CONFIG_NAMESPACE="taipanminer"` (compile-define) preserves NVS key compatibility with the old TaipanMiner-local NVS layout.
 - **Components consumed**:
   - `log_stream` — logging middleware
-  - `nv_config` — NVS configuration layer (TaipanMiner wraps via `taipan_config`)
+  - `nv_config` — NVS configuration layer (TaipanMiner wraps via `config`)
   - `ota_pull` — remote OTA fetch + signature validation
   - `ota_push` — HTTP upload OTA receiver
   - `http_server` — HTTP server base with standard URI registration

@@ -11,7 +11,7 @@
 #include "work.h"
 #include "stratum.h"
 #include "bb_nv.h"
-#include "taipan_config.h"
+#include "config.h"
 #include "webui.h"
 #include "ui.h"
 #include "bb_display.h"
@@ -212,7 +212,7 @@ void app_main(void)
     bb_log_tag_register("led", BB_LOG_LEVEL_INFO);
     bb_log_tag_register("ota_validator", BB_LOG_LEVEL_INFO);
     bb_log_tag_register("partition_fixup", BB_LOG_LEVEL_INFO);
-    bb_log_tag_register("taipan_config", BB_LOG_LEVEL_INFO);
+    bb_log_tag_register("config", BB_LOG_LEVEL_INFO);
     bb_log_tag_register("web", BB_LOG_LEVEL_INFO);
     // "diag" — opt-in instrumentation (per-job hashrate, tier1_dwell, job_swap,
     // share-ack latency, asic periodic stats). Default WARN suppresses info-level
@@ -232,9 +232,9 @@ void app_main(void)
 
     // Initialize early-tier registry (log_stream, nv_flash, nv_config)
     BB_ERROR_CHECK(bb_registry_init_early());
-    BB_ERROR_CHECK(taipan_config_init());
+    BB_ERROR_CHECK(config_init());
     // Register manifest so /api/manifest exposes the NVS keyspace
-    BB_ERROR_CHECK(taipan_config_register_manifest());
+    BB_ERROR_CHECK(config_register_manifest());
     log_reset_reason();
     BB_ERROR_CHECK(led_init());
 
@@ -291,7 +291,7 @@ void app_main(void)
         bb_mdns_set_service_type("_taipanminer");
         {
             char hn[64];
-            const char *hostname = taipan_config_hostname();
+            const char *hostname = config_hostname();
             if (hostname && hostname[0]) {
                 strncpy(hn, hostname, sizeof(hn) - 1);
                 hn[sizeof(hn) - 1] = '\0';
@@ -299,7 +299,7 @@ void app_main(void)
                 /* First-boot edge before migration runs (un-provisioned device). Fall
                  * back to a sanitized worker so mDNS still has *something* to announce
                  * during the AP/prov flow. */
-                bb_mdns_build_hostname(taipan_config_worker_name(), NULL, hn, sizeof(hn));
+                bb_mdns_build_hostname(config_worker_name(), NULL, hn, sizeof(hn));
             }
             /* Instance name == hostname so dns-sd browses surface a useful identifier
              * (e.g. "tdongles3-1") instead of the generic "TaipanMiner". */
@@ -366,7 +366,7 @@ void app_main(void)
         bb_mdns_set_service_type("_taipanminer");
         {
             char hn[64];
-            const char *hostname = taipan_config_hostname();
+            const char *hostname = config_hostname();
             if (hostname && hostname[0]) {
                 strncpy(hn, hostname, sizeof(hn) - 1);
                 hn[sizeof(hn) - 1] = '\0';
@@ -374,7 +374,7 @@ void app_main(void)
                 /* First-boot edge before migration runs (un-provisioned device). Fall
                  * back to a sanitized worker so mDNS still has *something* to announce
                  * during the AP/prov flow. */
-                bb_mdns_build_hostname(taipan_config_worker_name(), NULL, hn, sizeof(hn));
+                bb_mdns_build_hostname(config_worker_name(), NULL, hn, sizeof(hn));
             }
             /* Instance name == hostname so dns-sd browses surface a useful identifier. */
             bb_mdns_set_instance_name(hn);
@@ -382,7 +382,7 @@ void app_main(void)
             bb_wifi_set_hostname(hn);
         }
         bb_mdns_init();
-        bb_mdns_set_txt("worker", taipan_config_worker_name());
+        bb_mdns_set_txt("worker", config_worker_name());
         bb_mdns_set_txt("board", FIRMWARE_BOARD);
         bb_mdns_set_txt("version", bb_system_get_version());
         bb_mdns_set_txt("state", "mining");
@@ -393,15 +393,15 @@ void app_main(void)
              * local device, so without this the device wouldn't show in its
              * own /api/knot. Use the same identity we just announced. */
             char hn[64];
-            const char *hostname = taipan_config_hostname();
+            const char *hostname = config_hostname();
             if (hostname && hostname[0]) {
                 strncpy(hn, hostname, sizeof(hn) - 1);
                 hn[sizeof(hn) - 1] = '\0';
             } else {
-                bb_mdns_build_hostname(taipan_config_worker_name(), NULL, hn, sizeof(hn));
+                bb_mdns_build_hostname(config_worker_name(), NULL, hn, sizeof(hn));
             }
             knot_set_self(hn, hn, NULL,
-                          taipan_config_worker_name(),
+                          config_worker_name(),
                           FIRMWARE_BOARD,
                           bb_system_get_version(),
                           "mining");

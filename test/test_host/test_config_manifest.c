@@ -1,19 +1,19 @@
 #include "unity.h"
 #include "bb_json.h"
 #include "bb_manifest.h"
-#include "taipan_config.h"
+#include "config.h"
 #include <string.h>
 
 void test_register_manifest_returns_ok(void)
 {
     bb_manifest_clear();
-    TEST_ASSERT_EQUAL(0, taipan_config_register_manifest());
+    TEST_ASSERT_EQUAL(0, config_register_manifest());
 }
 
 void test_register_manifest_registers_six_keys(void)
 {
     bb_manifest_clear();
-    TEST_ASSERT_EQUAL(0, taipan_config_register_manifest());
+    TEST_ASSERT_EQUAL(0, config_register_manifest());
     bb_json_t doc = bb_manifest_emit();
     TEST_ASSERT_NOT_NULL(doc);
     char *json = bb_json_serialize(doc);
@@ -29,7 +29,7 @@ void test_register_manifest_registers_six_keys(void)
 void test_register_manifest_idempotent_via_clear(void)
 {
     bb_manifest_clear();
-    TEST_ASSERT_EQUAL(0, taipan_config_register_manifest());
+    TEST_ASSERT_EQUAL(0, config_register_manifest());
     bb_manifest_clear();
-    TEST_ASSERT_EQUAL(0, taipan_config_register_manifest());
+    TEST_ASSERT_EQUAL(0, config_register_manifest());
 }

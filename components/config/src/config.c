@@ -1,4 +1,4 @@
-#include "taipan_config.h"
+#include "config.h"
 #include <stdio.h>
 #include <string.h>
 #include "bb_nv.h"
@@ -8,10 +8,10 @@
 #include "bb_mdns.h"
 #endif
 
-#define TAIPAN_NS "taipanminer"
+#define NV_NS "taipanminer"
 
 static struct {
-    taipan_pool_cfg_t pools[TAIPAN_POOL_COUNT];
+    pool_cfg_t pools[POOL_COUNT];
     char hostname[33];
     /* TA-315/TA-352: autofan / PID fields */
     bool     autofan_enabled;
@@ -21,7 +21,7 @@ static struct {
     uint16_t min_fan_pct;
 } s_config;
 
-static const char *TAG = "taipan_config";
+static const char *TAG = "config";
 
 /* NVS key names indexed by pool slot (0=primary, 1=fallback).
  * String/u16 fields use a "_2" suffix for slot 1.
@@ -35,31 +35,31 @@ static const char * const s_key_enxsub[2]  = { "pool_enxsub", "pool_enxsub2"  };
 static const char * const s_key_dcdcb[2]   = { "pool_dcdcb",  "pool_dcdcb2"   };
 
 /* idx=0 → primary (no suffix); idx=1 → fallback ("_2" / "2" suffix). */
-static bb_err_t load_pool_slot(int idx, taipan_pool_cfg_t *out)
+static bb_err_t load_pool_slot(int idx, pool_cfg_t *out)
 {
     bb_err_t err;
 
-    err = bb_nv_get_str(TAIPAN_NS, s_key_host[idx], out->host, sizeof(out->host), "");
+    err = bb_nv_get_str(NV_NS, s_key_host[idx], out->host, sizeof(out->host), "");
     if (err != BB_OK) {
         bb_log_e(TAG, "failed to load %s", s_key_host[idx]);
         return err;
     }
-    err = bb_nv_get_str(TAIPAN_NS, s_key_wallet[idx], out->wallet, sizeof(out->wallet), "");
+    err = bb_nv_get_str(NV_NS, s_key_wallet[idx], out->wallet, sizeof(out->wallet), "");
     if (err != BB_OK) {
         bb_log_e(TAG, "failed to load %s", s_key_wallet[idx]);
         return err;
     }
-    err = bb_nv_get_str(TAIPAN_NS, s_key_worker[idx], out->worker, sizeof(out->worker), "");
+    err = bb_nv_get_str(NV_NS, s_key_worker[idx], out->worker, sizeof(out->worker), "");
     if (err != BB_OK) {
         bb_log_e(TAG, "failed to load %s", s_key_worker[idx]);
         return err;
     }
-    err = bb_nv_get_str(TAIPAN_NS, s_key_pass[idx], out->pass, sizeof(out->pass), "");
+    err = bb_nv_get_str(NV_NS, s_key_pass[idx], out->pass, sizeof(out->pass), "");
     if (err != BB_OK) {
         bb_log_e(TAG, "failed to load %s", s_key_pass[idx]);
         return err;
     }
-    err = bb_nv_get_u16(TAIPAN_NS, s_key_port[idx], &out->port, 0);
+    err = bb_nv_get_u16(NV_NS, s_key_port[idx], &out->port, 0);
     if (err != BB_OK) {
         bb_log_e(TAG, "failed to load %s", s_key_port[idx]);
         return err;
@@ -67,33 +67,33 @@ static bb_err_t load_pool_slot(int idx, taipan_pool_cfg_t *out)
     {
         uint8_t v = 0;
         /* TA-306 default OFF, TA-307 default ON */
-        if (bb_nv_get_u8(TAIPAN_NS, s_key_enxsub[idx], &v, 0) == BB_OK) {
+        if (bb_nv_get_u8(NV_NS, s_key_enxsub[idx], &v, 0) == BB_OK) {
             out->extranonce_subscribe = (v != 0);
         }
-        if (bb_nv_get_u8(TAIPAN_NS, s_key_dcdcb[idx], &v, 1) == BB_OK) {
+        if (bb_nv_get_u8(NV_NS, s_key_dcdcb[idx], &v, 1) == BB_OK) {
             out->decode_coinbase = (v != 0);
         }
     }
     return BB_OK;
 }
 
-static bb_err_t save_pool_slot(int idx, const taipan_pool_cfg_t *in)
+static bb_err_t save_pool_slot(int idx, const pool_cfg_t *in)
 {
     bb_err_t err;
 
-    err = bb_nv_set_str(TAIPAN_NS, s_key_host[idx], in->host);
+    err = bb_nv_set_str(NV_NS, s_key_host[idx], in->host);
     if (err != BB_OK) return err;
-    err = bb_nv_set_u16(TAIPAN_NS, s_key_port[idx], in->port);
+    err = bb_nv_set_u16(NV_NS, s_key_port[idx], in->port);
     if (err != BB_OK) return err;
-    err = bb_nv_set_str(TAIPAN_NS, s_key_wallet[idx], in->wallet);
+    err = bb_nv_set_str(NV_NS, s_key_wallet[idx], in->wallet);
     if (err != BB_OK) return err;
-    err = bb_nv_set_str(TAIPAN_NS, s_key_worker[idx], in->worker);
+    err = bb_nv_set_str(NV_NS, s_key_worker[idx], in->worker);
     if (err != BB_OK) return err;
-    err = bb_nv_set_str(TAIPAN_NS, s_key_pass[idx], in->pass);
+    err = bb_nv_set_str(NV_NS, s_key_pass[idx], in->pass);
     if (err != BB_OK) return err;
-    err = bb_nv_set_u8(TAIPAN_NS, s_key_enxsub[idx], in->extranonce_subscribe ? 1 : 0);
+    err = bb_nv_set_u8(NV_NS, s_key_enxsub[idx], in->extranonce_subscribe ? 1 : 0);
     if (err != BB_OK) return err;
-    err = bb_nv_set_u8(TAIPAN_NS, s_key_dcdcb[idx],  in->decode_coinbase      ? 1 : 0);
+    err = bb_nv_set_u8(NV_NS, s_key_dcdcb[idx],  in->decode_coinbase      ? 1 : 0);
     if (err != BB_OK) return err;
 
     return BB_OK;
@@ -120,7 +120,7 @@ static bool valid_hostname(const char *s)
     return true;
 }
 
-bb_err_t taipan_config_init(void)
+bb_err_t config_init(void)
 {
 #ifdef ESP_PLATFORM
     bb_err_t err;
@@ -132,7 +132,7 @@ bb_err_t taipan_config_init(void)
     if (err != BB_OK) return err;
 
     // Load hostname
-    err = bb_nv_get_str(TAIPAN_NS, "hostname", s_config.hostname, sizeof(s_config.hostname), "");
+    err = bb_nv_get_str(NV_NS, "hostname", s_config.hostname, sizeof(s_config.hostname), "");
     if (err != BB_OK) {
         bb_log_e(TAG, "failed to load hostname");
         return err;
@@ -144,7 +144,7 @@ bb_err_t taipan_config_init(void)
         char normalized[64];
         bb_mdns_build_hostname(s_config.pools[0].worker, NULL, normalized, sizeof(normalized));
         if (normalized[0] != '\0') {
-            err = taipan_config_set_hostname(normalized);
+            err = config_set_hostname(normalized);
             if (err == BB_OK) {
                 bb_log_i(TAG, "migrated hostname from worker: %s", normalized);
             } else {
@@ -157,7 +157,7 @@ bb_err_t taipan_config_init(void)
     /* TA-315/TA-352: autofan / PID fields */
     {
         uint8_t v = 1;
-        if (bb_nv_get_u8(TAIPAN_NS, "autofan", &v, 1) == BB_OK) {
+        if (bb_nv_get_u8(NV_NS, "autofan", &v, 1) == BB_OK) {
             s_config.autofan_enabled = (v != 0);
         } else {
             s_config.autofan_enabled = true;
@@ -165,7 +165,7 @@ bb_err_t taipan_config_init(void)
         /* TA-352: die_target defaults to 60, vr_target defaults to 75.
          * Old NVS key temp_target is abandoned; no migration. */
         uint16_t u16 = 60;
-        if (bb_nv_get_u16(TAIPAN_NS, "die_target", &u16, 60) == BB_OK) {
+        if (bb_nv_get_u16(NV_NS, "die_target", &u16, 60) == BB_OK) {
             if (u16 < 35) u16 = 35;
             if (u16 > 85) u16 = 85;
         } else {
@@ -174,7 +174,7 @@ bb_err_t taipan_config_init(void)
         s_config.die_target_c = u16;
 
         u16 = 75;
-        if (bb_nv_get_u16(TAIPAN_NS, "vr_target", &u16, 75) == BB_OK) {
+        if (bb_nv_get_u16(NV_NS, "vr_target", &u16, 75) == BB_OK) {
             if (u16 < 50) u16 = 50;
             if (u16 > 100) u16 = 100;
         } else {
@@ -183,7 +183,7 @@ bb_err_t taipan_config_init(void)
         s_config.vr_target_c = u16;
 
         u16 = 100;
-        if (bb_nv_get_u16(TAIPAN_NS, "manual_fan", &u16, 100) == BB_OK) {
+        if (bb_nv_get_u16(NV_NS, "manual_fan", &u16, 100) == BB_OK) {
             if (u16 > 100) u16 = 100;
         } else {
             u16 = 100;
@@ -191,7 +191,7 @@ bb_err_t taipan_config_init(void)
         s_config.manual_fan_pct = u16;
 
         u16 = 25;
-        if (bb_nv_get_u16(TAIPAN_NS, "min_fan", &u16, 25) == BB_OK) {
+        if (bb_nv_get_u16(NV_NS, "min_fan", &u16, 25) == BB_OK) {
             if (u16 > 100) u16 = 100;
         } else {
             u16 = 25;
@@ -202,7 +202,7 @@ bb_err_t taipan_config_init(void)
     bb_log_i(TAG, "pool config loaded (pool=%s:%u worker=%s.%s)",
              s_config.pools[0].host, s_config.pools[0].port,
              s_config.pools[0].wallet, s_config.pools[0].worker);
-    if (taipan_config_pool_configured(TAIPAN_POOL_FALLBACK)) {
+    if (config_pool_configured(POOL_FALLBACK)) {
         bb_log_i(TAG, "fallback pool configured (pool=%s:%u worker=%s.%s)",
                  s_config.pools[1].host, s_config.pools[1].port,
                  s_config.pools[1].wallet, s_config.pools[1].worker);
@@ -223,65 +223,65 @@ bb_err_t taipan_config_init(void)
 #endif
 }
 
-const char *taipan_config_pool_host_idx(int idx)
+const char *config_pool_host_idx(int idx)
 {
-    if (idx < 0 || idx >= TAIPAN_POOL_COUNT) {
+    if (idx < 0 || idx >= POOL_COUNT) {
         return "";
     }
     return s_config.pools[idx].host;
 }
 
-uint16_t taipan_config_pool_port_idx(int idx)
+uint16_t config_pool_port_idx(int idx)
 {
-    if (idx < 0 || idx >= TAIPAN_POOL_COUNT) {
+    if (idx < 0 || idx >= POOL_COUNT) {
         return 0;
     }
     return s_config.pools[idx].port;
 }
 
-const char *taipan_config_wallet_addr_idx(int idx)
+const char *config_wallet_addr_idx(int idx)
 {
-    if (idx < 0 || idx >= TAIPAN_POOL_COUNT) {
+    if (idx < 0 || idx >= POOL_COUNT) {
         return "";
     }
     return s_config.pools[idx].wallet;
 }
 
-const char *taipan_config_worker_name_idx(int idx)
+const char *config_worker_name_idx(int idx)
 {
-    if (idx < 0 || idx >= TAIPAN_POOL_COUNT) {
+    if (idx < 0 || idx >= POOL_COUNT) {
         return "";
     }
     return s_config.pools[idx].worker;
 }
 
-const char *taipan_config_pool_pass_idx(int idx)
+const char *config_pool_pass_idx(int idx)
 {
-    if (idx < 0 || idx >= TAIPAN_POOL_COUNT) {
+    if (idx < 0 || idx >= POOL_COUNT) {
         return "";
     }
     return s_config.pools[idx].pass;
 }
 
-bool taipan_config_pool_extranonce_subscribe_idx(int idx)
+bool config_pool_extranonce_subscribe_idx(int idx)
 {
-    if (idx < 0 || idx >= TAIPAN_POOL_COUNT) {
+    if (idx < 0 || idx >= POOL_COUNT) {
         return false;
     }
     return s_config.pools[idx].extranonce_subscribe;
 }
 
-bool taipan_config_pool_decode_coinbase_idx(int idx)
+bool config_pool_decode_coinbase_idx(int idx)
 {
-    if (idx < 0 || idx >= TAIPAN_POOL_COUNT) {
+    if (idx < 0 || idx >= POOL_COUNT) {
         return true;  /* default-on; bounds-safe fallback matches expected UX */
     }
     return s_config.pools[idx].decode_coinbase;
 }
 
-bool taipan_config_pool_configured(int idx)
+bool config_pool_configured(int idx)
 {
-    if (idx < 0 || idx >= TAIPAN_POOL_COUNT) {
+    if (idx < 0 || idx >= POOL_COUNT) {
         return false;
     }
     return s_config.pools[idx].host[0] != '\0' &&
@@ -291,15 +291,15 @@ bool taipan_config_pool_configured(int idx)
 }
 
 // Legacy primary-only accessors (aliases for index 0)
-const char *taipan_config_pool_host(void) { return taipan_config_pool_host_idx(TAIPAN_POOL_PRIMARY); }
-uint16_t taipan_config_pool_port(void) { return taipan_config_pool_port_idx(TAIPAN_POOL_PRIMARY); }
-const char *taipan_config_wallet_addr(void) { return taipan_config_wallet_addr_idx(TAIPAN_POOL_PRIMARY); }
-const char *taipan_config_worker_name(void) { return taipan_config_worker_name_idx(TAIPAN_POOL_PRIMARY); }
-const char *taipan_config_pool_pass(void) { return taipan_config_pool_pass_idx(TAIPAN_POOL_PRIMARY); }
-const char *taipan_config_hostname(void) { return s_config.hostname; }
+const char *config_pool_host(void) { return config_pool_host_idx(POOL_PRIMARY); }
+uint16_t config_pool_port(void) { return config_pool_port_idx(POOL_PRIMARY); }
+const char *config_wallet_addr(void) { return config_wallet_addr_idx(POOL_PRIMARY); }
+const char *config_worker_name(void) { return config_worker_name_idx(POOL_PRIMARY); }
+const char *config_pool_pass(void) { return config_pool_pass_idx(POOL_PRIMARY); }
+const char *config_hostname(void) { return s_config.hostname; }
 
-bb_err_t taipan_config_set_pools(const taipan_pool_cfg_t *primary,
-                                 const taipan_pool_cfg_t *fallback)
+bb_err_t config_set_pools(const pool_cfg_t *primary,
+                                 const pool_cfg_t *fallback)
 {
     if (!primary) {
         return BB_ERR_INVALID_ARG;
@@ -316,7 +316,7 @@ bb_err_t taipan_config_set_pools(const taipan_pool_cfg_t *primary,
         if (err != BB_OK) return err;
     } else {
         // Clear fallback by writing empty strings, 0 port, and default bools.
-        static const taipan_pool_cfg_t empty_fallback = {
+        static const pool_cfg_t empty_fallback = {
             .host   = "",
             .port   = 0,
             .wallet = "",
@@ -364,12 +364,12 @@ bb_err_t taipan_config_set_pools(const taipan_pool_cfg_t *primary,
     return BB_OK;
 }
 
-bb_err_t taipan_config_set_pool(const char *pool_host, uint16_t pool_port,
+bb_err_t config_set_pool(const char *pool_host, uint16_t pool_port,
                                       const char *wallet_addr, const char *worker_name,
                                       const char *pool_pass)
 {
     // Build primary pool config
-    taipan_pool_cfg_t primary = {0};
+    pool_cfg_t primary = {0};
     strncpy(primary.host, pool_host, sizeof(primary.host) - 1);
     primary.host[sizeof(primary.host) - 1] = '\0';
     primary.port = pool_port;
@@ -385,22 +385,22 @@ bb_err_t taipan_config_set_pool(const char *pool_host, uint16_t pool_port,
     primary.decode_coinbase      = s_config.pools[0].decode_coinbase;
 
     // Read current fallback from cache
-    taipan_pool_cfg_t current_fallback = s_config.pools[1];
+    pool_cfg_t current_fallback = s_config.pools[1];
 
     // Only pass fallback if it's configured; otherwise pass NULL to clear it
-    taipan_pool_cfg_t *fallback_ptr = taipan_config_pool_configured(TAIPAN_POOL_FALLBACK) ? &current_fallback : NULL;
+    pool_cfg_t *fallback_ptr = config_pool_configured(POOL_FALLBACK) ? &current_fallback : NULL;
 
-    return taipan_config_set_pools(&primary, fallback_ptr);
+    return config_set_pools(&primary, fallback_ptr);
 }
 
-bb_err_t taipan_config_set_hostname(const char *hostname)
+bb_err_t config_set_hostname(const char *hostname)
 {
     if (!valid_hostname(hostname)) {
         return BB_ERR_INVALID_ARG;
     }
 
 #ifdef ESP_PLATFORM
-    bb_err_t err = bb_nv_set_str(TAIPAN_NS, "hostname", hostname);
+    bb_err_t err = bb_nv_set_str(NV_NS, "hostname", hostname);
     if (err != BB_OK) {
         return err;
     }
@@ -414,71 +414,71 @@ bb_err_t taipan_config_set_hostname(const char *hostname)
 }
 
 /* TA-315/TA-352: autofan / PID getters */
-bool     taipan_config_autofan_enabled(void) { return s_config.autofan_enabled; }
-uint16_t taipan_config_die_target_c(void)    { return s_config.die_target_c; }
-uint16_t taipan_config_vr_target_c(void)     { return s_config.vr_target_c; }
-uint16_t taipan_config_manual_fan_pct(void)  { return s_config.manual_fan_pct; }
-uint16_t taipan_config_min_fan_pct(void)     { return s_config.min_fan_pct; }
+bool     config_autofan_enabled(void) { return s_config.autofan_enabled; }
+uint16_t config_die_target_c(void)    { return s_config.die_target_c; }
+uint16_t config_vr_target_c(void)     { return s_config.vr_target_c; }
+uint16_t config_manual_fan_pct(void)  { return s_config.manual_fan_pct; }
+uint16_t config_min_fan_pct(void)     { return s_config.min_fan_pct; }
 
-bb_err_t taipan_config_set_autofan_enabled(bool enabled)
+bb_err_t config_set_autofan_enabled(bool enabled)
 {
 #ifdef ESP_PLATFORM
-    bb_err_t err = bb_nv_set_u8(TAIPAN_NS, "autofan", enabled ? 1 : 0);
+    bb_err_t err = bb_nv_set_u8(NV_NS, "autofan", enabled ? 1 : 0);
     if (err != BB_OK) return err;
 #endif
     s_config.autofan_enabled = enabled;
     return BB_OK;
 }
 
-bb_err_t taipan_config_set_die_target_c(uint16_t val)
+bb_err_t config_set_die_target_c(uint16_t val)
 {
     if (val < 35) val = 35;
     if (val > 85) val = 85;
 #ifdef ESP_PLATFORM
-    bb_err_t err = bb_nv_set_u16(TAIPAN_NS, "die_target", val);
+    bb_err_t err = bb_nv_set_u16(NV_NS, "die_target", val);
     if (err != BB_OK) return err;
 #endif
     s_config.die_target_c = val;
     return BB_OK;
 }
 
-bb_err_t taipan_config_set_vr_target_c(uint16_t val)
+bb_err_t config_set_vr_target_c(uint16_t val)
 {
     if (val < 50) val = 50;
     if (val > 100) val = 100;
 #ifdef ESP_PLATFORM
-    bb_err_t err = bb_nv_set_u16(TAIPAN_NS, "vr_target", val);
+    bb_err_t err = bb_nv_set_u16(NV_NS, "vr_target", val);
     if (err != BB_OK) return err;
 #endif
     s_config.vr_target_c = val;
     return BB_OK;
 }
 
-bb_err_t taipan_config_set_manual_fan_pct(uint16_t val)
+bb_err_t config_set_manual_fan_pct(uint16_t val)
 {
     if (val > 100) val = 100;
 #ifdef ESP_PLATFORM
-    bb_err_t err = bb_nv_set_u16(TAIPAN_NS, "manual_fan", val);
+    bb_err_t err = bb_nv_set_u16(NV_NS, "manual_fan", val);
     if (err != BB_OK) return err;
 #endif
     s_config.manual_fan_pct = val;
     return BB_OK;
 }
 
-bb_err_t taipan_config_set_min_fan_pct(uint16_t val)
+bb_err_t config_set_min_fan_pct(uint16_t val)
 {
     if (val > 100) val = 100;
 #ifdef ESP_PLATFORM
-    bb_err_t err = bb_nv_set_u16(TAIPAN_NS, "min_fan", val);
+    bb_err_t err = bb_nv_set_u16(NV_NS, "min_fan", val);
     if (err != BB_OK) return err;
 #endif
     s_config.min_fan_pct = val;
     return BB_OK;
 }
 
-bb_err_t taipan_config_register_manifest(void)
+bb_err_t config_register_manifest(void)
 {
-    static const bb_manifest_nv_t taipan_nv_keys[] = {
+    static const bb_manifest_nv_t nv_keys[] = {
         {
             .key = "pool_host",
             .type = "str",
@@ -616,6 +616,6 @@ bb_err_t taipan_config_register_manifest(void)
         },
     };
 
-    return bb_manifest_register_nv(TAIPAN_NS, taipan_nv_keys,
-                                   sizeof(taipan_nv_keys) / sizeof(taipan_nv_keys[0]));
+    return bb_manifest_register_nv(NV_NS, nv_keys,
+                                   sizeof(nv_keys) / sizeof(nv_keys[0]));
 }

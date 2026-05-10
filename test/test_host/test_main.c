@@ -68,7 +68,7 @@ void test_nv_config_init(void);
 void test_nv_config_all_empty_before_provisioning(void);
 void test_nv_config_not_provisioned_by_default(void);
 
-// Forward declarations from test_taipan_config_hostname.c
+// Forward declarations from test_config_hostname.c
 void test_valid_hostname_single_char(void);
 void test_valid_hostname_lowercase_digits_hyphen(void);
 void test_valid_hostname_mixed(void);
@@ -82,12 +82,12 @@ void test_invalid_hostname_dot(void);
 void test_invalid_hostname_too_long(void);
 void test_hostname_persists_after_set(void);
 
-// Forward declarations from test_taipan_config_manifest.c
+// Forward declarations from test_config_manifest.c
 void test_register_manifest_returns_ok(void);
 void test_register_manifest_registers_six_keys(void);
 void test_register_manifest_idempotent_via_clear(void);
 
-// Forward declarations from test_taipan_config_pools.c
+// Forward declarations from test_config_pools.c
 void test_set_pools_null_primary_rejected(void);
 void test_set_pools_primary_only_clears_fallback(void);
 void test_set_pools_writes_both_slots(void);
@@ -684,7 +684,7 @@ int main(void) {
     RUN_TEST(test_nv_config_all_empty_before_provisioning);
     RUN_TEST(test_nv_config_not_provisioned_by_default);
 
-    // taipan_config_hostname tests
+    // config_hostname tests
     RUN_TEST(test_valid_hostname_single_char);
     RUN_TEST(test_valid_hostname_lowercase_digits_hyphen);
     RUN_TEST(test_valid_hostname_mixed);
@@ -698,7 +698,7 @@ int main(void) {
     RUN_TEST(test_invalid_hostname_too_long);
     RUN_TEST(test_hostname_persists_after_set);
 
-    // taipan_config manifest tests
+    // config manifest tests
     RUN_TEST(test_register_manifest_returns_ok);
     RUN_TEST(test_register_manifest_registers_six_keys);
     RUN_TEST(test_register_manifest_idempotent_via_clear);

@@ -4,7 +4,7 @@
 #include "stratum_utils.h"
 #include "stratum_machine.h"
 #include "bb_nv.h"
-#include "taipan_config.h"
+#include "config.h"
 #include "mining.h"
 #include "diag.h"
 #include "work.h"
@@ -70,7 +70,7 @@ static inline int inflight_slot(int id) {
 }
 
 // Pool failover state (TA-202)
-static volatile int s_active_pool_idx = TAIPAN_POOL_PRIMARY;
+static volatile int s_active_pool_idx = POOL_PRIMARY;
 static int s_consecutive_fail_count = 0;
 #define STRATUM_FAILOVER_THRESHOLD 3
 
@@ -129,10 +129,10 @@ void stratum_set_wifi_kick_cb(stratum_wifi_kick_cb_t cb)
 
 bb_err_t stratum_request_switch_pool(int idx)
 {
-    if (idx < 0 || idx >= TAIPAN_POOL_COUNT) {
+    if (idx < 0 || idx >= POOL_COUNT) {
         return BB_ERR_INVALID_ARG;
     }
-    if (!taipan_config_pool_configured(idx)) {
+    if (!config_pool_configured(idx)) {
         return BB_ERR_INVALID_ARG;
     }
     if (idx == s_active_pool_idx) {
@@ -654,11 +654,11 @@ void stratum_task(void *arg)
 
     for (;;) {
         // Read config
-        const char *pool_host = taipan_config_pool_host();
-        uint16_t pool_port = taipan_config_pool_port();
-        s_wallet_addr = taipan_config_wallet_addr();
-        s_worker_name = taipan_config_worker_name();
-        const char *pool_pass = taipan_config_pool_pass();
+        const char *pool_host = config_pool_host();
+        uint16_t pool_port = config_pool_port();
+        s_wallet_addr = config_wallet_addr();
+        s_worker_name = config_worker_name();
+        const char *pool_pass = config_pool_pass();
 
         bb_log_i(TAG, "connecting to %s:%u wallet=%s worker=%s",
                  pool_host, pool_port, s_wallet_addr, s_worker_name);
@@ -740,7 +740,7 @@ void stratum_task(void *arg)
         }
 
         /* TA-306: send mining.extranonce.subscribe if the active slot requests it */
-        if (taipan_config_pool_extranonce_subscribe_idx(s_active_pool_idx)) {
+        if (config_pool_extranonce_subscribe_idx(s_active_pool_idx)) {
             int sub_id = stratum_request("mining.extranonce.subscribe", "[]");
             if (sub_id >= 0) {
                 s_state.extranonce_subscribe_id = sub_id;
@@ -798,7 +798,7 @@ void stratum_task(void *arg)
                 s_consecutive_fail_count++;
                 if (s_consecutive_fail_count >= STRATUM_FAILOVER_THRESHOLD) {
                     int other_idx = (s_active_pool_idx == 0) ? 1 : 0;
-                    if (taipan_config_pool_configured(other_idx)) {
+                    if (config_pool_configured(other_idx)) {
                         bb_log_w(TAG, "failover: switching to pool slot %d after %d failures",
                                  other_idx, STRATUM_FAILOVER_THRESHOLD);
                         s_active_pool_idx = other_idx;

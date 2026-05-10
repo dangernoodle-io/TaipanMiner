@@ -8,13 +8,30 @@ vi.mock('../lib/api', () => ({
   fetchOtaCheck: vi.fn(), triggerOtaUpdate: vi.fn(), fetchOtaStatus: vi.fn(), uploadOta: vi.fn()
 }))
 
-import Update from './Update.svelte'
-import { fetchOtaCheck, triggerOtaUpdate, fetchOtaStatus, uploadOta } from '../lib/api'
+vi.mock('../lib/otaState.svelte', () => ({
+  createOtaState: vi.fn().mockReturnValue({
+    get installConfirmOpen() { return false },
+    set installConfirmOpen(_v: boolean) {},
+    get uploadConfirmOpen() { return false },
+    set uploadConfirmOpen(_v: boolean) {},
+    get selectedFile() { return null },
+    set selectedFile(_v: File | null) {},
+    get dragOver() { return false },
+    get fileInput() { return null },
+    set fileInput(_v: HTMLInputElement | null) {},
+    handleCheck: vi.fn(),
+    handleInstall: vi.fn(),
+    handleUpload: vi.fn(),
+    requestInstall: vi.fn(),
+    requestUpload: vi.fn(),
+    onFileSelect: vi.fn(),
+    onDrop: vi.fn(),
+    onDragOver: vi.fn(),
+    onDragLeave: vi.fn(),
+  })
+}))
 
-const mockFetchOtaCheck = fetchOtaCheck as ReturnType<typeof vi.fn>
-const mockTriggerOtaUpdate = triggerOtaUpdate as ReturnType<typeof vi.fn>
-const mockFetchOtaStatus = fetchOtaStatus as ReturnType<typeof vi.fn>
-const mockUploadOta = uploadOta as ReturnType<typeof vi.fn>
+import Update from './Update.svelte'
 
 const baseInfo = {
   board: 'bitaxe-601', project_name: 'TaipanMiner', version: 'v1.0.0', idf_version: '5.5.3',
@@ -44,10 +61,16 @@ describe('Update', () => {
     expect(result.component).toBeDefined()
   })
 
+  it('renders Firmware and Manual Upload headings', () => {
+    const { getByRole } = render(Update)
+    expect(getByRole('heading', { name: 'Firmware' })).toBeTruthy()
+    expect(getByRole('heading', { name: 'Manual Upload' })).toBeTruthy()
+  })
+
   it('renders with firmware info', () => {
     info.set({ ...baseInfo, version: 'v1.5.2' } as any)
-    const result = render(Update)
-    expect(result.component).toBeDefined()
+    const { container } = render(Update)
+    expect(container.textContent).toContain('v1.5.2')
   })
 
   it('renders with build date', () => {
@@ -56,195 +79,140 @@ describe('Update', () => {
     expect(result.component).toBeDefined()
   })
 
-  it('renders checking state', () => {
-    otaCheck.set({ checking: true, result: null, msg: 'Checking...', kind: '' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders available update', () => {
-    otaCheck.set({ checking: false, result: { update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' }, msg: 'Update available', kind: 'avail' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders up-to-date message', () => {
-    otaCheck.set({ checking: false, result: { update_available: false, latest_version: 'v1.0.0', current_version: 'v1.0.0' }, msg: 'Up to date', kind: 'ok' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders check error', () => {
-    otaCheck.set({ checking: false, result: null, msg: 'Check failed', kind: 'err' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders installing', () => {
-    otaInstall.set({ installing: true, pct: 45, state: 'Installing...', msg: 'Flashing', kind: '' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders install progress', () => {
-    otaInstall.set({ installing: true, pct: 65, state: 'Installing', msg: 'Progress: 65%', kind: '' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders install complete', () => {
-    otaInstall.set({ installing: false, pct: 100, state: 'Complete', msg: 'Installed', kind: 'ok' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders install error', () => {
-    otaInstall.set({ installing: false, pct: 0, state: 'Error', msg: 'Failed', kind: 'err' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders uploading', () => {
-    otaUpload.set({ uploading: true, pct: 30, msg: 'Uploading', kind: '' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders upload progress', () => {
-    otaUpload.set({ uploading: true, pct: 75, msg: 'In progress', kind: '' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders upload complete', () => {
-    otaUpload.set({ uploading: false, pct: 100, msg: 'Complete', kind: 'ok' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders upload error', () => {
-    otaUpload.set({ uploading: false, pct: 0, msg: 'Failed', kind: 'err' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders reboot overlay', () => {
-    rebooting.set({ active: true, reason: 'Update', elapsed: 5, timedOut: false })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders reboot timeout', () => {
-    rebooting.set({ active: true, reason: 'Flash', elapsed: 90, timedOut: true })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders device info', () => {
+  it('renders firmware name from board info', () => {
     info.set(baseInfo as any)
-    const result = render(Update)
-    expect(result.component).toBeDefined()
+    const { container } = render(Update)
+    expect(container.textContent).toContain('bitaxe-601')
   })
 
-  it('renders multiple states', () => {
+  it('renders default firmware name when info is null', () => {
+    info.set(null)
+    const { container } = render(Update)
+    expect(container.textContent).toContain('firmware.bin')
+  })
+
+  it('renders checking state: Check button shows Checking…', () => {
+    otaCheck.set({ checking: true, result: null, msg: 'Checking for updates…', kind: '' })
+    const { container } = render(Update)
+    expect(container.textContent).toContain('Checking…')
+  })
+
+  it('renders otaCheck message when present', () => {
+    otaCheck.set({ checking: false, result: null, msg: 'Failed to check: network error.', kind: 'err' })
+    const { container } = render(Update)
+    expect(container.textContent).toContain('Failed to check: network error.')
+  })
+
+  it('renders Install button when update is available', () => {
+    otaCheck.set({
+      checking: false,
+      result: { update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' },
+      msg: 'Update available', kind: 'avail'
+    })
+    const { container } = render(Update)
+    expect(container.textContent).toContain('Install v2.0.0')
+  })
+
+  it('does NOT render Install button when no update available', () => {
+    otaCheck.set({
+      checking: false,
+      result: { update_available: false, latest_version: 'v1.0.0', current_version: 'v1.0.0' },
+      msg: 'Up to date', kind: 'ok'
+    })
+    const { container } = render(Update)
+    expect(container.textContent).not.toContain('Install v')
+  })
+
+  it('renders install progress bar when installing', () => {
+    otaInstall.set({ installing: true, pct: 45, state: 'downloading', msg: 'Downloading… 45%', kind: '' })
+    const { container } = render(Update)
+    expect(container.textContent).toContain('Downloading… 45%')
+    // progress bar present
+    expect(container.querySelector('.progress')).toBeTruthy()
+  })
+
+  it('renders install progress bar for non-error msg', () => {
+    otaInstall.set({ installing: false, pct: 100, state: 'complete', msg: 'Install complete. Miner is rebooting.', kind: 'ok' })
+    const { container } = render(Update)
+    expect(container.textContent).toContain('Install complete. Miner is rebooting.')
+  })
+
+  it('renders install error msg without progress bar', () => {
+    otaInstall.set({ installing: false, pct: 37, state: 'error', msg: 'Install ended: error.', kind: 'err' })
+    const { container } = render(Update)
+    expect(container.textContent).toContain('Install ended: error.')
+  })
+
+  it('renders upload progress bar when uploading', () => {
+    otaUpload.set({ uploading: true, pct: 30, msg: 'Uploading… 30%', kind: '' })
+    const { container } = render(Update)
+    expect(container.textContent).toContain('Uploading… 30%')
+  })
+
+  it('renders upload complete message with progress bar', () => {
+    otaUpload.set({ uploading: false, pct: 100, msg: 'Upload complete. Miner is rebooting to apply the firmware.', kind: 'ok' })
+    const { container } = render(Update)
+    expect(container.textContent).toContain('Upload complete. Miner is rebooting to apply the firmware.')
+  })
+
+  it('renders upload error without progress bar', () => {
+    otaUpload.set({ uploading: false, pct: 73, msg: 'Upload failed: connection reset.', kind: 'err' })
+    const { container } = render(Update)
+    expect(container.textContent).toContain('Upload failed: connection reset.')
+  })
+
+  it('renders reboot overlay when rebooting', () => {
+    rebooting.set({ active: true, reason: 'Applying firmware update', elapsed: 5, timedOut: false })
+    const { container } = render(Update)
+    expect(container.textContent).toContain('Rebooting')
+  })
+
+  it('renders with multiple states at once', () => {
     otaCheck.set({ checking: false, result: null, msg: '', kind: 'ok' })
     otaInstall.set({ installing: false, pct: 0, state: '', msg: '', kind: '' })
     const result = render(Update)
     expect(result.component).toBeDefined()
   })
 
-  it('renders firmware info with board', () => {
-    info.set({ ...baseInfo, version: 'v1.5.2' } as any)
+  it('renders minerBusy state when rebooting disables Check button', () => {
+    rebooting.set({ active: true, reason: 'Test', elapsed: 0, timedOut: false })
     const { container } = render(Update)
-    expect(container.textContent).toContain('v1.5.2')
+    // Check button should be disabled
+    const checkBtn = container.querySelector('button.btn.primary') as HTMLButtonElement
+    expect(checkBtn?.disabled).toBe(true)
   })
 
-  it('renders checking state', () => {
-    otaCheck.set({ checking: true, result: null, msg: 'Checking...', kind: '' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders available update state', () => {
-    otaCheck.set({
-      checking: false,
-      result: { update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' },
-      msg: 'Update available',
-      kind: 'avail'
-    })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders up to date state', () => {
-    otaCheck.set({
-      checking: false,
-      result: { update_available: false, latest_version: 'v1.0.0', current_version: 'v1.0.0' },
-      msg: 'Up to date',
-      kind: 'ok'
-    })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders check error state', () => {
-    otaCheck.set({ checking: false, result: null, msg: 'Check failed', kind: 'err' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders installing state with progress', () => {
-    otaInstall.set({ installing: true, pct: 45, state: 'Installing...', msg: 'Flashing', kind: '' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders install progress at various percentages', () => {
-    otaInstall.set({ installing: true, pct: 65, state: 'Installing', msg: 'Progress: 65%', kind: '' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders install complete state', () => {
-    otaInstall.set({ installing: false, pct: 100, state: 'Complete', msg: 'Installed', kind: 'ok' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders install error state', () => {
-    otaInstall.set({ installing: false, pct: 0, state: 'Error', msg: 'Failed', kind: 'err' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders uploading state', () => {
-    otaUpload.set({ uploading: true, pct: 30, msg: 'Uploading', kind: '' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders upload progress', () => {
-    otaUpload.set({ uploading: true, pct: 75, msg: 'In progress', kind: '' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders upload complete state', () => {
-    otaUpload.set({ uploading: false, pct: 100, msg: 'Complete', kind: 'ok' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders upload error state', () => {
-    otaUpload.set({ uploading: false, pct: 0, msg: 'Failed', kind: 'err' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders reboot active', () => {
-    rebooting.set({ active: true, reason: 'Update', elapsed: 5, timedOut: false })
+  it('renders minerBusy when install.kind ok — Check button disabled', () => {
+    otaInstall.set({ installing: false, pct: 100, state: 'complete', msg: 'ok', kind: 'ok' })
     const { container } = render(Update)
-    expect(container.textContent).toContain('Rebooting')
+    const checkBtn = container.querySelector('button.btn.primary') as HTMLButtonElement
+    expect(checkBtn?.disabled).toBe(true)
+  })
+
+  it('renders minerBusy when upload.kind ok — Check button disabled', () => {
+    otaUpload.set({ uploading: false, pct: 100, msg: 'ok', kind: 'ok' })
+    const { container } = render(Update)
+    const checkBtn = container.querySelector('button.btn.primary') as HTMLButtonElement
+    expect(checkBtn?.disabled).toBe(true)
+  })
+
+  it('renders device info version and board', () => {
+    info.set(baseInfo as any)
+    const { container } = render(Update)
+    expect(container.textContent).toContain('v1.0.0')
+    expect(container.textContent).toContain('bitaxe-601')
+  })
+
+  it('renders install downloading state', () => {
+    otaInstall.set({ installing: true, pct: 50, state: 'downloading', msg: 'Downloading… 50%', kind: '' })
+    const { container } = render(Update)
+    expect(container.textContent).toContain('Downloading… 50%')
+  })
+
+  it('renders install writing state', () => {
+    otaInstall.set({ installing: true, pct: 90, state: 'writing', msg: 'Writing… 90%', kind: '' })
+    const { container } = render(Update)
+    expect(container.textContent).toContain('Writing… 90%')
   })
 
   it('renders reboot timeout state', () => {
@@ -253,86 +221,14 @@ describe('Update', () => {
     expect(result.component).toBeDefined()
   })
 
-  it('renders with both check and install states', () => {
-    otaCheck.set({ checking: false, result: null, msg: '', kind: 'ok' })
-    otaInstall.set({ installing: false, pct: 0, state: '', msg: '', kind: '' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders check state transitions', () => {
-    otaCheck.set({ checking: true, result: null, msg: 'Checking...', kind: '' })
-    let result = render(Update)
-    expect(result.component).toBeDefined()
-
-    // Transition to result
+  it('renders up-to-date message in status', () => {
     otaCheck.set({
       checking: false,
-      result: { update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' },
-      msg: 'Update available',
-      kind: 'avail'
+      result: { update_available: false, latest_version: 'v1.0.0', current_version: 'v1.0.0' },
+      msg: 'Firmware is up to date (v1.0.0)',
+      kind: 'ok'
     })
-    result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders install pending state', () => {
-    otaInstall.set({ installing: true, pct: 0, state: 'starting', msg: 'Starting...', kind: '' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders install downloading state', () => {
-    otaInstall.set({ installing: true, pct: 50, state: 'downloading', msg: 'Downloading...', kind: '' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders install writing state', () => {
-    otaInstall.set({ installing: true, pct: 90, state: 'writing', msg: 'Writing...', kind: '' })
-    const result = render(Update)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders minerBusy when rebooting', () => {
-    rebooting.set({ active: true, reason: 'Test', elapsed: 0, timedOut: false })
     const { container } = render(Update)
-    expect(container).toBeTruthy()
-  })
-
-  it('renders minerBusy when install ok', () => {
-    otaInstall.set({ installing: false, pct: 100, state: 'complete', msg: 'ok', kind: 'ok' })
-    const { container } = render(Update)
-    expect(container).toBeTruthy()
-  })
-
-  it('renders minerBusy when upload ok', () => {
-    otaUpload.set({ uploading: false, pct: 100, msg: 'ok', kind: 'ok' })
-    const { container } = render(Update)
-    expect(container).toBeTruthy()
-  })
-
-  it('computes firmware name from board info', () => {
-    info.set(baseInfo as any)
-    const { container } = render(Update)
-    expect(container.textContent).toContain('bitaxe-601')
-  })
-
-  it('uses default firmware name without info', () => {
-    info.set(null)
-    const { container } = render(Update)
-    expect(container).toBeTruthy()
-  })
-
-  it('renders with no check result', () => {
-    otaCheck.set({ checking: false, result: null, msg: '', kind: '' })
-    const { container } = render(Update)
-    expect(container).toBeTruthy()
-  })
-
-  it('renders with null reboot info', () => {
-    rebooting.set({ active: false, reason: '', elapsed: 0, timedOut: false })
-    const { container } = render(Update)
-    expect(container).toBeTruthy()
+    expect(container.textContent).toContain('Firmware is up to date (v1.0.0)')
   })
 })

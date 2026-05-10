@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render } from '@testing-library/svelte'
+import { render, fireEvent } from '@testing-library/svelte'
 import { info, otaCheck, otaInstall, otaUpload, rebooting } from '../lib/stores'
 
 vi.mock('../lib/api', () => ({
@@ -8,27 +8,47 @@ vi.mock('../lib/api', () => ({
   fetchOtaCheck: vi.fn(), triggerOtaUpdate: vi.fn(), fetchOtaStatus: vi.fn(), uploadOta: vi.fn()
 }))
 
+// Stub the dev-mock panel so Update tests don't depend on its internals.
+// Must be a Svelte 5 component function (not a plain object) so render() can mount it.
+vi.mock('../components/UpdateDevMockPanel.svelte', () => {
+  const NoOp = (anchor: any) => {
+    const el = document.createElement('span')
+    anchor.before(el)
+    return { destroy() { el.remove() } }
+  }
+  NoOp.render = () => ({ html: '', head: '', css: { code: '', map: null } })
+  return { default: NoOp }
+})
+
+// Use vi.hoisted so mockOs is available inside the vi.mock factory (hoisted to top of file)
+const mockOs = vi.hoisted(() => ({
+  _installConfirmOpen: false,
+  _uploadConfirmOpen: false,
+  _selectedFile: null as File | null,
+  _dragOver: false,
+  _fileInput: null as HTMLInputElement | null,
+  get installConfirmOpen() { return this._installConfirmOpen },
+  set installConfirmOpen(v: boolean) { this._installConfirmOpen = v },
+  get uploadConfirmOpen() { return this._uploadConfirmOpen },
+  set uploadConfirmOpen(v: boolean) { this._uploadConfirmOpen = v },
+  get selectedFile() { return this._selectedFile },
+  set selectedFile(v: File | null) { this._selectedFile = v },
+  get dragOver() { return this._dragOver },
+  get fileInput() { return this._fileInput },
+  set fileInput(v: HTMLInputElement | null) { this._fileInput = v },
+  handleCheck: vi.fn(),
+  handleInstall: vi.fn(),
+  handleUpload: vi.fn(),
+  requestInstall: vi.fn(),
+  requestUpload: vi.fn(),
+  onFileSelect: vi.fn(),
+  onDrop: vi.fn(),
+  onDragOver: vi.fn(),
+  onDragLeave: vi.fn(),
+}))
+
 vi.mock('../lib/otaState.svelte', () => ({
-  createOtaState: vi.fn().mockReturnValue({
-    get installConfirmOpen() { return false },
-    set installConfirmOpen(_v: boolean) {},
-    get uploadConfirmOpen() { return false },
-    set uploadConfirmOpen(_v: boolean) {},
-    get selectedFile() { return null },
-    set selectedFile(_v: File | null) {},
-    get dragOver() { return false },
-    get fileInput() { return null },
-    set fileInput(_v: HTMLInputElement | null) {},
-    handleCheck: vi.fn(),
-    handleInstall: vi.fn(),
-    handleUpload: vi.fn(),
-    requestInstall: vi.fn(),
-    requestUpload: vi.fn(),
-    onFileSelect: vi.fn(),
-    onDrop: vi.fn(),
-    onDragOver: vi.fn(),
-    onDragLeave: vi.fn(),
-  })
+  createOtaState: vi.fn().mockReturnValue(mockOs)
 }))
 
 import Update from './Update.svelte'
@@ -50,6 +70,12 @@ describe('Update', () => {
     otaInstall.set({ installing: false, pct: 0, state: '', msg: '', kind: '' })
     otaUpload.set({ uploading: false, pct: 0, msg: '', kind: '' })
     rebooting.set({ active: false, reason: '', elapsed: 0, timedOut: false })
+    // reset mockOs mutable state
+    mockOs._installConfirmOpen = false
+    mockOs._uploadConfirmOpen = false
+    mockOs._selectedFile = null
+    mockOs._dragOver = false
+    mockOs._fileInput = null
   })
 
   afterEach(() => {
@@ -161,10 +187,11 @@ describe('Update', () => {
     expect(container.textContent).toContain('Upload failed: connection reset.')
   })
 
-  it('renders reboot overlay when rebooting', () => {
+  it('disables Check button when rebooting (busy=true)', () => {
     rebooting.set({ active: true, reason: 'Applying firmware update', elapsed: 5, timedOut: false })
     const { container } = render(Update)
-    expect(container.textContent).toContain('Rebooting')
+    const checkBtn = container.querySelector('button.btn.primary') as HTMLButtonElement
+    expect(checkBtn?.disabled).toBe(true)
   })
 
   it('renders with multiple states at once', () => {
@@ -230,5 +257,159 @@ describe('Update', () => {
     })
     const { container } = render(Update)
     expect(container.textContent).toContain('Firmware is up to date (v1.0.0)')
+  })
+
+  // ── Handler delegation ──────────────────────────────────────────────────────
+
+  it('Check for Updates button calls os.handleCheck', async () => {
+    const { getByRole } = render(Update)
+    const btn = getByRole('button', { name: 'Check for Updates' })
+    await fireEvent.click(btn)
+    expect(mockOs.handleCheck).toHaveBeenCalled()
+  })
+
+  it('Install button calls os.requestInstall', async () => {
+    otaCheck.set({
+      checking: false,
+      result: { update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' },
+      msg: 'Update available', kind: 'avail'
+    })
+    const { container } = render(Update)
+    const btns = container.querySelectorAll('button.btn.primary')
+    // second primary button is the Install button
+    await fireEvent.click(btns[1])
+    expect(mockOs.requestInstall).toHaveBeenCalled()
+  })
+
+  it('choose file button triggers os.fileInput?.click() on the bound input', async () => {
+    const { getByRole, container } = render(Update)
+    // After render, bind:this has set mockOs._fileInput to the real hidden input
+    const realInput = container.querySelector('input[type="file"]') as HTMLInputElement
+    const clickSpy = vi.spyOn(realInput, 'click').mockImplementation(() => {})
+    const btn = getByRole('button', { name: 'choose file' })
+    await fireEvent.click(btn)
+    expect(clickSpy).toHaveBeenCalled()
+  })
+
+  it('drag-over class applied when os.dragOver is true', () => {
+    mockOs._dragOver = true
+    const { container } = render(Update)
+    const dz = container.querySelector('.dropzone')
+    expect(dz?.classList.contains('drag-over')).toBe(true)
+    mockOs._dragOver = false
+  })
+
+  it('dropzone calls os.onDragLeave on dragleave event', async () => {
+    const { container } = render(Update)
+    const dz = container.querySelector('.dropzone')!
+    await fireEvent.dragLeave(dz)
+    expect(mockOs.onDragLeave).toHaveBeenCalled()
+  })
+
+  it('dropzone calls os.onDragOver on dragover event', async () => {
+    const { container } = render(Update)
+    const dz = container.querySelector('.dropzone')!
+    await fireEvent.dragOver(dz)
+    expect(mockOs.onDragOver).toHaveBeenCalled()
+  })
+
+  it('dropzone calls os.onDrop on drop event', async () => {
+    const { container } = render(Update)
+    const dz = container.querySelector('.dropzone')!
+    await fireEvent.drop(dz)
+    expect(mockOs.onDrop).toHaveBeenCalled()
+  })
+
+  it('renders file name and size when selectedFile is set', () => {
+    const fakeFile = new File(['data'], 'miner-firmware.bin', { type: 'application/octet-stream' })
+    mockOs._selectedFile = fakeFile
+    const { container } = render(Update)
+    expect(container.textContent).toContain('miner-firmware.bin')
+    mockOs._selectedFile = null
+  })
+
+  it('Flash firmware button calls os.requestUpload when file selected', async () => {
+    const fakeFile = new File(['data'], 'fw.bin')
+    mockOs._selectedFile = fakeFile
+    const { getByRole } = render(Update)
+    await fireEvent.click(getByRole('button', { name: 'Flash firmware' }))
+    expect(mockOs.requestUpload).toHaveBeenCalled()
+    mockOs._selectedFile = null
+  })
+
+  it('Clear button resets selectedFile and clears fileInput.value', async () => {
+    const fakeFile = new File(['data'], 'fw.bin')
+    mockOs._selectedFile = fakeFile
+
+    const { getByRole, container } = render(Update)
+    // After render, bind:this has populated _fileInput with the real hidden input
+    const realInput = container.querySelector('input[type="file"]') as HTMLInputElement
+
+    await fireEvent.click(getByRole('button', { name: 'Clear' }))
+
+    expect(mockOs._selectedFile).toBeNull()
+    expect(realInput.value).toBe('')
+  })
+
+  it('install confirm dialog open: installConfirmOpen set to true triggers dialog render', () => {
+    mockOs._installConfirmOpen = true
+    otaCheck.set({
+      checking: false,
+      result: { update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' },
+      msg: '', kind: 'avail'
+    })
+    const { container } = render(Update)
+    // ConfirmDialog is rendered when open=true
+    expect(container.textContent).toContain('Install firmware?')
+    mockOs._installConfirmOpen = false
+  })
+
+  it('otaCheck.msg with kind avail renders with avail styling', () => {
+    otaCheck.set({
+      checking: false,
+      result: { update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' },
+      msg: 'Update available: v2.0.0',
+      kind: 'avail'
+    })
+    const { container } = render(Update)
+    const status = container.querySelector('.status[data-kind="avail"]')
+    expect(status).toBeTruthy()
+    expect(status!.textContent).toContain('Update available')
+  })
+
+  it('otaInstall.msg with kind err renders without progress bar', () => {
+    otaInstall.set({ installing: false, pct: 37, state: 'error', msg: 'Install ended: error.', kind: 'err' })
+    const { container } = render(Update)
+    const errStatus = container.querySelector('.status[data-kind="err"]')
+    expect(errStatus).toBeTruthy()
+    // progress-block should NOT be present for err-only state
+    expect(container.querySelector('.progress-block')).toBeFalsy()
+  })
+
+  it('otaUpload.msg with kind err renders without progress bar', () => {
+    otaUpload.set({ uploading: false, pct: 73, msg: 'Upload failed: connection reset.', kind: 'err' })
+    const { container } = render(Update)
+    expect(container.querySelector('.progress-block')).toBeFalsy()
+    const errStatus = container.querySelector('.status[data-kind="err"]')
+    expect(errStatus?.textContent).toContain('Upload failed')
+  })
+
+  it('installing state shows Uploading pct% text in Flash button', () => {
+    const fakeFile = new File(['fw'], 'fw.bin')
+    mockOs._selectedFile = fakeFile
+    otaUpload.set({ uploading: true, pct: 42, msg: 'Uploading… 42%', kind: '' })
+    const { container } = render(Update)
+    expect(container.textContent).toContain('Uploading 42%')
+    mockOs._selectedFile = null
+  })
+
+  it('upload confirm dialog open: uploadConfirmOpen set renders Flash firmware? dialog', () => {
+    const fakeFile = new File(['fw'], 'fw.bin')
+    mockOs._selectedFile = fakeFile
+    mockOs._uploadConfirmOpen = true
+    const { container } = render(Update)
+    expect(container.textContent).toContain('Flash firmware?')
+    mockOs._selectedFile = null
+    mockOs._uploadConfirmOpen = false
   })
 })

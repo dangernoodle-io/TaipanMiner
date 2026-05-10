@@ -29,7 +29,7 @@ export default defineConfig({
               reports: ['lcovonly'],
               entryFilter: (entry) => {
                 const url = entry.url || ''
-                // Filter out absolute  file system and node_modules entries
+                // Filter out absolute file system and node_modules entries
                 if (url.includes('/node_modules/')) return false
                 if (url.includes('/@fs/')) return false
                 // Filter out non-source files: styles, assets, vite internals, routing, etc.
@@ -44,11 +44,15 @@ export default defineConfig({
                 return true
               },
               sourceFilter: (sourcePath) => {
+                // Filter out non-source files
                 if (sourcePath.includes('node_modules')) return false
                 if (sourcePath.includes('ui-kit')) return false
-                if (sourcePath.includes('-svelte&type=style')) return false
-                if (sourcePath.endsWith('.css')) return false
-                return /(^|\/)src\//.test(sourcePath)
+                if (sourcePath.includes('-svelte&type=style') || sourcePath.endsWith('.css')) return false
+                // Anonymous scripts (inline scripts without source URLs) — exclude them
+                if (/^anonymous-\d+\.js$/.test(sourcePath)) return false
+                // Only accept .ts, .js, .svelte files
+                if (/\.(ts|tsx|js|jsx|svelte)$/.test(sourcePath)) return true
+                return false
               },
               sourcePath: (filePath) => {
                 let p = filePath
@@ -68,6 +72,12 @@ export default defineConfig({
                   const srcIdx = p.indexOf('src/')
                   if (srcIdx >= 0) {
                     p = p.slice(srcIdx)
+                  } else {
+                    // If no 'src/' prefix found in the path, assume it's a basename from src/
+                    // (happens when monocart extracts just the filename)
+                    if (p && !/^(node_modules|anonymous-)/.test(p)) {
+                      p = `src/${p}`
+                    }
                   }
                 }
                 return p

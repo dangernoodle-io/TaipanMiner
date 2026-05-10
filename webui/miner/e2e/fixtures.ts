@@ -9,6 +9,7 @@ const test = base.extend({
         await Promise.all([
           page.coverage.startJSCoverage({
             resetOnNavigation: false,
+            reportAnonymousScripts: true,
           }),
           page.coverage.startCSSCoverage({
             resetOnNavigation: false,

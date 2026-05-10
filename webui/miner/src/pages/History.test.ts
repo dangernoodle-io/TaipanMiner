@@ -1,454 +1,133 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render } from '@testing-library/svelte'
-import { history, hasAsic } from '../lib/stores'
 
 vi.mock('../lib/api', () => ({
   fetchStats: vi.fn(), fetchInfo: vi.fn(), fetchPower: vi.fn(), fetchFan: vi.fn(),
   fetchSettings: vi.fn(), fetchPool: vi.fn(), fetchHealth: vi.fn(), ping: vi.fn()
 }))
 
+// Use vi.hoisted() so stubHs is available at module-evaluation time (avoids TDZ).
+const stubHs = vi.hoisted(() => ({
+  windowIdx: 2,
+  count: 0,
+  metrics: [],
+  plot: null,
+  WINDOWS: [
+    { label: '1m',  seconds: 60 },
+    { label: '5m',  seconds: 300 },
+    { label: '15m', seconds: 900 },
+    { label: '1h',  seconds: 3600 },
+    { label: 'All', seconds: 0 }
+  ],
+  selectWindow: vi.fn(),
+  mountChart: vi.fn(),
+  destroyChart: vi.fn(),
+}))
+
+vi.mock('../lib/historyState.svelte', () => ({
+  createHistoryState: () => stubHs
+}))
+
 import History from './History.svelte'
 
-const sample = {
-  ts: Math.floor(Date.now() / 1000),
-  total_ghs: 485.5, hw_err_pct: 0.01, temp_c: 72, vr_temp_c: 60, board_temp_c: 45,
-  pcore_w: 25, vcore_v: 1.1, efficiency_jth: 25.5, asic_freq_mhz: 395, rpm: 3200, fan_duty: 80
-}
+beforeEach(() => {
+  vi.clearAllMocks()
+  stubHs.windowIdx = 2
+  stubHs.count = 0
+})
 
-describe('History', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    history.set([])
-    hasAsic.set(false)
+describe('History (thin shell)', () => {
+  it('renders without crashing', () => {
+    const { component } = render(History)
+    expect(component).toBeDefined()
   })
 
-  it('renders without history', () => {
-    history.set([])
-    const result = render(History)
-    expect(result.component).toBeDefined()
+  it('shows empty state when count is 0', () => {
+    stubHs.count = 0
+    const { container } = render(History)
+    expect(container.querySelector('.empty')).not.toBeNull()
   })
 
-  it('renders with one sample', () => {
-    history.set([sample])
-    const result = render(History)
-    expect(result.component).toBeDefined()
+  it('does not show chart div when count is 0', () => {
+    stubHs.count = 0
+    const { container } = render(History)
+    expect(container.querySelector('.chart')).toBeNull()
   })
 
-  it('renders with multiple samples', () => {
-    history.set([sample, { ...sample, ts: sample.ts - 5 }])
-    const result = render(History)
-    expect(result.component).toBeDefined()
+  it('shows chart div when count > 0', () => {
+    stubHs.count = 10
+    const { container } = render(History)
+    expect(container.querySelector('.chart')).not.toBeNull()
   })
 
-  it('renders for tdongle (no ASIC)', () => {
-    history.set([{ ...sample, total_ghs: 0.485, hw_err_pct: null, vr_temp_c: null, board_temp_c: null, pcore_w: null, vcore_v: null, efficiency_jth: null, asic_freq_mhz: null, rpm: null, fan_duty: null }])
-    hasAsic.set(false)
-    const result = render(History)
-    expect(result.component).toBeDefined()
+  it('shows hint text when count > 0', () => {
+    stubHs.count = 5
+    const { container } = render(History)
+    const hint = container.querySelector('.hint')
+    expect(hint).not.toBeNull()
+    expect(hint!.textContent).toContain('5 samples')
   })
 
-  it('renders for ASIC device', () => {
-    history.set([sample])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
+  it('renders all 5 window buttons', () => {
+    const { container } = render(History)
+    const buttons = container.querySelectorAll('.win-btn')
+    expect(buttons).toHaveLength(5)
   })
 
-  it('renders hashrate metric', () => {
-    history.set([sample])
-    const result = render(History)
-    expect(result.component).toBeDefined()
+  it('window button labels match WINDOWS', () => {
+    const { container } = render(History)
+    const buttons = container.querySelectorAll('.win-btn')
+    const labels = Array.from(buttons).map((b) => b.textContent?.trim())
+    expect(labels).toEqual(['1m', '5m', '15m', '1h', 'All'])
   })
 
-  it('renders temp metric', () => {
-    history.set([sample])
-    const result = render(History)
-    expect(result.component).toBeDefined()
+  it('active class is on the correct window button', () => {
+    stubHs.windowIdx = 1
+    const { container } = render(History)
+    const buttons = container.querySelectorAll('.win-btn')
+    expect(buttons[1].classList).toContain('active')
+    expect(buttons[0].classList).not.toContain('active')
   })
 
-  it('renders HW error metric for ASIC', () => {
-    history.set([sample])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
+  it('active class tracks windowIdx=0', () => {
+    stubHs.windowIdx = 0
+    const { container } = render(History)
+    const buttons = container.querySelectorAll('.win-btn')
+    expect(buttons[0].classList).toContain('active')
   })
 
-  it('filters ASIC metrics for non-ASIC', () => {
-    history.set([{ ...sample, hw_err_pct: null, vr_temp_c: null }])
-    hasAsic.set(false)
-    const result = render(History)
-    expect(result.component).toBeDefined()
+  it('calls mountChart on mount', () => {
+    render(History)
+    expect(stubHs.mountChart).toHaveBeenCalledTimes(1)
   })
 
-  it('renders power metrics for ASIC', () => {
-    history.set([sample])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
+  it('calls destroyChart on unmount', () => {
+    const { unmount } = render(History)
+    unmount()
+    expect(stubHs.destroyChart).toHaveBeenCalledTimes(1)
   })
 
-  it('renders VR temp for ASIC', () => {
-    history.set([sample])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
+  it('calls selectWindow when a window button is clicked', async () => {
+    const { container } = render(History)
+    const buttons = container.querySelectorAll('.win-btn')
+    ;(buttons[0] as HTMLButtonElement).click()
+    expect(stubHs.selectWindow).toHaveBeenCalledWith(0)
   })
 
-  it('renders frequency metric for ASIC', () => {
-    history.set([sample])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
+  it('calls selectWindow(4) when All button is clicked', async () => {
+    const { container } = render(History)
+    const buttons = container.querySelectorAll('.win-btn')
+    ;(buttons[4] as HTMLButtonElement).click()
+    expect(stubHs.selectWindow).toHaveBeenCalledWith(4)
   })
 
-  it('renders fan metrics for ASIC', () => {
-    history.set([sample])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
+  it('toolbar is present', () => {
+    const { container } = render(History)
+    expect(container.querySelector('.toolbar')).not.toBeNull()
   })
 
-  it('handles null values', () => {
-    history.set([{ ...sample, total_ghs: null, temp_c: null, vr_temp_c: null }])
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with many samples', () => {
-    const samples = Array.from({ length: 100 }, (_, i) => ({ ...sample, ts: sample.ts - i * 5 }))
-    history.set(samples)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with partial data', () => {
-    history.set([{ ...sample, vr_temp_c: null, pcore_w: null, efficiency_jth: null, rpm: null }])
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('displays board temp separately', () => {
-    history.set([sample])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with zero hashrate', () => {
-    history.set([{ ...sample, total_ghs: 0 }])
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with high hashrate', () => {
-    history.set([{ ...sample, total_ghs: 1000 }])
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with null hashrate', () => {
-    history.set([{ ...sample, total_ghs: null }])
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with various temperatures', () => {
-    history.set([
-      { ...sample, temp_c: 30 },
-      { ...sample, temp_c: 70 },
-      { ...sample, temp_c: 100 }
-    ])
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with null temperature', () => {
-    history.set([{ ...sample, temp_c: null }])
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with null hw error for non-ASIC', () => {
-    history.set([{ ...sample, hw_err_pct: null }])
-    hasAsic.set(false)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with high hw error rate', () => {
-    history.set([{ ...sample, hw_err_pct: 10 }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with zero hw error', () => {
-    history.set([{ ...sample, hw_err_pct: 0 }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with VR temperature data', () => {
-    history.set([{ ...sample, vr_temp_c: 80 }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders without VR temperature', () => {
-    history.set([{ ...sample, vr_temp_c: null }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with board temperature data', () => {
-    history.set([{ ...sample, board_temp_c: 55 }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders without board temperature', () => {
-    history.set([{ ...sample, board_temp_c: null }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with power data', () => {
-    history.set([{ ...sample, pcore_w: 50 }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders without power data', () => {
-    history.set([{ ...sample, pcore_w: null }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with core voltage data', () => {
-    history.set([{ ...sample, vcore_v: 1.2 }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders without core voltage', () => {
-    history.set([{ ...sample, vcore_v: null }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with efficiency data', () => {
-    history.set([{ ...sample, efficiency_jth: 30 }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders without efficiency', () => {
-    history.set([{ ...sample, efficiency_jth: null }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with ASIC frequency data', () => {
-    history.set([{ ...sample, asic_freq_mhz: 500 }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders without ASIC frequency', () => {
-    history.set([{ ...sample, asic_freq_mhz: null }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with fan data', () => {
-    history.set([{ ...sample, rpm: 5000, fan_duty: 85 }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders without fan data', () => {
-    history.set([{ ...sample, rpm: null, fan_duty: null }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with high fan RPM', () => {
-    history.set([{ ...sample, rpm: 10000 }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with zero fan RPM', () => {
-    history.set([{ ...sample, rpm: 0 }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with very old timestamp', () => {
-    history.set([{ ...sample, ts: 1609459200 }])
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with recent timestamp', () => {
-    history.set([{ ...sample, ts: Math.floor(Date.now() / 1000) }])
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with all null ASIC values on non-ASIC', () => {
-    history.set([{
-      ...sample,
-      hw_err_pct: null, vr_temp_c: null, board_temp_c: null,
-      pcore_w: null, vcore_v: null, efficiency_jth: null,
-      asic_freq_mhz: null, rpm: null, fan_duty: null
-    }])
-    hasAsic.set(false)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with very high power', () => {
-    history.set([{ ...sample, pcore_w: 500 }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with low power', () => {
-    history.set([{ ...sample, pcore_w: 1 }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with extreme efficiency values', () => {
-    history.set([{ ...sample, efficiency_jth: 100 }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with low efficiency', () => {
-    history.set([{ ...sample, efficiency_jth: 0.5 }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with varying fan duty', () => {
-    history.set([
-      { ...sample, fan_duty: 0 },
-      { ...sample, fan_duty: 50 },
-      { ...sample, fan_duty: 100 }
-    ])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders mixed ASIC and non-ASIC data', () => {
-    history.set([
-      { ...sample, total_ghs: 485, hw_err_pct: 0.5 },
-      { ...sample, total_ghs: 0.1, hw_err_pct: null }
-    ])
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with extreme temperature ranges', () => {
-    history.set([
-      { ...sample, temp_c: 20 },
-      { ...sample, temp_c: 120 }
-    ])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('handles frequency transitions', () => {
-    history.set([
-      { ...sample, asic_freq_mhz: 300 },
-      { ...sample, asic_freq_mhz: 500 },
-      { ...sample, asic_freq_mhz: 200 }
-    ])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with many samples over time', () => {
-    const samples = []
-    for (let i = 0; i < 50; i++) {
-      samples.push({
-        ...sample,
-        ts: sample.ts - i * 60,
-        total_ghs: 485 + Math.random() * 10,
-        temp_c: 70 + Math.random() * 10
-      })
-    }
-    history.set(samples)
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders without any samples initially', () => {
-    history.set([])
-    const result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('transitions from no ASIC to ASIC', () => {
-    history.set([sample])
-    hasAsic.set(false)
-    let result = render(History)
-    expect(result.component).toBeDefined()
-
-    hasAsic.set(true)
-    result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('transitions from ASIC to no ASIC', () => {
-    history.set([sample])
-    hasAsic.set(true)
-    let result = render(History)
-    expect(result.component).toBeDefined()
-
-    hasAsic.set(false)
-    result = render(History)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders with conflicting null/non-null ASIC fields', () => {
-    history.set([{
-      ...sample,
-      hw_err_pct: 0.5,
-      vr_temp_c: null,
-      board_temp_c: 50,
-      pcore_w: null,
-      vcore_v: 1.0,
-      efficiency_jth: null
-    }])
-    hasAsic.set(true)
-    const result = render(History)
-    expect(result.component).toBeDefined()
+  it('windows container is present', () => {
+    const { container } = render(History)
+    expect(container.querySelector('.windows')).not.toBeNull()
   })
 })

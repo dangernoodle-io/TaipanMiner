@@ -47,10 +47,10 @@ export function createDiagnosticsState() {
   const filtered = $derived(filterLines(lines, filter))
   const currentLevel = $derived(findLevelForTag(tagLevels, selectedTag))
 
-  // Sync selectedLevel to currentLevel when not applying
-  $effect(() => {
-    if (currentLevel && !applying) selectedLevel = currentLevel
-  })
+  function syncSelectedLevel() {
+    const cl = findLevelForTag(tagLevels, selectedTag)
+    if (cl && !applying) selectedLevel = cl
+  }
 
   async function loadDiagAsic() {
     try {
@@ -69,6 +69,7 @@ export function createDiagnosticsState() {
       availableLevels = [...data.levels].sort((a, b) => a.localeCompare(b))
       tagLevels = data.tags.map((t) => ({ ...t })).sort((a, b) => a.tag.localeCompare(b.tag))
       if (!selectedTag && tagLevels.length) selectedTag = tagLevels[0].tag
+      syncSelectedLevel()
     } catch (e) {
       levelsErr = (e as Error).message
     } finally {
@@ -231,7 +232,7 @@ export function createDiagnosticsState() {
     get levelsLoading() { return levelsLoading },
     get levelsErr() { return levelsErr },
     get selectedTag() { return selectedTag },
-    set selectedTag(v) { selectedTag = v },
+    set selectedTag(v) { selectedTag = v; syncSelectedLevel() },
     get selectedLevel() { return selectedLevel },
     set selectedLevel(v) { selectedLevel = v },
     get applying() { return applying },

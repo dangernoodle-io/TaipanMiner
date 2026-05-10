@@ -9,11 +9,54 @@ import { defineConfig, devices } from '@playwright/test'
  */
 export default defineConfig({
   testDir: './e2e',
-  fullyParallel: true,
+  testMatch: '*.spec.ts',
+  fullyParallel: !process.env.CI,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: process.env.CI ? [['github'], ['list']] : 'list',
+  reporter: process.env.CI
+    ? [
+        ['github'],
+        ['list'],
+        [
+          'monocart-reporter',
+          {
+            name: 'TaipanMiner E2E',
+            outputFile: './test-results/report.html',
+            coverage: {
+              lcov: true,
+              outputDir: './coverage-e2e',
+              reports: ['lcovonly'],
+              entryFilter: (entry) => {
+                const url = entry.url || ''
+                if (url.includes('/node_modules/')) return false
+                if (url.includes('/@fs/')) return false
+                if (url.includes('/ui-kit/')) return false
+                if (url.includes('-svelte&type=style')) return false
+                if (url.endsWith('.css')) return false
+                if (url.endsWith('.svg') || url.endsWith('.png') || url.endsWith('.ico')) return false
+                return true
+              },
+              sourceFilter: (sourcePath) => {
+                if (sourcePath.includes('node_modules')) return false
+                if (sourcePath.includes('ui-kit')) return false
+                if (sourcePath.includes('-svelte&type=style')) return false
+                if (sourcePath.endsWith('.css')) return false
+                return /(^|\/)src\//.test(sourcePath)
+              },
+              sourcePath: (filePath) => {
+                let p = filePath.replace(/^127\.0\.0\.1-5173\//, '')
+                p = p.replace(/^@fs\/.*?\/webui\/miner\//, '')
+                p = p.replace(/^\//, '')
+                const idx = p.indexOf('src/')
+                if (idx > 0) p = p.slice(idx)
+                return p
+              },
+            },
+          },
+        ],
+      ]
+    : 'list',
   use: {
     baseURL: 'http://127.0.0.1:5173',
     trace: 'on-first-retry',

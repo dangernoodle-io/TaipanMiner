@@ -9,3 +9,8 @@ dist
 .vite
 public/logo.svg
 public/favicon.svg
+coverage-e2e
+test-results
+playwright-report
+monocart-report
+assets/monocart-coverage-app.js

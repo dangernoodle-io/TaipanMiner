@@ -1,152 +1,42 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import WifiSelect from 'ui-kit/WifiSelect.svelte'
-  import { fetchScan, postSave, type AccessPoint } from '../lib/api'
+  import { createWifiSetupState } from '../lib/wifiSetupState.svelte'
 
   let { onSaved }: { onSaved: () => void } = $props()
 
-  let networks = $state<AccessPoint[]>([])
-  let scanning = $state(false)
-  let scanError = $state<string | null>(null)
-  let selectedSsid = $state<string>('')
-  let manualSsid = $state('')
-  let pass = $state('')
-  let showPass = $state(false)
-  let hostname = $state('')
-  let wallet = $state('')
-  let worker = $state('')
-  let workerEdited = $state(false)
-  let poolHost = $state('')
-
-  $effect(() => {
-    if (!workerEdited) worker = hostname
-  })
-  let poolPort = $state('')
-  let poolPass = $state('')
-  let errors = $state<Record<string, string>>({})
-  let submitting = $state(false)
-  let submitError = $state<string | null>(null)
-
-  async function scan() {
-    scanning = true
-    scanError = null
-    networks = []
-    selectedSsid = ''
-    manualSsid = ''
-
-    try {
-      const aps = await fetchScan()
-      networks = aps
-      if (aps.length > 0) {
-        selectedSsid = aps[0].ssid
-      }
-    } catch (e) {
-      scanError = `Scan failed: ${e instanceof Error ? e.message : 'Unknown error'}`
-    } finally {
-      scanning = false
-    }
-  }
-
-  function validate(): boolean {
-    const newErrors: Record<string, string> = {}
-
-    const ssid = selectedSsid === '__manual__' ? manualSsid : selectedSsid
-    if (!ssid) {
-      newErrors.ssid = 'Network is required'
-    }
-
-    if (!wallet.trim()) {
-      newErrors.wallet = 'Required'
-    }
-
-    if (!worker.trim()) {
-      newErrors.worker = 'Required'
-    }
-
-    if (!poolHost.trim()) {
-      newErrors.poolHost = 'Required'
-    }
-
-    const port = parseInt(poolPort, 10)
-    if (!poolPort || isNaN(port) || port < 1 || port > 65535) {
-      newErrors.poolPort = 'Valid port (1–65535) required'
-    }
-
-    errors = newErrors
-    return Object.keys(newErrors).length === 0
-  }
-
-  async function handleSubmit() {
-    if (!validate()) return
-
-    submitting = true
-    submitError = null
-
-    const ssid = selectedSsid === '__manual__' ? manualSsid : selectedSsid
-    const savePromise = postSave({
-      ssid,
-      pass,
-      hostname,
-      wallet,
-      worker,
-      pool_host: poolHost,
-      pool_port: poolPort,
-      pool_pass: poolPass
-    })
-
-    // The device tears down its AP ~500ms after responding, so the fetch may
-    // never resolve. Race a short timeout: if the request hasn't errored by
-    // then, assume it succeeded and advance the UI. Validation errors (400)
-    // typically return in <100ms, so they still surface.
-    const TIMEOUT_MS = 1500
-    let timedOut = false
-    const timeout = new Promise<void>(resolve =>
-      setTimeout(() => { timedOut = true; resolve() }, TIMEOUT_MS)
-    )
-
-    try {
-      await Promise.race([savePromise, timeout])
-      if (timedOut) {
-        onSaved()
-        return
-      }
-      onSaved()
-    } catch (e) {
-      submitError = `Save failed: ${e instanceof Error ? e.message : 'Unknown error'}`
-      submitting = false
-    }
-  }
+  const ws = createWifiSetupState(() => onSaved)
 
   onMount(() => {
-    scan()
+    ws.scan()
   })
 </script>
 
 <div class="setup-form">
-  {#if submitError}
+  {#if ws.submitError}
     <div class="error-banner">
-      {submitError}
+      {ws.submitError}
     </div>
   {/if}
 
-  <form onsubmit={(e) => { e.preventDefault(); handleSubmit() }}>
+  <form onsubmit={(e) => { e.preventDefault(); ws.handleSubmit() }}>
     <section>
       <h2>WiFi</h2>
       <div class="form-group">
         <span class="label">Network</span>
         <div class="scan-controls">
           <WifiSelect
-            networks={networks}
-            bind:selected={selectedSsid}
-            scanning={scanning}
-            error={scanError}
-            disabled={submitting}
+            networks={ws.networks}
+            bind:selected={ws.selectedSsid}
+            scanning={ws.scanning}
+            error={ws.scanError}
+            disabled={ws.submitting}
           />
           <button
             type="button"
             class="rescan-btn"
-            onclick={() => scan()}
-            disabled={scanning || submitting}
+            onclick={() => ws.scan()}
+            disabled={ws.scanning || ws.submitting}
             aria-label="Rescan networks"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -157,22 +47,22 @@
             </svg>
           </button>
         </div>
-        {#if scanError}
-          <div class="inline-error">{scanError}</div>
+        {#if ws.scanError}
+          <div class="inline-error">{ws.scanError}</div>
         {/if}
       </div>
 
-      {#if selectedSsid === '__manual__'}
+      {#if ws.selectedSsid === '__manual__'}
         <div class="manual-entry">
           <input
             type="text"
-            bind:value={manualSsid}
+            bind:value={ws.manualSsid}
             placeholder="Enter SSID"
             maxlength="31"
-            disabled={submitting}
+            disabled={ws.submitting}
           />
-          {#if errors.ssid}
-            <div class="field-error">{errors.ssid}</div>
+          {#if ws.errors.ssid}
+            <div class="field-error">{ws.errors.ssid}</div>
           {/if}
         </div>
       {/if}
@@ -182,19 +72,19 @@
         <div class="password-input-group">
           <input
             id="pass"
-            type={showPass ? 'text' : 'password'}
-            bind:value={pass}
+            type={ws.showPass ? 'text' : 'password'}
+            bind:value={ws.pass}
             maxlength="63"
-            disabled={submitting}
+            disabled={ws.submitting}
           />
           <button
             type="button"
             class="toggle-pass"
-            onclick={(e) => { e.preventDefault(); showPass = !showPass }}
-            disabled={submitting}
-            aria-label={showPass ? 'Hide password' : 'Show password'}
+            onclick={(e) => { e.preventDefault(); ws.showPass = !ws.showPass }}
+            disabled={ws.submitting}
+            aria-label={ws.showPass ? 'Hide password' : 'Show password'}
           >
-            {#if showPass}
+            {#if ws.showPass}
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
                 <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/>
                 <line x1="1" y1="1" x2="23" y2="23"/>
@@ -217,11 +107,11 @@
         <input
           id="hostname"
           type="text"
-          value={hostname}
-          oninput={(e) => { hostname = e.currentTarget.value }}
+          value={ws.hostname}
+          oninput={(e) => { ws.hostname = e.currentTarget.value }}
           maxlength="31"
           placeholder="taipan-miner"
-          disabled={submitting}
+          disabled={ws.submitting}
         />
       </div>
 
@@ -230,13 +120,13 @@
         <input
           id="wallet"
           type="text"
-          bind:value={wallet}
+          bind:value={ws.wallet}
           maxlength="63"
           placeholder="1BTC..."
-          disabled={submitting}
+          disabled={ws.submitting}
         />
-        {#if errors.wallet}
-          <div class="field-error">{errors.wallet}</div>
+        {#if ws.errors.wallet}
+          <div class="field-error">{ws.errors.wallet}</div>
         {/if}
       </div>
 
@@ -245,14 +135,14 @@
         <input
           id="worker"
           type="text"
-          value={worker}
-          oninput={(e) => { workerEdited = true; worker = e.currentTarget.value }}
+          value={ws.worker}
+          oninput={(e) => { ws.worker = e.currentTarget.value }}
           maxlength="31"
           placeholder="miner-1"
-          disabled={submitting}
+          disabled={ws.submitting}
         />
-        {#if errors.worker}
-          <div class="field-error">{errors.worker}</div>
+        {#if ws.errors.worker}
+          <div class="field-error">{ws.errors.worker}</div>
         {/if}
       </div>
     </section>
@@ -264,13 +154,13 @@
         <input
           id="pool_host"
           type="text"
-          bind:value={poolHost}
+          bind:value={ws.poolHost}
           maxlength="63"
           placeholder="pool.example.com"
-          disabled={submitting}
+          disabled={ws.submitting}
         />
-        {#if errors.poolHost}
-          <div class="field-error">{errors.poolHost}</div>
+        {#if ws.errors.poolHost}
+          <div class="field-error">{ws.errors.poolHost}</div>
         {/if}
       </div>
 
@@ -280,13 +170,13 @@
           id="pool_port"
           type="text"
           inputmode="numeric"
-          bind:value={poolPort}
+          bind:value={ws.poolPort}
           maxlength="5"
           placeholder="3333"
-          disabled={submitting}
+          disabled={ws.submitting}
         />
-        {#if errors.poolPort}
-          <div class="field-error">{errors.poolPort}</div>
+        {#if ws.errors.poolPort}
+          <div class="field-error">{ws.errors.poolPort}</div>
         {/if}
       </div>
 
@@ -295,16 +185,16 @@
         <input
           id="pool_pass"
           type="text"
-          bind:value={poolPass}
+          bind:value={ws.poolPass}
           maxlength="63"
           placeholder="optional"
-          disabled={submitting}
+          disabled={ws.submitting}
         />
       </div>
     </section>
 
-    <button type="submit" class="submit-btn" disabled={submitting || scanning}>
-      {submitting ? 'Saving...' : 'Save & Connect'}
+    <button type="submit" class="submit-btn" disabled={ws.submitting || ws.scanning}>
+      {ws.submitting ? 'Saving...' : 'Save & Connect'}
     </button>
   </form>
 </div>

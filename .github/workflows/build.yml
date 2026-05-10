@@ -13,7 +13,7 @@ on:
         default: false
 
 jobs:
-  test:
+  webui-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -42,16 +42,6 @@ jobs:
       - name: Webui unit tests with coverage
         working-directory: webui
         run: pnpm --filter miner run test --run --coverage
-      # NOTE: Playwright e2e tests (webui/miner/e2e/) are not run in CI.
-      # `playwright install` hangs at "extracting archive" on GH-hosted
-      # Linux runners (both 24.04 and 26.04, both --only-shell and full
-      # chromium, with and without --with-deps). Suspected cause: pipe
-      # deadlock between Playwright's extract subprocess and the
-      # actions runner shell on Linux + Node 26. Tests pass locally
-      # (pnpm --filter miner e2e). Ticketed for follow-up — likely
-      # need to wait for Playwright 1.61 (Ubuntu 26.04 support) or
-      # switch to the official mcr.microsoft.com/playwright Docker
-      # image as the runner.
       - name: Build miner
         working-directory: webui
         run: pnpm --filter miner run build
@@ -63,6 +53,25 @@ jobs:
         env:
           VITE_FLASHER_FIXTURES: '1'
         run: pnpm --filter flasher run build
+      - name: Upload webui-dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webui-dist
+          path: |
+            webui/miner/dist
+            webui/prov/dist
+          retention-days: 7
+      - name: Upload coverage to Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          parallel: true
+          flag-name: webui
+          files: webui/miner/coverage/lcov.info
+
+  native-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
@@ -89,21 +98,52 @@ jobs:
         run: pip install platformio gcovr
       - name: Native test and coverage
         run: make coverage
-      - name: Upload webui-dist artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: webui-dist
-          path: |
-            webui/miner/dist
-            webui/prov/dist
-          retention-days: 7
-      - name: Upload combined coverage to Coveralls
+      - name: Upload coverage to Coveralls
         uses: coverallsapp/github-action@v2
         with:
-          files: gcovr-coveralls.json webui/miner/coverage/lcov.info
+          parallel: true
+          flag-name: native
+          files: gcovr-coveralls.json
 
+  e2e:
+    needs: webui-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: webui/.nvmrc
+          cache: 'pnpm'
+          cache-dependency-path: webui/pnpm-lock.yaml
+      - uses: actions/download-artifact@v4
+        with:
+          name: webui-dist
+          path: webui
+      - name: Install webui deps
+        working-directory: webui
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: pnpm install --frozen-lockfile
+      - name: Install system chromium
+        run: sudo apt-get update && sudo apt-get install -y chromium-browser
+      - name: Run e2e tests
+        working-directory: webui
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: pnpm --filter miner e2e
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: webui/miner/playwright-report
+
+  # e2e uses system chromium (apt) to avoid playwright install extraction hang on GH runners
   build:
-    needs: test
+    needs: webui-check
     runs-on: ubuntu-latest
     env:
       CCACHE_DIR: /home/runner/.cache/ccache
@@ -169,7 +209,7 @@ jobs:
 
   debug:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.include_debug == 'true'
-    needs: test
+    needs: webui-check
     runs-on: ubuntu-latest
     env:
       CCACHE_DIR: /home/runner/.cache/ccache
@@ -235,12 +275,26 @@ jobs:
 
   summary:
     if: always()
-    needs: [test, build]
+    needs: [webui-check, native-test, e2e, build]
     runs-on: ubuntu-latest
     steps:
+      - name: Finalize Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          parallel-finished: true
       - name: Check results
         run: |
-          if [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.build.result }}" != "success" ]; then
-            echo "test=${{ needs.test.result }} build=${{ needs.build.result }}"
+          webui_check="${{ needs.webui-check.result }}"
+          native_test="${{ needs.native-test.result }}"
+          e2e="${{ needs.e2e.result }}"
+          build="${{ needs.build.result }}"
+
+          if [ "$webui_check" != "success" ] || [ "$native_test" != "success" ] || [ "$build" != "success" ]; then
+            echo "webui-check=$webui_check native-test=$native_test e2e=$e2e build=$build"
+            exit 1
+          fi
+
+          if [ "$e2e" == "cancelled" ]; then
+            echo "e2e cancelled: $e2e"
             exit 1
           fi

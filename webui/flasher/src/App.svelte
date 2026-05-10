@@ -1,42 +1,23 @@
 <script lang="ts">
   import Brand from 'ui-kit/Brand.svelte'
   import Select from 'ui-kit/Select.svelte'
-  import boards from './generated/boards.json'
-  import { loadManifest, loadAsset, type Manifest } from './lib/release'
-  import { ESPLoader, Transport } from 'esptool-js'
-
-  type ConnectStatus = 'idle' | 'connecting' | 'connected' | 'error'
-  type FlashStatus = 'idle' | 'downloading' | 'flashing' | 'done' | 'error'
+  import { createFlashState } from './lib/flashState.svelte'
 
   const webSerialAvailable = typeof navigator !== 'undefined' && 'serial' in navigator
 
-  let board = $state('')
-  let connectStatus = $state<ConnectStatus>('idle')
-  let connectError = $state<string | null>(null)
-  let chipInfo = $state<{ chip: string; mac: string; flashSize: string } | null>(null)
-  let esploader = $state<ESPLoader | null>(null)
-  let transport = $state<Transport | null>(null)
-  // Web Serial types are not in lib.dom for older TS targets; use unknown.
-  let activePort = $state<unknown>(null)
-  let deviceDisconnected = $state(false)
+  const state = createFlashState()
+
+  $effect(() => {
+    state.loadManifestAction()
+  })
 
   $effect(() => {
     const releasePort = () => {
-      transport?.disconnect().catch(() => {})
+      state.transport?.disconnect().catch(() => {})
     }
     const onDisconnect = (e: Event) => {
       const target = (e as unknown as { target: unknown }).target
-      if (!activePort || target !== activePort) return
-      deviceDisconnected = true
-      transport = null
-      esploader = null
-      chipInfo = null
-      activePort = null
-      connectStatus = 'idle'
-      if (flashStatus === 'flashing' || flashStatus === 'downloading') {
-        flashStatus = 'error'
-        flashError = 'Device disconnected mid-operation'
-      }
+      state.handleDeviceDisconnect(target)
     }
     window.addEventListener('beforeunload', releasePort)
     window.addEventListener('pagehide', releasePort)
@@ -52,175 +33,6 @@
       }
     }
   })
-
-  async function disconnect() {
-    try {
-      await transport?.disconnect()
-    } catch {
-      // ignore
-    }
-    transport = null
-    esploader = null
-    chipInfo = null
-    activePort = null
-    connectStatus = 'idle'
-  }
-  let flashStatus = $state<FlashStatus>('idle')
-  let flashError = $state<string | null>(null)
-  let manifest = $state<Manifest | null>(null)
-  let manifestError = $state<string | null>(null)
-  let downloadedBin = $state<Uint8Array | null>(null)
-  let downloadProgress = $state<{ loaded: number; total: number } | null>(null)
-  let flashProgress = $state<{ written: number; total: number } | null>(null)
-
-  const boardOptions = $derived(
-    boards
-      .filter(b => manifest?.assets[b.id])
-      .map(b => ({
-        value: b.id,
-        label: `${b.label}${b.asic ? ` (${b.asic})` : ''}`
-      }))
-  )
-
-  $effect(() => {
-    loadManifest()
-      .then(m => {
-        manifest = m
-        manifestError = null
-      })
-      .catch(e => {
-        manifestError = e instanceof Error ? e.message : String(e)
-      })
-  })
-
-  const CONNECT_TIMEOUT_MS = 30_000
-
-  function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error(`${label} timed out after ${ms / 1000}s — try unplugging and replugging the device`)),
-        ms,
-      )
-      p.then(v => { clearTimeout(timer); resolve(v) }, e => { clearTimeout(timer); reject(e) })
-    })
-  }
-
-  async function connect() {
-    connectError = null
-    deviceDisconnected = false
-    connectStatus = 'connecting'
-    try {
-      // @ts-expect-error — Web Serial types may not be in lib.dom for older TS targets
-      const port = await navigator.serial.requestPort({})
-      activePort = port
-      const t = new Transport(port, true)
-      transport = t
-      const loader = new ESPLoader({
-        transport: t,
-        baudrate: 115200,
-        terminal: {
-          clean: () => {},
-          writeLine: (line: string) => console.log('[esptool]', line),
-          write: (chunk: string) => console.log('[esptool]', chunk)
-        }
-      })
-      const chip = await withTimeout(loader.main(), CONNECT_TIMEOUT_MS, 'Chip sync')
-      const mac = await withTimeout(loader.chip.readMac(loader), 5_000, 'MAC read')
-      let flashSize = 'unknown'
-      try {
-        flashSize = await withTimeout(loader.detectFlashSize(), 5_000, 'Flash detect')
-      } catch {
-        // best-effort
-      }
-      chipInfo = { chip, mac, flashSize }
-      esploader = loader
-      connectStatus = 'connected'
-    } catch (e) {
-      try { await transport?.disconnect() } catch { /* ignore */ }
-      transport = null
-      activePort = null
-      const raw = e instanceof Error ? e.message : String(e)
-      if (/No port selected by the user/i.test(raw)) {
-        connectStatus = 'idle'
-        connectError = null
-        return
-      }
-      connectStatus = 'error'
-      if (deviceDisconnected || /setSignals|Failed to (open|set)|device has been lost/i.test(raw)) {
-        connectError = 'Device disconnected — plug it back in and click Connect to retry'
-      } else if (/timed out|sync|Failed to connect/i.test(raw)) {
-        connectError = `${raw}. Put the device into download mode and try again.`
-      } else {
-        connectError = raw
-      }
-    }
-  }
-
-  async function flash() {
-    if (!esploader || !manifest) return
-    flashError = null
-    flashProgress = null
-    try {
-      if (!downloadedBin) {
-        flashStatus = 'downloading'
-        const entry = manifest.assets[board]
-        if (!entry) throw new Error(`No firmware asset for board ${board}`)
-        downloadedBin = await loadAsset(entry, (loaded, total) => {
-          downloadProgress = { loaded, total }
-        })
-      }
-      flashStatus = 'flashing'
-      await esploader.writeFlash({
-        fileArray: [{ data: downloadedBin, address: 0x0 }],
-        flashSize: 'keep',
-        flashMode: 'keep',
-        flashFreq: 'keep',
-        eraseAll: false,
-        compress: true,
-        reportProgress: (_idx: number, written: number, total: number) => {
-          flashProgress = { written, total }
-        },
-      })
-      // Best-effort reset. For UART-bridged boards RTS toggle works; for
-      // native USB CDC boards there's no reliable host-driven reset path
-      // (RTS/DTR are virtual lines, EN isn't wired to them), so the UI
-      // tells the user to power-cycle in either case.
-      const boardEntry = boards.find(b => b.id === board)
-      try {
-        await esploader.after('hard_reset', boardEntry?.usbOtg ?? false)
-      } catch {
-        // ignore — best effort
-      }
-      try { await transport?.disconnect() } catch { /* ignore */ }
-      transport = null
-      esploader = null
-      activePort = null
-      chipInfo = null
-      connectStatus = 'idle'
-      flashStatus = 'done'
-    } catch (e) {
-      flashStatus = 'error'
-      const raw = e instanceof Error ? e.message : String(e)
-      flashError = deviceDisconnected || /setSignals|Failed to (open|set)|device has been lost/i.test(raw)
-        ? 'Device disconnected mid-flash — the firmware on the device is now in an unknown state. Plug it back in, click Connect, and re-flash.'
-        : raw
-    }
-  }
-
-  async function flashAnother() {
-    try {
-      await transport?.disconnect()
-    } catch {
-      // ignore errors during disconnect
-    }
-    transport = null
-    esploader = null
-    chipInfo = null
-    connectError = null
-    connectStatus = 'idle'
-    flashStatus = 'idle'
-    flashError = null
-  }
 </script>
 
 
@@ -235,7 +47,7 @@
     </div>
   {/if}
 
-  {#if deviceDisconnected}
+  {#if state.deviceDisconnected}
     <div class="banner warning">
       Device disconnected. Plug it back in and click Connect to retry.
     </div>
@@ -247,79 +59,79 @@
     <label>
       <span>Board</span>
       <Select
-        bind:value={board}
-        options={boardOptions}
+        bind:value={state.board}
+        options={state.boardOptions}
         placeholder="Choose a board…"
-        disabled={connectStatus === 'connected' || !webSerialAvailable}
+        disabled={state.connectStatus === 'connected' || !webSerialAvailable}
       />
     </label>
   </section>
 
-  <section class="card" class:disabled={!board || !webSerialAvailable}>
+  <section class="card" class:disabled={!state.board || !webSerialAvailable}>
     <h2>2. Connect device</h2>
     <p class="muted">Plug your miner into a USB port, then click Connect to grant browser access.</p>
     <p class="hint">If Connect fails or times out, put the device into download mode and try again.</p>
     <div class="row">
       <button
         class="btn primary"
-        onclick={connect}
-        disabled={!board || !webSerialAvailable || connectStatus === 'connecting' || connectStatus === 'connected'}
+        onclick={() => state.connect()}
+        disabled={!state.board || !webSerialAvailable || state.connectStatus === 'connecting' || state.connectStatus === 'connected'}
       >
-        {#if connectStatus === 'connecting'}
+        {#if state.connectStatus === 'connecting'}
           Connecting…
-        {:else if connectStatus === 'connected'}
+        {:else if state.connectStatus === 'connected'}
           ✓ Connected
         {:else}
           Connect device
         {/if}
       </button>
-      {#if connectStatus === 'connected'}
+      {#if state.connectStatus === 'connected'}
         <button
           class="btn outline"
-          onclick={disconnect}
-          disabled={flashStatus === 'downloading' || flashStatus === 'flashing'}
+          onclick={() => state.disconnect()}
+          disabled={state.flashStatus === 'downloading' || state.flashStatus === 'flashing'}
         >Disconnect</button>
       {/if}
     </div>
-    {#if connectError}
-      <p class="error-msg">{connectError}</p>
+    {#if state.connectError}
+      <p class="error-msg">{state.connectError}</p>
     {/if}
-    {#if chipInfo}
+    {#if state.chipInfo}
       <dl class="chip-info">
-        <dt>Chip</dt><dd>{chipInfo.chip}</dd>
-        <dt>MAC</dt><dd>{chipInfo.mac}</dd>
-        <dt>Flash</dt><dd>{chipInfo.flashSize}</dd>
+        <dt>Chip</dt><dd>{state.chipInfo.chip}</dd>
+        <dt>MAC</dt><dd>{state.chipInfo.mac}</dd>
+        <dt>Flash</dt><dd>{state.chipInfo.flashSize}</dd>
       </dl>
-      {#if !chipInfo.chip.toLowerCase().includes('s3')}
-        <p class="warn-msg">Detected chip ({chipInfo.chip}) doesn't match the expected ESP32-S3 family for this board.</p>
+      {#if !state.chipInfo.chip.toLowerCase().includes('s3')}
+        <p class="warn-msg">Detected chip ({state.chipInfo.chip}) doesn't match the expected ESP32-S3 family for this board.</p>
       {/if}
     {/if}
   </section>
 
-  <section class="card" class:disabled={connectStatus !== 'connected' || !manifest}>
+  <section class="card" class:disabled={state.connectStatus !== 'connected' || !state.manifest}>
     <h2>3. Flash firmware</h2>
-    {#if manifestError}
-      <p class="error-msg">{manifestError}</p>
+    {#if state.manifestError}
+      <p class="error-msg">{state.manifestError}</p>
     {/if}
-    {#if !manifest}
+    {#if !state.manifest}
       <p class="muted">Firmware manifest is loading...</p>
-    {:else if !board}
+    {:else if !state.board}
       <p class="muted">Select a board to see what will be flashed.</p>
     {/if}
 
-    {#if flashStatus === 'done'}
-      <button class="btn primary" onclick={flashAnother}>
+    {#if state.flashStatus === 'done'}
+      <button class="btn primary" onclick={() => state.flashAnother()}>
         Flash another device
       </button>
     {:else}
       <button
         class="btn primary"
-        onclick={flash}
-        disabled={connectStatus !== 'connected' || !manifest || flashStatus === 'downloading' || flashStatus === 'flashing'}
+        onclick={() => state.flash()}
+        disabled={state.connectStatus !== 'connected' || !state.manifest || state.flashStatus === 'downloading' || state.flashStatus === 'flashing'}
       >
-        {#if flashStatus === 'downloading'}
+        {#if state.flashStatus === 'downloading'}
           Loading firmware…
-        {:else if flashStatus === 'flashing'}
+        {:else if state.flashStatus === 'flashing'}
           Flashing…
         {:else}
           Flash
@@ -327,36 +139,36 @@
       </button>
     {/if}
 
-    {#if flashStatus === 'downloading' || flashStatus === 'flashing'}
-      {@const pct = flashStatus === 'downloading'
-        ? (downloadProgress ? 100 * downloadProgress.loaded / downloadProgress.total : 0)
-        : (flashProgress ? 100 * flashProgress.written / flashProgress.total : 0)}
+    {#if state.flashStatus === 'downloading' || state.flashStatus === 'flashing'}
+      {@const pct = state.flashStatus === 'downloading'
+        ? (state.downloadProgress ? 100 * state.downloadProgress.loaded / state.downloadProgress.total : 0)
+        : (state.flashProgress ? 100 * state.flashProgress.written / state.flashProgress.total : 0)}
       <div class="progress-block">
         <div class="progress"><div class="progress-fill" style="width: {pct}%"></div></div>
         <div class="progress-msg">
-          {flashStatus === 'downloading' ? 'Loading firmware' : 'Flashing'}… {pct.toFixed(0)}%
+          {state.flashStatus === 'downloading' ? 'Loading firmware' : 'Flashing'}… {pct.toFixed(0)}%
         </div>
       </div>
     {/if}
 
-    {#if flashStatus === 'done'}
+    {#if state.flashStatus === 'done'}
       <p class="success-msg">✓ Flash complete. Power-cycle the device (unplug/replug or press its reset button) to boot the new firmware.</p>
     {/if}
-    {#if flashError}
-      <p class="error-msg">{flashError}</p>
+    {#if state.flashError}
+      <p class="error-msg">{state.flashError}</p>
     {/if}
 
-    {#if manifest && board && manifest.assets[board]}
+    {#if state.manifest && state.board && state.manifest.assets[state.board]}
       <dl class="chip-info">
-        <dt>Release</dt><dd>{manifest.tag}</dd>
-        <dt>Asset</dt><dd>{manifest.assets[board].file}</dd>
-        <dt>Size</dt><dd>{(manifest.assets[board].size / 1024 / 1024).toFixed(2)} MB</dd>
+        <dt>Release</dt><dd>{state.manifest.tag}</dd>
+        <dt>Asset</dt><dd>{state.manifest.assets[state.board].file}</dd>
+        <dt>Size</dt><dd>{(state.manifest.assets[state.board].size / 1024 / 1024).toFixed(2)} MB</dd>
       </dl>
     {/if}
   </section>
 
   <footer>
-    <span>Firmware {manifest?.tag ?? '—'}</span>
+    <span>Firmware {state.manifest?.tag ?? '—'}</span>
     <a href="https://github.com/dangernoodle-io/TaipanMiner" target="_blank" rel="noopener noreferrer" class="github-link" aria-label="View on GitHub">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
         <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56 0-.27-.01-.99-.02-1.95-3.2.69-3.87-1.54-3.87-1.54-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.76 2.69 1.25 3.34.96.1-.74.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.05 0 0 .96-.31 3.16 1.18.92-.26 1.9-.39 2.88-.39.98 0 1.96.13 2.88.39 2.2-1.49 3.16-1.18 3.16-1.18.62 1.59.23 2.76.11 3.05.74.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.4-5.26 5.68.41.36.78 1.06.78 2.14 0 1.55-.01 2.8-.01 3.18 0 .31.21.68.8.56C20.71 21.39 24 17.08 24 12c0-6.35-5.15-11.5-12-11.5z"/>

@@ -51,6 +51,11 @@ jobs:
       - name: Webui ui-kit unit tests with coverage
         working-directory: webui
         run: pnpm --filter ui-kit run test --run --coverage
+      - name: Webui flasher unit tests with coverage
+        working-directory: webui
+        env:
+          VITE_FLASHER_FIXTURES: '1'
+        run: pnpm --filter flasher run test --run --coverage
       - name: Build miner
         working-directory: webui
         run: pnpm --filter miner run build
@@ -75,7 +80,7 @@ jobs:
         with:
           parallel: true
           flag-name: webui
-          files: webui/miner/coverage/lcov.info webui/prov/coverage/lcov.info webui/ui-kit/coverage/lcov.info
+          files: webui/miner/coverage/lcov.info webui/prov/coverage/lcov.info webui/ui-kit/coverage/lcov.info webui/flasher/coverage/lcov.info
 
   native-test:
     runs-on: ubuntu-latest

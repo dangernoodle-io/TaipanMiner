@@ -3,7 +3,11 @@ import { svelte } from '@sveltejs/vite-plugin-svelte'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_')
-  const target = env.VITE_MINER_URL || 'http://bitaxe-403-1.local'
+  const target = env.VITE_MINER_URL
+
+  if (!target) {
+    console.warn('[vite] VITE_MINER_URL not set — /api proxy disabled. Copy .env.development.example to .env.development to enable.')
+  }
 
   return {
     plugins: [svelte()],
@@ -37,10 +41,12 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       host: true,
-      proxy: {
-        '/api': { target, changeOrigin: true },
-        '/favicon.ico': { target, changeOrigin: true }
-      }
+      ...(target ? {
+        proxy: {
+          '/api': { target, changeOrigin: true },
+          '/favicon.ico': { target, changeOrigin: true }
+        }
+      } : {})
     }
   }
 })

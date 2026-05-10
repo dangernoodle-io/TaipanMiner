@@ -7,12 +7,12 @@ Modern Svelte + Vite frontend for the TaipanMiner dashboard, replacing the legac
 ```bash
 cd webui
 npm install
-cp .env.example .env
+cp .env.development.example .env.development
 ```
 
-Edit `.env` to point at your miner:
+Edit `.env.development` to point at your miner:
 ```
-VITE_MINER_URL=http://bitaxe-403-1.local
+VITE_MINER_URL=http://your-miner.local
 ```
 
 Then:
@@ -20,7 +20,7 @@ Then:
 npm run dev
 ```
 
-Visit `http://localhost:5173` in your browser. The dev server fetches live stats from the miner's HTTP API (CORS is pre-configured to allow `*` origin).
+Visit `http://localhost:5173` in your browser. The dev server fetches live stats from the miner's HTTP API (CORS is pre-configured to allow `*` origin). If `VITE_MINER_URL` is not set, the proxy will be disabled — set it to enable API requests.
 
 ## Build
 

@@ -113,8 +113,8 @@ test.describe('Settings page', () => {
     const mdnsRow = page.locator('.row').filter({ hasText: 'mDNS' })
     await mdnsRow.locator('label.toggle').click()
 
-    expect(patchedData).toMatchObject({ mdns_en: false })
     await expect(mdnsRow.getByText('Saved')).toBeVisible()
+    expect(patchedData).toMatchObject({ mdns_en: false })
   })
 
   test('toggling Knot on sends PATCH with knot_en', async ({ page }) => {
@@ -135,7 +135,7 @@ test.describe('Settings page', () => {
     const knotRow = page.locator('.row').filter({ hasText: 'Knot' })
     await knotRow.locator('label.toggle').click()
 
-    expect(patchedData).toMatchObject({ knot_en: true })
     await expect(knotRow.getByText('Saved')).toBeVisible()
+    expect(patchedData).toMatchObject({ knot_en: true })
   })
 })

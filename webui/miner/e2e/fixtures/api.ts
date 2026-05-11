@@ -154,6 +154,8 @@ export const settingsFixture = {
   hostname: 'taipanminer-test',
   display_en: true,
   ota_skip_check: false,
+  mdns_en: true,
+  knot_en: true,
 }
 
 export const poolFixture = {

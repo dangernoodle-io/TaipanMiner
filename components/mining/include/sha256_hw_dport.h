@@ -35,10 +35,11 @@ bb_err_t sha256_hw_dport_self_test_lockstep(void);
  * Caller MUST hold sha256_hw_dport_acquire(). */
 void sha256_hw_dport_boot_probes(void);
 
-/* Returns true on potential hit (low 16 bits of last digest word == 0). Caller
+/* Pool-target-aware early-reject on digest MSB word (state[7]).
+ * Returns true on potential hit (MSB word <= target_word0_max). Caller
  * proceeds to full target check. Returns false on early reject.
  * hash_out is written only on true. */
-bool sha256_hw_dport_per_nonce(const uint8_t header_80[80], uint32_t nonce, uint8_t hash_out[32]);
+bool sha256_hw_dport_per_nonce(const uint8_t header_80[80], uint32_t nonce, uint32_t target_word0_max, uint8_t hash_out[32]);
 
 /* Compatibility aliases so mining.c can call sha256_hw_acquire/release
  * uniformly across targets without per-call target guards. */

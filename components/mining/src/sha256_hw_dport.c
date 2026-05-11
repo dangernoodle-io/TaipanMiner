@@ -125,43 +125,49 @@ static inline void dport_wait_idle(void)
     while (DPORT_REG_READ(SHA_256_BUSY_REG)) {}    /* mining.cpp:942 */
 }
 
-/* Mirror: nerd_sha_ll_read_digest_swap_if (mining.cpp:905-924)
- * Early-reject: checks low 16 bits of word 7 (last digest word). If non-zero,
- * returns false without touching out[].
- * On potential hit: reads all 8 canonical state words under DPORT_INTERRUPT_DISABLE
- * (per erratum), stashes word 7 first (fin), then calls mining_hash_from_state.
+/* Pool-target-aware early-reject on MSB word of the digest.
+ * Reads word 7 (MSB of final state) and compares against target_word0_max.
+ * If word 7 > target_word0_max, returns false immediately (early reject).
+ * On potential hit (word 7 <= target_word0_max): reads all 8 canonical state words
+ * under DPORT_INTERRUPT_DISABLE (per erratum), calls mining_hash_from_state.
  * DPORT peripheral registers hold canonical SHA words (BE numeric value as host
  * uint32_t), so the register read passes directly to state[i] — no bswap needed. */
-static inline bool dport_read_digest_swap_if(uint8_t out[32])
+static inline bool dport_read_digest_swap_if(uint8_t out[32], uint32_t target_word0_max)
 {
-    DPORT_INTERRUPT_DISABLE();                     /* mining.cpp:907 */
+    DPORT_INTERRUPT_DISABLE();
+    uint32_t word7 = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 7 * 4);
+    if (word7 > target_word0_max) {
+        DPORT_INTERRUPT_RESTORE();
+        return false;  /* early reject — cheapest path */
+    }
     uint32_t state[8];
-    state[7] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 7 * 4); /* mining.cpp:908 — stash word 7 first */
-    state[0] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 0 * 4); /* mining.cpp:915 */
-    state[1] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 1 * 4); /* mining.cpp:916 */
-    state[2] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 2 * 4); /* mining.cpp:917 */
-    state[3] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 3 * 4); /* mining.cpp:918 */
-    state[4] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 4 * 4); /* mining.cpp:919 */
-    state[5] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 5 * 4); /* mining.cpp:920 */
-    state[6] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 6 * 4); /* mining.cpp:921 */
-    DPORT_INTERRUPT_RESTORE();                     /* mining.cpp:922 */
+    state[7] = word7;
+    state[0] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 0 * 4);
+    state[1] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 1 * 4);
+    state[2] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 2 * 4);
+    state[3] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 3 * 4);
+    state[4] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 4 * 4);
+    state[5] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 5 * 4);
+    state[6] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 6 * 4);
+    DPORT_INTERRUPT_RESTORE();
     mining_hash_from_state(state, out);
-    return true;                                   /* mining.cpp:923 */
+    return true;
 }
 
 /* ---------------------------------------------------------------------------
- * Per-nonce SHA-256d hot loop (classic ESP32, DPORT bus)
+ * Per-nonce SHA-256d hot loop with pool-target early-reject (classic ESP32, DPORT bus)
  * Mirror of minerWorkerHw inner loop (mining.cpp:1076-1094).
  *
  * header_80[80]: full 80-byte block header (nonce field will be overwritten).
  * nonce: the nonce to hash.
+ * target_word0_max: MSB word of pool target (bytes 28-31); early-reject threshold.
  * hash_out[32]: written only when returning true (potential hit).
  *
- * Returns true when low 16 bits of final digest word 7 == 0 (potential share).
- * Returns false on early reject.
+ * Returns true if digest MSB word <= target_word0_max (full readback + hash_from_state).
+ * Returns false on early reject (digest MSB word > target_word0_max).
  * ---------------------------------------------------------------------------
  */
-bool sha256_hw_dport_per_nonce(const uint8_t header_80[80], uint32_t nonce, uint8_t hash_out[32])
+bool sha256_hw_dport_per_nonce(const uint8_t header_80[80], uint32_t nonce, uint32_t target_word0_max, uint8_t hash_out[32])
 {
     /* 1. Ensure idle */
     dport_wait_idle();
@@ -206,7 +212,7 @@ bool sha256_hw_dport_per_nonce(const uint8_t header_80[80], uint32_t nonce, uint
     dport_wait_idle();
 
     /* 15. Early-reject + readback — mining.cpp:1094 */
-    return dport_read_digest_swap_if(hash_out);
+    return dport_read_digest_swap_if(hash_out, target_word0_max);
 }
 
 /* ---------------------------------------------------------------------------
@@ -299,11 +305,11 @@ bb_err_t sha256_hw_dport_self_test_lockstep(void)
         uint8_t hash_sw[32];
         sha256d(header, 80, hash_sw);
 
-        /* HW path: always reads back the full digest (ignoring early-reject).
-         * dport_read_digest_swap_if always reads and returns true, so we get
-         * the full 32 bytes every call. */
+        /* HW path: pass permissive threshold (0xFFFFFFFF = always-permissive) to
+         * ensure full readback for byte-equality comparison. dport_read_digest_swap_if
+         * will never early-reject when threshold is max value. */
         uint8_t hash_hw[32];
-        sha256_hw_dport_per_nonce(header, nonce, hash_hw);
+        sha256_hw_dport_per_nonce(header, nonce, 0xFFFFFFFF, hash_hw);
 
         if (memcmp(hash_hw, hash_sw, 32) != 0) {
             /* Find first diverging byte. */

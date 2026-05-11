@@ -517,6 +517,7 @@ static void hw_backend_setup(hash_backend_t *b, hw_backend_ctx_t *ctx)
 
 typedef struct {
     const uint8_t *header;
+    uint32_t target_word0_max;  // MSB word of pool target for early-reject
 } hw_backend_ctx_t;
 
 static void hw_backend_init(hash_backend_t *b)
@@ -532,6 +533,11 @@ static void hw_prepare_job(hash_backend_t *b,
     hw_backend_ctx_t *ctx = (hw_backend_ctx_t *)b->ctx;
     (void)block2;
     ctx->header = work->header;
+    // Early-reject threshold: MSB word of pool target (bytes 28-31 in BE byte order)
+    ctx->target_word0_max = ((uint32_t)work->target[28] << 24) |
+                            ((uint32_t)work->target[29] << 16) |
+                            ((uint32_t)work->target[30] <<  8) |
+                             (uint32_t)work->target[31];
 }
 
 static hash_result_t hw_dport_hash_nonce(hash_backend_t *b,
@@ -539,7 +545,7 @@ static hash_result_t hw_dport_hash_nonce(hash_backend_t *b,
                                           uint8_t hash_out[32])
 {
     hw_backend_ctx_t *ctx = (hw_backend_ctx_t *)b->ctx;
-    if (sha256_hw_dport_per_nonce(ctx->header, nonce, hash_out)) {
+    if (sha256_hw_dport_per_nonce(ctx->header, nonce, ctx->target_word0_max, hash_out)) {
         return HASH_CHECK;
     }
     return HASH_MISS;

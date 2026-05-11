@@ -15,6 +15,7 @@
 #include "mining.h"
 #include "asic_drop_log.h"
 #include "bb_nv.h"
+#include "bb_diag.h"
 #include "config.h"
 #include "bb_wifi.h"
 #include "bb_prov.h"
@@ -74,8 +75,6 @@ extern const uint8_t logo_svg_gz[];
 extern const size_t logo_svg_gz_len;
 extern const uint8_t favicon_svg_gz[];
 extern const size_t favicon_svg_gz_len;
-
-static uint32_t s_wdt_resets = 0;
 
 static void set_common_headers(bb_http_request_t *req)
 {
@@ -960,7 +959,7 @@ static void taipan_info_extender(bb_json_t root)
     if (ssid) bb_json_obj_set_string(root, "ssid", ssid);
 
     bb_json_obj_set_bool(root, "validated", !bb_ota_is_pending());
-    bb_json_obj_set_number(root, "wdt_resets", s_wdt_resets);
+    bb_json_obj_set_number(root, "wdt_resets", (double)bb_diag_abnormal_reset_count());
 
     // TA-339: per-device HW SHA peripheral ceiling (boot microbench).
     // Absent on boards without HW SHA microbench (e.g. D0/DPORT).
@@ -1888,9 +1887,6 @@ void webui_reserve_mining_routes(void)
 
 bb_err_t webui_register_mining_routes(bb_http_handle_t server)
 {
-    // Cache WDT reset count — only changes on boot
-    bb_nv_get_u32("taipanminer", "wdt_resets", &s_wdt_resets, 0);
-
     // Initialize and register static assets
     init_mining_assets();
     bb_err_t rc = bb_http_register_assets(server, s_mining_assets,

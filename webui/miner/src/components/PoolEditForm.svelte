@@ -77,7 +77,7 @@
     </div>
   </section>
 
-  <details class="options">
+  <details class="options disclosure">
     <summary>Advanced Options</summary>
 
     <div class="opt-row">
@@ -107,35 +107,21 @@
 <!-- Form structure styles live in ui-kit/utilities.css under "forms" so
      FanEditDialog and other forms share the same look. -->
 <style>
-  /* .options is pool-specific (collapsible advanced section). */
+  /* .options layers pool-specific styling on top of the .disclosure utility:
+     dashed top border + accent-colored bold summary + open-state column flow. */
   .options {
     border-top: 1px dashed var(--border);
     padding-top: 12px;
   }
 
-  .options summary {
-    cursor: pointer;
-    list-style: none;
+  .options > summary {
     color: var(--accent);
     font-size: 14px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 1px;
-    user-select: none;
-    display: inline-flex;
-    align-items: center;
     gap: 8px;
   }
-
-  .options summary::-webkit-details-marker { display: none; }
-
-  .options summary::before {
-    content: '▸';
-    font-size: 18px;
-    transition: transform 0.15s;
-  }
-
-  .options[open] summary::before { transform: rotate(90deg); }
 
   .options[open] {
     display: flex;

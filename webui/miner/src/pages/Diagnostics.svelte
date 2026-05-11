@@ -569,39 +569,7 @@
     gap: 8px;
   }
 
-  details.disclosure {
-    padding: 0;
-  }
-  details.disclosure > summary {
-    list-style: none;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 0;
-    user-select: none;
-  }
-  details.disclosure > summary::-webkit-details-marker {
-    display: none;
-  }
-  details.disclosure > summary::before {
-    content: '▸';
-    font-size: 18px;
-    transition: transform 0.15s;
-  }
-  details.disclosure[open] > summary::before {
-    transform: rotate(90deg);
-  }
-  details.disclosure > summary h2 {
-    margin: 0;
-    flex: none;
-  }
-  details.disclosure .sum-meta {
-    font-size: 11px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
+  /* details.disclosure marker + summary styling lives in ui-kit/utilities.css */
   .disclosure-body {
     margin-top: 14px;
   }

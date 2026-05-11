@@ -30,6 +30,11 @@
  *
  *  .section-head          accent-uppercase h2 typography (same as .card h2)
  *
+ *  details.disclosure     collapsible <details> with an animated ▸ marker
+ *    > summary              cursor:pointer, no native marker, ::before arrow
+ *    > summary h2           strips default margin so the summary is one line
+ *    .sum-meta              dim small-caps right-side metadata in summary
+ *
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -541,4 +546,40 @@
   height: 100%;
   background: var(--accent);
   transition: width 0.2s ease;
+}
+
+/* ---- disclosure (collapsible details) ---- */
+details.disclosure > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  user-select: none;
+}
+
+details.disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.disclosure > summary::before {
+  content: '▸';
+  font-size: 18px;
+  transition: transform 0.15s;
+}
+
+details.disclosure[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+details.disclosure > summary h2 {
+  margin: 0;
+  flex: none;
+}
+
+details.disclosure .sum-meta {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }

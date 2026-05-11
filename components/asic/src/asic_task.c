@@ -382,6 +382,12 @@ void asic_mining_task(void *arg)
     pid_set_output_limits(&s_pid, (float)config_min_fan_pct(), 100.0f);
 
     for (;;) {
+        // Pet the watchdog unconditionally so empty-queue spins (e.g. during
+        // stratum disconnect) don't starve the WDT and trigger a task_wdt reboot.
+        // xQueuePeek uses a 100ms timeout, so this fires at least every 100ms —
+        // well within the 5s WDT window.
+        esp_task_wdt_reset();
+
         // Pause/resume coalescing. bb_ota_pull triggers a check-phase pause/resume
         // immediately followed by an install-phase pause — during the ~8s freq
         // ramp of chip_resume, asic_task can't call mining_pause_check, so the

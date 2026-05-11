@@ -208,7 +208,13 @@
 
 <PoolEditDialog
   open={ps.editingIdx !== null}
-  bind:form={ps.form}
+  bind:host={ps.formHost}
+  bind:port={ps.formPort}
+  bind:wallet={ps.formWallet}
+  bind:worker={ps.formWorker}
+  bind:pool_pass={ps.formPoolPass}
+  bind:extranonce_subscribe={ps.formExtranonceSubscribe}
+  bind:decode_coinbase={ps.formDecodeCoinbase}
   kind={ps.editingIdx === 0 ? 'Primary' : 'Fallback'}
   saving={ps.saving}
   saveMsg={ps.saveMsg}

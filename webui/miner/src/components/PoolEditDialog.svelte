@@ -13,7 +13,13 @@
 
   let {
     open = false,
-    form = $bindable(),
+    host = $bindable(),
+    port = $bindable(),
+    wallet = $bindable(),
+    worker = $bindable(),
+    pool_pass = $bindable(),
+    extranonce_subscribe = $bindable(),
+    decode_coinbase = $bindable(),
     kind,
     saving = false,
     saveMsg = '',
@@ -22,7 +28,13 @@
     oncancel,
   }: {
     open?: boolean
-    form: PoolForm
+    host: string
+    port: number
+    wallet: string
+    worker: string
+    pool_pass: string
+    extranonce_subscribe: boolean
+    decode_coinbase: boolean
     kind: 'Primary' | 'Fallback'
     saving?: boolean
     saveMsg?: string
@@ -40,7 +52,13 @@
   <div class="modal-backdrop" onclick={onBackdrop} role="presentation"></div>
   <div class="modal-panel dialog" role="dialog" aria-modal="true" aria-labelledby="pool-edit-title">
     <PoolEditForm
-      bind:form
+      bind:host
+      bind:port
+      bind:wallet
+      bind:worker
+      bind:pool_pass
+      bind:extranonce_subscribe
+      bind:decode_coinbase
       {kind}
       {saving}
       {saveMsg}

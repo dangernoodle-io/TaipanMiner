@@ -402,6 +402,26 @@ describe('form binding round-trip', () => {
     expect(state.form.host).toBe('updated.pool.com')
   })
 
+  it('per-field setters update individual fields and the form snapshot', () => {
+    const state = createPoolState()
+    state.formHost = 'pool.example.com'
+    state.formPort = 4444
+    state.formWallet = 'bc1qtest'
+    state.formWorker = 'rig-1'
+    state.formPoolPass = 'x'
+    state.formExtranonceSubscribe = true
+    state.formDecodeCoinbase = false
+    expect(state.form).toEqual({
+      host: 'pool.example.com',
+      port: 4444,
+      wallet: 'bc1qtest',
+      worker: 'rig-1',
+      pool_pass: 'x',
+      extranonce_subscribe: true,
+      decode_coinbase: false,
+    })
+  })
+
   it('supports assigning entire form object', async () => {
     const state = createPoolState()
     const newForm = {

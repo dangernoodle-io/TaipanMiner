@@ -5,7 +5,13 @@ import { defaultForm, slotFromCurrent, slotFromForm, waitForFreshSession, type P
 
 export function createPoolState() {
   let editingIdx = $state<number | null>(null)
-  let form = $state<PoolForm>(defaultForm())
+  let formHost = $state('')
+  let formPort = $state(0)
+  let formWallet = $state('')
+  let formWorker = $state('')
+  let formPoolPass = $state('')
+  let formExtranonceSubscribe = $state(false)
+  let formDecodeCoinbase = $state(true)
   let saving = $state(false)
   let saveMsg = $state<string>('')
   let switching = $state(false)
@@ -16,13 +22,35 @@ export function createPoolState() {
   let pendingRemoveSlot = $state<'primary' | 'fallback' | null>(null)
   let removeConfirmMsg = $state('')
 
+  function readForm(): PoolForm {
+    return {
+      host: formHost,
+      port: formPort,
+      wallet: formWallet,
+      worker: formWorker,
+      pool_pass: formPoolPass,
+      extranonce_subscribe: formExtranonceSubscribe,
+      decode_coinbase: formDecodeCoinbase,
+    }
+  }
+
+  function writeForm(f: PoolForm) {
+    formHost = f.host
+    formPort = f.port
+    formWallet = f.wallet
+    formWorker = f.worker
+    formPoolPass = f.pool_pass
+    formExtranonceSubscribe = f.extranonce_subscribe
+    formDecodeCoinbase = f.decode_coinbase
+  }
+
   async function startEdit(idx: number) {
     editingIdx = idx
     saveMsg = ''
     const currentPool = get(pool)
     const cfg = idx === 0 ? currentPool?.configured?.primary : currentPool?.configured?.fallback
     if (cfg) {
-      form = {
+      writeForm({
         host: cfg.host,
         port: cfg.port,
         wallet: cfg.wallet,
@@ -30,9 +58,9 @@ export function createPoolState() {
         pool_pass: '',
         extranonce_subscribe: cfg.extranonce_subscribe ?? false,
         decode_coinbase: cfg.decode_coinbase ?? true,
-      }
+      })
     } else {
-      form = defaultForm()
+      writeForm(defaultForm())
     }
   }
 
@@ -58,7 +86,7 @@ export function createPoolState() {
     }
     try {
       const cfg = currentPool?.configured
-      const edited = slotFromForm(form)
+      const edited = slotFromForm(readForm())
       const body = {
         primary: editingIdx === 0
           ? edited
@@ -162,8 +190,22 @@ export function createPoolState() {
   return {
     get editingIdx() { return editingIdx },
     set editingIdx(v) { editingIdx = v },
-    get form() { return form },
-    set form(v) { form = v },
+    get form() { return readForm() },
+    set form(v) { writeForm(v) },
+    get formHost() { return formHost },
+    set formHost(v) { formHost = v },
+    get formPort() { return formPort },
+    set formPort(v) { formPort = v },
+    get formWallet() { return formWallet },
+    set formWallet(v) { formWallet = v },
+    get formWorker() { return formWorker },
+    set formWorker(v) { formWorker = v },
+    get formPoolPass() { return formPoolPass },
+    set formPoolPass(v) { formPoolPass = v },
+    get formExtranonceSubscribe() { return formExtranonceSubscribe },
+    set formExtranonceSubscribe(v) { formExtranonceSubscribe = v },
+    get formDecodeCoinbase() { return formDecodeCoinbase },
+    set formDecodeCoinbase(v) { formDecodeCoinbase = v },
     get saving() { return saving },
     get saveMsg() { return saveMsg },
     set saveMsg(v) { saveMsg = v },

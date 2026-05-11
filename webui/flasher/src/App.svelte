@@ -59,7 +59,8 @@
     <label>
       <span>Board</span>
       <Select
-        bind:value={state.board}
+        value={state.board}
+        onchange={(v) => state.selectBoard(v as string)}
         options={state.boardOptions}
         placeholder="Choose a board…"
         disabled={state.connectStatus === 'connected' || !webSerialAvailable}

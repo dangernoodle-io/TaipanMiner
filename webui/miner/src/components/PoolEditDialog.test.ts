@@ -17,35 +17,35 @@ function makeForm() {
 describe('PoolEditDialog', () => {
   it('does not render when open=false', () => {
     const { container } = render(PoolEditDialog, {
-      props: { open: false, form: makeForm(), kind: 'Primary' }
+      props: { open: false, ...makeForm(), kind: 'Primary' }
     })
     expect(container.querySelector('[role="dialog"]')).toBeNull()
   })
 
   it('renders dialog when open=true', () => {
     render(PoolEditDialog, {
-      props: { open: true, form: makeForm(), kind: 'Primary' }
+      props: { open: true, ...makeForm(), kind: 'Primary' }
     })
     expect(document.querySelector('[role="dialog"]')).not.toBeNull()
   })
 
   it('renders the form heading', () => {
     render(PoolEditDialog, {
-      props: { open: true, form: makeForm(), kind: 'Primary' }
+      props: { open: true, ...makeForm(), kind: 'Primary' }
     })
     expect(screen.getByText('Primary pool')).toBeInTheDocument()
   })
 
   it('renders Fallback heading for fallback kind', () => {
     render(PoolEditDialog, {
-      props: { open: true, form: makeForm(), kind: 'Fallback' }
+      props: { open: true, ...makeForm(), kind: 'Fallback' }
     })
     expect(screen.getByText('Fallback pool')).toBeInTheDocument()
   })
 
   it('has aria-modal=true', () => {
     render(PoolEditDialog, {
-      props: { open: true, form: makeForm(), kind: 'Primary' }
+      props: { open: true, ...makeForm(), kind: 'Primary' }
     })
     expect(document.querySelector('[aria-modal="true"]')).not.toBeNull()
   })

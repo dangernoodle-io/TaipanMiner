@@ -5,7 +5,8 @@
 
   let {
     networks,
-    selected = $bindable(),
+    selected,
+    onselect,
     scanning = false,
     error = null,
     disabled = false,
@@ -17,6 +18,7 @@
   }: {
     networks: WifiNetwork[]
     selected: string
+    onselect?: (value: string) => void
     scanning?: boolean
     error?: string | null
     disabled?: boolean
@@ -35,7 +37,7 @@
   }
 
   function pick(value: string) {
-    selected = value
+    onselect?.(value)
     open = false
   }
 

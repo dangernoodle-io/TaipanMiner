@@ -27,7 +27,8 @@
         <div class="scan-controls">
           <WifiSelect
             networks={ws.networks}
-            bind:selected={ws.selectedSsid}
+            selected={ws.selectedSsid}
+            onselect={(v) => { ws.selectedSsid = v }}
             scanning={ws.scanning}
             error={ws.scanError}
             disabled={ws.submitting}
@@ -56,7 +57,8 @@
         <div class="manual-entry">
           <input
             type="text"
-            bind:value={ws.manualSsid}
+            value={ws.manualSsid}
+            oninput={(e) => { ws.manualSsid = e.currentTarget.value }}
             placeholder="Enter SSID"
             maxlength="31"
             disabled={ws.submitting}
@@ -73,7 +75,8 @@
           <input
             id="pass"
             type={ws.showPass ? 'text' : 'password'}
-            bind:value={ws.pass}
+            value={ws.pass}
+            oninput={(e) => { ws.pass = e.currentTarget.value }}
             maxlength="63"
             disabled={ws.submitting}
           />
@@ -120,7 +123,8 @@
         <input
           id="wallet"
           type="text"
-          bind:value={ws.wallet}
+          value={ws.wallet}
+          oninput={(e) => { ws.wallet = e.currentTarget.value }}
           maxlength="63"
           placeholder="1BTC..."
           disabled={ws.submitting}
@@ -154,7 +158,8 @@
         <input
           id="pool_host"
           type="text"
-          bind:value={ws.poolHost}
+          value={ws.poolHost}
+          oninput={(e) => { ws.poolHost = e.currentTarget.value }}
           maxlength="63"
           placeholder="pool.example.com"
           disabled={ws.submitting}
@@ -170,7 +175,8 @@
           id="pool_port"
           type="text"
           inputmode="numeric"
-          bind:value={ws.poolPort}
+          value={ws.poolPort}
+          oninput={(e) => { ws.poolPort = e.currentTarget.value }}
           maxlength="5"
           placeholder="3333"
           disabled={ws.submitting}
@@ -185,7 +191,8 @@
         <input
           id="pool_pass"
           type="text"
-          bind:value={ws.poolPass}
+          value={ws.poolPass}
+          oninput={(e) => { ws.poolPass = e.currentTarget.value }}
           maxlength="63"
           placeholder="optional"
           disabled={ws.submitting}

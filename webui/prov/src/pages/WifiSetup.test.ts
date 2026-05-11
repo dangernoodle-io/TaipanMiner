@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render } from '@testing-library/svelte'
+import { render, fireEvent } from '@testing-library/svelte'
 
 // Mock createWifiSetupState so the component renders with a stub state
 vi.mock('../lib/wifiSetupState.svelte', () => ({
@@ -220,5 +220,79 @@ describe('WifiSetup — scan on mount', () => {
     vi.mocked(createWifiSetupState).mockReturnValue(makeStubState({ scan: scanFn }) as ReturnType<typeof makeStubState>)
     render(WifiSetup, { props: { onSaved } })
     expect(scanFn).toHaveBeenCalledOnce()
+  })
+})
+
+describe('WifiSetup — input handlers write back to state', () => {
+  // Each form input uses value/oninput against the state machine. These
+  // tests fire change events to exercise the inline arrow handlers; without
+  // them coverage tools count the handler bodies as unhit dead code even
+  // though they carry the real read-back behavior.
+  it('manual SSID input updates ws.manualSsid', async () => {
+    const stub = makeStubState({ selectedSsid: '__manual__' })
+    vi.mocked(createWifiSetupState).mockReturnValue(stub as ReturnType<typeof makeStubState>)
+    const { container } = render(WifiSetup, { props: { onSaved } })
+    const input = container.querySelector('.manual-entry input') as HTMLInputElement
+    await fireEvent.input(input, { target: { value: 'MyAP' } })
+    expect(stub.manualSsid).toBe('MyAP')
+  })
+
+  it('password input updates ws.pass', async () => {
+    const stub = makeStubState()
+    vi.mocked(createWifiSetupState).mockReturnValue(stub as ReturnType<typeof makeStubState>)
+    const { container } = render(WifiSetup, { props: { onSaved } })
+    const input = container.querySelector('#pass') as HTMLInputElement
+    await fireEvent.input(input, { target: { value: 'secret' } })
+    expect(stub.pass).toBe('secret')
+  })
+
+  it('wallet input updates ws.wallet', async () => {
+    const stub = makeStubState()
+    vi.mocked(createWifiSetupState).mockReturnValue(stub as ReturnType<typeof makeStubState>)
+    const { container } = render(WifiSetup, { props: { onSaved } })
+    const input = container.querySelector('#wallet') as HTMLInputElement
+    await fireEvent.input(input, { target: { value: 'bc1qexample' } })
+    expect(stub.wallet).toBe('bc1qexample')
+  })
+
+  it('pool host input updates ws.poolHost', async () => {
+    const stub = makeStubState()
+    vi.mocked(createWifiSetupState).mockReturnValue(stub as ReturnType<typeof makeStubState>)
+    const { container } = render(WifiSetup, { props: { onSaved } })
+    const input = container.querySelector('#pool_host') as HTMLInputElement
+    await fireEvent.input(input, { target: { value: 'pool.example.com' } })
+    expect(stub.poolHost).toBe('pool.example.com')
+  })
+
+  it('pool port input updates ws.poolPort', async () => {
+    const stub = makeStubState()
+    vi.mocked(createWifiSetupState).mockReturnValue(stub as ReturnType<typeof makeStubState>)
+    const { container } = render(WifiSetup, { props: { onSaved } })
+    const input = container.querySelector('#pool_port') as HTMLInputElement
+    await fireEvent.input(input, { target: { value: '4444' } })
+    expect(stub.poolPort).toBe('4444')
+  })
+
+  it('pool pass input updates ws.poolPass', async () => {
+    const stub = makeStubState()
+    vi.mocked(createWifiSetupState).mockReturnValue(stub as ReturnType<typeof makeStubState>)
+    const { container } = render(WifiSetup, { props: { onSaved } })
+    const input = container.querySelector('#pool_pass') as HTMLInputElement
+    await fireEvent.input(input, { target: { value: 'x' } })
+    expect(stub.poolPass).toBe('x')
+  })
+
+  it('WifiSelect onselect updates ws.selectedSsid', async () => {
+    const stub = makeStubState({
+      networks: [{ ssid: 'TestNet', rssi: -50, secure: true }],
+    })
+    vi.mocked(createWifiSetupState).mockReturnValue(stub as ReturnType<typeof makeStubState>)
+    const { container } = render(WifiSetup, { props: { onSaved } })
+    // Open the WifiSelect dropdown trigger and pick the network
+    const trigger = container.querySelector('.scan-controls button') as HTMLButtonElement
+    await fireEvent.click(trigger)
+    const option = container.querySelector('[role="option"]') as HTMLElement
+    await fireEvent.click(option)
+    expect(stub.selectedSsid).toBe('TestNet')
   })
 })

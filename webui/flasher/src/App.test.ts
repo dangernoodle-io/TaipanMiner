@@ -60,6 +60,21 @@ describe('App.svelte', () => {
     expect(getByText('Connect device')).toBeInTheDocument()
   })
 
+  it('Select onchange routes through state.selectBoard', async () => {
+    const selectBoard = vi.fn()
+    const { container } = await renderApp({
+      selectBoard,
+      boardOptions: [
+        { value: 'tdongle-s3', label: 'tdongle-s3' },
+        { value: 'bitaxe-601', label: 'bitaxe-601' },
+      ],
+    })
+    const select = container.querySelector('select') as HTMLSelectElement
+    const { fireEvent } = await import('@testing-library/svelte')
+    await fireEvent.change(select, { target: { value: 'bitaxe-601' } })
+    expect(selectBoard).toHaveBeenCalledWith('bitaxe-601')
+  })
+
   it('shows Connecting… when connectStatus=connecting', async () => {
     const { getByText } = await renderApp({ connectStatus: 'connecting' })
     expect(getByText('Connecting…')).toBeInTheDocument()

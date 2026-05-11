@@ -2,19 +2,21 @@
   type Option = { value: T; label: string }
 
   let {
-    value = $bindable(),
+    value,
+    onchange,
     options,
     disabled = false,
     placeholder
   }: {
     value: T | ''
+    onchange?: (v: T | '') => void
     options: Option[]
     disabled?: boolean
     placeholder?: string
   } = $props()
 </script>
 
-<select bind:value {disabled}>
+<select {value} {disabled} onchange={(e) => onchange?.((e.currentTarget as HTMLSelectElement).value as T | '')}>
   {#if placeholder}
     <option value="" disabled>{placeholder}</option>
   {/if}

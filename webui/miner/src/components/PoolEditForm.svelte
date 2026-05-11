@@ -14,7 +14,13 @@
   }
 
   let {
-    form = $bindable(),
+    host = $bindable(),
+    port = $bindable(),
+    wallet = $bindable(),
+    worker = $bindable(),
+    pool_pass = $bindable(),
+    extranonce_subscribe = $bindable(),
+    decode_coinbase = $bindable(),
     kind,
     saving = false,
     saveMsg = '',
@@ -22,7 +28,13 @@
     onsave,
     oncancel,
   }: {
-    form: PoolForm
+    host: string
+    port: number
+    wallet: string
+    worker: string
+    pool_pass: string
+    extranonce_subscribe: boolean
+    decode_coinbase: boolean
     kind: 'Primary' | 'Fallback'
     saving?: boolean
     saveMsg?: string
@@ -41,7 +53,7 @@
         <label for="pool-host">Host</label>
         <Tooltip icon text="Stratum pool hostname or IP. Leave off the protocol — TCP only." />
       </div>
-      <input id="pool-host" type="text" bind:value={form.host} maxlength="63" placeholder="pool.example.com" required disabled={saving} />
+      <input id="pool-host" type="text" bind:value={host} maxlength="63" placeholder="pool.example.com" required disabled={saving} />
     </div>
 
     <div class="form-group">
@@ -49,7 +61,7 @@
         <label for="pool-port">Port</label>
         <Tooltip icon text="Stratum TCP port. Common values: 3333, 4334, 9999. Pool-specific — check the pool's docs." />
       </div>
-      <input id="pool-port" type="number" bind:value={form.port} min="1" max="65535" placeholder="3333" required disabled={saving} />
+      <input id="pool-port" type="number" bind:value={port} min="1" max="65535" placeholder="3333" required disabled={saving} />
     </div>
 
     <div class="form-group">
@@ -57,7 +69,7 @@
         <label for="pool-pass">Password</label>
         <Tooltip icon text="Pool password. Most pools accept any value (often 'x' or empty); some use it for worker config flags." />
       </div>
-      <PasswordInput id="pool-pass" bind:value={form.pool_pass} placeholder="leave blank to keep current" disabled={saving} />
+      <PasswordInput id="pool-pass" bind:value={pool_pass} placeholder="leave blank to keep current" disabled={saving} />
     </div>
 
     <div class="form-group">
@@ -65,7 +77,7 @@
         <label for="pool-wallet">Wallet</label>
         <Tooltip icon text="Bitcoin payout address registered with this pool. Most pools require a bech32 (bc1…) or legacy (1…/3…) address." />
       </div>
-      <input id="pool-wallet" type="text" bind:value={form.wallet} spellcheck="false" required disabled={saving} />
+      <input id="pool-wallet" type="text" bind:value={wallet} spellcheck="false" required disabled={saving} />
     </div>
 
     <div class="form-group">
@@ -73,7 +85,7 @@
         <label for="pool-worker">Worker</label>
         <Tooltip icon text="Worker name appended to the wallet (wallet.worker) so the pool can track multiple miners separately. Defaults to the device hostname." />
       </div>
-      <input id="pool-worker" type="text" bind:value={form.worker} placeholder={workerPlaceholder} required disabled={saving} />
+      <input id="pool-worker" type="text" bind:value={worker} placeholder={workerPlaceholder} required disabled={saving} />
     </div>
   </section>
 
@@ -85,7 +97,7 @@
         Extranonce subscribe
         <Tooltip icon text="Send mining.extranonce.subscribe after authorize so the pool can roll extranonce1 mid-session without forcing reconnect. Pools that don't support the extension reject it harmlessly." />
       </span>
-      <Toggle bind:checked={form.extranonce_subscribe} disabled={saving} size="sm" />
+      <Toggle bind:checked={extranonce_subscribe} disabled={saving} size="sm" />
     </div>
 
     <div class="opt-row">
@@ -93,7 +105,7 @@
         Decode coinbase
         <Tooltip icon text="Decode coinbase tx for block height, scriptSig tag, payout, and reward. Turn off for non-BTC SHA-256d pools whose coinbase shape is unknown." />
       </span>
-      <Toggle bind:checked={form.decode_coinbase} disabled={saving} size="sm" />
+      <Toggle bind:checked={decode_coinbase} disabled={saving} size="sm" />
     </div>
   </details>
 

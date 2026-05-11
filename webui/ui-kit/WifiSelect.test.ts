@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, fireEvent } from '@testing-library/svelte'
 import WifiSelect from './WifiSelect.svelte'
 
@@ -85,19 +85,18 @@ describe('WifiSelect', () => {
     expect(listbox).not.toBeInTheDocument()
   })
 
-  it('updates selected when network is picked', async () => {
-    const { getByRole, getAllByRole, getByText } = render(WifiSelect, {
-      props: { networks: mockNetworks, selected: '' },
+  it('invokes onselect when a network is picked', async () => {
+    const onselect = vi.fn()
+    const { getByRole, getAllByRole } = render(WifiSelect, {
+      props: { networks: mockNetworks, selected: '', onselect },
     })
     const trigger = getByRole('button')
 
     await fireEvent.click(trigger)
     const options = getAllByRole('option')
-    const secondOption = options[1]
+    await fireEvent.click(options[1])
 
-    await fireEvent.click(secondOption)
-    // After selection, the SSID should be displayed in the trigger
-    expect(getByText('GuestNet')).toBeInTheDocument()
+    expect(onselect).toHaveBeenCalledWith('GuestNet')
   })
 
   it('disables trigger when disabled prop is true', () => {
@@ -136,18 +135,17 @@ describe('WifiSelect', () => {
     expect(queryByText('Manual entry…')).not.toBeInTheDocument()
   })
 
-  it('selects manual entry when clicked', async () => {
+  it('invokes onselect with __manual__ when manual entry is clicked', async () => {
+    const onselect = vi.fn()
     const { getByRole, getByText } = render(WifiSelect, {
-      props: { networks: mockNetworks, selected: '', allowManualEntry: true, manualSelectedLabel: 'Manual Entry' },
+      props: { networks: mockNetworks, selected: '', allowManualEntry: true, manualSelectedLabel: 'Manual Entry', onselect },
     })
     const trigger = getByRole('button')
 
     await fireEvent.click(trigger)
-    const manualBtn = getByText('Manual entry…')
-    await fireEvent.click(manualBtn)
+    await fireEvent.click(getByText('Manual entry…'))
 
-    // After selecting manual entry, the manual label should be shown
-    expect(getByText('Manual Entry')).toBeInTheDocument()
+    expect(onselect).toHaveBeenCalledWith('__manual__')
   })
 
   it('displays manual entry label when selected', () => {

@@ -19,6 +19,8 @@ static struct {
     uint16_t vr_target_c;
     uint16_t manual_fan_pct;
     uint16_t min_fan_pct;
+    /* Knot service enable/disable */
+    bool     knot_enabled;
 } s_config;
 
 static const char *TAG = "config";
@@ -199,6 +201,16 @@ bb_err_t config_init(void)
         s_config.min_fan_pct = u16;
     }
 
+    /* Knot service enable/disable */
+    {
+        uint8_t v = 1;
+        if (bb_nv_get_u8(NV_NS, "knot_en", &v, 1) == BB_OK) {
+            s_config.knot_enabled = (v != 0);
+        } else {
+            s_config.knot_enabled = true;
+        }
+    }
+
     bb_log_i(TAG, "pool config loaded (pool=%s:%u worker=%s.%s)",
              s_config.pools[0].host, s_config.pools[0].port,
              s_config.pools[0].wallet, s_config.pools[0].worker);
@@ -219,6 +231,8 @@ bb_err_t config_init(void)
     s_config.vr_target_c     = 75;
     s_config.manual_fan_pct  = 100;
     s_config.min_fan_pct     = 25;
+    /* Knot service default for host */
+    s_config.knot_enabled = true;
     return 0;
 #endif
 }
@@ -473,6 +487,22 @@ bb_err_t config_set_min_fan_pct(uint16_t val)
     if (err != BB_OK) return err;
 #endif
     s_config.min_fan_pct = val;
+    return BB_OK;
+}
+
+/* Knot service enable/disable */
+bool config_knot_enabled(void)
+{
+    return s_config.knot_enabled;
+}
+
+bb_err_t config_set_knot_enabled(bool enabled)
+{
+#ifdef ESP_PLATFORM
+    bb_err_t err = bb_nv_set_u8(NV_NS, "knot_en", enabled ? 1 : 0);
+    if (err != BB_OK) return err;
+#endif
+    s_config.knot_enabled = enabled;
     return BB_OK;
 }
 

@@ -342,6 +342,8 @@ void build_settings_json(const settings_snapshot_t *s, bb_json_t root)
     bb_json_obj_set_string(root, "hostname",      s->hostname);
     bb_json_obj_set_bool(root,   "display_en",    s->display_en);
     bb_json_obj_set_bool(root,   "ota_skip_check", s->ota_skip_check);
+    bb_json_obj_set_bool(root,   "mdns_en",       s->mdns_en);
+    bb_json_obj_set_bool(root,   "knot_en",       s->knot_en);
 }
 
 /* ============================================================================

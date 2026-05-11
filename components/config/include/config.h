@@ -67,3 +67,7 @@ bb_err_t config_set_die_target_c(uint16_t val);
 bb_err_t config_set_vr_target_c(uint16_t val);
 bb_err_t config_set_manual_fan_pct(uint16_t val);
 bb_err_t config_set_min_fan_pct(uint16_t val);
+
+/* Knot service enable/disable */
+bool config_knot_enabled(void);
+bb_err_t config_set_knot_enabled(bool enabled);

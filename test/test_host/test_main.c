@@ -596,6 +596,12 @@ void test_set_manual_fan_pct_clamps_high(void);
 void test_set_min_fan_pct_in_range(void);
 void test_set_min_fan_pct_clamps_high(void);
 
+// Forward declarations from test_config_knot.c
+void test_set_knot_enabled_round_trip(void);
+void test_knot_enabled_default_true(void);
+void test_set_knot_enabled_to_true(void);
+void test_set_knot_enabled_to_false(void);
+
 // TA-141: autofan thermal aggregation
 void test_autofan_die_greater_than_vr(void);
 void test_autofan_vr_greater_than_die(void);
@@ -1223,6 +1229,12 @@ int main(void) {
     RUN_TEST(test_set_manual_fan_pct_clamps_high);
     RUN_TEST(test_set_min_fan_pct_in_range);
     RUN_TEST(test_set_min_fan_pct_clamps_high);
+
+    // Config knot_enabled tests
+    RUN_TEST(test_set_knot_enabled_round_trip);
+    RUN_TEST(test_knot_enabled_default_true);
+    RUN_TEST(test_set_knot_enabled_to_true);
+    RUN_TEST(test_set_knot_enabled_to_false);
 
     // TA-141: autofan thermal aggregation tests
     RUN_TEST(test_autofan_die_greater_than_vr);

@@ -13,6 +13,7 @@
   $: healthRows = [
     { label: 'WiFi',     dot: ($health?.network?.connected ? 'ok' : 'err') as Dot },
     { label: 'mDNS',     dot: ($health?.network?.mdns ? 'ok' : 'idle') as Dot },
+    { label: 'Knot',     dot: ($health?.network?.knot ? 'ok' : 'idle') as Dot },
     { label: 'Stratum',  dot: ($health?.network?.stratum ? 'ok' : 'err') as Dot },
     { label: 'Firmware', dot: ($health?.validated === true ? 'ok'
                            : $health?.validated === false ? 'warn'

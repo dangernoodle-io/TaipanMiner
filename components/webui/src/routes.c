@@ -1008,6 +1008,7 @@ static void taipan_health_extender(bb_json_t root)
         bb_json_obj_set_bool(network, "stratum", stratum_is_connected());
         bb_json_obj_set_number(network, "stratum_fail_count",
                                stratum_get_connect_fail_count());
+        bb_json_obj_set_bool(network, "knot", knot_is_running());
     }
 }
 
@@ -1029,6 +1030,8 @@ static bb_err_t settings_get_handler(bb_http_request_t *req)
     }
     s.display_en     = bb_nv_config_display_enabled();
     s.ota_skip_check = bb_nv_config_ota_skip_check();
+    s.mdns_en        = bb_nv_config_mdns_enabled();
+    s.knot_en        = config_knot_enabled();
 
     bb_json_t root = bb_json_obj_new();
     build_settings_json(&s, root);
@@ -1283,6 +1286,132 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
                 return BB_ERR_INVALID_ARG;
             }
         }
+    }
+
+    // Handle mdns_en and knot_en separately (live apply, no reboot needed)
+    {
+        bool has_mdns = bb_json_obj_get_item(root, "mdns_en") != NULL;
+        bool has_knot = bb_json_obj_get_item(root, "knot_en") != NULL;
+
+        bool mdns_val = bb_nv_config_mdns_enabled();
+        bool knot_val = config_knot_enabled();
+
+        if (has_mdns) {
+            bb_json_obj_get_bool(root, "mdns_en", &mdns_val);
+        }
+        if (has_knot) {
+            bb_json_obj_get_bool(root, "knot_en", &knot_val);
+        }
+
+        // Cross-field validation: knot_en=true requires mdns_en=true
+        if (has_knot && knot_val && !mdns_val) {
+            bb_json_free(root);
+            bb_http_resp_send_err(req, 400, "mdns_en must be true to enable knot");
+            return BB_ERR_INVALID_ARG;
+        }
+
+        // Local helper-style block: re-arm knot using the current
+        // configured identity. Used both for the "knot_en false->true"
+        // transition and the "mdns_en false->true && knot configured on"
+        // path.
+        #define KNOT_REARM_LIVE() do {                                     \
+            knot_init();                                                   \
+            char _hn[64];                                                  \
+            const char *_h = config_hostname();                            \
+            if (_h && _h[0]) {                                             \
+                strncpy(_hn, _h, sizeof(_hn) - 1);                         \
+                _hn[sizeof(_hn) - 1] = '\0';                               \
+            } else {                                                       \
+                bb_mdns_build_hostname(config_worker_name(), NULL, _hn,    \
+                                       sizeof(_hn));                       \
+            }                                                              \
+            knot_set_self(_hn, _hn, NULL, config_worker_name(),            \
+                          FIRMWARE_BOARD, bb_system_get_version(),         \
+                          "mining");                                       \
+        } while (0)
+
+        // Handle mdns_en transition: when mdns goes off, knot must go off too
+        if (has_mdns) {
+            bool current_mdns = bb_nv_config_mdns_enabled();
+            if (!mdns_val && current_mdns) {
+                // Stopping mDNS: tear down knot first (it depends on
+                // mdns browse) then stop mdns itself, then persist.
+                knot_deinit();
+                bb_mdns_deinit();
+                bb_err_t err = bb_nv_config_set_mdns_enabled(false);
+                if (err != BB_OK) {
+                    bb_json_free(root);
+                    bb_http_resp_send_err(req, 500, "Failed to save mdns_en");
+                    return BB_ERR_INVALID_ARG;
+                }
+            } else if (mdns_val && !current_mdns) {
+                // Starting mDNS: persist, then re-arm the service
+                // synchronously (bb_mdns_init's got-IP callback won't
+                // fire on its own while wifi stays connected). Knot
+                // stays off — re-enable explicitly via knot_en.
+                bb_err_t err = bb_nv_config_set_mdns_enabled(true);
+                if (err != BB_OK) {
+                    bb_json_free(root);
+                    bb_http_resp_send_err(req, 500, "Failed to save mdns_en");
+                    return BB_ERR_INVALID_ARG;
+                }
+                bb_mdns_start();
+            }
+        }
+
+        // Handle knot_en transition: only if mdns is on. Use the
+        // RUNTIME state (knot_is_running) rather than persisted config
+        // because knot can be torn down by an mdns_en=false transition
+        // without flipping its own persisted flag.
+        if (has_knot && !has_mdns) {  // Only if mdns_en was not being set in this PATCH
+            bool running = knot_is_running();
+            if (!knot_val && running) {
+                // Stopping knot
+                knot_deinit();
+                bb_err_t err = config_set_knot_enabled(false);
+                if (err != BB_OK) {
+                    bb_json_free(root);
+                    bb_http_resp_send_err(req, 500, "Failed to save knot_en");
+                    return BB_ERR_INVALID_ARG;
+                }
+            } else if (knot_val && !running && bb_nv_config_mdns_enabled()) {
+                // Starting knot (mdns must be on)
+                bb_err_t err = config_set_knot_enabled(true);
+                if (err != BB_OK) {
+                    bb_json_free(root);
+                    bb_http_resp_send_err(req, 500, "Failed to save knot_en");
+                    return BB_ERR_INVALID_ARG;
+                }
+                KNOT_REARM_LIVE();
+            } else if (!knot_val && !running) {
+                // Persist the off state even if already torn down so
+                // boot-time gating reflects the user's intent.
+                bb_err_t err = config_set_knot_enabled(false);
+                if (err != BB_OK) {
+                    bb_json_free(root);
+                    bb_http_resp_send_err(req, 500, "Failed to save knot_en");
+                    return BB_ERR_INVALID_ARG;
+                }
+            }
+        } else if (has_knot && has_mdns) {
+            // Both mdns_en and knot_en in same request. mDNS lifecycle
+            // already applied above; now apply knot consistently with
+            // the (possibly just-changed) mdns state.
+            bool running = knot_is_running();
+            bb_err_t err = config_set_knot_enabled(knot_val);
+            if (err != BB_OK) {
+                bb_json_free(root);
+                bb_http_resp_send_err(req, 500, "Failed to save knot_en");
+                return BB_ERR_INVALID_ARG;
+            }
+            if (knot_val && mdns_val && !running) {
+                KNOT_REARM_LIVE();
+            } else if (!knot_val && running) {
+                knot_deinit();
+            }
+        }
+
+        #undef KNOT_REARM_LIVE
     }
 
     bb_json_free(root);
@@ -1633,9 +1762,11 @@ static const bb_route_response_t s_settings_get_responses[] = {
       "\"pool_pass\":{\"type\":\"string\"},"
       "\"hostname\":{\"type\":\"string\"},"
       "\"display_en\":{\"type\":\"boolean\"},"
-      "\"ota_skip_check\":{\"type\":\"boolean\"}},"
+      "\"ota_skip_check\":{\"type\":\"boolean\"},"
+      "\"mdns_en\":{\"type\":\"boolean\"},"
+      "\"knot_en\":{\"type\":\"boolean\"}},"
       "\"required\":[\"pool_host\",\"pool_port\",\"wallet\",\"worker\","
-      "\"pool_pass\",\"hostname\",\"display_en\",\"ota_skip_check\"]}",
+      "\"pool_pass\",\"hostname\",\"display_en\",\"ota_skip_check\",\"mdns_en\",\"knot_en\"]}",
       "current persisted settings" },
     { 0 },
 };
@@ -1702,7 +1833,9 @@ static const bb_route_t s_settings_patch_route = {
         "\"pool_pass\":{\"type\":\"string\"},"
         "\"hostname\":{\"type\":\"string\"},"
         "\"display_en\":{\"type\":\"boolean\"},"
-        "\"ota_skip_check\":{\"type\":\"boolean\"}}}",
+        "\"ota_skip_check\":{\"type\":\"boolean\"},"
+        "\"mdns_en\":{\"type\":\"boolean\"},"
+        "\"knot_en\":{\"type\":\"boolean\"}}}",
     .responses            = s_settings_write_responses,
     .handler              = settings_patch_handler,
 };

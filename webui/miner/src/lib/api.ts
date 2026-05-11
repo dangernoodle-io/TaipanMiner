@@ -127,6 +127,7 @@ export interface HealthNetwork {
   mdns: string | null
   stratum?: boolean              // TaipanMiner extender
   stratum_fail_count?: number    // TaipanMiner extender
+  knot?: boolean                 // TaipanMiner extender
 }
 
 export interface Health {
@@ -338,6 +339,8 @@ export interface Settings {
   hostname: string
   display_en?: boolean
   ota_skip_check?: boolean
+  mdns_en?: boolean
+  knot_en?: boolean
 }
 
 export const fetchStats = () => getJson<Stats>('/api/stats')

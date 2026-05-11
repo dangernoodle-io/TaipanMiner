@@ -54,4 +54,88 @@ test.describe('Settings page', () => {
 
     await expect(page.getByText(/Failed to load settings/)).toBeVisible()
   })
+
+  test('renders mDNS and Knot toggles in General section', async ({ page }) => {
+    await mockMinerApi(page)
+    await page.goto('/#/settings')
+
+    await expect(page.getByRole('heading', { name: /^General/ })).toBeVisible()
+    const mdnsRow = page.locator('.row').filter({ hasText: 'mDNS' })
+    const knotRow = page.locator('.row').filter({ hasText: 'Knot' })
+    await expect(mdnsRow).toBeVisible()
+    await expect(knotRow).toBeVisible()
+  })
+
+  test('Knot toggle is disabled when mDNS is off', async ({ page }) => {
+    let patchedData: unknown = null
+    await mockMinerApi(page, { overrides: { '/api/settings': { ...settingsFixture, mdns_en: false, knot_en: false } } })
+    await page.route('**/api/settings', async (route) => {
+      if (route.request().method() === 'PATCH') {
+        patchedData = JSON.parse(route.request().postData() ?? '{}')
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', reboot_required: false }) })
+        return
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...settingsFixture, mdns_en: false, knot_en: false }) })
+    })
+    await page.goto('/#/settings')
+
+    await expect(page.getByRole('heading', { name: /^General/ })).toBeVisible()
+    const knotRow = page.locator('.row').filter({ hasText: 'Knot' })
+    const knotToggle = knotRow.locator('input[type="checkbox"]')
+    await expect(knotToggle).toBeDisabled()
+  })
+
+  test('Knot toggle is enabled when mDNS is on', async ({ page }) => {
+    await mockMinerApi(page, { overrides: { '/api/settings': { ...settingsFixture, mdns_en: true, knot_en: false } } })
+    await page.goto('/#/settings')
+
+    await expect(page.getByRole('heading', { name: /^General/ })).toBeVisible()
+    const knotRow = page.locator('.row').filter({ hasText: 'Knot' })
+    const knotToggle = knotRow.locator('input[type="checkbox"]')
+    await expect(knotToggle).toBeEnabled()
+  })
+
+  test('toggling mDNS off sends PATCH and disables Knot', async ({ page }) => {
+    let patchedData: unknown = null
+    await mockMinerApi(page)
+    await page.route('**/api/settings', async (route) => {
+      if (route.request().method() === 'PATCH') {
+        patchedData = JSON.parse(route.request().postData() ?? '{}')
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', reboot_required: false }) })
+        return
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(settingsFixture) })
+    })
+    await page.goto('/#/settings')
+
+    await expect(page.getByRole('heading', { name: /^General/ })).toBeVisible()
+
+    const mdnsRow = page.locator('.row').filter({ hasText: 'mDNS' })
+    await mdnsRow.locator('label.toggle').click()
+
+    expect(patchedData).toMatchObject({ mdns_en: false })
+    await expect(mdnsRow.getByText('Saved')).toBeVisible()
+  })
+
+  test('toggling Knot on sends PATCH with knot_en', async ({ page }) => {
+    let patchedData: unknown = null
+    await mockMinerApi(page, { overrides: { '/api/settings': { ...settingsFixture, mdns_en: true, knot_en: false } } })
+    await page.route('**/api/settings', async (route) => {
+      if (route.request().method() === 'PATCH') {
+        patchedData = JSON.parse(route.request().postData() ?? '{}')
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', reboot_required: false }) })
+        return
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...settingsFixture, mdns_en: true, knot_en: false }) })
+    })
+    await page.goto('/#/settings')
+
+    await expect(page.getByRole('heading', { name: /^General/ })).toBeVisible()
+
+    const knotRow = page.locator('.row').filter({ hasText: 'Knot' })
+    await knotRow.locator('label.toggle').click()
+
+    expect(patchedData).toMatchObject({ knot_en: true })
+    await expect(knotRow.getByText('Saved')).toBeVisible()
+  })
 })

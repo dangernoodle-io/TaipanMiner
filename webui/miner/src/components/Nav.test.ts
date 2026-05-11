@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/svelte'
 import { route } from '../lib/router'
+import { health } from '../lib/stores'
 
 // Mock the router module so window.addEventListener doesn't interfere
 vi.mock('../lib/router', async () => {
@@ -12,12 +13,24 @@ vi.mock('../lib/router', async () => {
   }
 })
 
+vi.mock('../lib/stores', async () => {
+  const { writable } = await import('svelte/store')
+  return {
+    health: writable(null),
+    stats: writable(null),
+    info: writable(null),
+    fan: writable(null),
+    hasAsic: writable(false)
+  }
+})
+
 import Nav from './Nav.svelte'
 
 describe('Nav', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     route.set('dashboard')
+    health.set(null)
   })
 
   it('renders all navigation links', () => {
@@ -67,12 +80,64 @@ describe('Nav', () => {
     expect(document.querySelectorAll('span.disabled').length).toBe(0)
   })
 
-  it('renders each tab with correct href', () => {
+  it('renders each tab with correct href when knot is enabled', () => {
+    health.set({
+      ok: true,
+      free_heap: 100000,
+      validated: true,
+      network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: null, knot: true }
+    } as any)
     render(Nav)
     const routes = ['dashboard', 'diagnostics', 'history', 'knot', 'pool', 'settings', 'system', 'update']
     for (const r of routes) {
       const link = document.querySelector(`a[href="#/${r}"]`)
       expect(link).not.toBeNull()
     }
+  })
+})
+
+describe('Nav — Knot link visibility', () => {
+  it('renders Knot link when health.network.knot=true', () => {
+    health.set({
+      ok: true,
+      free_heap: 100000,
+      validated: true,
+      network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: null, knot: true }
+    } as any)
+    render(Nav)
+    const knotLink = document.querySelector('a[href="#/knot"]')
+    expect(knotLink).not.toBeNull()
+  })
+
+  it('does NOT render Knot link when health.network.knot=false', () => {
+    health.set({
+      ok: true,
+      free_heap: 100000,
+      validated: true,
+      network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: null, knot: false }
+    } as any)
+    render(Nav)
+    const knotLink = document.querySelector('a[href="#/knot"]')
+    expect(knotLink).toBeNull()
+  })
+
+  it('renders Knot link when health is null (unknown state defaults to visible)', () => {
+    health.set(null)
+    render(Nav)
+    const knotLink = document.querySelector('a[href="#/knot"]')
+    expect(knotLink).not.toBeNull()
+  })
+
+  it('renders other links regardless of knot status', () => {
+    health.set({
+      ok: true,
+      free_heap: 100000,
+      validated: true,
+      network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: null, knot: false }
+    } as any)
+    render(Nav)
+    expect(screen.getByText('Dashboard')).toBeInTheDocument()
+    expect(screen.getByText('Settings')).toBeInTheDocument()
+    expect(screen.getByText('Pool')).toBeInTheDocument()
   })
 })

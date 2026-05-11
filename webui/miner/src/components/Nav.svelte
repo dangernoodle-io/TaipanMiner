@@ -1,7 +1,8 @@
 <script lang="ts">
   import { route, type Route } from '../lib/router'
+  import { health } from '../lib/stores'
 
-  const links: { id: Route; label: string; disabled?: boolean }[] = [
+  const allLinks: { id: Route; label: string; disabled?: boolean }[] = [
     { id: 'dashboard',   label: 'Dashboard' },
     { id: 'diagnostics', label: 'Diagnostics' },
     { id: 'history',     label: 'History' },
@@ -11,6 +12,8 @@
     { id: 'system',      label: 'System' },
     { id: 'update',      label: 'Update' }
   ]
+
+  $: links = allLinks.filter(link => link.id !== 'knot' || $health?.network?.knot !== false)
 </script>
 
 <nav>

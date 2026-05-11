@@ -228,6 +228,8 @@ typedef struct {
     char     hostname[33];
     bool     display_en;
     bool     ota_skip_check;
+    bool     mdns_en;
+    bool     knot_en;
 } settings_snapshot_t;
 
 void build_settings_json(const settings_snapshot_t *s, bb_json_t root);

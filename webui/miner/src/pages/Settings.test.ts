@@ -9,17 +9,29 @@ const { mockSs } = vi.hoisted(() => ({
     loadErr: '',
     displayOn: true,
     otaSkip: false,
+    mdnsOn: false,
+    knotOn: false,
     savingDisplay: false,
     savingOtaSkip: false,
+    savingMdns: false,
+    savingKnot: false,
     displayMsg: '',
     otaMsg: '',
+    mdnsMsg: '',
+    knotMsg: '',
     displayKind: '' as '' | 'ok' | 'err',
     otaKind: '' as '' | 'ok' | 'err',
+    mdnsKind: '' as '' | 'ok' | 'err',
+    knotKind: '' as '' | 'ok' | 'err',
     loadSettings: vi.fn(),
     saveDisplay: vi.fn(),
     saveOtaSkip: vi.fn(),
+    saveMdns: vi.fn(),
+    saveKnot: vi.fn(),
     onDisplayChange: vi.fn(),
     onOtaChange: vi.fn(),
+    onMdnsChange: vi.fn(),
+    onKnotChange: vi.fn(),
   }
 }))
 
@@ -57,12 +69,20 @@ beforeEach(() => {
   mockSs.loadErr = ''
   mockSs.displayOn = true
   mockSs.otaSkip = false
+  mockSs.mdnsOn = false
+  mockSs.knotOn = false
   mockSs.savingDisplay = false
   mockSs.savingOtaSkip = false
+  mockSs.savingMdns = false
+  mockSs.savingKnot = false
   mockSs.displayMsg = ''
   mockSs.otaMsg = ''
+  mockSs.mdnsMsg = ''
+  mockSs.knotMsg = ''
   mockSs.displayKind = ''
   mockSs.otaKind = ''
+  mockSs.mdnsKind = ''
+  mockSs.knotKind = ''
 })
 
 describe('Settings — loading state', () => {
@@ -276,5 +296,58 @@ describe('Settings — calls loadSettings on mount', () => {
   it('invokes ss.loadSettings', () => {
     render(Settings)
     expect(mockSs.loadSettings).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Settings — mDNS toggle', () => {
+  it('renders mDNS toggle in General section', () => {
+    const { container } = render(Settings)
+    expect(container.textContent).toContain('mDNS')
+  })
+
+  it('shows mdnsMsg when set', () => {
+    mockSs.mdnsMsg = 'Saved'
+    const { container } = render(Settings)
+    expect(container.textContent).toContain('Saved')
+  })
+
+  it('renders status span with data-kind=ok for mdnsKind=ok', () => {
+    mockSs.mdnsMsg = 'Saved'
+    mockSs.mdnsKind = 'ok'
+    const { container } = render(Settings)
+    const spans = container.querySelectorAll('.status[data-kind="ok"]')
+    expect(spans.length).toBeGreaterThan(0)
+  })
+
+  it('renders status span with data-kind=err for mdnsKind=err', () => {
+    mockSs.mdnsMsg = 'save failed'
+    mockSs.mdnsKind = 'err'
+    const { container } = render(Settings)
+    const spans = container.querySelectorAll('.status[data-kind="err"]')
+    expect(spans.length).toBeGreaterThan(0)
+  })
+})
+
+describe('Settings — Knot toggle', () => {
+  it('renders Knot toggle in General section', () => {
+    mockSs.mdnsOn = true
+    const { container } = render(Settings)
+    expect(container.textContent).toContain('Knot')
+  })
+
+  it('shows knotMsg when set', () => {
+    mockSs.mdnsOn = true
+    mockSs.knotMsg = 'Saved'
+    const { container } = render(Settings)
+    expect(container.textContent).toContain('Saved')
+  })
+
+  it('renders status span with data-kind=ok for knotKind=ok', () => {
+    mockSs.mdnsOn = true
+    mockSs.knotMsg = 'Saved'
+    mockSs.knotKind = 'ok'
+    const { container } = render(Settings)
+    const spans = container.querySelectorAll('.status[data-kind="ok"]')
+    expect(spans.length).toBeGreaterThan(0)
   })
 })

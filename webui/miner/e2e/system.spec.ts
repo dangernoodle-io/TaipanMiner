@@ -58,3 +58,56 @@ test.describe('System page · degraded states', () => {
     await expect(page.locator('.h-row[data-state="err"]')).toHaveCount(2)
   })
 })
+
+test.describe('System page · Knot status', () => {
+  test('renders Knot row with ok state when network.knot=true', async ({ page }) => {
+    await mockMinerApi(page, {
+      overrides: {
+        '/api/health': {
+          ok: true,
+          free_heap: 180000,
+          validated: true,
+          network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: 'taipan.local', knot: true },
+        },
+      },
+    })
+    await page.goto('/#/system')
+
+    const knotRow = page.locator('.h-row[data-state="ok"]').filter({ hasText: 'Knot' })
+    await expect(knotRow).toBeVisible()
+  })
+
+  test('renders Knot row with idle state when network.knot=false', async ({ page }) => {
+    await mockMinerApi(page, {
+      overrides: {
+        '/api/health': {
+          ok: true,
+          free_heap: 180000,
+          validated: true,
+          network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: 'taipan.local', knot: false },
+        },
+      },
+    })
+    await page.goto('/#/system')
+
+    const knotRow = page.locator('.h-row[data-state="idle"]').filter({ hasText: 'Knot' })
+    await expect(knotRow).toBeVisible()
+  })
+
+  test('renders Knot row with idle state when knot field is undefined', async ({ page }) => {
+    await mockMinerApi(page, {
+      overrides: {
+        '/api/health': {
+          ok: true,
+          free_heap: 180000,
+          validated: true,
+          network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: 'taipan.local' },
+        },
+      },
+    })
+    await page.goto('/#/system')
+
+    const knotRow = page.locator('.h-row[data-state="idle"]').filter({ hasText: 'Knot' })
+    await expect(knotRow).toBeVisible()
+  })
+})

@@ -44,7 +44,7 @@ describe('formFromSettings', () => {
   it('returns both fields together from a full Settings object', () => {
     const s: Settings = { hostname: 'taipan', display_en: true, ota_skip_check: true }
     const form = formFromSettings(s)
-    expect(form).toEqual({ display_en: true, ota_skip_check: true })
+    expect(form).toEqual({ display_en: true, ota_skip_check: true, mdns_en: false, knot_en: false })
   })
 
   it('does not include hostname in the form', () => {

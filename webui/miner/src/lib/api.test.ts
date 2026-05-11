@@ -269,9 +269,38 @@ describe('patchSettings', () => {
     expect(result).toMatchObject({ status: 'ok' })
   })
 
+  it('PATCHes /api/settings with mdns_en field', async () => {
+    const spy = setFetch(200, { status: 'ok', reboot_required: false })
+    await patchSettings({ mdns_en: false })
+    const [, init] = spy.mock.calls[0]
+    expect(JSON.parse(init.body)).toEqual({ mdns_en: false })
+  })
+
+  it('PATCHes /api/settings with knot_en field', async () => {
+    const spy = setFetch(200, { status: 'ok', reboot_required: false })
+    await patchSettings({ knot_en: true })
+    const [, init] = spy.mock.calls[0]
+    expect(JSON.parse(init.body)).toEqual({ knot_en: true })
+  })
+
   it('throws on non-OK response', async () => {
     setFetch(400)
     await expect(patchSettings({ hostname: 'bad' })).rejects.toThrow('settings patch')
+  })
+})
+
+describe('fetchHealth — knot field', () => {
+  it('returns health with network.knot when present', async () => {
+    const spy = setFetch(200, { ok: true, free_heap: 100000, validated: true, network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: null, knot: true } })
+    const result = await fetchHealth()
+    expect(spy.mock.calls[0][0]).toBe('/api/health')
+    expect(result.network.knot).toBe(true)
+  })
+
+  it('returns health with network.knot=false', async () => {
+    const spy = setFetch(200, { ok: true, free_heap: 100000, validated: true, network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: null, knot: false } })
+    const result = await fetchHealth()
+    expect(result.network.knot).toBe(false)
   })
 })
 

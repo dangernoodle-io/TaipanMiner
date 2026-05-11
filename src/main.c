@@ -302,11 +302,14 @@ void app_main(void)
             bb_wifi_set_hostname(hn);
         }
 
-        bb_mdns_init();
-        bb_mdns_set_txt("worker", "");
-        bb_mdns_set_txt("board", FIRMWARE_BOARD);
-        bb_mdns_set_txt("version", bb_system_get_version());
-        bb_mdns_set_txt("state", "provisioning");
+        bool mdns_en = bb_nv_config_mdns_enabled();
+        if (mdns_en) {
+            bb_mdns_init();
+            bb_mdns_set_txt("worker", "");
+            bb_mdns_set_txt("board", FIRMWARE_BOARD);
+            bb_mdns_set_txt("version", bb_system_get_version());
+            bb_mdns_set_txt("state", "provisioning");
+        }
         BB_ERROR_CHECK(bb_prov_start_ap());
         webui_install_prov_save_cb();
         {
@@ -375,30 +378,36 @@ void app_main(void)
             bb_mdns_set_hostname(hn);
             bb_wifi_set_hostname(hn);
         }
-        bb_mdns_init();
-        bb_mdns_set_txt("worker", config_worker_name());
-        bb_mdns_set_txt("board", FIRMWARE_BOARD);
-        bb_mdns_set_txt("version", bb_system_get_version());
-        bb_mdns_set_txt("state", "mining");
+        bool mdns_en = bb_nv_config_mdns_enabled();
+        bool knot_en = config_knot_enabled() && mdns_en;  // dependency
+        if (mdns_en) {
+            bb_mdns_init();
+            bb_mdns_set_txt("worker", config_worker_name());
+            bb_mdns_set_txt("board", FIRMWARE_BOARD);
+            bb_mdns_set_txt("version", bb_system_get_version());
+            bb_mdns_set_txt("state", "mining");
+        }
         BB_ERROR_CHECK(bb_wifi_init());
-        BB_ERROR_CHECK(knot_init());
-        {
-            /* Inject self into the peer table — mdns_browse never reports the
-             * local device, so without this the device wouldn't show in its
-             * own /api/knot. Use the same identity we just announced. */
-            char hn[64];
-            const char *hostname = config_hostname();
-            if (hostname && hostname[0]) {
-                strncpy(hn, hostname, sizeof(hn) - 1);
-                hn[sizeof(hn) - 1] = '\0';
-            } else {
-                bb_mdns_build_hostname(config_worker_name(), NULL, hn, sizeof(hn));
+        if (knot_en) {
+            BB_ERROR_CHECK(knot_init());
+            {
+                /* Inject self into the peer table — mdns_browse never reports the
+                 * local device, so without this the device wouldn't show in its
+                 * own /api/knot. Use the same identity we just announced. */
+                char hn[64];
+                const char *hostname = config_hostname();
+                if (hostname && hostname[0]) {
+                    strncpy(hn, hostname, sizeof(hn) - 1);
+                    hn[sizeof(hn) - 1] = '\0';
+                } else {
+                    bb_mdns_build_hostname(config_worker_name(), NULL, hn, sizeof(hn));
+                }
+                knot_set_self(hn, hn, NULL,
+                              config_worker_name(),
+                              FIRMWARE_BOARD,
+                              bb_system_get_version(),
+                              "mining");
             }
-            knot_set_self(hn, hn, NULL,
-                          config_worker_name(),
-                          FIRMWARE_BOARD,
-                          bb_system_get_version(),
-                          "mining");
         }
         // Set OpenAPI metadata before server start (for auto-registration)
         {

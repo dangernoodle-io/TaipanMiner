@@ -13,6 +13,15 @@ static const char *TAG = "knot";
 static knot_peer_t g_peer_table[KNOT_PEER_COUNT];
 static SemaphoreHandle_t g_mutex = NULL;
 static bool g_initialized = false;
+/* Tracked separately so on_peer_removed never evicts the self entry — when
+ * mdns hostname-conflict resolution withdraws the local record, the browse
+ * fires a "removed" callback for our own instance and we'd otherwise lose
+ * the self row from /api/knot. We also stash the full self peer so we can
+ * re-insert it after knot_table_upsert's dedupe-by-hostname pass evicts it
+ * when another device advertises under the same hostname. */
+static char g_self_instance[64] = {0};
+static knot_peer_t g_self_peer = {0};
+static bool g_self_set = false;
 
 static void on_peer_discovered(const bb_mdns_peer_t *peer, void *ctx) {
     if (!peer || peer->instance_name[0] == '\0') {
@@ -31,6 +40,16 @@ static void on_peer_discovered(const bb_mdns_peer_t *peer, void *ctx) {
 
     if (xSemaphoreTake(g_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
         int slot = knot_table_upsert(g_peer_table, KNOT_PEER_COUNT, &new_peer);
+        /* upsert's dedupe-by-hostname pass evicts entries that share a
+         * hostname but differ in instance — that's correct for stale OTA
+         * advertisements but it also strips our self entry whenever
+         * another device announces under the same configured hostname.
+         * Re-insert the cached self peer so /api/knot keeps showing it. */
+        if (g_self_set &&
+            strcmp(new_peer.instance_name, g_self_instance) != 0 &&
+            strcmp(new_peer.hostname, g_self_peer.hostname) == 0) {
+            knot_table_upsert(g_peer_table, KNOT_PEER_COUNT, &g_self_peer);
+        }
         xSemaphoreGive(g_mutex);
         if (slot >= 0) {
             bb_log_d(TAG, "peer upserted: %s (slot %d)", peer->instance_name, slot);
@@ -42,6 +61,12 @@ static void on_peer_discovered(const bb_mdns_peer_t *peer, void *ctx) {
 
 static void on_peer_removed(const char *instance_name, void *ctx) {
     if (!instance_name) {
+        return;
+    }
+
+    /* Never evict the self entry on hostname conflict-resolution churn. */
+    if (g_self_instance[0] != '\0' && strcmp(instance_name, g_self_instance) == 0) {
+        bb_log_d(TAG, "ignoring remove for self: %s", instance_name);
         return;
     }
 
@@ -81,6 +106,27 @@ int knot_init(void) {
     return 0;
 }
 
+void knot_deinit(void) {
+    if (!g_initialized) return;
+    bb_mdns_browse_stop("_taipanminer", "_tcp");
+    vTaskDelay(pdMS_TO_TICKS(50));  // let any inflight callback complete
+    if (g_mutex && xSemaphoreTake(g_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        memset(g_peer_table, 0, sizeof(g_peer_table));
+        g_self_instance[0] = '\0';
+        memset(&g_self_peer, 0, sizeof(g_self_peer));
+        g_self_set = false;
+        xSemaphoreGive(g_mutex);
+        vSemaphoreDelete(g_mutex);
+        g_mutex = NULL;
+    }
+    g_initialized = false;
+    bb_log_i(TAG, "knot deinitialized");
+}
+
+bool knot_is_running(void) {
+    return g_initialized;
+}
+
 void knot_set_self(const char *instance_name,
                    const char *hostname,
                    const char *ip4,
@@ -104,8 +150,15 @@ void knot_set_self(const char *instance_name,
     self.last_seen_us = esp_timer_get_time();
 
     if (xSemaphoreTake(g_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
-        knot_table_upsert(g_peer_table, KNOT_PEER_COUNT, &self);
+        int slot = knot_table_upsert(g_peer_table, KNOT_PEER_COUNT, &self);
+        strncpy(g_self_instance, instance_name, sizeof(g_self_instance) - 1);
+        g_self_instance[sizeof(g_self_instance) - 1] = '\0';
+        g_self_peer = self;
+        g_self_set = true;
         xSemaphoreGive(g_mutex);
+        bb_log_d(TAG, "set_self instance=%s slot=%d", instance_name, slot);
+    } else {
+        bb_log_e(TAG, "set_self mutex timeout (g_mutex=%p)", g_mutex);
     }
 }
 

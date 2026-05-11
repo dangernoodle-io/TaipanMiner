@@ -43,6 +43,13 @@ void knot_table_apply_txt(knot_peer_t *peer, const bb_mdns_txt_t *txt, size_t tx
 /// Must be called after bb_mdns_init(). Safe to call multiple times (idempotent).
 int knot_init(void);
 
+/// Deinitialize knot: stop mDNS browse, clear peer table, delete mutex.
+/// Safe to call if not initialized (early return).
+void knot_deinit(void);
+
+/// Check if knot is initialized and running.
+bool knot_is_running(void);
+
 /// Snapshot current peer table.
 /// Copies non-empty entries to out buffer, returns count copied.
 /// Safe to call concurrently from any task.

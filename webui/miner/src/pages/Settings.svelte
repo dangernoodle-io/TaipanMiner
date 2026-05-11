@@ -107,6 +107,20 @@
           {#if ss.otaMsg}<span class="status" data-kind={ss.otaKind}>{ss.otaMsg}</span>{/if}
         </div>
       </div>
+      <div class="row">
+        <span class="k">mDNS</span>
+        <div class="v">
+          <Toggle checked={ss.mdnsOn} disabled={ss.savingMdns} onchange={ss.onMdnsChange} />
+          {#if ss.mdnsMsg}<span class="status" data-kind={ss.mdnsKind}>{ss.mdnsMsg}</span>{/if}
+        </div>
+      </div>
+      <div class="row">
+        <span class="k">Knot</span>
+        <div class="v">
+          <Toggle checked={ss.knotOn} disabled={ss.savingKnot || !ss.mdnsOn} onchange={ss.onKnotChange} />
+          {#if ss.knotMsg}<span class="status" data-kind={ss.knotKind}>{ss.knotMsg}</span>{/if}
+        </div>
+      </div>
     </div>
 
     <!-- Network / WiFi (hostname lives here) -->

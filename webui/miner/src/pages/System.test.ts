@@ -226,3 +226,63 @@ describe('System', () => {
     expect(component).toBeDefined()
   })
 })
+
+describe('System — Knot row', () => {
+  it('renders Knot row with ok state when network.knot=true', () => {
+    health.set({
+      ...baseHealth,
+      network: { ...baseHealth.network, knot: true }
+    } as any)
+    const { container } = render(System)
+    const knotRow = container.querySelector('.h-row[data-state="ok"]')
+    expect(knotRow).not.toBeNull()
+    expect(container.textContent).toContain('Knot')
+  })
+
+  it('renders Knot row with idle state when network.knot=false', () => {
+    health.set({
+      ...baseHealth,
+      network: { ...baseHealth.network, knot: false }
+    } as any)
+    const { container } = render(System)
+    expect(container.textContent).toContain('Knot')
+    const rows = container.querySelectorAll('.h-row')
+    let knotFound = false
+    for (const row of rows) {
+      if (row.textContent?.includes('Knot')) {
+        expect(row.getAttribute('data-state')).toBe('idle')
+        knotFound = true
+        break
+      }
+    }
+    expect(knotFound).toBe(true)
+  })
+
+  it('renders Knot row with idle state when network.knot is undefined', () => {
+    health.set({
+      ok: true,
+      free_heap: 131072,
+      validated: true,
+      network: {
+        connected: true,
+        rssi: -50,
+        disc_age_s: 0,
+        retry_count: 0,
+        mdns: null
+        // knot field omitted/undefined
+      }
+    } as any)
+    const { container } = render(System)
+    expect(container.textContent).toContain('Knot')
+    const rows = container.querySelectorAll('.h-row')
+    let knotFound = false
+    for (const row of rows) {
+      if (row.textContent?.includes('Knot')) {
+        expect(row.getAttribute('data-state')).toBe('idle')
+        knotFound = true
+        break
+      }
+    }
+    expect(knotFound).toBe(true)
+  })
+})

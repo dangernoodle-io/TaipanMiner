@@ -174,12 +174,6 @@ static void log_reset_reason(void)
 
     if (bb_system_is_abnormal_reset()) {
         bb_log_w(TAG, "abnormal reset detected (%s)", reason_str);
-        uint32_t wdt_count = 0;
-        bb_nv_get_u32("taipanminer", "wdt_resets", &wdt_count, 0);
-        wdt_count++;
-        if (bb_nv_set_u32("taipanminer", "wdt_resets", wdt_count) == BB_OK) {
-            bb_log_w(TAG, "abnormal reset count: %" PRIu32, wdt_count);
-        }
     }
 }
 

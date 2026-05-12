@@ -9,6 +9,9 @@
 #include "work.h"
 #include "bb_log.h"
 #include "bb_byte_order.h"
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#endif
 #include <string.h>
 #include <stdio.h>
 #include <inttypes.h>
@@ -568,11 +571,11 @@ static void hw_backend_setup(hash_backend_t *b, hw_backend_ctx_t *ctx)
 
 #endif // ESP_PLATFORM
 
-bool mine_nonce_range(hash_backend_t *backend,
-                      mining_work_t *work,
-                      const mine_params_t *params,
-                      mining_result_t *result_out,
-                      bool *found_out)
+bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
+                                 mining_work_t *work,
+                                 const mine_params_t *params,
+                                 mining_result_t *result_out,
+                                 bool *found_out)
 {
     uint8_t block2[64];
     build_block2(block2, work->header);

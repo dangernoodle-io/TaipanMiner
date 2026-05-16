@@ -154,7 +154,7 @@ void ui_display_off(void)
 
 // ---- show_status per-board implementations ----
 
-#if defined(BOARD_TDONGLE_S3)
+#ifdef BOARD_DISPLAY_PANEL_ST77XX
 
 // Per-row text rasterizer using bb_display_font_8x16.
 // Renders one pixel row (font_row) of text at x-offset into line[].
@@ -314,7 +314,7 @@ static void show_status_st7735(const display_status_t *status)
     }
 }
 
-#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_403) || defined(BOARD_BITAXE_650)
+#elif defined(BOARD_DISPLAY_PANEL_SSD1306)
 
 static void show_status_ssd1306(const display_status_t *status)
 {
@@ -371,9 +371,9 @@ void ui_show_status(const display_status_t *status)
 
     if (!bb_display_ready()) return;
 
-#if defined(BOARD_TDONGLE_S3)
+#if defined(BOARD_DISPLAY_PANEL_ST77XX)
     show_status_st7735(status);
-#elif defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_403) || defined(BOARD_BITAXE_650)
+#elif defined(BOARD_DISPLAY_PANEL_SSD1306)
     show_status_ssd1306(status);
 #else
     (void)status;

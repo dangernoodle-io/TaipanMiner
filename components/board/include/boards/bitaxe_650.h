@@ -4,6 +4,8 @@
 
 #define BOARD_NAME "bitaxe-650"
 #define BOARD_HAS_DISPLAY 1
+#define BOARD_DISPLAY_PANEL_SSD1306 1
+#define BOARD_DISPLAY_SHARES_ASIC_I2C 1
 
 // BM1370 ASIC (UART1) — dual chip in daisy chain
 #define PIN_ASIC_TX        17

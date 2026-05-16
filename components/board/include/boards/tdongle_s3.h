@@ -2,6 +2,7 @@
 
 #define BOARD_NAME "tdongle-s3"
 #define BOARD_HAS_DISPLAY 1
+#define BOARD_DISPLAY_PANEL_ST77XX 1
 
 // ST7735 LCD (SPI)
 #define PIN_LCD_CLK   5

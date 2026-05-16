@@ -15,7 +15,8 @@
 #include "webui.h"
 #include "ui.h"
 #include "bb_display.h"
-#if defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_403) || defined(BOARD_BITAXE_650)
+#include "bb_hw.h"  // pulls in board header → defines BOARD_HAS_DISPLAY + panel/bus flags
+#ifdef BOARD_DISPLAY_PANEL_SSD1306
 #include "bb_display_ssd1306.h"
 #endif
 #include "led.h"
@@ -267,10 +268,8 @@ void app_main(void)
     // Initialize display early so splash is visible during boot.
     // On Bitaxe, hand the ASIC's shared I2C bus to bb_display_ssd1306
     // before bb_display_init so we don't open a second bus instance.
-#if defined(BOARD_BITAXE_601) || defined(BOARD_BITAXE_403) || defined(BOARD_BITAXE_650)
-#ifdef ASIC_CHIP
+#if defined(BOARD_DISPLAY_SHARES_ASIC_I2C) && defined(ASIC_CHIP)
     bb_display_ssd1306_set_i2c_bus(asic_get_i2c_bus());
-#endif
 #endif
     BB_ERROR_CHECK(bb_display_init());
     ui_show_splash();

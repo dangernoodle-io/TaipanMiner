@@ -161,4 +161,19 @@ describe('Hero (store-driven)', () => {
     render(HeroComponent)
     expect(document.querySelector('.conn-dot.disconnected')).not.toBeNull()
   })
+
+  it('renders without crashing when stats.lifetime is missing', () => {
+    // Regression: a stats payload missing the nested `lifetime` field
+    // (e.g. older firmware briefly returned during reconnect, or a partial
+    // response) used to crash Hero on render. Defensive optional-chain
+    // guards keep the dashboard rendering with safe fallbacks.
+    const { lifetime: _omit, ...statsWithoutLifetime } = baseStats
+    stats.set(statsWithoutLifetime as any)
+    render(HeroComponent)
+    expect(document.querySelector('.hero')).not.toBeNull()
+    // Lifetime shares + lifetime best fall back to 0; at least the
+    // lifetime-shares tile should be present with the fallback value.
+    expect(screen.getByText('lifetime')).toBeInTheDocument()
+    expect(screen.getAllByText('0').length).toBeGreaterThan(0)
+  })
 })

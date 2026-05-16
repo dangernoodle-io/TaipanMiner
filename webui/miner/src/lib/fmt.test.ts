@@ -207,7 +207,16 @@ describe('fmt', () => {
   describe('fmtDiff', () => {
     it('formats plain values < 1k', () => {
       expect(fmtDiff(0)).toBe('0')
+      expect(fmtDiff(1)).toBe('1')
       expect(fmtDiff(999)).toBe('999')
+    })
+
+    it('preserves sub-1 values at 2 sig figs', () => {
+      // Regression: SW miners (tdongle) routinely produce sub-1 share diffs.
+      // Old fmtDiff rounded them via toFixed(0) and the dashboard displayed "0".
+      expect(fmtDiff(0.179)).toBe('0.18')
+      expect(fmtDiff(0.5)).toBe('0.50')
+      expect(fmtDiff(0.99)).toBe('0.99')
     })
 
     it('formats k range', () => {

@@ -70,11 +70,15 @@ export function fmtPoolDiff(d: number | null | undefined): string {
 }
 
 // Compact difficulty formatter without sign check (used for share diffs).
+// Sub-1 values are preserved at 2 sig figs so SW miners (tdongle) don't
+// see their best/lifetime diff collapsed to "0".
 export function fmtDiff(d: number): string {
   if (d >= 1e9) return (d / 1e9).toFixed(2) + 'G'
   if (d >= 1e6) return (d / 1e6).toFixed(2) + 'M'
   if (d >= 1e3) return (d / 1e3).toFixed(2) + 'k'
-  return d.toFixed(0)
+  if (d >= 1)   return d.toFixed(0)
+  if (d > 0)    return d.toPrecision(2)
+  return '0'
 }
 
 export function fmtBtc(sats: number): string {

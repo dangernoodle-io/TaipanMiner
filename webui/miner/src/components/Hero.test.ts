@@ -18,7 +18,7 @@ import HeroComponent from './Hero.svelte'
 const baseStats = {
   session_shares: 10,
   session_rejected: 1,
-  lifetime_shares: 1000,
+  lifetime: { shares: 1000, best_diff: 250000 },
   last_share_ago_s: 30,
   best_diff: 500000,
   uptime_s: 3600,

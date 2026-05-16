@@ -27,7 +27,7 @@ export interface Chip {
 export interface Stats {
   session_shares: number
   session_rejected: number
-  lifetime_shares: number
+  lifetime: { shares: number; best_diff: number }
   last_share_ago_s: number | null
   best_diff: number
   uptime_s: number

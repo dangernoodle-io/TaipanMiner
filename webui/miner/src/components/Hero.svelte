@@ -56,7 +56,7 @@
         <div class="sl">shares {acceptRate !== null ? `(${acceptRate.toFixed(1)}%)` : ''}</div>
       </div>
       <div class="stat">
-        <div class="sv">{$stats.lifetime_shares.toLocaleString()}</div>
+        <div class="sv">{$stats.lifetime.shares.toLocaleString()}</div>
         <div class="sl">lifetime</div>
       </div>
       <div class="stat">
@@ -68,7 +68,7 @@
         <div class="sl">last share</div>
       </div>
       <div class="stat">
-        <div class="sv">{fmtDiff($stats.best_diff)}</div>
+        <div class="sv">{fmtDiff($stats.best_diff)}<span class="sep">/</span><span class="lt">{fmtDiff($stats.lifetime.best_diff)}</span></div>
         <div class="sl">best diff {#if diffMult}({diffMult.toFixed(0)}×){/if}</div>
       </div>
       <div class="stat">
@@ -205,5 +205,9 @@
 
   .rej {
     color: var(--warning);
+  }
+
+  .lt {
+    color: var(--label);
   }
 </style>

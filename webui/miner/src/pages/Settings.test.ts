@@ -47,7 +47,7 @@ vi.mock('../lib/api', () => ({
 import Settings from './Settings.svelte'
 
 const baseStats = {
-  session_shares: 10, session_rejected: 1, lifetime_shares: 1000, last_share_ago_s: 30,
+  session_shares: 10, session_rejected: 1, lifetime: { shares: 1000, best_diff: 250000 }, last_share_ago_s: 30,
   best_diff: 500000, uptime_s: 3600, temp_c: 40, hashrate: 485e9, hashrate_avg: 480e9,
   hashrate_1m: null, hashrate_10m: null, hashrate_1h: null, shares: null, asic_hashrate: null,
   asic_hashrate_avg: null, asic_shares: null, asic_temp_c: 72, asic_freq_configured_mhz: 400,

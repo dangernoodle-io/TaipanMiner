@@ -95,6 +95,8 @@ void package_result(mining_result_t *result,
                     const mining_work_t *work,
                     uint32_t nonce,
                     uint32_t ver_bits);
+void pack_double(double v, uint32_t *hi, uint32_t *lo);
+double unpack_double(uint32_t hi, uint32_t lo);
 
 // Cooperative mining pause (for OTA — avoids mid-hash vTaskSuspend)
 void mining_pause_init(const mining_pause_sync_ops_t *ops);
@@ -171,6 +173,7 @@ typedef struct {
 typedef struct {
     uint32_t total_shares;
     uint64_t total_hashes;
+    double   best_diff;
 } mining_lifetime_t;
 
 // Update EMA with a new hashrate sample (pure math, no FreeRTOS)

@@ -15,7 +15,10 @@ import type { Page, Route } from '@playwright/test'
 export const statsFixture = {
   session_shares: 42,
   session_rejected: 1,
-  lifetime_shares: 1234,
+  lifetime: {
+    shares: 1234,
+    best_diff: 1048576,
+  },
   last_share_ago_s: 12,
   best_diff: 524288,
   uptime_s: 7200,

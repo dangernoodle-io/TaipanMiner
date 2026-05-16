@@ -48,6 +48,7 @@ void test_stats_happy_path(void)
     s.session_start_us = 5000000LL;    /* 5 s ago */
     s.best_diff        = 131072.0;
     s.lifetime_shares  = 42;
+    s.lifetime_best_diff = 0.0;
     s.expected_ghs     = -1.0;         /* unavailable */
     s.now_us           = 15000000LL;   /* "now" */
 
@@ -64,7 +65,7 @@ void test_stats_happy_path(void)
         "\"shares\":7,\"session_shares\":5,\"session_rejected\":1,"
         "\"rejected\":{\"total\":1,\"job_not_found\":1,\"low_difficulty\":0,"
         "\"duplicate\":0,\"stale_prevhash\":0,\"other\":0,\"other_last_code\":-1},"
-        "\"last_share_ago_s\":5,\"lifetime_shares\":42,\"best_diff\":131072,"
+        "\"last_share_ago_s\":5,\"lifetime\":{\"shares\":42,\"best_diff\":0},\"best_diff\":131072,"
         "\"uptime_s\":10,"
         "\"expected_ghs\":null,"
         "\"asic_hashrate\":0,\"asic_hashrate_avg\":0,\"asic_shares\":0,\"asic_temp_c\":0,"
@@ -94,7 +95,7 @@ void test_stats_zeroed(void)
         "\"shares\":0,\"session_shares\":0,\"session_rejected\":0,"
         "\"rejected\":{\"total\":0,\"job_not_found\":0,\"low_difficulty\":0,"
         "\"duplicate\":0,\"stale_prevhash\":0,\"other\":0,\"other_last_code\":-1},"
-        "\"last_share_ago_s\":-1,\"lifetime_shares\":0,\"best_diff\":0,"
+        "\"last_share_ago_s\":-1,\"lifetime\":{\"shares\":0,\"best_diff\":0},\"best_diff\":0,"
         "\"uptime_s\":0,"
         "\"expected_ghs\":null,"
         "\"asic_hashrate\":0,\"asic_hashrate_avg\":0,\"asic_shares\":0,\"asic_temp_c\":0,"
@@ -130,7 +131,7 @@ void test_stats_no_share_yet(void)
         "\"shares\":0,\"session_shares\":0,\"session_rejected\":0,"
         "\"rejected\":{\"total\":0,\"job_not_found\":0,\"low_difficulty\":0,"
         "\"duplicate\":0,\"stale_prevhash\":0,\"other\":0,\"other_last_code\":-1},"
-        "\"last_share_ago_s\":-1,\"lifetime_shares\":0,\"best_diff\":0,"
+        "\"last_share_ago_s\":-1,\"lifetime\":{\"shares\":0,\"best_diff\":0},\"best_diff\":0,"
         "\"uptime_s\":60,"
         "\"expected_ghs\":null,"
         "\"asic_hashrate\":0,\"asic_hashrate_avg\":0,\"asic_shares\":0,\"asic_temp_c\":0,"

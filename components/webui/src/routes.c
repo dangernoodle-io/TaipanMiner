@@ -204,6 +204,7 @@ static bb_err_t stats_handler(bb_http_request_t *req)
         s.session_start_us = mining_stats.session.start_us;
         s.best_diff        = mining_stats.session.best_diff;
         s.lifetime_shares  = mining_stats.lifetime.total_shares;
+        s.lifetime_best_diff = mining_stats.lifetime.best_diff;
 #ifndef ASIC_CHIP
         s.hashrate_1m       = (double)mining_stats.hashrate_1m;
         s.hashrate_10m      = (double)mining_stats.hashrate_10m;

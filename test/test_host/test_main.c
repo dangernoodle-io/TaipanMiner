@@ -336,6 +336,10 @@ void test_hash_to_difficulty_diff1(void);
 void test_hash_to_difficulty_easy(void);
 void test_hash_to_difficulty_six_zeros(void);
 void test_best_diff_only_increases(void);
+void test_lifetime_best_diff_only_increases(void);
+void test_pack_unpack_double_roundtrip(void);
+void test_lifetime_save_load_roundtrip(void);
+void test_lifetime_best_diff_survives_zero_load(void);
 
 #ifdef ASIC_CHIP
 // Forward declarations from test_asic_share_validator.c (TA-274 / Track-3)
@@ -962,6 +966,10 @@ int main(void) {
     RUN_TEST(test_hash_to_difficulty_easy);
     RUN_TEST(test_hash_to_difficulty_six_zeros);
     RUN_TEST(test_best_diff_only_increases);
+    RUN_TEST(test_lifetime_best_diff_only_increases);
+    RUN_TEST(test_pack_unpack_double_roundtrip);
+    RUN_TEST(test_lifetime_save_load_roundtrip);
+    RUN_TEST(test_lifetime_best_diff_survives_zero_load);
 
     // Target validation tests
     RUN_TEST(test_difficulty_to_target_nan);

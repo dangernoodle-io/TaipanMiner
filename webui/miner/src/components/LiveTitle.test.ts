@@ -35,7 +35,7 @@ describe('LiveTitle', () => {
       asic_temp_c: 72,
       session_shares: 10,
       session_rejected: 0,
-      lifetime_shares: 100,
+      lifetime: { shares: 100, best_diff: 500 },
       last_share_ago_s: 30,
       best_diff: 1000,
       uptime_s: 3600,

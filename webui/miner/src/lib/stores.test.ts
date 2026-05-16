@@ -23,7 +23,7 @@ const STUB_STATS = {
   uptime_s: 100,
   session_shares: 0,
   session_rejected: 0,
-  lifetime_shares: 0,
+  lifetime: { shares: 0, best_diff: 0 },
   last_share_ago_s: null,
   best_diff: 0,
   temp_c: 45,

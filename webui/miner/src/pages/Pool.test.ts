@@ -486,7 +486,7 @@ describe('Pool', () => {
 
   it('renders with stats and pool together', () => {
     stats.set({
-      session_shares: 100, session_rejected: 5, lifetime_shares: 1000,
+      session_shares: 100, session_rejected: 5, lifetime: { shares: 1000, best_diff: 500 },
       last_share_ago_s: 10, best_diff: 1000, uptime_s: 36000,
       temp_c: 60, hashrate: 1e9, hashrate_avg: 1.1e9, shares: 100,
       asic_hashrate: null, asic_hashrate_avg: null, asic_shares: null,

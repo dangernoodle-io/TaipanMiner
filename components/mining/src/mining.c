@@ -17,6 +17,19 @@
 #include <inttypes.h>
 #include <math.h>
 
+inline void pack_double(double v, uint32_t *hi, uint32_t *lo) {
+    uint64_t bits;
+    memcpy(&bits, &v, sizeof(bits));
+    *hi = (uint32_t)(bits >> 32);
+    *lo = (uint32_t)(bits & 0xFFFFFFFFu);
+}
+inline double unpack_double(uint32_t hi, uint32_t lo) {
+    uint64_t bits = ((uint64_t)hi << 32) | lo;
+    double v;
+    memcpy(&v, &bits, sizeof(v));
+    return v;
+}
+
 void mining_stats_update_ema(hashrate_ema_t *ema, double sample, int64_t now_us)
 {
     if (ema->value == 0.0) {
@@ -231,8 +244,14 @@ void mining_stats_load_lifetime(void)
 
     mining_stats.lifetime.total_hashes = ((uint64_t)hi << 32) | lo;
 
-    bb_log_i(TAG, "loaded lifetime stats: shares=%" PRIu32 " hashes=%" PRIu64,
-             mining_stats.lifetime.total_shares, (uint64_t)mining_stats.lifetime.total_hashes);
+    uint32_t best_hi = 0, best_lo = 0;
+    bb_nv_get_u32("taipanminer", "lt_best_hi", &best_hi, 0);
+    bb_nv_get_u32("taipanminer", "lt_best_lo", &best_lo, 0);
+    mining_stats.lifetime.best_diff = unpack_double(best_hi, best_lo);
+
+    bb_log_i(TAG, "loaded lifetime stats: shares=%" PRIu32 " hashes=%" PRIu64 " best_diff=%.6f",
+             mining_stats.lifetime.total_shares, (uint64_t)mining_stats.lifetime.total_hashes,
+             mining_stats.lifetime.best_diff);
 }
 
 void mining_stats_save_lifetime(const mining_lifetime_t *snapshot)
@@ -248,9 +267,13 @@ void mining_stats_save_lifetime(const mining_lifetime_t *snapshot)
         bb_log_w(TAG, "save_lifetime: batch_begin failed (%d)", (int)err);
         return;
     }
+    uint32_t best_hi, best_lo;
+    pack_double(snapshot->best_diff, &best_hi, &best_lo);
     bb_nv_batch_set_u32(&batch, "lt_shares",    snapshot->total_shares);
     bb_nv_batch_set_u32(&batch, "lt_hashes_lo", (uint32_t)(snapshot->total_hashes & 0xFFFFFFFFu));
     bb_nv_batch_set_u32(&batch, "lt_hashes_hi", (uint32_t)(snapshot->total_hashes >> 32));
+    bb_nv_batch_set_u32(&batch, "lt_best_hi",   best_hi);
+    bb_nv_batch_set_u32(&batch, "lt_best_lo",   best_lo);
     err = bb_nv_batch_commit(&batch);
     if (err != BB_OK) {
         bb_log_w(TAG, "save_lifetime: batch_commit failed (%d)", (int)err);
@@ -627,6 +650,9 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                 if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                     if (share_diff > mining_stats.session.best_diff) {
                         mining_stats.session.best_diff = share_diff;
+                    }
+                    if (share_diff > mining_stats.lifetime.best_diff) {
+                        mining_stats.lifetime.best_diff = share_diff;
                     }
                     xSemaphoreGive(mining_stats.mutex);
                 }

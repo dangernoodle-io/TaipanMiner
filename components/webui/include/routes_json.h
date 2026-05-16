@@ -52,6 +52,7 @@ typedef struct {
     int64_t  last_share_us;    /* 0 = no share yet */
     int64_t  session_start_us; /* 0 = no session */
     uint32_t lifetime_shares;
+    double   lifetime_best_diff;
     double   expected_ghs;     /* < 0 = unavailable, emit null */
     int64_t  now_us;           /* esp_timer_get_time() at snapshot time */
 #ifndef ASIC_CHIP

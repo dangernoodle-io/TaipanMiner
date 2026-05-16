@@ -52,7 +52,12 @@ void build_stats_json(const stats_snapshot_t *s, bb_json_t root)
     bb_json_obj_set_obj(root, "rejected", rejected);
 
     bb_json_obj_set_number(root, "last_share_ago_s",  (double)last_share_ago_s);
-    bb_json_obj_set_number(root, "lifetime_shares",   s->lifetime_shares);
+
+    bb_json_t lifetime = bb_json_obj_new();
+    bb_json_obj_set_number(lifetime, "shares",    (double)s->lifetime_shares);
+    bb_json_obj_set_number(lifetime, "best_diff", s->lifetime_best_diff);
+    bb_json_obj_set_obj(root, "lifetime", lifetime);
+
     bb_json_obj_set_number(root, "best_diff",         s->best_diff);
     bb_json_obj_set_number(root, "uptime_s",          (double)uptime_s);
 

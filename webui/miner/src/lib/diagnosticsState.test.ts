@@ -115,62 +115,63 @@ describe('createDiagnosticsState — initial state', () => {
 })
 
 describe('init()', () => {
-  it('calls loadDiagAsic immediately', () => {
+  it('starts SseClient immediately (before awaiting data fetches)', async () => {
     const ds = createDiagnosticsState()
-    ds.init()
-    expect(api.fetchDiagAsic).toHaveBeenCalledTimes(1)
-  })
-
-  it('calls loadLevels on init', () => {
-    const ds = createDiagnosticsState()
-    ds.init()
-    expect(api.fetchLogLevels).toHaveBeenCalledTimes(1)
-  })
-
-  it('creates and starts SseClient', () => {
-    const ds = createDiagnosticsState()
-    ds.init()
+    const initPromise = ds.init()
+    // SSE should be started immediately, before the await chain
     expect(lastSseInstance()).not.toBeNull()
     expect(lastSseInstance().started).toBe(true)
+    await initPromise
   })
 
-  it('sets up diagInterval that re-polls every 10s', () => {
+  it('calls loadDiagAsic and other loads sequentially', async () => {
     const ds = createDiagnosticsState()
-    ds.init()
+    await ds.init()
+    expect(api.fetchDiagAsic).toHaveBeenCalledTimes(1)
+    expect(api.fetchLogLevels).toHaveBeenCalledTimes(1)
+    expect(api.fetchDiagHeap).toHaveBeenCalledTimes(1)
+    expect(api.fetchDiagTasks).toHaveBeenCalledTimes(1)
+    expect(api.fetchDiagPanic).toHaveBeenCalledTimes(1)
+    expect(api.fetchInfo).toHaveBeenCalledTimes(1)
+  })
+
+  it('sets up diagInterval that re-polls every 10s', async () => {
+    const ds = createDiagnosticsState()
+    await ds.init()
     vi.advanceTimersByTime(10000)
     // 1 on init + 1 from interval
     expect(api.fetchDiagAsic).toHaveBeenCalledTimes(2)
   })
 
-  it('sets up tickTimer that fires every 1s', () => {
+  it('sets up tickTimer that fires every 1s', async () => {
     const ds = createDiagnosticsState()
     const before = ds.tickNow
-    ds.init()
+    await ds.init()
     vi.advanceTimersByTime(1100)
     // tickNow should have advanced
     expect(ds.tickNow).toBeGreaterThan(before)
   })
 
-  it('adds visibilitychange listener', () => {
+  it('adds visibilitychange listener', async () => {
     const ds = createDiagnosticsState()
     const spy = vi.spyOn(document, 'addEventListener')
-    ds.init()
+    await ds.init()
     expect(spy).toHaveBeenCalledWith('visibilitychange', expect.any(Function))
   })
 })
 
 describe('destroy()', () => {
-  it('removes visibilitychange listener', () => {
+  it('removes visibilitychange listener', async () => {
     const ds = createDiagnosticsState()
-    ds.init()
+    await ds.init()
     const spy = vi.spyOn(document, 'removeEventListener')
     ds.destroy()
     expect(spy).toHaveBeenCalledWith('visibilitychange', expect.any(Function))
   })
 
-  it('clears diagInterval', () => {
+  it('clears diagInterval', async () => {
     const ds = createDiagnosticsState()
-    ds.init()
+    await ds.init()
     ds.destroy()
     // After destroy, polling should stop
     vi.advanceTimersByTime(20000)
@@ -178,9 +179,9 @@ describe('destroy()', () => {
     expect(api.fetchDiagAsic).toHaveBeenCalledTimes(1)
   })
 
-  it('destroys the sse client', () => {
+  it('destroys the sse client', async () => {
     const ds = createDiagnosticsState()
-    ds.init()
+    await ds.init()
     const instance = lastSseInstance()
     ds.destroy()
     expect(instance.destroyed).toBe(true)
@@ -317,17 +318,17 @@ describe('clear()', () => {
 })
 
 describe('SSE callbacks', () => {
-  it('onMessage appends to lines', () => {
+  it('onMessage appends to lines', async () => {
     const ds = createDiagnosticsState()
-    ds.init()
+    await ds.init()
     lastSseInstance().callbacks.onMessage('hello')
     lastSseInstance().callbacks.onMessage('world')
     expect(ds.lines).toEqual(['hello', 'world'])
   })
 
-  it('onMessage caps lines at 500', () => {
+  it('onMessage caps lines at 500', async () => {
     const ds = createDiagnosticsState()
-    ds.init()
+    await ds.init()
     // Push 501 lines
     for (let i = 0; i < 501; i++) {
       lastSseInstance().callbacks.onMessage(`line${i}`)
@@ -337,46 +338,46 @@ describe('SSE callbacks', () => {
     expect(ds.lines[499]).toBe('line500')
   })
 
-  it('onStatusChange updates status', () => {
+  it('onStatusChange updates status', async () => {
     const ds = createDiagnosticsState()
-    ds.init()
+    await ds.init()
     lastSseInstance().callbacks.onStatusChange('connected')
     expect(ds.status).toBe('connected')
   })
 
-  it('onStatusChange sets wasDisconnected on disconnected', () => {
+  it('onStatusChange sets wasDisconnected on disconnected', async () => {
     const ds = createDiagnosticsState()
-    ds.init()
+    await ds.init()
     expect(ds.wasDisconnected).toBe(false)
     lastSseInstance().callbacks.onStatusChange('disconnected')
     expect(ds.wasDisconnected).toBe(true)
   })
 
-  it('onStatusChange sets wasDisconnected on external', () => {
+  it('onStatusChange sets wasDisconnected on external', async () => {
     const ds = createDiagnosticsState()
-    ds.init()
+    await ds.init()
     lastSseInstance().callbacks.onStatusChange('external')
     expect(ds.wasDisconnected).toBe(true)
   })
 
-  it('onRetryAtChange updates nextRetryAt', () => {
+  it('onRetryAtChange updates nextRetryAt', async () => {
     const ds = createDiagnosticsState()
-    ds.init()
+    await ds.init()
     const at = Date.now() + 3000
     lastSseInstance().callbacks.onRetryAtChange(at)
     expect(ds.nextRetryAt).toBe(at)
   })
 
-  it('onRetryAtChange accepts null', () => {
+  it('onRetryAtChange accepts null', async () => {
     const ds = createDiagnosticsState()
-    ds.init()
+    await ds.init()
     lastSseInstance().callbacks.onRetryAtChange(null)
     expect(ds.nextRetryAt).toBeNull()
   })
 
   it('onOpen reloads levels when wasDisconnected', async () => {
     const ds = createDiagnosticsState()
-    ds.init()
+    await ds.init()
     // Simulate disconnect then reconnect
     lastSseInstance().callbacks.onStatusChange('disconnected')
     expect(ds.wasDisconnected).toBe(true)
@@ -388,7 +389,7 @@ describe('SSE callbacks', () => {
 
   it('onOpen does not reload levels when not disconnected', async () => {
     const ds = createDiagnosticsState()
-    ds.init()
+    await ds.init()
     vi.clearAllMocks()
     await lastSseInstance().callbacks.onOpen()
     expect(api.fetchLogLevels).not.toHaveBeenCalled()
@@ -432,27 +433,27 @@ describe('onPanelScroll()', () => {
 })
 
 describe('onVisibilityChange()', () => {
-  it('does nothing when document is hidden', () => {
+  it('does nothing when document is hidden', async () => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
     const ds = createDiagnosticsState()
-    ds.init()
+    await ds.init()
     ds.onVisibilityChange()
     expect(lastSseInstance().reconnectNow).not.toHaveBeenCalled()
   })
 
-  it('calls reconnectNow when visible and sse is stale', () => {
+  it('calls reconnectNow when visible and sse is stale', async () => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
     const ds = createDiagnosticsState()
-    ds.init()
+    await ds.init()
     lastSseInstance().isStale.mockReturnValue(true)
     ds.onVisibilityChange()
     expect(lastSseInstance().reconnectNow).toHaveBeenCalled()
   })
 
-  it('does not reconnect when visible but not stale', () => {
+  it('does not reconnect when visible but not stale', async () => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
     const ds = createDiagnosticsState()
-    ds.init()
+    await ds.init()
     lastSseInstance().isStale.mockReturnValue(false)
     ds.onVisibilityChange()
     expect(lastSseInstance().reconnectNow).not.toHaveBeenCalled()
@@ -806,11 +807,9 @@ describe('withRetry helper (via loadHeap/loadTasks)', () => {
 })
 
 describe('init() calls new loaders', () => {
-  it('calls fetch functions for new diagnostics on init', async () => {
+  it('calls fetch functions for new diagnostics on init sequentially', async () => {
     const ds = createDiagnosticsState()
-    ds.init()
-    // Give timers a chance to run
-    await flushMicrotasks()
+    await ds.init()
     // Verify that the new fetchers were called
     expect(api.fetchDiagHeap).toHaveBeenCalled()
     expect(api.fetchDiagTasks).toHaveBeenCalled()

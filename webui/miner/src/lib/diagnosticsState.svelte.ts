@@ -300,14 +300,16 @@ export function createDiagnosticsState() {
     }
   }
 
-  function init() {
-    loadDiagAsic()
-    loadLevels()
-    startStream()
-    loadHeap()
-    loadTasks()
-    loadPanic()
-    loadAbnormalResets()
+  async function init() {
+    startStream()  // SSE is long-lived; doesn't compete with sequential burst
+
+    await loadDiagAsic()
+    await loadLevels()
+    await loadHeap()
+    await loadTasks()
+    await loadPanic()
+    await loadAbnormalResets()
+
     diagInterval = setInterval(loadDiagAsic, 10000)
     tickTimer = setInterval(() => { tickNow = Date.now() }, 1000)
     document.addEventListener('visibilitychange', onVisibilityChange)

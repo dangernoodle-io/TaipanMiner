@@ -22,7 +22,21 @@ CONFIG_LWIP_TCP_SND_BUF_DEFAULT=5840
 CONFIG_LWIP_TCP_WND_DEFAULT=5840
 CONFIG_LWIP_TCP_RECVMBOX_SIZE=6
 CONFIG_LWIP_TCPIP_RECVMBOX_SIZE=16
-CONFIG_LWIP_MAX_SOCKETS=8
+# TA-301's "8 is enough" missed browser HTTP/1.1 keepalive — dashboard tab
+# holds ~3 sockets, plus stratum + listener → exhausts at the original 8.
+# Bumping to 10 leaves real headroom for the SSE log stream + transient
+# diag traffic. ~360B extra RAM.
+CONFIG_LWIP_MAX_SOCKETS=10
+# Reduce FIN_WAIT_2 residency from 20s default to 2s — pairs with the bb_log
+# sse_task disconnect-detect fix in breadboard (BB #241) for the companion
+# CLOSE_WAIT-side reduction. Together cuts per-disconnect socket residency
+# from ~25s to ~2.5s.
+CONFIG_LWIP_TCP_FIN_WAIT_TIMEOUT=2000
+# bb_http reserves N sockets for non-httpd usage. Default 3 (stratum + mDNS
+# UDP + transient outbound) is over-conservative — mDNS uses a separate
+# MEMP_NUM_UDP_PCB pool, so realistic reserve is 1 (stratum). Frees 2 more
+# slots for httpd's client cap.
+CONFIG_BB_HTTP_LWIP_RESERVE=1
 
 # NVS
 CONFIG_NVS_ENCRYPTION=n

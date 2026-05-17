@@ -3,6 +3,12 @@ cmake_minimum_required(VERSION 3.16.0)
 list(APPEND EXTRA_COMPONENT_DIRS
     "components"  # Local components take precedence
     "${CMAKE_CURRENT_SOURCE_DIR}/.breadboard/components"
+    # ESP-IDF platform impls split out of portable BB components (breadboard PR
+    # #252 / #257): the espidf-only sources for bb_event_ring and
+    # bb_event_routes now live as standalone components under platform/espidf/.
+    # Without these, link fails with "undefined reference to bb_event_ring_now_us".
+    "${CMAKE_CURRENT_SOURCE_DIR}/.breadboard/platform/espidf/bb_event_ring_espidf"
+    "${CMAKE_CURRENT_SOURCE_DIR}/.breadboard/platform/espidf/bb_event_routes_espidf"
 )
 
 # Resolve FIRMWARE_BOARD early so per-board EXCLUDE_COMPONENTS can branch on it.

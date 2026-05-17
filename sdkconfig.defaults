@@ -104,6 +104,16 @@ CONFIG_MQTT_USING_ESP=n
 # WiFi Enterprise (802.1X/EAP) — not used, WPA2-PSK only
 CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n
 
+# mbedTLS dynamic-buffer mode: defer the 16 KB SSL_IN_CONTENT_LEN allocation to
+# handshake time instead of permanent reservation. Frees ~16 KB at rest on every
+# board; only used during OTA pull and update-check.
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+
+# WiFi management short buffer pool: STA-only deployment doesn't need the IDF
+# default of 32 (sized for SoftAP serving multiple stations). 8 covers WPA3-SAE
+# four-way handshake + beacon processing with comfortable margin.
+CONFIG_ESP_WIFI_MGMT_SBUF_NUM=8
+
 # Unused mbedTLS features
 CONFIG_MBEDTLS_ARIA_C=n
 CONFIG_MBEDTLS_PKCS7_C=n

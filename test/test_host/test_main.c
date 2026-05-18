@@ -353,6 +353,10 @@ void test_asic_share_validate_version_rolling_applied(void);
 void test_asic_share_validate_nonce_patching_position(void);
 void test_share_validate_target_invalid_returns_fail(void);
 void test_share_validate_meets_target_with_invalid_target_still_fails(void);
+// TA-380: version_mask fallback
+void test_asic_version_mask_fallback_case_a_pool_mask(void);
+void test_asic_version_mask_fallback_case_b_fallback_mask(void);
+void test_asic_version_mask_fallback_case_c_no_roll(void);
 #endif /* ASIC_CHIP */
 
 // Forward declarations from test_work.c (TA-274 additions)
@@ -1083,6 +1087,10 @@ int main(void) {
     RUN_TEST(test_asic_share_validate_nonce_patching_position);
     RUN_TEST(test_share_validate_target_invalid_returns_fail);
     RUN_TEST(test_share_validate_meets_target_with_invalid_target_still_fails);
+    // TA-380: version_mask fallback
+    RUN_TEST(test_asic_version_mask_fallback_case_a_pool_mask);
+    RUN_TEST(test_asic_version_mask_fallback_case_b_fallback_mask);
+    RUN_TEST(test_asic_version_mask_fallback_case_c_no_roll);
 #endif /* ASIC_CHIP */
 
     // TA-234: mining_avg tests

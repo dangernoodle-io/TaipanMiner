@@ -3,6 +3,7 @@
 #include "share_validate.h"
 #include "work.h"
 #include "sha256.h"
+#include "asic_proto.h"
 #include <string.h>
 
 // Genesis block header bytes (version=1, prevhash=0, genesis merkle root, ntime, nbits).
@@ -156,6 +157,48 @@ void test_asic_share_validate_low_difficulty_sanity(void)
     double share_diff;
     share_verdict_t v = share_validate(&work, hash, &share_diff);
     TEST_ASSERT_EQUAL_INT(SHARE_LOW_DIFFICULTY, v);
+}
+
+// TA-380: version_mask fallback — verify rolled-version formula for all three cases.
+// When a pool grants no version mask (mask == 0), the chip still rolls ver_bits
+// within ASIC_VERSION_MASK.  The firmware must reconstruct the correct version
+// for SHA256d instead of skipping the roll and hashing the unrolled header.
+
+// Case A: pool grants version_mask=0x1fffe000, ver_bits=0x00012000 — use pool mask.
+void test_asic_version_mask_fallback_case_a_pool_mask(void)
+{
+    uint32_t version      = 0x20000000u;
+    uint32_t version_mask = 0x1FFFE000u;
+    uint32_t ver_bits     = 0x00012000u;
+    uint32_t effective    = version_mask;  // pool mask used
+    uint32_t rolled       = (version & ~effective) | (ver_bits & effective);
+    // base bits preserved, rolling bits from ver_bits
+    TEST_ASSERT_EQUAL_HEX32(0x20012000u, rolled);
+}
+
+// Case B: pool grants version_mask=0 (no version rolling), ver_bits=0x00012000 —
+// fall back to chip effective mask (ASIC_VERSION_MASK = 0x1FFFE000).
+void test_asic_version_mask_fallback_case_b_fallback_mask(void)
+{
+    uint32_t version      = 0x20000000u;
+    uint32_t version_mask = 0;  // pool grants none
+    uint32_t ver_bits     = 0x00012000u;
+    uint32_t effective    = version_mask ? version_mask : ASIC_VERSION_MASK;
+    uint32_t rolled       = (version & ~effective) | (ver_bits & effective);
+    // same result as Case A — chip mask == pool mask for BM1370
+    TEST_ASSERT_EQUAL_HEX32(0x20012000u, rolled);
+}
+
+// Case C: version_mask=0, ver_bits=0 — no rolling, version unchanged (negative case).
+void test_asic_version_mask_fallback_case_c_no_roll(void)
+{
+    uint32_t version  = 0x20000000u;
+    uint32_t ver_bits = 0;
+    // ver_bits == 0 → skip roll; rolled_ver == orig->version
+    uint32_t rolled_ver = (ver_bits != 0)
+        ? (version & ~ASIC_VERSION_MASK) | (ver_bits & ASIC_VERSION_MASK)
+        : version;
+    TEST_ASSERT_EQUAL_HEX32(version, rolled_ver);
 }
 
 // version_rolling_applied: two different version_bits produce different hashes.

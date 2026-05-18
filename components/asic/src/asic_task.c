@@ -646,8 +646,9 @@ void asic_mining_task(void *arg)
             // then SHA256d it — mirroring the logic formerly in asic_share_validate.
             uint8_t header_copy[80];
             memcpy(header_copy, orig->header, 80);
-            if (ver_bits != 0 && orig->version_mask != 0) {
-                uint32_t rolled = (orig->version & ~orig->version_mask) | (ver_bits & orig->version_mask);
+            if (ver_bits != 0) {
+                uint32_t effective_mask = orig->version_mask ? orig->version_mask : ASIC_VERSION_MASK;
+                uint32_t rolled = (orig->version & ~effective_mask) | (ver_bits & effective_mask);
                 header_copy[0] = (uint8_t)(rolled);
                 header_copy[1] = (uint8_t)(rolled >> 8);
                 header_copy[2] = (uint8_t)(rolled >> 16);
@@ -684,8 +685,9 @@ void asic_mining_task(void *arg)
                 xSemaphoreGive(mining_stats.mutex);
             }
 
-            uint32_t rolled_ver = (ver_bits != 0 && orig->version_mask != 0)
-                ? (orig->version & ~orig->version_mask) | (ver_bits & orig->version_mask)
+            uint32_t effective_mask = orig->version_mask ? orig->version_mask : ASIC_VERSION_MASK;
+            uint32_t rolled_ver = (ver_bits != 0)
+                ? (orig->version & ~effective_mask) | (ver_bits & effective_mask)
                 : orig->version;
             bb_log_i(DIAG, "share: job=%u ver=%08" PRIx32 " n=%02X%02X%02X%02X",
                      real_job_id, rolled_ver,

@@ -49,10 +49,9 @@ typedef struct {
     uint32_t session_rejected_stale_prevhash;
     uint32_t session_rejected_other;
     int32_t  session_rejected_other_last_code;
+    uint32_t session_blocks_found;  /* blocks meeting network target this boot */
     int64_t  last_share_us;    /* 0 = no share yet */
     int64_t  session_start_us; /* 0 = no session */
-    uint32_t lifetime_shares;
-    double   lifetime_best_diff;
     double   expected_ghs;     /* < 0 = unavailable, emit null */
     int64_t  now_us;           /* esp_timer_get_time() at snapshot time */
 #ifndef ASIC_CHIP
@@ -113,6 +112,18 @@ void build_stats_json(const stats_snapshot_t *s, bb_json_t root);
 #define ROUTES_JSON_EXTRANONCE1_MAX 8
 #define ROUTES_JSON_MAX_MERKLE      16
 #define ROUTES_JSON_MAX_COINB       256
+#define ROUTES_JSON_MAX_POOL_STATS  8
+
+/* Per-pool statistics snapshot (mirrors mining_pool_stat_t for JSON emission) */
+typedef struct {
+    char     host[64];
+    uint16_t port;
+    uint32_t shares;
+    uint64_t hashes;
+    double   best_diff;
+    uint32_t blocks_found;
+    int64_t  last_seen_us;  /* LRU key; 0 = empty */
+} pool_stat_snapshot_t;
 
 /* Configured pools (TA-290/TA-202). Top-level host/port/worker/wallet
  * keep reflecting the *active* connection; these expose the persisted
@@ -165,6 +176,12 @@ typedef struct {
     uint32_t nbits;
     uint32_t ntime;
     bool     clean_jobs;
+
+    /* Per-pool lifetime stats (from mining_stats.pool_stats) */
+    pool_stat_snapshot_t stats[ROUTES_JSON_MAX_POOL_STATS];
+    size_t               stats_count;  /* Number of non-empty slots */
+    /* Device-lifetime block counter (never evicted on slot LRU rotation). */
+    uint32_t             lifetime_blocks_total;
 
     /* Configured pools (TA-290/TA-202). */
     pool_cfg_summary_t configured[2];

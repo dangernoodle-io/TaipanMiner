@@ -108,17 +108,16 @@ void test_best_diff_only_increases(void)
 
 void test_lifetime_best_diff_only_increases(void)
 {
-    mining_lifetime_t lt = {0};
+    // Verify best_diff update logic on a pool stat slot.
+    mining_pool_stat_t sl = {0};
 
-    // Apply share diffs in order: [1024.0, 32.0, 32768.0, 0.05, 1e6]
     double diffs[] = {1024.0, 32.0, 32768.0, 0.05, 1e6};
     for (int i = 0; i < 5; i++) {
-        double share_diff = diffs[i];
-        if (share_diff > lt.best_diff) lt.best_diff = share_diff;
+        double d = diffs[i];
+        if (d > sl.best_diff) sl.best_diff = d;
     }
 
-    // Assert final value is 1e6
-    TEST_ASSERT_EQUAL_DOUBLE(1e6, lt.best_diff);
+    TEST_ASSERT_EQUAL_DOUBLE(1e6, sl.best_diff);
 }
 
 void test_pack_unpack_double_roundtrip(void)
@@ -144,51 +143,19 @@ void test_pack_unpack_double_roundtrip(void)
 
 void test_lifetime_save_load_roundtrip(void)
 {
-    // Populate lifetime stats
-    mining_lifetime_t original = {
-        .total_shares = 42,
-        .total_hashes = 0x123456789ABCULL,
-        .best_diff = 8192.5
-    };
-
-    // Simulate packing/unpacking as mining_stats_save_lifetime and
-    // mining_stats_load_lifetime would do
-    uint32_t packed_shares = original.total_shares;
-    uint32_t packed_hashes_lo = (uint32_t)(original.total_hashes & 0xFFFFFFFFu);
-    uint32_t packed_hashes_hi = (uint32_t)(original.total_hashes >> 32);
-    uint32_t packed_best_hi, packed_best_lo;
-    pack_double(original.best_diff, &packed_best_hi, &packed_best_lo);
-
-    // Simulate unpacking (as mining_stats_load_lifetime does)
-    mining_lifetime_t loaded = {0};
-    loaded.total_shares = packed_shares;
-    loaded.total_hashes = ((uint64_t)packed_hashes_hi << 32) | packed_hashes_lo;
-    loaded.best_diff = unpack_double(packed_best_hi, packed_best_lo);
-
-    // Assert exact roundtrip
-    TEST_ASSERT_EQUAL_UINT32(original.total_shares, loaded.total_shares);
-    TEST_ASSERT_EQUAL_UINT64(original.total_hashes, loaded.total_hashes);
-    TEST_ASSERT_EQUAL_DOUBLE(original.best_diff, loaded.best_diff);
+    // Verify double pack/unpack roundtrip used by per-pool NVS save/load.
+    double original = 8192.5;
+    uint32_t packed_hi, packed_lo;
+    pack_double(original, &packed_hi, &packed_lo);
+    double recovered = unpack_double(packed_hi, packed_lo);
+    TEST_ASSERT_EQUAL_DOUBLE(original, recovered);
 }
 
 void test_lifetime_best_diff_survives_zero_load(void)
 {
-    // Start with zero best_diff
-    mining_lifetime_t lt = {0};
-    TEST_ASSERT_EQUAL_DOUBLE(0.0, lt.best_diff);
-
-    // Update via share: 0.5
-    double share_diff = 0.5;
-    if (share_diff > lt.best_diff) lt.best_diff = share_diff;
-    TEST_ASSERT_EQUAL_DOUBLE(0.5, lt.best_diff);
-
-    // Simulate save/load roundtrip
-    uint32_t best_hi, best_lo;
-    pack_double(lt.best_diff, &best_hi, &best_lo);
-
-    mining_lifetime_t loaded = {0};
-    loaded.best_diff = unpack_double(best_hi, best_lo);
-
-    // Assert value survives
-    TEST_ASSERT_EQUAL_DOUBLE(0.5, loaded.best_diff);
+    // Verify pool stat best_diff survives pack/unpack at 0.5.
+    double v = 0.5;
+    uint32_t hi, lo;
+    pack_double(v, &hi, &lo);
+    TEST_ASSERT_EQUAL_DOUBLE(0.5, unpack_double(hi, lo));
 }

@@ -502,4 +502,26 @@ describe('Pool', () => {
     const result = render(Pool)
     expect(result.component).toBeDefined()
   })
+
+  it('renders pool history section when stats array is non-empty', () => {
+    pool.set({
+      ...basePool,
+      stats: [
+        { host: 'history-a.example.com', port: 3333, shares: 142, hashes: 1.5e12,
+          best_diff: 1234.5, blocks_found: 0, last_seen_s: 10 },
+        { host: 'history-b.example.com', port: 3334, shares: 99, hashes: 5e11,
+          best_diff: 500.0, blocks_found: 1, last_seen_s: 600 },
+      ],
+    } as any)
+    const { getByText } = render(Pool)
+    expect(getByText('Pool History')).toBeInTheDocument()
+    expect(getByText('history-a.example.com:3333')).toBeInTheDocument()
+    expect(getByText('history-b.example.com:3334')).toBeInTheDocument()
+  })
+
+  it('omits pool history section when stats array is empty', () => {
+    pool.set({ ...basePool, stats: [] } as any)
+    const { queryByText } = render(Pool)
+    expect(queryByText('Pool History')).toBeNull()
+  })
 })

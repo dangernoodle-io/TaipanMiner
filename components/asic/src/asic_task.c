@@ -11,6 +11,7 @@
 #include "asic_chip_routing.h"
 #include "asic_nonce_dedup.h"
 #include "share_validate.h"
+#include "mining_pool_stats.h"
 #include "crc.h"
 #include "tps546.h"
 #include "emc2101.h"
@@ -27,6 +28,7 @@
 
 #include "esp_log.h"
 #include "bb_log.h"
+#include "bb_event.h"
 #include "bb_byte_order.h"
 #include "esp_check.h"
 #include "esp_timer.h"
@@ -41,6 +43,7 @@
 #include "esp_task_wdt.h"
 
 #include <string.h>
+#include <stdio.h>
 #include <inttypes.h>
 #include <math.h>
 
@@ -679,10 +682,33 @@ void asic_mining_task(void *arg)
                 if (share_diff > mining_stats.session.best_diff) {
                     mining_stats.session.best_diff = share_diff;
                 }
-                if (share_diff > mining_stats.lifetime.best_diff) {
-                    mining_stats.lifetime.best_diff = share_diff;
+                mining_pool_stat_t *slot = stratum_active_pool_slot();
+                if (slot && share_diff > slot->best_diff) {
+                    slot->best_diff = share_diff;
                 }
                 xSemaphoreGive(mining_stats.mutex);
+            }
+
+            // Block detection: check if this share meets the network target.
+            if (share_meets_network_target(hash, orig->nbits)) {
+                if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+                    mining_stats.session.blocks_found++;
+                    xSemaphoreGive(mining_stats.mutex);
+                }
+                mining_pool_stat_t *slot = stratum_active_pool_slot();
+                if (slot) {
+                    mining_pool_stats_record_block(slot);
+                }
+                bb_event_topic_t btopic = mining_pool_stats_get_block_topic();
+                if (btopic) {
+                    char payload[256];
+                    const char *bhost = slot ? slot->host : "";
+                    uint16_t bport = slot ? slot->port : 0;
+                    snprintf(payload, sizeof(payload),
+                        "{\"host\":\"%s\",\"port\":%u,\"share_diff\":%.4f}",
+                        bhost, (unsigned)bport, share_diff);
+                    bb_event_post(btopic, 0, payload, strlen(payload));
+                }
             }
 
             uint32_t effective_mask = orig->version_mask ? orig->version_mask : ASIC_VERSION_MASK;
@@ -940,6 +966,16 @@ void asic_mining_task(void *arg)
                          s_chip_meas[c].total_val - s_chip_meas[c].total_val_base,
                          s_chip_meas[c].error_val - s_chip_meas[c].error_val_base,
                          s_chip_meas[c].total_ghs, s_chip_meas[c].error_ghs);
+            }
+
+            // Record hashes for this 30s period to per-pool stats.
+            // Each nonce represents ASIC_TICKET_DIFF * 2^32 candidate hashes.
+            {
+                uint64_t hashes_since_log = (uint64_t)((double)nonces_since_log * ASIC_TICKET_DIFF * 4294967296.0);
+                mining_pool_stat_t *slot = stratum_active_pool_slot();
+                if (slot) {
+                    mining_pool_stats_record_hashes(slot, hashes_since_log);
+                }
             }
 
             nonces_since_log = 0;

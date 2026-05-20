@@ -40,6 +40,7 @@ void build_stats_json(const stats_snapshot_t *s, bb_json_t root)
     bb_json_obj_set_number(root, "shares",          s->hw_shares);
     bb_json_obj_set_number(root, "session_shares",  s->session_shares);
     bb_json_obj_set_number(root, "session_rejected", s->session_rejected);
+    bb_json_obj_set_number(root, "session_blocks_found", (double)s->session_blocks_found);
 
     bb_json_t rejected = bb_json_obj_new();
     bb_json_obj_set_number(rejected, "total",           (double)s->session_rejected);
@@ -52,11 +53,6 @@ void build_stats_json(const stats_snapshot_t *s, bb_json_t root)
     bb_json_obj_set_obj(root, "rejected", rejected);
 
     bb_json_obj_set_number(root, "last_share_ago_s",  (double)last_share_ago_s);
-
-    bb_json_t lifetime = bb_json_obj_new();
-    bb_json_obj_set_number(lifetime, "shares",    (double)s->lifetime_shares);
-    bb_json_obj_set_number(lifetime, "best_diff", s->lifetime_best_diff);
-    bb_json_obj_set_obj(root, "lifetime", lifetime);
 
     bb_json_obj_set_number(root, "best_diff",         s->best_diff);
     bb_json_obj_set_number(root, "uptime_s",          (double)uptime_s);
@@ -253,6 +249,26 @@ void build_pool_json(const pool_snapshot_t *s, bb_json_t root)
         }
         bb_json_obj_set_string(root, "extranonce_subscribe_status", sub_str);
     }
+
+    /* Per-pool lifetime stats (non-empty slots, ordered by last_seen_us desc) */
+    bb_json_t stats_arr = bb_json_arr_new();
+    for (size_t i = 0; i < s->stats_count; i++) {
+        bb_json_t stat_obj = bb_json_obj_new();
+        bb_json_obj_set_string(stat_obj, "host",          s->stats[i].host);
+        bb_json_obj_set_number(stat_obj, "port",          (double)s->stats[i].port);
+        bb_json_obj_set_number(stat_obj, "shares",        (double)s->stats[i].shares);
+        bb_json_obj_set_number(stat_obj, "hashes",        (double)s->stats[i].hashes);
+        bb_json_obj_set_number(stat_obj, "best_diff",     s->stats[i].best_diff);
+        bb_json_obj_set_number(stat_obj, "blocks_found",  (double)s->stats[i].blocks_found);
+        int64_t last_seen_s = s->stats[i].last_seen_us / 1000000;
+        bb_json_obj_set_number(stat_obj, "last_seen_s",   (double)last_seen_s);
+        bb_json_arr_append_obj(stats_arr, stat_obj);
+    }
+    bb_json_obj_set_arr(root, "stats", stats_arr);
+
+    /* Device-lifetime block counter (survives LRU pool slot eviction). */
+    bb_json_obj_set_number(root, "lifetime_blocks_total",
+                           (double)s->lifetime_blocks_total);
 
     /* configured pools — expose persisted config (TA-290/TA-202) */
     bb_json_t cfg_obj = bb_json_obj_new();

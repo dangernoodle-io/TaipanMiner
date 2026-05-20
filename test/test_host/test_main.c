@@ -355,6 +355,23 @@ void test_pack_unpack_double_roundtrip(void);
 void test_lifetime_save_load_roundtrip(void);
 void test_lifetime_best_diff_survives_zero_load(void);
 
+// Forward declarations from test_mining_pool_stats.c
+void test_pool_stats_find_returns_existing_slot(void);
+void test_pool_stats_case_insensitive_host_match(void);
+void test_pool_stats_different_port_is_new_slot(void);
+void test_pool_stats_alloc_into_empty_slot(void);
+void test_pool_stats_lru_eviction_picks_lowest_last_seen(void);
+void test_pool_stats_record_share_updates_matching_slot(void);
+void test_pool_stats_record_block_increments_matching_slot(void);
+void test_pool_stats_lifetime_blocks_survive_eviction(void);
+void test_pool_stats_record_hashes_accumulates(void);
+void test_pool_stats_null_slot_is_safe(void);
+void test_pool_stats_slot_out_of_range_returns_null(void);
+void test_pool_stats_lru_eviction_skips_recent_slot(void);
+void test_pool_stats_init_runs_clean(void);
+void test_pool_stats_save_runs_clean(void);
+void test_pool_stats_block_topic_roundtrip(void);
+
 #ifdef ASIC_CHIP
 // Forward declarations from test_asic_share_validator.c (TA-274 / Track-3)
 void test_asic_share_validate_null_work(void);
@@ -368,6 +385,9 @@ void test_asic_share_validate_version_rolling_applied(void);
 void test_asic_share_validate_nonce_patching_position(void);
 void test_share_validate_target_invalid_returns_fail(void);
 void test_share_validate_meets_target_with_invalid_target_still_fails(void);
+void test_share_meets_network_target_genesis_block(void);
+void test_share_meets_network_target_pool_share_fails(void);
+void test_share_meets_network_target_exact_equals_target(void);
 // TA-380: version_mask fallback
 void test_asic_version_mask_fallback_case_a_pool_mask(void);
 void test_asic_version_mask_fallback_case_b_fallback_mask(void);
@@ -876,6 +896,23 @@ int main(void) {
     RUN_TEST(test_mining_hotloop_finds_known_share);
     RUN_TEST(test_mining_hotloop_rejects_non_matching_nonce);
 
+    // Per-pool stats tests
+    RUN_TEST(test_pool_stats_find_returns_existing_slot);
+    RUN_TEST(test_pool_stats_case_insensitive_host_match);
+    RUN_TEST(test_pool_stats_different_port_is_new_slot);
+    RUN_TEST(test_pool_stats_alloc_into_empty_slot);
+    RUN_TEST(test_pool_stats_lru_eviction_picks_lowest_last_seen);
+    RUN_TEST(test_pool_stats_record_share_updates_matching_slot);
+    RUN_TEST(test_pool_stats_record_block_increments_matching_slot);
+    RUN_TEST(test_pool_stats_lifetime_blocks_survive_eviction);
+    RUN_TEST(test_pool_stats_record_hashes_accumulates);
+    RUN_TEST(test_pool_stats_null_slot_is_safe);
+    RUN_TEST(test_pool_stats_slot_out_of_range_returns_null);
+    RUN_TEST(test_pool_stats_lru_eviction_skips_recent_slot);
+    RUN_TEST(test_pool_stats_init_runs_clean);
+    RUN_TEST(test_pool_stats_save_runs_clean);
+    RUN_TEST(test_pool_stats_block_topic_roundtrip);
+
     // Stratum utils tests
     RUN_TEST(test_format_submit_no_version);
     RUN_TEST(test_format_submit_with_version);
@@ -1115,6 +1152,9 @@ int main(void) {
     RUN_TEST(test_asic_share_validate_nonce_patching_position);
     RUN_TEST(test_share_validate_target_invalid_returns_fail);
     RUN_TEST(test_share_validate_meets_target_with_invalid_target_still_fails);
+    RUN_TEST(test_share_meets_network_target_genesis_block);
+    RUN_TEST(test_share_meets_network_target_pool_share_fails);
+    RUN_TEST(test_share_meets_network_target_exact_equals_target);
     // TA-380: version_mask fallback
     RUN_TEST(test_asic_version_mask_fallback_case_a_pool_mask);
     RUN_TEST(test_asic_version_mask_fallback_case_b_fallback_mask);

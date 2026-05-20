@@ -10,6 +10,8 @@
   import RebootOverlay from './components/RebootOverlay.svelte'
   import FanEditDialog from './components/FanEditDialog.svelte'
   import { createUpdateAvailableState } from './lib/updateAvailableState.svelte'
+  import { createBlockFoundState } from './lib/blockFoundState.svelte'
+  import BlockFoundBanner from './components/BlockFoundBanner.svelte'
   import Dashboard from './pages/Dashboard.svelte'
   import System from './pages/System.svelte'
   import Pool from './pages/Pool.svelte'
@@ -22,13 +24,16 @@
   import 'ui-kit/utilities.css'
 
   const updateState = createUpdateAvailableState()
+  const blockFoundState = createBlockFoundState()
 
   onMount(() => {
     start()
     updateState.start()
+    blockFoundState.start()
     return () => {
       stop()
       updateState.stop()
+      blockFoundState.stop()
     }
   })
 
@@ -66,6 +71,7 @@
 <LiveTitle />
 
 <main>
+  <BlockFoundBanner state={blockFoundState} />
   <Header {updateState} />
   <div class="sticky-nav"><Nav /></div>
   <AlertBanner {alerts} />

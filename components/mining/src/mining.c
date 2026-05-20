@@ -1,4 +1,5 @@
 #include "mining.h"
+#include "mining_pool_stats.h"
 #include "share_validate.h"
 #include "diag.h"
 #ifdef ASIC_CHIP
@@ -6,6 +7,7 @@
 #endif
 #include "sha256.h"
 #include "stratum.h"
+#include "bb_event.h"
 #include "work.h"
 #include "bb_log.h"
 #include "bb_byte_order.h"
@@ -234,51 +236,9 @@ void mining_run_self_tests(void)
 #endif
 }
 
-void mining_stats_load_lifetime(void)
-{
-    uint32_t lo = 0, hi = 0;
-
-    bb_nv_get_u32("taipanminer", "lt_shares", &mining_stats.lifetime.total_shares, 0);
-    bb_nv_get_u32("taipanminer", "lt_hashes_lo", &lo, 0);
-    bb_nv_get_u32("taipanminer", "lt_hashes_hi", &hi, 0);
-
-    mining_stats.lifetime.total_hashes = ((uint64_t)hi << 32) | lo;
-
-    uint32_t best_hi = 0, best_lo = 0;
-    bb_nv_get_u32("taipanminer", "lt_best_hi", &best_hi, 0);
-    bb_nv_get_u32("taipanminer", "lt_best_lo", &best_lo, 0);
-    mining_stats.lifetime.best_diff = unpack_double(best_hi, best_lo);
-
-    bb_log_i(TAG, "loaded lifetime stats: shares=%" PRIu32 " hashes=%" PRIu64 " best_diff=%.6f",
-             mining_stats.lifetime.total_shares, (uint64_t)mining_stats.lifetime.total_hashes,
-             mining_stats.lifetime.best_diff);
-}
-
-void mining_stats_save_lifetime(const mining_lifetime_t *snapshot)
-{
-    /* Three logically-atomic fields → one batched open/commit/close so the
-     * SPI flash bus is held once instead of three times. Without this,
-     * concurrent flash work (TLS handshake, OTA) on the share-accept hot
-     * path stalled mining_hw long enough to trip the task watchdog on
-     * single-core ESP32 WROOM-32 (TA-347). */
-    bb_nv_batch_t batch;
-    bb_err_t err = bb_nv_batch_begin(&batch, "taipanminer");
-    if (err != BB_OK) {
-        bb_log_w(TAG, "save_lifetime: batch_begin failed (%d)", (int)err);
-        return;
-    }
-    uint32_t best_hi, best_lo;
-    pack_double(snapshot->best_diff, &best_hi, &best_lo);
-    bb_nv_batch_set_u32(&batch, "lt_shares",    snapshot->total_shares);
-    bb_nv_batch_set_u32(&batch, "lt_hashes_lo", (uint32_t)(snapshot->total_hashes & 0xFFFFFFFFu));
-    bb_nv_batch_set_u32(&batch, "lt_hashes_hi", (uint32_t)(snapshot->total_hashes >> 32));
-    bb_nv_batch_set_u32(&batch, "lt_best_hi",   best_hi);
-    bb_nv_batch_set_u32(&batch, "lt_best_lo",   best_lo);
-    err = bb_nv_batch_commit(&batch);
-    if (err != BB_OK) {
-        bb_log_w(TAG, "save_lifetime: batch_commit failed (%d)", (int)err);
-    }
-}
+/* mining_stats_load_lifetime and mining_stats_save_lifetime removed in step 1
+ * (per-pool stats migration). Replaced by mining_pool_stats_init /
+ * mining_pool_stats_save in components/mining/src/mining_pool_stats.c. */
 
 temperature_sensor_handle_t mining_stats_temp_handle(void)
 {
@@ -369,7 +329,7 @@ void mining_stats_init(void)
     mining_stats.asic_freq_effective_mhz = -1.0f;
 #endif
 
-    mining_stats_load_lifetime();
+    /* mining_stats_load_lifetime() replaced by mining_pool_stats_init() in main.c (step 2) */
 
 #if CONFIG_IDF_TARGET_ESP32S3
     temperature_sensor_config_t cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80);
@@ -651,10 +611,33 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                     if (share_diff > mining_stats.session.best_diff) {
                         mining_stats.session.best_diff = share_diff;
                     }
-                    if (share_diff > mining_stats.lifetime.best_diff) {
-                        mining_stats.lifetime.best_diff = share_diff;
+                    mining_pool_stat_t *slot = stratum_active_pool_slot();
+                    if (slot && share_diff > slot->best_diff) {
+                        slot->best_diff = share_diff;
                     }
                     xSemaphoreGive(mining_stats.mutex);
+                }
+
+                // Block detection: check if this share meets the network target.
+                if (share_meets_network_target(hash, work->nbits)) {
+                    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+                        mining_stats.session.blocks_found++;
+                        xSemaphoreGive(mining_stats.mutex);
+                    }
+                    mining_pool_stat_t *slot = stratum_active_pool_slot();
+                    if (slot) {
+                        mining_pool_stats_record_block(slot);
+                    }
+                    bb_event_topic_t btopic = mining_pool_stats_get_block_topic();
+                    if (btopic) {
+                        char payload[256];
+                        const char *bhost = slot ? slot->host : "";
+                        uint16_t bport = slot ? slot->port : 0;
+                        snprintf(payload, sizeof(payload),
+                            "{\"host\":\"%s\",\"port\":%u,\"share_diff\":%.4f}",
+                            bhost, (unsigned)bport, share_diff);
+                        bb_event_post(btopic, 0, payload, strlen(payload));
+                    }
                 }
 
                 if (result_out) {
@@ -772,6 +755,14 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                             mining_stats.temp_c = temp;
                             xSemaphoreGive(mining_stats.mutex);
                         }
+                    }
+                }
+
+                // Record hashes accumulated since last Tier-2 yield.
+                {
+                    mining_pool_stat_t *slot = stratum_active_pool_slot();
+                    if (slot) {
+                        mining_pool_stats_record_hashes(slot, (uint64_t)hashes);
                     }
                 }
 

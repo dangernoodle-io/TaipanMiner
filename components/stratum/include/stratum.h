@@ -6,6 +6,7 @@
 #include "bb_json.h"
 #include "bb_nv.h"
 #include "work.h"
+#include "mining.h"  // mining_pool_stat_t
 
 // Stratum v1 client task — runs on Core 0, priority 5
 void stratum_task(void *arg);
@@ -76,3 +77,7 @@ stratum_extranonce_sub_status_t stratum_get_extranonce_subscribe_status(void);
 // Manually switch to idx and trigger reconnect. Returns BB_ERR_INVALID_ARG
 // if idx out of range or that pool slot isn't configured.
 bb_err_t stratum_request_switch_pool(int idx);
+
+// Return the per-pool stats slot for the current session, or NULL if no
+// session is active (pre-connect or post-disconnect).
+mining_pool_stat_t *stratum_active_pool_slot(void);

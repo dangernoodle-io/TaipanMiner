@@ -6,8 +6,8 @@ help: ## Show available targets
 	@grep -E '^[a-zA-Z_%-]+:.*##' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-webui: ## Build web UI (Svelte SPA) into webui/dist/
-	cd webui && npm ci && npm run build
+webui: ## Build web UI (Svelte SPA) into webui/miner/dist/
+	cd webui && pnpm install --frozen-lockfile && pnpm --filter miner build
 
 check: ## Static analysis (cppcheck) for all default envs
 	$(PIO) check --skip-packages

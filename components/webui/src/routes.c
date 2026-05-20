@@ -200,11 +200,10 @@ static bb_err_t stats_handler(bb_http_request_t *req)
         s.session_rejected_stale_prevhash  = mining_stats.session.rejected_stale_prevhash;
         s.session_rejected_other           = mining_stats.session.rejected_other;
         s.session_rejected_other_last_code = mining_stats.session.rejected_other_last_code;
+        s.session_blocks_found             = mining_stats.session.blocks_found;
         s.last_share_us    = mining_stats.session.last_share_us;
         s.session_start_us = mining_stats.session.start_us;
         s.best_diff        = mining_stats.session.best_diff;
-        s.lifetime_shares  = mining_stats.lifetime.total_shares;
-        s.lifetime_best_diff = mining_stats.lifetime.best_diff;
 #ifndef ASIC_CHIP
         s.hashrate_1m       = (double)mining_stats.hashrate_1m;
         s.hashrate_10m      = (double)mining_stats.hashrate_10m;
@@ -295,7 +294,14 @@ static bb_err_t pool_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
 
-    pool_snapshot_t s = {0};
+    /* pool_snapshot_t is ~3 KB (merkle/coinb buffers + 8 pool stat slots). Stack-
+     * allocating it on the httpd worker (6 KB stack) crashes with "stack overflow
+     * in task httpd" once the JSON builder frames pile on. Heap-allocate instead. */
+    pool_snapshot_t *sp = (pool_snapshot_t *)calloc(1, sizeof(*sp));
+    if (!sp) {
+        return bb_http_resp_send_err(req, 500, "alloc failed");
+    }
+#define s (*sp)
 
     s.connected = stratum_is_connected();
 
@@ -392,10 +398,46 @@ static bb_err_t pool_handler(bb_http_request_t *req)
     s.pool_effective_hashrate_1h = mining_get_pool_effective_1h();
     s.pool_effective_hashrate_1h = (s.pool_effective_hashrate_1h > 0.0) ? s.pool_effective_hashrate_1h : -1.0;
 
+    // Snapshot per-pool stats (ordered by last_seen_us descending, empty slots omitted).
+    // Fill s.stats[] directly — no on-stack scratch buffer. ~800 B saved.
+    {
+        xSemaphoreTake(mining_stats.mutex, portMAX_DELAY);
+        size_t count = 0;
+        for (int i = 0; i < MINING_POOL_STATS_MAX; i++) {
+            const mining_pool_stat_t *src = &mining_stats.pool_stats.slots[i];
+            if (src->last_seen_us == 0) continue;
+            pool_stat_snapshot_t *dst = &s.stats[count++];
+            dst->last_seen_us = src->last_seen_us;
+            dst->shares       = src->shares;
+            dst->hashes       = src->hashes;
+            dst->best_diff    = src->best_diff;
+            dst->blocks_found = src->blocks_found;
+            strncpy(dst->host, src->host, sizeof(dst->host) - 1);
+            dst->host[sizeof(dst->host) - 1] = '\0';
+            dst->port = src->port;
+        }
+        s.lifetime_blocks_total = mining_stats.pool_stats.lifetime_blocks_total;
+        xSemaphoreGive(mining_stats.mutex);
+        s.stats_count = count;
+
+        // In-place sort by last_seen_us descending.
+        for (size_t i = 0; i + 1 < count; i++) {
+            for (size_t j = i + 1; j < count; j++) {
+                if (s.stats[j].last_seen_us > s.stats[i].last_seen_us) {
+                    pool_stat_snapshot_t tmp = s.stats[i];
+                    s.stats[i] = s.stats[j];
+                    s.stats[j] = tmp;
+                }
+            }
+        }
+    }
+
     bb_json_t root = bb_json_obj_new();
     build_pool_json(&s, root);
     bb_err_t rc = bb_http_resp_send_json(req, root);
     bb_json_free(root);
+    free(sp);
+#undef s
     return rc;
 }
 
@@ -1460,7 +1502,6 @@ static const bb_route_response_t s_stats_responses[] = {
       "\"other\":{\"type\":\"integer\"},"
       "\"other_last_code\":{\"type\":\"integer\"}}},"
       "\"last_share_ago_s\":{\"type\":\"integer\",\"description\":\"-1 if no share yet\"},"
-      "\"lifetime_shares\":{\"type\":\"integer\"},"
       "\"best_diff\":{\"type\":\"number\"},"
       "\"uptime_s\":{\"type\":\"integer\"},"
       "\"expected_ghs\":{\"type\":\"number\","
@@ -1523,9 +1564,19 @@ static const bb_route_response_t s_pool_responses[] = {
       "\"nbits\":{\"type\":\"string\"},"
       "\"ntime\":{\"type\":\"string\"},"
       "\"clean_jobs\":{\"type\":\"boolean\"}}}},"
+      "\"stats\":{\"type\":\"array\",\"items\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"host\":{\"type\":\"string\"},"
+      "\"port\":{\"type\":\"integer\"},"
+      "\"shares\":{\"type\":\"integer\"},"
+      "\"hashes\":{\"type\":\"integer\"},"
+      "\"best_diff\":{\"type\":\"number\"},"
+      "\"blocks_found\":{\"type\":\"integer\"},"
+      "\"last_seen_s\":{\"type\":\"integer\",\"description\":\"seconds since boot\"}},"
+      "\"description\":\"per-pool lifetime statistics\"}},"
       "\"required\":[\"host\",\"port\",\"worker\",\"wallet\",\"connected\","
       "\"session_start_ago_s\",\"current_difficulty\","
-      "\"extranonce1\",\"extranonce2_size\",\"version_mask\",\"notify\"]}",
+      "\"extranonce1\",\"extranonce2_size\",\"version_mask\",\"notify\",\"stats\"]}",
       "pool connection state and current job" },
     { 0 },
 };

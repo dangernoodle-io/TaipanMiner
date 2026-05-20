@@ -4,6 +4,18 @@
   import RollingRates from './RollingRates.svelte'
   import RejectStrip from './RejectStrip.svelte'
 
+  // Lifetime aggregates derived from per-pool stats array (the firmware-side
+  // mining_lifetime_t aggregate was replaced with per-pool slots; the hero
+  // still wants a "across all pools" headline number).
+  $: poolStats = $pool?.stats ?? []
+  $: lifetimeShares = poolStats.reduce((acc, s) => acc + (s.shares ?? 0), 0)
+  $: lifetimeBestDiff = poolStats.reduce((acc, s) => Math.max(acc, s.best_diff ?? 0), 0)
+  /* Prefer the device-lifetime counter from the firmware (survives LRU pool
+     eviction); fall back to summing across currently-live slots only if the
+     field is absent (older firmware). */
+  $: lifetimeBlocks = ($pool?.lifetime_blocks_total)
+    ?? poolStats.reduce((acc, s) => acc + (s.blocks_found ?? 0), 0)
+
   $: ghs = $stats?.asic_total_ghs ?? ($stats?.hashrate ? $stats.hashrate / 1e9 : null)
   $: ghs1m = $stats?.asic_total_ghs_1m ?? ($stats?.hashrate_1m != null ? $stats.hashrate_1m / 1e9 : null)
   $: ghs10m = $stats?.asic_total_ghs_10m ?? ($stats?.hashrate_10m != null ? $stats.hashrate_10m / 1e9 : null)
@@ -56,7 +68,7 @@
         <div class="sl">shares {acceptRate !== null ? `(${acceptRate.toFixed(1)}%)` : ''}</div>
       </div>
       <div class="stat">
-        <div class="sv">{($stats.lifetime?.shares ?? 0).toLocaleString()}</div>
+        <div class="sv">{lifetimeShares.toLocaleString()}</div>
         <div class="sl">lifetime</div>
       </div>
       <div class="stat">
@@ -68,8 +80,14 @@
         <div class="sl">last share</div>
       </div>
       <div class="stat">
-        <div class="sv">{fmtDiff($stats.best_diff)}<span class="sep">/</span><span class="lt">{fmtDiff($stats.lifetime?.best_diff ?? 0)}</span></div>
+        <div class="sv">{fmtDiff($stats.best_diff)}<span class="sep">/</span><span class="lt">{fmtDiff(lifetimeBestDiff)}</span></div>
         <div class="sl">best diff {#if diffMult}({diffMult.toFixed(0)}×){/if}</div>
+      </div>
+      <div class="stat">
+        <div class="sv" class:blocks-found={($stats.session_blocks_found ?? 0) > 0 || lifetimeBlocks > 0}>
+          {($stats.session_blocks_found ?? 0).toLocaleString()}<span class="sep">/</span><span class="lt">{lifetimeBlocks.toLocaleString()}</span>
+        </div>
+        <div class="sl">blocks</div>
       </div>
       <div class="stat">
         <div class="sv">{fmtDuration($stats.uptime_s)}</div>
@@ -83,6 +101,13 @@
 <style>
   .hero {
     padding: 18px 20px;
+  }
+
+  /* Highlight the blocks counter when non-zero — solo block finds are rare and
+     worth celebrating in the headline strip. */
+  .blocks-found {
+    color: var(--accent, #4ade80);
+    font-weight: 600;
   }
 
   .top {

@@ -167,14 +167,29 @@ typedef struct {
     int64_t  last_share_us;   // 0 = no share yet
     double   best_diff;       // highest share difficulty (raw value)
     double   accepted_diff_sum; // TA-344: running total of accepted-share difficulties
+    uint32_t blocks_found;    // blocks meeting network target this boot
 } mining_session_t;
 
-// Lifetime stats (persisted to NVS)
+// Per-pool lifetime stats (persisted to NVS)
 typedef struct {
-    uint32_t total_shares;
-    uint64_t total_hashes;
-    double   best_diff;
-} mining_lifetime_t;
+    char     host[64];
+    uint16_t port;
+    uint32_t shares;         // pool-accepted only
+    uint64_t hashes;
+    double   best_diff;      // raw firmware best for any locally-validated share
+    uint32_t blocks_found;
+    int64_t  last_seen_us;   // LRU key; 0 = empty slot
+} mining_pool_stat_t;
+
+#define MINING_POOL_STATS_MAX 8
+
+typedef struct {
+    mining_pool_stat_t slots[MINING_POOL_STATS_MAX];
+    /* Device-lifetime block counter that survives LRU slot eviction. Per-slot
+     * blocks_found is informational ("this pool found N before we forgot
+     * about it"); this is the durable "real solo wins ever" count. */
+    uint32_t           lifetime_blocks_total;
+} mining_pool_stats_t;
 
 // Update EMA with a new hashrate sample (pure math, no FreeRTOS)
 void mining_stats_update_ema(hashrate_ema_t *ema, double sample, int64_t now_us);
@@ -256,7 +271,7 @@ typedef struct {
 #endif
     uint32_t            hw_shares;
     mining_session_t    session;
-    mining_lifetime_t   lifetime;
+    mining_pool_stats_t pool_stats;
     SemaphoreHandle_t   mutex;
 } mining_stats_t;
 
@@ -265,8 +280,6 @@ extern mining_stats_t mining_stats;
 // Initialize mining stats mutex. Call once from main before starting tasks.
 void mining_stats_init(void);
 
-void mining_stats_load_lifetime(void);
-void mining_stats_save_lifetime(const mining_lifetime_t *snapshot);
 temperature_sensor_handle_t mining_stats_temp_handle(void);
 #endif
 

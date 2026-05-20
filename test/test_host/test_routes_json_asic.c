@@ -478,7 +478,6 @@ static void make_stats_base(stats_snapshot_t *s)
     s->last_share_us       = 1000000LL;
     s->session_start_us    = 1000000LL;
     s->best_diff           = 262144.0;
-    s->lifetime_shares     = 50;
     s->now_us              = 61000000LL;  /* 60 s uptime */
 }
 

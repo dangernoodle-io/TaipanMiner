@@ -15,10 +15,22 @@ vi.mock('../lib/api', () => ({
 
 import HeroComponent from './Hero.svelte'
 
+// Lifetime totals are now derived client-side from /api/pool's stats[] array.
+// Tests that exercise the lifetime tile in the hero strip set the `pool` store
+// via `setPoolWithLifetime()` below.
+const basePool = {
+  host: 'pool.example',
+  port: 3333,
+  connected: true,
+  stats: [
+    { host: 'pool.example', port: 3333, shares: 700, hashes: 0, best_diff: 250000, blocks_found: 0, last_seen_s: 100 },
+    { host: 'old.example',  port: 3333, shares: 300, hashes: 0, best_diff: 100000, blocks_found: 0, last_seen_s: 50  },
+  ],
+}
+
 const baseStats = {
   session_shares: 10,
   session_rejected: 1,
-  lifetime: { shares: 1000, best_diff: 250000 },
   last_share_ago_s: 30,
   best_diff: 500000,
   uptime_s: 3600,
@@ -77,10 +89,35 @@ describe('Hero (store-driven)', () => {
     expect(screen.getByText('shares (90.9%)')).toBeInTheDocument()
   })
 
-  it('shows lifetime shares', () => {
+  it('shows lifetime shares summed across pool slots', () => {
     stats.set(baseStats as any)
+    pool.set(basePool as any)
     render(HeroComponent)
+    // 700 + 300 = 1,000
     expect(screen.getByText('1,000')).toBeInTheDocument()
+  })
+
+  it('falls back to 0 lifetime shares when pool stats unavailable', () => {
+    stats.set(baseStats as any)
+    pool.set(null)
+    render(HeroComponent)
+    expect(screen.getByText('lifetime')).toBeInTheDocument()
+    // Both lifetime tile and blocks tile render as "0" with no pool data.
+    expect(screen.getAllByText('0').length).toBeGreaterThan(0)
+  })
+
+  it('shows blocks-found total in the hero strip', () => {
+    stats.set(baseStats as any)
+    pool.set({
+      ...basePool,
+      stats: [
+        { host: 'a', port: 1, shares: 1, hashes: 0, best_diff: 0, blocks_found: 1, last_seen_s: 1 },
+        { host: 'b', port: 2, shares: 2, hashes: 0, best_diff: 0, blocks_found: 1, last_seen_s: 2 },
+      ],
+    } as any)
+    render(HeroComponent)
+    expect(screen.getByText('blocks')).toBeInTheDocument()
+    expect(screen.getByText('2')).toBeInTheDocument()
   })
 
   it('shows uptime', () => {
@@ -162,17 +199,13 @@ describe('Hero (store-driven)', () => {
     expect(document.querySelector('.conn-dot.disconnected')).not.toBeNull()
   })
 
-  it('renders without crashing when stats.lifetime is missing', () => {
-    // Regression: a stats payload missing the nested `lifetime` field
-    // (e.g. older firmware briefly returned during reconnect, or a partial
-    // response) used to crash Hero on render. Defensive optional-chain
-    // guards keep the dashboard rendering with safe fallbacks.
-    const { lifetime: _omit, ...statsWithoutLifetime } = baseStats
-    stats.set(statsWithoutLifetime as any)
+  it('renders without crashing when pool stats are missing', () => {
+    // Regression: a pool payload missing `stats[]` (e.g. older firmware
+    // during reconnect, or a partial response) must not crash Hero.
+    stats.set(baseStats as any)
+    pool.set({ host: 'p', port: 1, connected: true } as any)
     render(HeroComponent)
     expect(document.querySelector('.hero')).not.toBeNull()
-    // Lifetime shares + lifetime best fall back to 0; at least the
-    // lifetime-shares tile should be present with the fallback value.
     expect(screen.getByText('lifetime')).toBeInTheDocument()
     expect(screen.getAllByText('0').length).toBeGreaterThan(0)
   })

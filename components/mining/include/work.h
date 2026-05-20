@@ -34,6 +34,7 @@ typedef struct {
     uint32_t version;            // for version rolling
     uint32_t version_mask;       // BIP 320: 0 if version rolling not active
     uint32_t ntime;              // for ntime rolling
+    uint32_t nbits;              // compact target from stratum job (for network-target check)
     char     job_id[64];
     char     extranonce2_hex[17]; // extranonce2 as hex string (8 bytes = 16 hex chars + null)
     double   difficulty;         // pool difficulty (for ASIC ticket mask)

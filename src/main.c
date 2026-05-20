@@ -7,6 +7,7 @@
 #include "bb_ntp.h"
 #include "bb_system.h"
 #include "mining.h"
+#include "mining_pool_stats.h"
 #include "mining_pause_io.h"
 #include "work.h"
 #include "stratum.h"
@@ -29,6 +30,8 @@
 #include "bb_update_check.h"
 #include "bb_manifest.h"
 #include "bb_registry.h"
+#include "bb_event.h"
+#include "bb_event_routes.h"
 #include "knot.h"
 #include "ota_validator_io.h"
 #include "bb_ota_validator.h"
@@ -61,12 +64,7 @@ static void stats_save_task(void *arg)
     (void)arg;
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        mining_lifetime_t lt;
-        if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-            lt = mining_stats.lifetime;
-            xSemaphoreGive(mining_stats.mutex);
-            mining_stats_save_lifetime(&lt);
-        }
+        mining_pool_stats_save();
     }
 }
 
@@ -86,6 +84,7 @@ static void start_mining(void)
 
     // Initialize mining stats
     mining_stats_init();
+    mining_pool_stats_init();
 
     mining_pause_init(&g_mining_pause_sync_ops_default);
 
@@ -608,6 +607,16 @@ void app_main(void)
         // (auto-registers all breadboard routes and endpoints). Creates the
         // bb_update_check + bb_ota_pull worker tasks using the affinity/priority above.
         BB_ERROR_CHECK(bb_registry_init());
+
+        // Register "block.found" SSE topic and hand the handle to mining_pool_stats
+        // so record_block() can post events. Must run after bb_registry_init() so
+        // bb_event_routes is already initialized.
+        {
+            static bb_event_topic_t s_block_topic = NULL;
+            BB_ERROR_CHECK(bb_event_topic_register("block.found", &s_block_topic));
+            BB_ERROR_CHECK(bb_event_routes_attach_ex("block.found", false));
+            mining_pool_stats_set_block_topic(s_block_topic);
+        }
 
         // Setters below depend on bb_update_check_init / bb_ota_pull_init having
         // run (they early-return BB_ERR_INVALID_STATE before init). The values are

@@ -1,5 +1,6 @@
 #include "share_validate.h"
 #include "work.h"
+#include <string.h>
 
 share_verdict_t share_validate(
     const mining_work_t *work,
@@ -34,4 +35,19 @@ share_verdict_t share_validate(
     }
 
     return SHARE_VALID;
+}
+
+bool share_meets_network_target(const uint8_t hash[32], uint32_t nbits)
+{
+    /* nbits_to_target() produces a big-endian target (MSB at index 0).
+     * meets_target() and the hash argument both use Bitcoin's internal
+     * little-endian convention (LSB at index 0, MSB at index 31).
+     * Reverse the target before comparing. */
+    uint8_t be_target[32];
+    nbits_to_target(nbits, be_target);
+    uint8_t le_target[32];
+    for (int i = 0; i < 32; i++) {
+        le_target[i] = be_target[31 - i];
+    }
+    return meets_target(hash, le_target);
 }

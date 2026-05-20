@@ -6,6 +6,7 @@
 #include "bb_nv.h"
 #include "config.h"
 #include "mining.h"
+#include "mining_pool_stats.h"
 #include "diag.h"
 #include "work.h"
 #include "sha256.h"
@@ -67,6 +68,14 @@ static bool s_pool_rtt_initialized = false;
 // Centralizes modulus arithmetic to prevent accidental drift between parallel arrays.
 static inline int inflight_slot(int id) {
     return id % STRATUM_INFLIGHT_MAX;
+}
+
+// Per-pool stats slot for the current session; resolved at connect time.
+static mining_pool_stat_t *s_active_slot = NULL;
+
+mining_pool_stat_t *stratum_active_pool_slot(void)
+{
+    return s_active_slot;
 }
 
 // Pool failover state (TA-202)
@@ -627,20 +636,22 @@ static void process_message(const char *line)
                 }
                 ota_validator_on_share_accepted();
                 int64_t now_us = esp_timer_get_time();
-                mining_lifetime_t lt_snap = {0};
                 if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                     mining_stats.hw_shares++;
                     mining_stats.session.shares++;
                     mining_stats.session.last_share_us = now_us;
                     mining_stats.session.accepted_diff_sum += share_diff;  // TA-344
-                    mining_stats.lifetime.total_shares++;
 #ifdef ASIC_CHIP
                     mining_stats.asic_shares++;
 #endif
-                    lt_snap = mining_stats.lifetime;
                     xSemaphoreGive(mining_stats.mutex);
                 }
-                mining_stats_save_lifetime(&lt_snap);
+                // Record share in per-pool slot outside the mining_stats mutex.
+                // mining_pool_stats_record_share takes the mutex internally (for save),
+                // so calling it while holding mining_stats.mutex would deadlock.
+                if (s_active_slot) {
+                    mining_pool_stats_record_share(s_active_slot, share_diff);
+                }
             }
         }
     }
@@ -677,6 +688,11 @@ void stratum_task(void *arg)
             continue;
         }
         stratum_backoff_reset(&s_backoff);
+
+        // Resolve per-pool stats slot for this session.
+        s_active_slot = mining_pool_stats_find_or_alloc(
+            config_pool_host_idx(s_active_pool_idx),
+            config_pool_port_idx(s_active_pool_idx));
 
         // Configure (version rolling) — non-fatal if pool doesn't support it
         {
@@ -895,6 +911,7 @@ void stratum_task(void *arg)
 
 reconnect:
         s_stratum_connected = false;
+        s_active_slot = NULL;  // fresh lookup on next connect
         xQueueReset(work_queue);
         if (s_sock >= 0) {
             close(s_sock);

@@ -319,6 +319,7 @@ bool stratum_machine_build_work(stratum_state_t *st, mining_work_t *out)
     out->version      = st->job.version;
     out->version_mask = st->version_mask;
     out->ntime        = st->job.ntime;
+    out->nbits        = st->job.nbits;
     strncpy(out->job_id, st->job.job_id, sizeof(out->job_id) - 1);
     out->job_id[sizeof(out->job_id) - 1] = '\0';
     out->work_seq = ++st->work_seq;

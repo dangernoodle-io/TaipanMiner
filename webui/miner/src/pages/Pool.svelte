@@ -9,6 +9,7 @@
   import Tooltip from '../components/Tooltip.svelte'
   import RollingRates from '../components/RollingRates.svelte'
   import { createPoolState } from '../lib/poolState.svelte'
+  import PoolStatsCard from '../components/PoolStatsCard.svelte'
 
   const POOL_IDXS: (0 | 1)[] = [0, 1]
 
@@ -204,6 +205,23 @@
       </div>
     {/if}
   </section>
+
+  <!-- Pool history / per-pool stats -->
+  {#if $pool?.stats && $pool.stats.length > 0}
+    <section class="card pool-history">
+      <header class="pool-history-head">
+        <h3>Pool History</h3>
+      </header>
+      <div class="stats-list">
+        {#each $pool.stats as stat (stat.host + ':' + stat.port)}
+          <PoolStatsCard
+            {stat}
+            active={stat.host === $pool.host && stat.port === $pool.port}
+          />
+        {/each}
+      </div>
+    </section>
+  {/if}
 </div>
 
 <PoolEditDialog
@@ -433,6 +451,18 @@
   .pool-list {
     display: flex;
     flex-direction: column;
+  }
+
+  .pool-history-head {
+    margin-bottom: 12px;
+  }
+
+  .pool-history-head h3 { margin: 0; }
+
+  .stats-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .mono { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }

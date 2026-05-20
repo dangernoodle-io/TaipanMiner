@@ -24,3 +24,11 @@ share_verdict_t share_validate(
     const mining_work_t *work,
     const uint8_t        hash[32],
     double              *out_diff);
+
+// Returns true if hash meets the network target derived from nbits (compact
+// target). Hash must be in the same 32-byte big-endian format produced by
+// mining_hash_from_state / sha256d — the same convention as meets_target.
+// Uses nbits_to_target() to unpack the 256-bit target, then compares with
+// meets_target(). nbits is the raw uint32 as stored in mining_work_t.nbits
+// (matches the stratum job nbits field).
+bool share_meets_network_target(const uint8_t hash[32], uint32_t nbits);

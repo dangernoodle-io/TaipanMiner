@@ -27,7 +27,9 @@ export interface Chip {
 export interface Stats {
   session_shares: number
   session_rejected: number
-  lifetime: { shares: number; best_diff: number }
+  session_blocks_found?: number
+  // Lifetime aggregates moved to /api/pool's stats[] array (per-pool slots);
+  // the headline "lifetime" number in the UI is derived client-side.
   last_share_ago_s: number | null
   best_diff: number
   uptime_s: number
@@ -235,6 +237,16 @@ export interface PoolConfigured {
   decode_coinbase: boolean
 }
 
+export interface PoolStat {
+  host: string
+  port: number
+  shares: number
+  hashes: number
+  best_diff: number
+  blocks_found: number
+  last_seen_s: number
+}
+
 export interface Pool {
   host: string
   port: number
@@ -258,6 +270,9 @@ export interface Pool {
     primary: PoolConfigured | null
     fallback: PoolConfigured | null
   }
+  stats?: PoolStat[]
+  /* Device-lifetime block counter — never reset on LRU pool eviction. */
+  lifetime_blocks_total?: number
 }
 
 export interface PoolConfigInput {

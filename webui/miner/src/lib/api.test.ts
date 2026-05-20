@@ -19,6 +19,7 @@ import {
   fetchLogLevels,
   setLogLevel,
   fetchOtaCheck,
+  kickOtaCheck,
   triggerOtaUpdate,
   fetchOtaStatus,
   fetchDiagHeap,
@@ -398,21 +399,53 @@ describe('setLogLevel', () => {
 // ---------------------------------------------------------------------------
 
 describe('fetchOtaCheck', () => {
-  it('returns "pending" on 202', async () => {
-    setFetch(202)
-    const result = await fetchOtaCheck()
-    expect(result).toBe('pending')
+  it('returns "pending" when last_check_ts has not advanced past since', async () => {
+    setFetch(200, { current: 'v1', latest: '', available: false, last_check_ok: true, enabled: true, last_check_ts: 100, download_url: '' })
+    expect(await fetchOtaCheck(100)).toBe('pending')
   })
 
-  it('returns parsed result on 200', async () => {
-    setFetch(200, { update_available: true, latest_version: '1.2.0', current_version: '1.1.0' })
-    const result = await fetchOtaCheck()
-    expect(result).toMatchObject({ update_available: true })
+  it('returns "pending" when last_check_ok is false', async () => {
+    setFetch(200, { current: 'v1', latest: '', available: false, last_check_ok: false, enabled: true, last_check_ts: 200, download_url: '' })
+    expect(await fetchOtaCheck(100)).toBe('pending')
   })
 
-  it('throws on non-OK non-202 response', async () => {
+  it('returns parsed result once status advances', async () => {
+    setFetch(200, { current: 'v1.1.0', latest: 'v1.2.0', available: true, last_check_ok: true, enabled: true, last_check_ts: 200, download_url: 'http://x' })
+    const result = await fetchOtaCheck(100)
+    expect(result).toMatchObject({ update_available: true, latest_version: 'v1.2.0', current_version: 'v1.1.0' })
+  })
+
+  it('throws on status fetch failure', async () => {
     setFetch(500)
-    await expect(fetchOtaCheck()).rejects.toThrow('ota check')
+    await expect(fetchOtaCheck(0)).rejects.toThrow('ota status')
+  })
+})
+
+describe('kickOtaCheck', () => {
+  function mockSeq(responses: Array<[number, unknown]>): ReturnType<typeof vi.fn> {
+    const spy = vi.fn(async () => {
+      const next = responses.shift()
+      if (!next) throw new Error('unexpected fetch')
+      return new Response(JSON.stringify(next[1]), { status: next[0] })
+    }) as ReturnType<typeof vi.fn>
+    ;(globalThis as unknown as { fetch: typeof fetch }).fetch = spy as unknown as typeof fetch
+    return spy
+  }
+
+  it('returns prior last_check_ts after a successful kick', async () => {
+    mockSeq([
+      [200, { current: 'v1', latest: '', available: false, last_check_ok: true, enabled: true, last_check_ts: 100, download_url: '' }],
+      [200, {}],
+    ])
+    expect(await kickOtaCheck()).toBe(100)
+  })
+
+  it('throws on kick failure', async () => {
+    mockSeq([
+      [200, { current: 'v1', latest: '', available: false, last_check_ok: false, enabled: true, last_check_ts: 0, download_url: '' }],
+      [500, {}],
+    ])
+    await expect(kickOtaCheck()).rejects.toThrow('ota check')
   })
 })
 

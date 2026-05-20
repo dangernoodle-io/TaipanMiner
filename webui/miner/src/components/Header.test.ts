@@ -41,6 +41,8 @@ vi.mock('ui-kit/Brand.svelte', () => {
 
 import Header from './Header.svelte'
 
+const stubUpdateState = { available: false, latest: null }
+
 describe('Header', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -48,7 +50,7 @@ describe('Header', () => {
   })
 
   it('renders without crashing when info is null', () => {
-    const { container } = render(Header)
+    const { container } = render(Header, { props: { updateState: stubUpdateState } })
     expect(container).toBeTruthy()
   })
 
@@ -66,7 +68,7 @@ describe('Header', () => {
       wdt_resets: 0,
       uptime_boot_s: 0
     } as any)
-    render(Header)
+    render(Header, { props: { updateState: stubUpdateState } })
     expect(screen.getByText('bitaxe-601 · 1.2.3')).toBeInTheDocument()
   })
 })

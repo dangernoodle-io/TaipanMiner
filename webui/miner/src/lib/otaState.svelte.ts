@@ -1,6 +1,6 @@
 import { get } from 'svelte/store'
 import { otaCheck, otaInstall, otaUpload, startRebootRecovery } from './stores'
-import { fetchOtaCheck, triggerOtaUpdate, fetchOtaStatus, uploadOta } from './api'
+import { fetchOtaCheck, kickOtaCheck, triggerOtaUpdate, fetchOtaStatus, uploadOta } from './api'
 
 export function createOtaState() {
   let installConfirmOpen = $state(false)
@@ -13,8 +13,9 @@ export function createOtaState() {
     otaCheck.set({ checking: true, result: null, msg: 'Checking for updates…', kind: '' })
     const deadline = Date.now() + 15000
     try {
+      const since = await kickOtaCheck()
       while (Date.now() < deadline) {
-        const res = await fetchOtaCheck()
+        const res = await fetchOtaCheck(since)
         if (res !== 'pending') {
           if (res.update_available) {
             otaCheck.set({

@@ -195,10 +195,22 @@ export const poolFixture = {
 
 export const knotFixture: unknown[] = []
 
+// /api/ota/check is now a kick-only endpoint that returns immediately.
+// The actual check result lands in /api/update/status (see updateStatusFixture).
 export const otaCheckFixture = {
-  update_available: false,
-  latest_version: '1.2.3',
-  current_version: '1.2.3',
+  status: 'checking',
+}
+
+// /api/update/status — populated by bb_update_check's worker; the webui polls
+// this after kicking via /api/ota/check until last_check_ts advances.
+export const updateStatusFixture = {
+  current: '1.2.3',
+  latest: '1.2.3',
+  download_url: '',
+  available: false,
+  last_check_ok: true,
+  enabled: true,
+  last_check_ts: 1000000000,
 }
 
 export const otaStatusFixture = {
@@ -229,6 +241,7 @@ export type EndpointMap = Partial<{
   '/api/pool': unknown
   '/api/knot': unknown
   '/api/ota/check': unknown
+  '/api/update/status': unknown
   '/api/ota/status': unknown
   '/api/diag/asic': unknown
   '/api/log/level': unknown
@@ -245,6 +258,7 @@ const defaults: EndpointMap = {
   '/api/pool': poolFixture,
   '/api/knot': knotFixture,
   '/api/ota/check': otaCheckFixture,
+  '/api/update/status': updateStatusFixture,
   '/api/ota/status': otaStatusFixture,
   '/api/diag/asic': diagAsicFixture,
   '/api/log/level': logLevelsFixture,

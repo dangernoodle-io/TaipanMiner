@@ -442,11 +442,42 @@ export interface OtaStatus {
   progress_pct: number
 }
 
-export async function fetchOtaCheck(): Promise<OtaCheckResult | 'pending'> {
-  const res = await fetch(`${baseUrl}/api/ota/check`)
-  if (res.status === 202) return 'pending'
-  if (!res.ok) throw new Error(`ota check failed: ${res.status}`)
-  return res.json()
+interface UpdateStatus {
+  current: string
+  latest: string
+  download_url: string
+  available: boolean
+  last_check_ok: boolean
+  enabled: boolean
+  last_check_ts: number
+}
+
+// Kick a fresh manifest fetch on the device. Returns the last_check_ts
+// observed BEFORE the kick so callers can wait for it to advance.
+export async function kickOtaCheck(): Promise<number> {
+  const before = await fetch(`${baseUrl}/api/update/status`)
+  const beforeJson: UpdateStatus | null = before.ok ? await before.json() : null
+  const beforeTs = beforeJson?.last_check_ts ?? 0
+
+  const kick = await fetch(`${baseUrl}/api/ota/check`)
+  if (!kick.ok && kick.status !== 202) {
+    throw new Error(`ota check failed: ${kick.status}`)
+  }
+  return beforeTs
+}
+
+// Poll /api/update/status; returns the parsed result once last_check_ts
+// advances past `since`, otherwise 'pending'.
+export async function fetchOtaCheck(since = 0): Promise<OtaCheckResult | 'pending'> {
+  const status = await fetch(`${baseUrl}/api/update/status`)
+  if (!status.ok) throw new Error(`ota status failed: ${status.status}`)
+  const s: UpdateStatus = await status.json()
+  if (!s.last_check_ok || s.last_check_ts <= since) return 'pending'
+  return {
+    update_available: s.available,
+    latest_version: s.latest,
+    current_version: s.current,
+  }
 }
 
 export async function triggerOtaUpdate(): Promise<void> {

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('./api', () => ({
   fetchOtaCheck: vi.fn(),
+  kickOtaCheck: vi.fn(async () => 0),
   triggerOtaUpdate: vi.fn(),
   fetchOtaStatus: vi.fn(),
   uploadOta: vi.fn(),

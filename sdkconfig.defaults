@@ -24,9 +24,10 @@ CONFIG_LWIP_TCP_RECVMBOX_SIZE=6
 CONFIG_LWIP_TCPIP_RECVMBOX_SIZE=16
 # TA-301's "8 is enough" missed browser HTTP/1.1 keepalive — dashboard tab
 # holds ~3 sockets, plus stratum + listener → exhausts at the original 8.
-# Bumping to 10 leaves real headroom for the SSE log stream + transient
-# diag traffic. ~360B extra RAM.
-CONFIG_LWIP_MAX_SOCKETS=10
+# 12 covers: httpd + 4 SSE clients + stratum TCP + mDNS UDP + NTP UDP +
+# outbound TLS (update check) with headroom. Wroom32 saw "Failed to create
+# socket" at 8/10 with all these in flight. ~360 B per slot.
+CONFIG_LWIP_MAX_SOCKETS=12
 # Reduce FIN_WAIT_2 residency from 20s default to 2s — pairs with the bb_log
 # sse_task disconnect-detect fix in breadboard (BB #241) for the companion
 # CLOSE_WAIT-side reduction. Together cuts per-disconnect socket residency
@@ -108,6 +109,12 @@ CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n
 # handshake time instead of permanent reservation. Frees ~16 KB at rest on every
 # board; only used during OTA pull and update-check.
 CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+# Free the parsed CA cert bundle + tls config immediately after the handshake
+# completes. Each fetch recovers ~8–12 KB that would otherwise stay live until
+# esp_http_client_cleanup. Important on bitaxe-650 where heap_largest_free_block
+# was dropping below the 4.7 KB mbedTLS record-buffer alloc threshold.
+CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT=y
 
 # WiFi management short buffer pool: STA-only deployment doesn't need the IDF
 # default of 32 (sized for SoftAP serving multiple stations). 8 covers WPA3-SAE
@@ -119,3 +126,8 @@ CONFIG_MBEDTLS_ARIA_C=n
 CONFIG_MBEDTLS_PKCS7_C=n
 CONFIG_MBEDTLS_SSL_RENEGOTIATION=n
 CONFIG_MBEDTLS_SSL_KEEP_PEER_CERTIFICATE=n
+
+# /api/events SSE client cap. BB default is 2 (tight-heap floor); TM needs
+# headroom for persistent update-badge subscription + multi-tab dashboards +
+# the ~15s stale-client reap window. Queue depth stays at BB default (8).
+CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS=4

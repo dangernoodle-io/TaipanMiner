@@ -26,6 +26,7 @@
 #include "bb_log.h"
 #include "bb_ota_pull.h"
 #include "bb_ota_push.h"
+#include "bb_update_check.h"
 #include "bb_manifest.h"
 #include "bb_registry.h"
 #include "knot.h"
@@ -582,10 +583,50 @@ void app_main(void)
                               "mining");
             }
         }
+        // task_core / task_priority MUST be set BEFORE bb_registry_init — they're
+        // sampled at xTaskCreatePinnedToCore time inside the registry walk.
+        // Pin the upd_check worker to Core 1. Core 0 already carries httpd + lwip +
+        // wifi + stratum; a Core-0-bound mbedTLS handshake starves IDLE0 past the 60s
+        // task watchdog (BB B1-217).
+        bb_update_check_set_task_core(1);
+#ifndef ASIC_CHIP
+        // Tdongle: mining_hw task runs on Core 1 at prio 20 (CPU-bound SHA hot-loop).
+        // Worker at default prio 1 would never get CPU to call mining_pause(). Raise
+        // above mining so the kick actually preempts and calls the pause hook.
+        bb_update_check_set_task_priority(21);
+#endif
+#ifdef ASIC_CHIP
+        bb_ota_pull_set_task_core(1);
+#else
+        // Tdongle (no ASIC): Core 1 runs idle task; pinning there hits an esp-idf
+        // DVFS race (esp_cpu_unstall during flash-op stall) — let scheduler pick.
+        bb_ota_pull_set_task_core(tskNO_AFFINITY);
+#endif
+
         // Initialize registry: walks PRE_HTTP tier (CORS, OpenAPI meta, route-reserve),
         // auto-starts HTTP server (CONFIG_BB_HTTP_AUTOSTART=y), then walks regular tier
-        // (auto-registers all breadboard routes and endpoints).
+        // (auto-registers all breadboard routes and endpoints). Creates the
+        // bb_update_check + bb_ota_pull worker tasks using the affinity/priority above.
         BB_ERROR_CHECK(bb_registry_init());
+
+        // Setters below depend on bb_update_check_init / bb_ota_pull_init having
+        // run (they early-return BB_ERR_INVALID_STATE before init). The values are
+        // sampled per-fetch in run_one, not at task creation, so this order is correct.
+        bb_update_check_set_releases_url(
+            "https://api.github.com/repos/dangernoodle-io/TaipanMiner/releases/latest");
+        bb_update_check_set_firmware_board("taipanminer-" FIRMWARE_BOARD);
+#ifndef ASIC_CHIP
+        // Tdongle: USE the pause hook. Mining on Core 1 needs to be suspended for
+        // the TLS handshake. (Bitaxe: NO pause hook — bm1370 quiesce/resume churns
+        // heap; mining keeps running through the check.)
+        bb_update_check_set_hooks(mining_pause, mining_resume);
+#endif
+
+        bb_ota_pull_set_releases_url("https://api.github.com/repos/dangernoodle-io/TaipanMiner/releases/latest");
+        bb_ota_pull_set_firmware_board("taipanminer-" FIRMWARE_BOARD);
+        bb_ota_pull_set_hooks(mining_pause, mining_resume);
+        bb_ota_pull_set_skip_check_cb(bb_nv_config_ota_skip_check);
+        bb_ota_pull_set_http_timeout_ms(60000);
         // Register mDNS keys (manifest auto-registered by registry)
         {
             static const bb_manifest_mdns_t taipan_mdns_keys[] = {
@@ -606,21 +647,8 @@ bench_quiet_skip_net:;
     // Sync time via SNTP (UTC)
     bb_ntp_start("pool.ntp.org");
 
-    // Initialize OTA pull with breadboard component
-    bb_ota_pull_set_releases_url("https://api.github.com/repos/dangernoodle-io/TaipanMiner/releases/latest");
-    bb_ota_pull_set_firmware_board("taipanminer-" FIRMWARE_BOARD);
-    bb_ota_pull_set_hooks(mining_pause, mining_resume);
-    bb_ota_pull_set_skip_check_cb(bb_nv_config_ota_skip_check);
-    // Per-board OTA worker core. Bitaxe (ASIC_CHIP): Core 1 is quiesced by
-    // TA-216 during OTA, so pinning there frees Core 0 for httpd/stratum.
-    // Tdongle (no ASIC): Core 1 runs idle task; pinning there hits an esp-idf
-    // DVFS race (esp_cpu_unstall during flash-op stall) — let scheduler pick.
-#ifdef ASIC_CHIP
-    bb_ota_pull_set_task_core(1);
-#else
-    bb_ota_pull_set_task_core(tskNO_AFFINITY);
-#endif
-    bb_ota_pull_set_http_timeout_ms(60000);
+    // bb_update_check + bb_ota_pull setters moved earlier (before bb_registry_init)
+    // so task_core/task_priority take effect at worker-task creation time.
 
     // Initialize OTA push with breadboard component
     bb_ota_push_set_hooks(mining_pause, mining_resume);

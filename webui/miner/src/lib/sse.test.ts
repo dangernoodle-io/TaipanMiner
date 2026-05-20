@@ -8,12 +8,17 @@ class FakeEventSource {
   onopen: ((e: Event) => void) | null = null
   onmessage: ((e: MessageEvent) => void) | null = null
   onerror: ((e: Event) => void) | null = null
+  namedListeners = new Map<string, EventListener>()
   closed = false
   static OPEN = 1
 
   constructor(url: string) {
     this.url = url
     FakeEventSource.instances.push(this)
+  }
+
+  addEventListener(type: string, listener: EventListener) {
+    this.namedListeners.set(type, listener)
   }
 
   open() {
@@ -23,6 +28,11 @@ class FakeEventSource {
 
   emit(data: string) {
     this.onmessage?.(new MessageEvent('message', { data }))
+  }
+
+  emitNamed(type: string, data: string) {
+    const ev = new MessageEvent(type, { data })
+    this.namedListeners.get(type)?.(ev)
   }
 
   fail() {
@@ -179,6 +189,33 @@ describe('SseClient', () => {
     // next retry timer fires
     vi.advanceTimersByTime(1000)
     expect(FakeEventSource.instances.length).toBeGreaterThan(1)
+    c.destroy()
+  })
+
+  it('skips stall reconnect when eventName is set (filtered streams)', () => {
+    // Filtered SSE streams (addEventListener for a specific topic) won't see
+    // server `: ping` comments or default `message` events — lastMessageAt
+    // never advances on a healthy idle stream, so stall reconnect would loop
+    // forever every stallThresholdMs. Trust EventSource.readyState + onerror
+    // for those.
+    const statuses: SseStatus[] = []
+    const c = new SseClient({
+      url: '/api/events?topic=update.available',
+      eventName: 'update.available',
+      onMessage: () => {},
+      onStatusChange: (s) => statuses.push(s),
+      stallThresholdMs: 20000,
+      stallCheckIntervalMs: 5000,
+      retryInitialMs: 1000,
+      eventSourceCtor: FakeEventSource as unknown as typeof EventSource,
+    })
+    c.start()
+    lastEs().open()
+    expect(FakeEventSource.instances).toHaveLength(1)
+    // Advance well past the stall threshold — nothing should reconnect.
+    vi.advanceTimersByTime(120000)
+    expect(FakeEventSource.instances).toHaveLength(1)
+    expect(statuses).not.toContain('disconnected')
     c.destroy()
   })
 

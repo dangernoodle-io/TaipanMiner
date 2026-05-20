@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { mockMinerApi, otaCheckFixture } from './fixtures/api'
+import { mockMinerApi, updateStatusFixture } from './fixtures/api'
 
 test.describe('Update page', () => {
   test('renders Firmware and Manual Upload sections', async ({ page }) => {
@@ -29,14 +29,28 @@ test.describe('Update page', () => {
   })
 
   test('shows Install button when an update is available', async ({ page }) => {
-    await mockMinerApi(page, {
-      overrides: {
-        '/api/ota/check': {
-          ...otaCheckFixture,
-          update_available: true,
-          latest_version: '1.3.0',
-        },
-      },
+    await mockMinerApi(page)
+
+    // Stateful /api/update/status: kickOtaCheck reads it once for `before.last_check_ts`,
+    // then polls until last_check_ts advances. The first read returns the pre-kick state;
+    // every subsequent read returns the post-kick state with a bumped timestamp + the
+    // available=true payload that drives the Install button.
+    let calls = 0
+    const before = { ...updateStatusFixture, last_check_ok: true }
+    const after = {
+      ...updateStatusFixture,
+      available: true,
+      latest: '1.3.0',
+      download_url: 'https://example.com/firmware-1.3.0.bin',
+      last_check_ts: updateStatusFixture.last_check_ts + 60,
+    }
+    await page.route('**/api/update/status', async (route) => {
+      const body = calls++ === 0 ? before : after
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(body),
+      })
     })
     await page.goto('/#/update')
 

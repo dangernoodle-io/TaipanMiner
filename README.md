@@ -4,15 +4,17 @@
 [![Release](https://github.com/dangernoodle-io/TaipanMiner/actions/workflows/release.yml/badge.svg)](https://github.com/dangernoodle-io/TaipanMiner/actions/workflows/release.yml)
 [![Coverage Status](https://coveralls.io/repos/github/dangernoodle-io/TaipanMiner/badge.svg?branch=main)](https://coveralls.io/github/dangernoodle-io/TaipanMiner?branch=main)
 
-Bitcoin mining firmware for ESP32-S3 boards with optional ASIC support.
+Bitcoin mining firmware for ESP32 boards, with optional ASIC support for Bitaxe miners.
 
 ## Supported Boards
 
 | Board | ASIC | Hash Rate |
 |-------|------|-----------|
-| LilyGo T-Dongle S3 | None (ESP32-S3 HW SHA) | ~223 kH/s |
-| Bitaxe 601 Gamma | BM1370 | ~485 GH/s |
-| Bitaxe 403 | BM1368 | ~500 GH/s |
+| LilyGo T-Dongle S3 | None (ESP32-S3 HW SHA) | ~310 kH/s |
+| ESP32-WROOM-32 / DevKit1 | None (ESP32 HW SHA) | ~300 kH/s |
+| Bitaxe 403 | BM1368 | ~545 GH/s |
+| Bitaxe 601 Gamma | BM1370 | ~1.1 TH/s |
+| Bitaxe Gamma Duo (650) | 2× BM1370 | ~1.5 TH/s |
 
 ## Quick Start
 

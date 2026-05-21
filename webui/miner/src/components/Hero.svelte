@@ -86,15 +86,17 @@
         <div class="sv">{fmtRelative($stats.last_share_ago_s)}</div>
         <div class="sl">last share</div>
       </div>
-      <div class="stat" title={`session: ${sessionBestRel} · lifetime: ${lifetimeBestRel}`}>
+      <div class="stat">
         <div class="sv">{fmtDiff($stats.best_diff)}<span class="sep">/</span><span class="lt">{fmtDiff(lifetimeBestDiff)}</span></div>
         <div class="sl">best diff {#if diffMult}({diffMult.toFixed(0)}×){/if}</div>
+        <div class="ts">{sessionBestRel}<span class="ts-sep">/</span><span class="lt">{lifetimeBestRel}</span></div>
       </div>
-      <div class="stat" title={`session: ${sessionBlockRel} · lifetime: ${lifetimeBlockRel}`}>
+      <div class="stat">
         <div class="sv" class:blocks-found={($stats.session_blocks_found ?? 0) > 0 || lifetimeBlocks > 0}>
           {($stats.session_blocks_found ?? 0).toLocaleString()}<span class="sep">/</span><span class="lt">{lifetimeBlocks.toLocaleString()}</span>
         </div>
         <div class="sl">blocks</div>
+        <div class="ts">{sessionBlockRel}<span class="ts-sep">/</span><span class="lt">{lifetimeBlockRel}</span></div>
       </div>
       <div class="stat">
         <div class="sv">{fmtDuration($stats.uptime_s)}</div>
@@ -228,6 +230,18 @@
     letter-spacing: 0.5px;
     color: var(--label);
     margin-top: 2px;
+  }
+
+  /* Session/lifetime timestamps below best-diff and blocks tiles. */
+  .stat .ts {
+    font-size: 10px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    margin-top: 1px;
+  }
+  .stat .ts-sep {
+    color: var(--muted);
+    margin: 0 3px;
   }
 
   .sep {

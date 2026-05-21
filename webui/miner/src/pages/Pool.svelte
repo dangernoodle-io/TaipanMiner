@@ -114,6 +114,23 @@
         </div>
       {/if}
     </div>
+
+    {#if $pool?.stats && $pool.stats.length > 0}
+      <details class="disclosure pool-history-expander">
+        <summary>
+          <h2>Pool History</h2>
+          <span class="sum-meta">{$pool.stats.length}</span>
+        </summary>
+        <div class="stats-list">
+          {#each $pool.stats as stat (stat.host + ':' + stat.port)}
+            <PoolStatsCard
+              {stat}
+              active={stat.host === $pool.host && stat.port === $pool.port}
+            />
+          {/each}
+        </div>
+      </details>
+    {/if}
   </section>
 
   <!-- Stratum notify preview (TA-288). -->
@@ -206,22 +223,6 @@
     {/if}
   </section>
 
-  <!-- Pool history / per-pool stats -->
-  {#if $pool?.stats && $pool.stats.length > 0}
-    <section class="card pool-history">
-      <header class="pool-history-head">
-        <h3>Pool History</h3>
-      </header>
-      <div class="stats-list">
-        {#each $pool.stats as stat (stat.host + ':' + stat.port)}
-          <PoolStatsCard
-            {stat}
-            active={stat.host === $pool.host && stat.port === $pool.port}
-          />
-        {/each}
-      </div>
-    </section>
-  {/if}
 </div>
 
 <PoolEditDialog
@@ -453,11 +454,21 @@
     flex-direction: column;
   }
 
-  .pool-history-head {
-    margin-bottom: 12px;
+  /* Pool History — uses shared .disclosure utility for the ▸ marker. */
+  .pool-history-expander {
+    margin-top: 14px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border);
   }
 
-  .pool-history-head h3 { margin: 0; }
+  .pool-history-expander > summary h2 {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .pool-history-expander > .stats-list {
+    margin-top: 10px;
+  }
 
   .stats-list {
     display: flex;

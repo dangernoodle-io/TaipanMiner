@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { PoolStat } from '../lib/api'
-  import { fmtHashGhs, fmtRelative, fmtDiff, fmtRelativeFromUnixTs } from '../lib/fmt'
+  import { fmtHashGhs, fmtDiff, fmtRelativeFromUnixTs } from '../lib/fmt'
 
   interface Props {
     stat: PoolStat
@@ -14,15 +14,10 @@
   const bestDiffRel = $derived(fmtRelativeFromUnixTs(stat.best_diff_ts))
 </script>
 
-<div class="pool-stats-card" class:active>
-  <div class="card-header">
+<div class="pool-stats-card" class:flat={active}>
+  {#if !active}
     <div class="host-port">{hostPort}</div>
-    {#if stat.blocks_found > 0}
-      <div class="blocks-badge" title={`last block: ${blockRel}`}>
-        {stat.blocks_found} block{stat.blocks_found !== 1 ? 's' : ''}
-      </div>
-    {/if}
-  </div>
+  {/if}
 
   <div class="stats-grid">
     <div class="stat-item">
@@ -35,17 +30,19 @@
       <div class="stat-value">{fmtHashGhs(stat.hashes / 1e9)}</div>
     </div>
 
-    <div class="stat-item" title={`updated: ${bestDiffRel}`}>
+    <div class="stat-item">
       <div class="stat-label">best diff</div>
       <div class="stat-value mono">{fmtDiff(stat.best_diff)}</div>
+      <div class="stat-sub">{bestDiffRel}</div>
     </div>
 
-    {#if stat.last_seen_s > 0}
-      <div class="stat-item">
-        <div class="stat-label">last seen</div>
-        <div class="stat-value">{fmtRelative(stat.last_seen_s)}</div>
+    <div class="stat-item">
+      <div class="stat-label">blocks</div>
+      <div class="stat-value" class:blocks-found={stat.blocks_found > 0}>
+        {stat.blocks_found}
       </div>
-    {/if}
+      <div class="stat-sub">{blockRel}</div>
+    </div>
   </div>
 </div>
 
@@ -55,20 +52,14 @@
     border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
     border-radius: 6px;
     background: color-mix(in srgb, var(--surface) 50%, transparent);
-    transition: all 0.15s ease;
   }
 
-  .pool-stats-card.active {
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
-  }
-
-  .card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 10px;
-    gap: 8px;
+  /* When this card sits inside the parent Active section, drop the nested
+   * box — it would otherwise be a box-in-a-box. */
+  .pool-stats-card.flat {
+    padding: 0;
+    border: none;
+    background: none;
   }
 
   .host-port {
@@ -80,17 +71,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .blocks-badge {
-    font-size: 11px;
-    font-weight: 700;
-    color: #fff;
-    background: #1a7a3c;
-    padding: 2px 8px;
-    border-radius: 999px;
-    white-space: nowrap;
-    flex-shrink: 0;
+    margin-bottom: 10px;
   }
 
   .stats-grid {
@@ -116,10 +97,21 @@
     font-size: 12px;
     font-weight: 600;
     color: var(--text);
+    font-variant-numeric: tabular-nums;
   }
 
   .stat-value.mono {
     font-family: ui-monospace, Menlo, monospace;
     font-size: 11px;
+  }
+
+  .stat-value.blocks-found {
+    color: var(--accent, #4ade80);
+  }
+
+  .stat-sub {
+    font-size: 10px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
   }
 </style>

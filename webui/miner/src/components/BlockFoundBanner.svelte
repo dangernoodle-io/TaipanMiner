@@ -1,22 +1,15 @@
 <script lang="ts">
+  import { getContext, onMount } from 'svelte'
   import { fmtRelativeFromUnixTs } from '../lib/fmt'
+  import { createBlockFoundState, BLOCK_FOUND_TOPIC } from '../lib/blockFoundState.svelte'
+  import { EVENT_BUS_KEY, type EventBus } from '../lib/eventBus.svelte'
 
-  interface BlockFoundInfo {
-    host: string
-    port: number
-    share_diff?: number
-    timestamp?: number
-  }
+  /* Owns its own state machine + subscribes to the SSE bus on mount.
+   * No props needed — the App-level chrome just renders <BlockFoundBanner />. */
+  const state = createBlockFoundState()
+  const bus = getContext<EventBus | undefined>(EVENT_BUS_KEY)
 
-  interface Props {
-    state: {
-      visible: boolean
-      lastFound: BlockFoundInfo | null
-      dismiss: () => void
-    }
-  }
-
-  let { state }: Props = $props()
+  onMount(() => bus?.subscribe(BLOCK_FOUND_TOPIC, state.handleMessage))
 </script>
 
 {#if state.visible && state.lastFound}

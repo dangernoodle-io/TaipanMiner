@@ -9,9 +9,8 @@
   import LiveTitle from './components/LiveTitle.svelte'
   import RebootOverlay from './components/RebootOverlay.svelte'
   import FanEditDialog from './components/FanEditDialog.svelte'
-  import { createUpdateAvailableState, UPDATE_AVAILABLE_TOPIC } from './lib/updateAvailableState.svelte'
-  import { createBlockFoundState, BLOCK_FOUND_TOPIC } from './lib/blockFoundState.svelte'
-  import { SseClient } from './lib/sse'
+  import { createEventBus, EVENT_BUS_KEY } from './lib/eventBus.svelte'
+  import { setContext } from 'svelte'
   import BlockFoundBanner from './components/BlockFoundBanner.svelte'
   import Dashboard from './pages/Dashboard.svelte'
   import System from './pages/System.svelte'
@@ -24,33 +23,21 @@
   import 'ui-kit/theme.css'
   import 'ui-kit/utilities.css'
 
-  const updateState = createUpdateAvailableState()
-  const blockFoundState = createBlockFoundState()
-
-  /* One SSE connection multiplexes every /api/events topic to the page's
-   * state machines. The previous one-client-per-topic shape opened a
-   * persistent socket per topic, which scales linearly as new topics
-   * land and contributes to socket/select-cb pressure on the firmware
-   * (latent lwip asserts have surfaced under enough concurrent SSE
-   * clients). New event topics drop into the eventHandlers map without
-   * adding sockets. */
-  let eventBus: SseClient | null = null
+  /* One SSE connection multiplexes every /api/events topic. App.svelte
+   * owns the bus instance and provides it via context; child components
+   * (Header → UpdateBadgeContainer, BlockFoundBanner, any future event
+   * consumers) create their own state machines and subscribe on mount.
+   * App.svelte doesn't need to know which topics exist — adding a new
+   * one is purely additive in the component that consumes it. */
+  const bus = createEventBus()
+  setContext(EVENT_BUS_KEY, bus)
 
   onMount(() => {
     start()
-    eventBus = new SseClient({
-      url: '/api/events',
-      onMessage: () => {},
-      eventHandlers: {
-        [UPDATE_AVAILABLE_TOPIC]: updateState.handleMessage,
-        [BLOCK_FOUND_TOPIC]: blockFoundState.handleMessage,
-      },
-    })
-    eventBus.start()
+    bus.start()
     return () => {
       stop()
-      eventBus?.destroy()
-      eventBus = null
+      bus.stop()
     }
   })
 
@@ -88,8 +75,8 @@
 <LiveTitle />
 
 <main>
-  <BlockFoundBanner state={blockFoundState} />
-  <Header {updateState} />
+  <BlockFoundBanner />
+  <Header />
   <div class="sticky-nav"><Nav /></div>
   <AlertBanner {alerts} />
 

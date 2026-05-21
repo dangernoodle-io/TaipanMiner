@@ -34,6 +34,14 @@ export interface SseClientOptions {
    * (browsers do not deliver those to `onmessage`).
    */
   eventName?: string
+  /**
+   * Multi-topic dispatch: map of `event: <name>` → handler. Each entry
+   * registers via `addEventListener(name, …)` on the underlying EventSource.
+   * Lets one connection fan out to multiple state machines so we don't pay
+   * a TCP socket per topic. Mutually exclusive with `eventName` / `onMessage`
+   * — pick one shape per client.
+   */
+  eventHandlers?: Record<string, (data: string) => void>
 }
 
 const DEFAULTS = {
@@ -78,7 +86,14 @@ export class SseClient {
       this.lastMessageAt = Date.now()
       this.opts.onMessage(e.data)
     }
-    if (this.opts.eventName) {
+    if (this.opts.eventHandlers) {
+      for (const [name, fn] of Object.entries(this.opts.eventHandlers)) {
+        es.addEventListener(name, (e: Event) => {
+          this.lastMessageAt = Date.now()
+          fn((e as MessageEvent).data)
+        })
+      }
+    } else if (this.opts.eventName) {
       es.addEventListener(this.opts.eventName, handler as EventListener)
     } else {
       es.onmessage = handler

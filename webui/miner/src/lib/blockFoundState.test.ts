@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { SseClient } from './sse'
 
-// Capture the onMessage callback so tests can drive it directly.
 let capturedOnMessage: ((data: string) => void) | null = null
 
 const mockStart = vi.fn()
@@ -42,15 +41,15 @@ describe('createBlockFoundState — initial state', () => {
     expect(s.visible).toBe(false)
   })
 
-  it('dismissedAt is 0 when localStorage is empty', () => {
+  it('dismissedKey is empty when localStorage is empty', () => {
     const s = createBlockFoundState()
-    expect(s.dismissedAt).toBe(0)
+    expect(s.dismissedKey).toBe('')
   })
 
-  it('reads dismissedAt from localStorage on init', () => {
-    localStorage.setItem('taipanminer.blockFound.dismissedAt', '1234567890')
+  it('reads dismissedKey from localStorage on init', () => {
+    localStorage.setItem('taipanminer.blockFound.dismissedKey', 'pool.example.com|3333|1234.5')
     const s = createBlockFoundState()
-    expect(s.dismissedAt).toBe(1234567890)
+    expect(s.dismissedKey).toBe('pool.example.com|3333|1234.5')
   })
 })
 
@@ -108,57 +107,75 @@ describe('createBlockFoundState — SSE event handling', () => {
     expect(s.lastFound).toBeNull()
   })
 
-  it('visible is false when payload arrived before dismissedAt', () => {
-    // Pre-seed localStorage with a future dismissedAt
-    const future = Date.now() + 60_000
-    localStorage.setItem('taipanminer.blockFound.dismissedAt', String(future))
+  it('visible is false when an event matching the dismissedKey arrives (SSE replay)', () => {
+    // Pre-seed the key the user dismissed in a previous page visit.
+    localStorage.setItem('taipanminer.blockFound.dismissedKey', 'pool.example.com|3333|1234.5')
     const s = createBlockFoundState()
     s.start()
 
-    capturedOnMessage!(JSON.stringify({ host: 'pool.example.com', port: 3333 }))
+    // The SSE channel replays the same event after reconnect.
+    capturedOnMessage!(JSON.stringify({ host: 'pool.example.com', port: 3333, share_diff: 1234.5 }))
 
-    // receivedAt is now, dismissedAt is in the future → not visible
+    expect(s.lastFound).not.toBeNull()
     expect(s.visible).toBe(false)
+  })
+
+  it('visible is true when a new event with a different share_diff arrives', () => {
+    localStorage.setItem('taipanminer.blockFound.dismissedKey', 'pool.example.com|3333|1234.5')
+    const s = createBlockFoundState()
+    s.start()
+
+    capturedOnMessage!(JSON.stringify({ host: 'pool.example.com', port: 3333, share_diff: 9999.9 }))
+
+    expect(s.visible).toBe(true)
   })
 })
 
 describe('createBlockFoundState — dismiss', () => {
-  it('dismiss hides banner and persists to localStorage', () => {
+  it('dismiss hides banner and persists the event key to localStorage', () => {
     const s = createBlockFoundState()
     s.start()
 
-    capturedOnMessage!(JSON.stringify({ host: 'pool.example.com', port: 3333 }))
+    capturedOnMessage!(JSON.stringify({ host: 'pool.example.com', port: 3333, share_diff: 42 }))
     expect(s.visible).toBe(true)
 
     s.dismiss()
 
     expect(s.visible).toBe(false)
-    const stored = parseInt(localStorage.getItem('taipanminer.blockFound.dismissedAt') ?? '0', 10)
-    expect(stored).toBeGreaterThan(0)
+    const stored = localStorage.getItem('taipanminer.blockFound.dismissedKey')
+    expect(stored).toBe('pool.example.com|3333|42')
   })
 
-  it('dismissedAt is updated to approximately now after dismiss', () => {
-    const before = Date.now()
+  it('dismiss is a no-op when no event has been received', () => {
     const s = createBlockFoundState()
     s.start()
-
-    capturedOnMessage!(JSON.stringify({ host: 'pool.example.com', port: 3333 }))
     s.dismiss()
-
-    const after = Date.now()
-    expect(s.dismissedAt).toBeGreaterThanOrEqual(before)
-    expect(s.dismissedAt).toBeLessThanOrEqual(after)
+    expect(s.dismissedKey).toBe('')
+    expect(localStorage.getItem('taipanminer.blockFound.dismissedKey')).toBeNull()
   })
 
-  it('fresh instance after dismiss reads dismissedAt from localStorage', () => {
+  it('fresh instance after dismiss reads dismissedKey from localStorage', () => {
     const s1 = createBlockFoundState()
     s1.start()
-    capturedOnMessage!(JSON.stringify({ host: 'pool.example.com', port: 3333 }))
+    capturedOnMessage!(JSON.stringify({ host: 'pool.example.com', port: 3333, share_diff: 7 }))
     s1.dismiss()
-    const dismissedAt = s1.dismissedAt
+    const key = s1.dismissedKey
 
-    // Simulate reload: new state instance reads from localStorage
     const s2 = createBlockFoundState()
-    expect(s2.dismissedAt).toBe(dismissedAt)
+    expect(s2.dismissedKey).toBe(key)
+  })
+
+  it('after dismiss, a replayed event with identical payload stays hidden', () => {
+    const s1 = createBlockFoundState()
+    s1.start()
+    capturedOnMessage!(JSON.stringify({ host: 'pool.example.com', port: 3333, share_diff: 42 }))
+    s1.dismiss()
+
+    // Simulate page navigation: brand-new state instance, SSE replays the event.
+    const s2 = createBlockFoundState()
+    s2.start()
+    capturedOnMessage!(JSON.stringify({ host: 'pool.example.com', port: 3333, share_diff: 42 }))
+
+    expect(s2.visible).toBe(false)
   })
 })

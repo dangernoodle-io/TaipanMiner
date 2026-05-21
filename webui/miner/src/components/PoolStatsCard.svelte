@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { PoolStat } from '../lib/api'
-  import { fmtHashGhs, fmtRelative, fmtDiff } from '../lib/fmt'
+  import { fmtHashGhs, fmtRelative, fmtDiff, fmtRelativeFromUnixTs } from '../lib/fmt'
 
   interface Props {
     stat: PoolStat
@@ -10,13 +10,17 @@
   let { stat, active = false }: Props = $props()
 
   const hostPort = $derived(`${stat.host}:${stat.port}`)
+  const blockRel = $derived(fmtRelativeFromUnixTs(stat.last_block_ts))
+  const bestDiffRel = $derived(fmtRelativeFromUnixTs(stat.best_diff_ts))
 </script>
 
 <div class="pool-stats-card" class:active>
   <div class="card-header">
     <div class="host-port">{hostPort}</div>
     {#if stat.blocks_found > 0}
-      <div class="blocks-badge">{stat.blocks_found} block{stat.blocks_found !== 1 ? 's' : ''}</div>
+      <div class="blocks-badge" title={`last block: ${blockRel}`}>
+        {stat.blocks_found} block{stat.blocks_found !== 1 ? 's' : ''}
+      </div>
     {/if}
   </div>
 
@@ -31,7 +35,7 @@
       <div class="stat-value">{fmtHashGhs(stat.hashes / 1e9)}</div>
     </div>
 
-    <div class="stat-item">
+    <div class="stat-item" title={`updated: ${bestDiffRel}`}>
       <div class="stat-label">best diff</div>
       <div class="stat-value mono">{fmtDiff(stat.best_diff)}</div>
     </div>

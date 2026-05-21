@@ -18,6 +18,15 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include <math.h>
+#include <time.h>
+
+/* Wall-clock unix seconds, sanitized so pre-SNTP epochs don't bleed into UI.
+ * Returns 0 if the clock hasn't been synced yet — UI renders that as "—". */
+static inline int64_t s_wall_clock_or_zero(void)
+{
+    time_t now = time(NULL);
+    return ((int64_t)now < 1700000000LL) ? 0 : (int64_t)now;
+}
 
 inline void pack_double(double v, uint32_t *hi, uint32_t *lo) {
     uint64_t bits;
@@ -607,13 +616,16 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
 
                 result.share_diff = work->difficulty;  // TA-344: pool-assigned diff at issue time
 
+                int64_t now_ts = s_wall_clock_or_zero();
                 if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                     if (share_diff > mining_stats.session.best_diff) {
                         mining_stats.session.best_diff = share_diff;
+                        mining_stats.session.best_diff_ts = now_ts;
                     }
                     mining_pool_stat_t *slot = stratum_active_pool_slot();
                     if (slot && share_diff > slot->best_diff) {
                         slot->best_diff = share_diff;
+                        slot->best_diff_ts = now_ts;
                     }
                     xSemaphoreGive(mining_stats.mutex);
                 }
@@ -622,11 +634,12 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                 if (share_meets_network_target(hash, work->nbits)) {
                     if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
                         mining_stats.session.blocks_found++;
+                        mining_stats.session.last_block_ts = now_ts;
                         xSemaphoreGive(mining_stats.mutex);
                     }
                     mining_pool_stat_t *slot = stratum_active_pool_slot();
                     if (slot) {
-                        mining_pool_stats_record_block(slot);
+                        mining_pool_stats_record_block(slot, now_ts);
                     }
                     bb_event_topic_t btopic = mining_pool_stats_get_block_topic();
                     if (btopic) {
@@ -634,8 +647,8 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                         const char *bhost = slot ? slot->host : "";
                         uint16_t bport = slot ? slot->port : 0;
                         snprintf(payload, sizeof(payload),
-                            "{\"host\":\"%s\",\"port\":%u,\"share_diff\":%.4f}",
-                            bhost, (unsigned)bport, share_diff);
+                            "{\"host\":\"%s\",\"port\":%u,\"share_diff\":%.4f,\"timestamp\":%lld}",
+                            bhost, (unsigned)bport, share_diff, (long long)now_ts);
                         bb_event_post(btopic, 0, payload, strlen(payload));
                     }
                 }

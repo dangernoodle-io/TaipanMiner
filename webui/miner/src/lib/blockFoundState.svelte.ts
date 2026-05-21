@@ -6,6 +6,8 @@ export interface BlockFoundPayload {
   host: string
   port: number
   share_diff?: number
+  /* Wall-clock unix seconds from the firmware. 0 = SNTP not synced yet. */
+  timestamp?: number
   receivedAt: number
 }
 
@@ -39,6 +41,7 @@ export function createBlockFoundState() {
             host: p.host ?? '',
             port: p.port ?? 0,
             share_diff: p.share_diff,
+            timestamp: p.timestamp,
             receivedAt: Date.now(),
           }
         } catch {

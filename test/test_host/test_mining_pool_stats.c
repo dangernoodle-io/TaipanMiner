@@ -99,8 +99,8 @@ void test_pool_stats_record_share_updates_matching_slot(void)
     mining_pool_stat_t *a = mining_pool_stats_find_or_alloc("pool-a.example.com", 3333);
     mining_pool_stat_t *b = mining_pool_stats_find_or_alloc("pool-b.example.com", 3333);
 
-    mining_pool_stats_record_share(a, 1024.0);
-    mining_pool_stats_record_share(a, 512.0);   /* lower — should not update best_diff */
+    mining_pool_stats_record_share(a, 1024.0, 1750000000);
+    mining_pool_stats_record_share(a, 512.0, 1750000001);   /* lower — should not update best_diff */
 
     TEST_ASSERT_EQUAL_UINT32(2, a->shares);
     TEST_ASSERT_EQUAL_DOUBLE(1024.0, a->best_diff);
@@ -117,8 +117,8 @@ void test_pool_stats_record_block_increments_matching_slot(void)
     mining_pool_stat_t *a = mining_pool_stats_find_or_alloc("pool-a.example.com", 3333);
     mining_pool_stat_t *b = mining_pool_stats_find_or_alloc("pool-b.example.com", 3333);
 
-    mining_pool_stats_record_block(a);
-    mining_pool_stats_record_block(a);
+    mining_pool_stats_record_block(a, 1750000010);
+    mining_pool_stats_record_block(a, 1750000010);
 
     TEST_ASSERT_EQUAL_UINT32(2, a->blocks_found);
     TEST_ASSERT_EQUAL_UINT32(0, b->blocks_found);
@@ -133,7 +133,7 @@ void test_pool_stats_lifetime_blocks_survive_eviction(void)
 {
     ps_setUp();
     mining_pool_stat_t *first = mining_pool_stats_find_or_alloc("first.pool", 1111);
-    mining_pool_stats_record_block(first);
+    mining_pool_stats_record_block(first, 1750000020);
     TEST_ASSERT_EQUAL_UINT32(1, mining_pool_stats_lifetime_blocks());
 
     /* Fill the remaining 7 slots so the table is full. */
@@ -180,9 +180,9 @@ void test_pool_stats_record_hashes_accumulates(void)
 void test_pool_stats_null_slot_is_safe(void)
 {
     ps_setUp();
-    mining_pool_stats_record_share(NULL, 1024.0);
+    mining_pool_stats_record_share(NULL, 1024.0, 1750000000);
     mining_pool_stats_record_hashes(NULL, 1000ULL);
-    mining_pool_stats_record_block(NULL);
+    mining_pool_stats_record_block(NULL, 0);
     TEST_ASSERT_EQUAL_UINT32(0, mining_pool_stats_lifetime_blocks());
 }
 
@@ -245,12 +245,15 @@ void test_pool_stats_save_runs_clean(void)
 {
     ps_setUp();
     mining_pool_stat_t *sl = mining_pool_stats_find_or_alloc("pool.example.com", 3333);
-    mining_pool_stats_record_share(sl, 4096.0);
-    mining_pool_stats_record_block(sl);
+    mining_pool_stats_record_share(sl, 4096.0, 1750000000);
+    mining_pool_stats_record_block(sl, 1750000030);
     mining_pool_stats_record_hashes(sl, 12345678ULL);
     /* Exercises the host branch of mining_pool_stats_save (all 8 slots
      * serialised to bb_nv stubs). */
     mining_pool_stats_save();
+    TEST_ASSERT_EQUAL_INT64(1750000000, sl->best_diff_ts);
+    TEST_ASSERT_EQUAL_INT64(1750000030, sl->last_block_ts);
+    TEST_ASSERT_EQUAL_INT64(1750000030, mining_pool_stats_lifetime_last_block_ts());
     TEST_ASSERT_EQUAL_UINT32(1, sl->shares);
     TEST_ASSERT_EQUAL_UINT32(1, sl->blocks_found);
 }

@@ -37,6 +37,14 @@ export function fmtRelative(seconds: number | null | undefined): string {
   return `${Math.floor(seconds / 86400)}d ago`
 }
 
+/* Render a wall-clock unix-seconds timestamp as a relative string ("3h ago").
+ * Returns "—" for 0 / null / undefined / future values (clock skew). */
+export function fmtRelativeFromUnixTs(ts: number | null | undefined): string {
+  if (!ts || ts <= 0) return '—'
+  const nowSec = Math.floor(Date.now() / 1000)
+  return fmtRelative(nowSec - ts)
+}
+
 export function fmtBytes(b: number | null | undefined): string {
   if (b == null) return '—'
   if (b < 1024) return `${b} B`

@@ -60,7 +60,7 @@ void test_stats_happy_path(void)
      * freq_configured/effective=0 (>=0), total_valid=false → nulls, chips=[] */
     TEST_ASSERT_EQUAL_STRING(
         "{\"hashrate\":223000,\"hashrate_avg\":215000,\"temp_c\":42.5,"
-        "\"shares\":7,\"session_shares\":5,\"session_rejected\":1,\"session_blocks_found\":0,"
+        "\"shares\":7,\"session_shares\":5,\"session_rejected\":1,\"session_blocks_found\":0,\"session_best_diff_ts\":0,\"session_last_block_ts\":0,"
         "\"rejected\":{\"total\":1,\"job_not_found\":1,\"low_difficulty\":0,"
         "\"duplicate\":0,\"stale_prevhash\":0,\"other\":0,\"other_last_code\":-1},"
         "\"last_share_ago_s\":5,\"best_diff\":131072,"
@@ -90,7 +90,7 @@ void test_stats_zeroed(void)
 
     TEST_ASSERT_EQUAL_STRING(
         "{\"hashrate\":0,\"hashrate_avg\":0,\"temp_c\":0,"
-        "\"shares\":0,\"session_shares\":0,\"session_rejected\":0,\"session_blocks_found\":0,"
+        "\"shares\":0,\"session_shares\":0,\"session_rejected\":0,\"session_blocks_found\":0,\"session_best_diff_ts\":0,\"session_last_block_ts\":0,"
         "\"rejected\":{\"total\":0,\"job_not_found\":0,\"low_difficulty\":0,"
         "\"duplicate\":0,\"stale_prevhash\":0,\"other\":0,\"other_last_code\":-1},"
         "\"last_share_ago_s\":-1,\"best_diff\":0,"
@@ -126,7 +126,7 @@ void test_stats_no_share_yet(void)
      * ASIC fields all zero (zero-init snapshot) */
     const char *expected =
         "{\"hashrate\":0,\"hashrate_avg\":0,\"temp_c\":0,"
-        "\"shares\":0,\"session_shares\":0,\"session_rejected\":0,\"session_blocks_found\":0,"
+        "\"shares\":0,\"session_shares\":0,\"session_rejected\":0,\"session_blocks_found\":0,\"session_best_diff_ts\":0,\"session_last_block_ts\":0,"
         "\"rejected\":{\"total\":0,\"job_not_found\":0,\"low_difficulty\":0,"
         "\"duplicate\":0,\"stale_prevhash\":0,\"other\":0,\"other_last_code\":-1},"
         "\"last_share_ago_s\":-1,\"best_diff\":0,"
@@ -177,7 +177,7 @@ void test_pool_disconnected(void)
         "\"current_difficulty\":512,\"pool_effective_hashrate\":null,\"pool_effective_hashrate_1m\":null,\"pool_effective_hashrate_10m\":null,\"pool_effective_hashrate_1h\":null,\"latency_ms\":null,"
         "\"extranonce1\":null,\"extranonce2_size\":null,\"version_mask\":null,"
         "\"notify\":null,\"active_pool_idx\":null,"
-        "\"extranonce_subscribe_status\":\"off\",\"lifetime_blocks_total\":0,"
+        "\"extranonce_subscribe_status\":\"off\",\"lifetime_blocks_total\":0,\"lifetime_last_block_ts\":0,"
         "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
@@ -331,7 +331,7 @@ void test_pool_connected_with_notify(void)
         "\"ntime\":\"65a1b2c3\","
         "\"clean_jobs\":true},"
         "\"active_pool_idx\":null,"
-        "\"extranonce_subscribe_status\":\"off\",\"lifetime_blocks_total\":0,"
+        "\"extranonce_subscribe_status\":\"off\",\"lifetime_blocks_total\":0,\"lifetime_last_block_ts\":0,"
         "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
@@ -366,7 +366,7 @@ void test_pool_version_mask_zero(void)
         "\"current_difficulty\":512,\"pool_effective_hashrate\":0,\"pool_effective_hashrate_1m\":0,\"pool_effective_hashrate_10m\":0,\"pool_effective_hashrate_1h\":0,\"latency_ms\":null,"
         "\"extranonce1\":\"dead\",\"extranonce2_size\":4,\"version_mask\":null,"
         "\"notify\":null,\"active_pool_idx\":null,"
-        "\"extranonce_subscribe_status\":\"off\",\"lifetime_blocks_total\":0,"
+        "\"extranonce_subscribe_status\":\"off\",\"lifetime_blocks_total\":0,\"lifetime_last_block_ts\":0,"
         "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
@@ -398,7 +398,7 @@ void test_pool_latency_positive(void)
         "\"current_difficulty\":512,\"pool_effective_hashrate\":0,\"pool_effective_hashrate_1m\":0,\"pool_effective_hashrate_10m\":0,\"pool_effective_hashrate_1h\":0,\"latency_ms\":42,"
         "\"extranonce1\":null,\"extranonce2_size\":null,\"version_mask\":null,"
         "\"notify\":null,\"active_pool_idx\":null,"
-        "\"extranonce_subscribe_status\":\"off\",\"lifetime_blocks_total\":0,"
+        "\"extranonce_subscribe_status\":\"off\",\"lifetime_blocks_total\":0,\"lifetime_last_block_ts\":0,"
         "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
@@ -430,7 +430,7 @@ void test_pool_latency_negative(void)
         "\"current_difficulty\":512,\"pool_effective_hashrate\":0,\"pool_effective_hashrate_1m\":0,\"pool_effective_hashrate_10m\":0,\"pool_effective_hashrate_1h\":0,\"latency_ms\":null,"
         "\"extranonce1\":null,\"extranonce2_size\":null,\"version_mask\":null,"
         "\"notify\":null,\"active_pool_idx\":null,"
-        "\"extranonce_subscribe_status\":\"off\",\"lifetime_blocks_total\":0,"
+        "\"extranonce_subscribe_status\":\"off\",\"lifetime_blocks_total\":0,\"lifetime_last_block_ts\":0,"
         "\"configured\":{\"primary\":null,\"fallback\":null}}",
         json);
     bb_json_free_str(json);
@@ -453,20 +453,24 @@ void test_emit_pool_stats_two_entries(void)
 {
     pool_stat_snapshot_t arr[2] = {0};
     strncpy(arr[0].host, "pool-a.example.com", sizeof(arr[0].host) - 1);
-    arr[0].port         = 3333;
-    arr[0].shares       = 42;
-    arr[0].hashes       = 1500000000000ULL;
-    arr[0].best_diff    = 1234.5;
-    arr[0].blocks_found = 1;
-    arr[0].last_seen_us = 10000000LL;  /* 10 s */
+    arr[0].port          = 3333;
+    arr[0].shares        = 42;
+    arr[0].hashes        = 1500000000000ULL;
+    arr[0].best_diff     = 1234.5;
+    arr[0].blocks_found  = 1;
+    arr[0].last_seen_us  = 10000000LL;  /* 10 s */
+    arr[0].best_diff_ts  = 1750000000LL;
+    arr[0].last_block_ts = 1750000030LL;
 
     strncpy(arr[1].host, "pool-b.example.com", sizeof(arr[1].host) - 1);
-    arr[1].port         = 3334;
-    arr[1].shares       = 7;
-    arr[1].hashes       = 500000000ULL;
-    arr[1].best_diff    = 99.0;
-    arr[1].blocks_found = 0;
-    arr[1].last_seen_us = 5000000LL;   /* 5 s */
+    arr[1].port          = 3334;
+    arr[1].shares        = 7;
+    arr[1].hashes        = 500000000ULL;
+    arr[1].best_diff     = 99.0;
+    arr[1].blocks_found  = 0;
+    arr[1].last_seen_us  = 5000000LL;   /* 5 s */
+    arr[1].best_diff_ts  = 0;
+    arr[1].last_block_ts = 0;
 
     bb_json_t root = bb_json_obj_new();
     emit_pool_stats_json(root, arr, 2);
@@ -475,10 +479,10 @@ void test_emit_pool_stats_two_entries(void)
         "{\"stats\":["
         "{\"host\":\"pool-a.example.com\",\"port\":3333,\"shares\":42,"
         "\"hashes\":1500000000000,\"best_diff\":1234.5,\"blocks_found\":1,"
-        "\"last_seen_s\":10},"
+        "\"last_seen_s\":10,\"best_diff_ts\":1750000000,\"last_block_ts\":1750000030},"
         "{\"host\":\"pool-b.example.com\",\"port\":3334,\"shares\":7,"
         "\"hashes\":500000000,\"best_diff\":99,\"blocks_found\":0,"
-        "\"last_seen_s\":5}"
+        "\"last_seen_s\":5,\"best_diff_ts\":0,\"last_block_ts\":0}"
         "]}",
         json);
     bb_json_free_str(json);

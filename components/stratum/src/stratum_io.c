@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <inttypes.h>
+#include <time.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <errno.h>
@@ -650,7 +651,9 @@ static void process_message(const char *line)
                 // mining_pool_stats_record_share takes the mutex internally (for save),
                 // so calling it while holding mining_stats.mutex would deadlock.
                 if (s_active_slot) {
-                    mining_pool_stats_record_share(s_active_slot, share_diff);
+                    time_t t = time(NULL);
+                    int64_t now_ts = ((int64_t)t < 1700000000LL) ? 0 : (int64_t)t;
+                    mining_pool_stats_record_share(s_active_slot, share_diff, now_ts);
                 }
             }
         }

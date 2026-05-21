@@ -1075,6 +1075,7 @@ static bb_err_t settings_get_handler(bb_http_request_t *req)
     s.ota_skip_check = bb_nv_config_ota_skip_check();
     s.mdns_en        = bb_nv_config_mdns_enabled();
     s.knot_en        = config_knot_enabled();
+    s.provisioned    = bb_nv_config_is_provisioned();
 
     bb_json_t root = bb_json_obj_new();
     build_settings_json(&s, root);
@@ -1807,18 +1808,17 @@ static const bb_route_response_t s_settings_get_responses[] = {
     { 200, "application/json",
       "{\"type\":\"object\","
       "\"properties\":{"
-      "\"pool_host\":{\"type\":\"string\"},"
-      "\"pool_port\":{\"type\":\"integer\"},"
-      "\"wallet\":{\"type\":\"string\"},"
-      "\"worker\":{\"type\":\"string\"},"
-      "\"pool_pass\":{\"type\":\"string\"},"
       "\"hostname\":{\"type\":\"string\"},"
       "\"display_en\":{\"type\":\"boolean\"},"
       "\"ota_skip_check\":{\"type\":\"boolean\"},"
       "\"mdns_en\":{\"type\":\"boolean\"},"
-      "\"knot_en\":{\"type\":\"boolean\"}},"
-      "\"required\":[\"pool_host\",\"pool_port\",\"wallet\",\"worker\","
-      "\"pool_pass\",\"hostname\",\"display_en\",\"ota_skip_check\",\"mdns_en\",\"knot_en\"]}",
+      "\"knot_en\":{\"type\":\"boolean\"},"
+      "\"provisioned\":{\"type\":\"boolean\","
+      "\"description\":\"read-only mirror of the bb_cfg NVS 'provisioned' u8 key; "
+      "true after first successful provisioning, false on factory/post-reset. "
+      "Settable only via direct NVS write (e.g. taipan-cli flash pre-seed), not HTTP.\"}},"
+      "\"required\":[\"hostname\",\"display_en\",\"ota_skip_check\",\"mdns_en\","
+      "\"knot_en\",\"provisioned\"]}",
       "current persisted settings" },
     { 0 },
 };

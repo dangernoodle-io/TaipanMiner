@@ -279,4 +279,30 @@ describe('SseClient', () => {
     c.stop()
     expect(es.closed).toBe(true)
   })
+
+  it('eventHandlers fans one connection out to multiple named handlers', () => {
+    const aMessages: string[] = []
+    const bMessages: string[] = []
+    const c = new SseClient({
+      url: '/api/events',
+      onMessage: () => {},
+      eventHandlers: {
+        'topic.a': (d) => aMessages.push(d),
+        'topic.b': (d) => bMessages.push(d),
+      },
+      eventSourceCtor: FakeEventSource as unknown as typeof EventSource,
+    })
+    c.start()
+    const es = lastEs()
+    es.open()
+
+    // One ES instance = one TCP connection regardless of topic count.
+    expect(FakeEventSource.instances.length).toBe(1)
+
+    es.emitNamed('topic.a', 'a1')
+    es.emitNamed('topic.b', 'b1')
+    es.emitNamed('topic.a', 'a2')
+    expect(aMessages).toEqual(['a1', 'a2'])
+    expect(bMessages).toEqual(['b1'])
+  })
 })

@@ -9,8 +9,9 @@
   import LiveTitle from './components/LiveTitle.svelte'
   import RebootOverlay from './components/RebootOverlay.svelte'
   import FanEditDialog from './components/FanEditDialog.svelte'
-  import { createUpdateAvailableState } from './lib/updateAvailableState.svelte'
-  import { createBlockFoundState } from './lib/blockFoundState.svelte'
+  import { createUpdateAvailableState, UPDATE_AVAILABLE_TOPIC } from './lib/updateAvailableState.svelte'
+  import { createBlockFoundState, BLOCK_FOUND_TOPIC } from './lib/blockFoundState.svelte'
+  import { SseClient } from './lib/sse'
   import BlockFoundBanner from './components/BlockFoundBanner.svelte'
   import Dashboard from './pages/Dashboard.svelte'
   import System from './pages/System.svelte'
@@ -26,14 +27,30 @@
   const updateState = createUpdateAvailableState()
   const blockFoundState = createBlockFoundState()
 
+  /* One SSE connection multiplexes every /api/events topic to the page's
+   * state machines. The previous one-client-per-topic shape opened a
+   * persistent socket per topic, which scales linearly as new topics
+   * land and contributes to socket/select-cb pressure on the firmware
+   * (latent lwip asserts have surfaced under enough concurrent SSE
+   * clients). New event topics drop into the eventHandlers map without
+   * adding sockets. */
+  let eventBus: SseClient | null = null
+
   onMount(() => {
     start()
-    updateState.start()
-    blockFoundState.start()
+    eventBus = new SseClient({
+      url: '/api/events',
+      onMessage: () => {},
+      eventHandlers: {
+        [UPDATE_AVAILABLE_TOPIC]: updateState.handleMessage,
+        [BLOCK_FOUND_TOPIC]: blockFoundState.handleMessage,
+      },
+    })
+    eventBus.start()
     return () => {
       stop()
-      updateState.stop()
-      blockFoundState.stop()
+      eventBus?.destroy()
+      eventBus = null
     }
   })
 

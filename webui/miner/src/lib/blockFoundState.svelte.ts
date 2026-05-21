@@ -1,6 +1,8 @@
-import { SseClient } from './sse'
-
 const LS_KEY = 'taipanminer.blockFound.dismissedKey'
+
+/* Topic name on /api/events. Exported so the SSE multiplexer can route
+ * to handleMessage(); see createUpdateAvailableState for the same shape. */
+export const BLOCK_FOUND_TOPIC = 'block.found'
 
 export interface BlockFoundPayload {
   host: string
@@ -28,33 +30,19 @@ export function createBlockFoundState() {
   let lastFound = $state<BlockFoundPayload | null>(null)
   let dismissedKey = $state<string>(storedDismissedKey)
 
-  let sse: SseClient | null = null
-
-  function start() {
-    sse = new SseClient({
-      url: '/api/events?topic=block.found',
-      eventName: 'block.found',
-      onMessage: (data: string) => {
-        try {
-          const p = JSON.parse(data)
-          lastFound = {
-            host: p.host ?? '',
-            port: p.port ?? 0,
-            share_diff: p.share_diff,
-            timestamp: p.timestamp,
-            receivedAt: Date.now(),
-          }
-        } catch {
-          // malformed payload — ignore
-        }
-      },
-    })
-    sse.start()
-  }
-
-  function stop() {
-    sse?.destroy()
-    sse = null
+  function handleMessage(data: string) {
+    try {
+      const p = JSON.parse(data)
+      lastFound = {
+        host: p.host ?? '',
+        port: p.port ?? 0,
+        share_diff: p.share_diff,
+        timestamp: p.timestamp,
+        receivedAt: Date.now(),
+      }
+    } catch {
+      // malformed payload — ignore
+    }
   }
 
   function dismiss() {
@@ -70,8 +58,7 @@ export function createBlockFoundState() {
     get visible() {
       return lastFound !== null && eventKey(lastFound) !== dismissedKey
     },
-    start,
-    stop,
+    handleMessage,
     dismiss,
   }
 }

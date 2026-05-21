@@ -606,6 +606,8 @@ void test_pool_connected_with_notify(void);
 void test_pool_version_mask_zero(void);
 void test_pool_latency_positive(void);
 void test_pool_latency_negative(void);
+void test_emit_pool_stats_empty(void);
+void test_emit_pool_stats_two_entries(void);
 void test_diag_asic_empty(void);
 void test_diag_asic_three_events(void);
 void test_diag_asic_future_ts_clamps_to_zero(void);
@@ -1252,6 +1254,8 @@ int main(void) {
     RUN_TEST(test_pool_version_mask_zero);
     RUN_TEST(test_pool_latency_positive);
     RUN_TEST(test_pool_latency_negative);
+    RUN_TEST(test_emit_pool_stats_empty);
+    RUN_TEST(test_emit_pool_stats_two_entries);
     RUN_TEST(test_pool_with_active_idx_and_configured_slots);
     RUN_TEST(test_pool_subscribe_status_pending);
     RUN_TEST(test_pool_subscribe_status_active);

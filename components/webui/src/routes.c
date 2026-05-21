@@ -294,14 +294,13 @@ static bb_err_t pool_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
 
-    /* pool_snapshot_t is ~3 KB (merkle/coinb buffers + 8 pool stat slots). Stack-
-     * allocating it on the httpd worker (6 KB stack) crashes with "stack overflow
-     * in task httpd" once the JSON builder frames pile on. Heap-allocate instead. */
-    pool_snapshot_t *sp = (pool_snapshot_t *)calloc(1, sizeof(*sp));
-    if (!sp) {
-        return bb_http_resp_send_err(req, 500, "alloc failed");
-    }
-#define s (*sp)
+    /* Per-pool stats live in a separate local array (832 B) emitted post-hoc
+     * by emit_pool_stats_json() so the main snapshot stays at ~1880 B and
+     * can sit on the httpd worker stack. The old "calloc on every request"
+     * shape fragmented the heap on classic ESP32 under SSE-attached load. */
+    pool_snapshot_t s = {0};
+    pool_stat_snapshot_t stats_arr[ROUTES_JSON_MAX_POOL_STATS] = {0};
+    size_t stats_count = 0;
 
     s.connected = stratum_is_connected();
 
@@ -399,14 +398,12 @@ static bb_err_t pool_handler(bb_http_request_t *req)
     s.pool_effective_hashrate_1h = (s.pool_effective_hashrate_1h > 0.0) ? s.pool_effective_hashrate_1h : -1.0;
 
     // Snapshot per-pool stats (ordered by last_seen_us descending, empty slots omitted).
-    // Fill s.stats[] directly — no on-stack scratch buffer. ~800 B saved.
     {
         xSemaphoreTake(mining_stats.mutex, portMAX_DELAY);
-        size_t count = 0;
         for (int i = 0; i < MINING_POOL_STATS_MAX; i++) {
             const mining_pool_stat_t *src = &mining_stats.pool_stats.slots[i];
             if (src->last_seen_us == 0) continue;
-            pool_stat_snapshot_t *dst = &s.stats[count++];
+            pool_stat_snapshot_t *dst = &stats_arr[stats_count++];
             dst->last_seen_us = src->last_seen_us;
             dst->shares       = src->shares;
             dst->hashes       = src->hashes;
@@ -418,15 +415,14 @@ static bb_err_t pool_handler(bb_http_request_t *req)
         }
         s.lifetime_blocks_total = mining_stats.pool_stats.lifetime_blocks_total;
         xSemaphoreGive(mining_stats.mutex);
-        s.stats_count = count;
 
         // In-place sort by last_seen_us descending.
-        for (size_t i = 0; i + 1 < count; i++) {
-            for (size_t j = i + 1; j < count; j++) {
-                if (s.stats[j].last_seen_us > s.stats[i].last_seen_us) {
-                    pool_stat_snapshot_t tmp = s.stats[i];
-                    s.stats[i] = s.stats[j];
-                    s.stats[j] = tmp;
+        for (size_t i = 0; i + 1 < stats_count; i++) {
+            for (size_t j = i + 1; j < stats_count; j++) {
+                if (stats_arr[j].last_seen_us > stats_arr[i].last_seen_us) {
+                    pool_stat_snapshot_t tmp = stats_arr[i];
+                    stats_arr[i] = stats_arr[j];
+                    stats_arr[j] = tmp;
                 }
             }
         }
@@ -434,10 +430,9 @@ static bb_err_t pool_handler(bb_http_request_t *req)
 
     bb_json_t root = bb_json_obj_new();
     build_pool_json(&s, root);
+    emit_pool_stats_json(root, stats_arr, stats_count);
     bb_err_t rc = bb_http_resp_send_json(req, root);
     bb_json_free(root);
-    free(sp);
-#undef s
     return rc;
 }
 

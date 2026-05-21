@@ -2,11 +2,6 @@
   import Brand from 'ui-kit/Brand.svelte'
   import { info } from '../lib/stores'
   import UpdateBadgeContainer from './UpdateBadgeContainer.svelte'
-
-  interface Props {
-    updateState: { available: boolean; latest: string | null }
-  }
-  let { updateState }: Props = $props()
 </script>
 
 <div class="header-row">
@@ -16,7 +11,7 @@
     {/if}
   </Brand>
   <div class="spacer"></div>
-  <UpdateBadgeContainer {updateState} />
+  <UpdateBadgeContainer />
 </div>
 
 <style>

@@ -250,23 +250,9 @@ void build_pool_json(const pool_snapshot_t *s, bb_json_t root)
         bb_json_obj_set_string(root, "extranonce_subscribe_status", sub_str);
     }
 
-    /* Per-pool lifetime stats (non-empty slots, ordered by last_seen_us desc) */
-    bb_json_t stats_arr = bb_json_arr_new();
-    for (size_t i = 0; i < s->stats_count; i++) {
-        bb_json_t stat_obj = bb_json_obj_new();
-        bb_json_obj_set_string(stat_obj, "host",          s->stats[i].host);
-        bb_json_obj_set_number(stat_obj, "port",          (double)s->stats[i].port);
-        bb_json_obj_set_number(stat_obj, "shares",        (double)s->stats[i].shares);
-        bb_json_obj_set_number(stat_obj, "hashes",        (double)s->stats[i].hashes);
-        bb_json_obj_set_number(stat_obj, "best_diff",     s->stats[i].best_diff);
-        bb_json_obj_set_number(stat_obj, "blocks_found",  (double)s->stats[i].blocks_found);
-        int64_t last_seen_s = s->stats[i].last_seen_us / 1000000;
-        bb_json_obj_set_number(stat_obj, "last_seen_s",   (double)last_seen_s);
-        bb_json_arr_append_obj(stats_arr, stat_obj);
-    }
-    bb_json_obj_set_arr(root, "stats", stats_arr);
-
-    /* Device-lifetime block counter (survives LRU pool slot eviction). */
+    /* Device-lifetime block counter (survives LRU pool slot eviction).
+     * Per-pool stats array is emitted by pool_handler via
+     * emit_pool_stats_json() to keep this snapshot stack-friendly. */
     bb_json_obj_set_number(root, "lifetime_blocks_total",
                            (double)s->lifetime_blocks_total);
 
@@ -289,6 +275,26 @@ void build_pool_json(const pool_snapshot_t *s, bb_json_t root)
         }
     }
     bb_json_obj_set_obj(root, "configured", cfg_obj);
+}
+
+void emit_pool_stats_json(bb_json_t root,
+                          const pool_stat_snapshot_t *stats,
+                          size_t count)
+{
+    bb_json_t stats_arr = bb_json_arr_new();
+    for (size_t i = 0; i < count; i++) {
+        bb_json_t stat_obj = bb_json_obj_new();
+        bb_json_obj_set_string(stat_obj, "host",          stats[i].host);
+        bb_json_obj_set_number(stat_obj, "port",          (double)stats[i].port);
+        bb_json_obj_set_number(stat_obj, "shares",        (double)stats[i].shares);
+        bb_json_obj_set_number(stat_obj, "hashes",        (double)stats[i].hashes);
+        bb_json_obj_set_number(stat_obj, "best_diff",     stats[i].best_diff);
+        bb_json_obj_set_number(stat_obj, "blocks_found",  (double)stats[i].blocks_found);
+        int64_t last_seen_s = stats[i].last_seen_us / 1000000;
+        bb_json_obj_set_number(stat_obj, "last_seen_s",   (double)last_seen_s);
+        bb_json_arr_append_obj(stats_arr, stat_obj);
+    }
+    bb_json_obj_set_arr(root, "stats", stats_arr);
 }
 
 /* ============================================================================

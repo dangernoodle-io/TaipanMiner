@@ -177,10 +177,9 @@ typedef struct {
     uint32_t ntime;
     bool     clean_jobs;
 
-    /* Per-pool lifetime stats (from mining_stats.pool_stats) */
-    pool_stat_snapshot_t stats[ROUTES_JSON_MAX_POOL_STATS];
-    size_t               stats_count;  /* Number of non-empty slots */
-    /* Device-lifetime block counter (never evicted on slot LRU rotation). */
+    /* Device-lifetime block counter (never evicted on slot LRU rotation).
+     * Per-pool stats array is emitted separately via emit_pool_stats_json()
+     * to keep this snapshot stack-friendly on ESP32 (heap-alloc churn fix). */
     uint32_t             lifetime_blocks_total;
 
     /* Configured pools (TA-290/TA-202). */
@@ -222,6 +221,13 @@ typedef struct {
 } diag_asic_snapshot_t;
 
 void build_diag_asic_json(const diag_asic_snapshot_t *s, bb_json_t root);
+
+/* Emit the "stats" array onto an already-built pool JSON object. Caller has
+ * already populated the rest of the object via build_pool_json() and has
+ * snapshotted the per-pool slots while holding mining_stats.mutex. */
+void emit_pool_stats_json(bb_json_t root,
+                          const pool_stat_snapshot_t *stats,
+                          size_t count);
 
 /* ============================================================================
  * /api/knot

@@ -1,6 +1,6 @@
 import { SseClient } from './sse'
 
-const LS_KEY = 'taipanminer.blockFound.dismissedAt'
+const LS_KEY = 'taipanminer.blockFound.dismissedKey'
 
 export interface BlockFoundPayload {
   host: string
@@ -9,11 +9,22 @@ export interface BlockFoundPayload {
   receivedAt: number
 }
 
+/* Stable per-event fingerprint. The browser's EventSource auto-resumes via
+ * Last-Event-ID across reloads, so the *same* block.found event re-arrives
+ * after a navigation even though the firmware topic is configured non-retained.
+ * Tracking dismissal by Date.now() (clock at click time) re-shows the banner
+ * because the replayed event's client-side receivedAt is always "now > then".
+ * Compare by payload identity instead — a real second block at the same pool
+ * has a different share_diff, so collisions are vanishingly unlikely. */
+function eventKey(p: { host: string; port: number; share_diff?: number }): string {
+  return `${p.host}|${p.port}|${p.share_diff ?? ''}`
+}
+
 export function createBlockFoundState() {
-  const storedDismissed = parseInt(localStorage.getItem(LS_KEY) ?? '0', 10)
+  const storedDismissedKey = localStorage.getItem(LS_KEY) ?? ''
 
   let lastFound = $state<BlockFoundPayload | null>(null)
-  let dismissedAt = $state<number>(isNaN(storedDismissed) ? 0 : storedDismissed)
+  let dismissedKey = $state<string>(storedDismissedKey)
 
   let sse: SseClient | null = null
 
@@ -44,15 +55,17 @@ export function createBlockFoundState() {
   }
 
   function dismiss() {
-    dismissedAt = Date.now()
-    localStorage.setItem(LS_KEY, String(dismissedAt))
+    if (lastFound) {
+      dismissedKey = eventKey(lastFound)
+      localStorage.setItem(LS_KEY, dismissedKey)
+    }
   }
 
   return {
     get lastFound() { return lastFound },
-    get dismissedAt() { return dismissedAt },
+    get dismissedKey() { return dismissedKey },
     get visible() {
-      return lastFound !== null && lastFound.receivedAt > dismissedAt
+      return lastFound !== null && eventKey(lastFound) !== dismissedKey
     },
     start,
     stop,

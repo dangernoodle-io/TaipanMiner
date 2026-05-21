@@ -259,6 +259,10 @@ typedef struct {
     bool     ota_skip_check;
     bool     mdns_en;
     bool     knot_en;
+    /* Read-only mirror of the bb_cfg NVS "provisioned" u8 key. Exposed so
+     * taipan-cli (direct-NVS-flash workflow) can read/round-trip against
+     * the canonical schema; not settable via HTTP. */
+    bool     provisioned;
 } settings_snapshot_t;
 
 void build_settings_json(const settings_snapshot_t *s, bb_json_t root);

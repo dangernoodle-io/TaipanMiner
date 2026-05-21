@@ -717,6 +717,7 @@ void test_settings_happy_path(void)
     s.ota_skip_check = false;
     s.mdns_en        = false;
     s.knot_en        = false;
+    s.provisioned    = true;
 
     bb_json_t root = bb_json_obj_new();
     build_settings_json(&s, root);
@@ -725,20 +726,21 @@ void test_settings_happy_path(void)
     TEST_ASSERT_EQUAL_STRING(
         "{\"hostname\":\"acme-miner\","
         "\"display_en\":true,\"ota_skip_check\":false,"
-        "\"mdns_en\":false,\"knot_en\":false}",
+        "\"mdns_en\":false,\"knot_en\":false,\"provisioned\":true}",
         json);
     bb_json_free_str(json);
 }
 
 void test_settings_empty_optional_fields(void)
 {
-    /* hostname may be empty string */
+    /* hostname may be empty string; provisioned false on factory reset */
     settings_snapshot_t s = {0};
     /* hostname left as empty string */
     s.display_en     = false;
     s.ota_skip_check = true;
     s.mdns_en        = false;
     s.knot_en        = false;
+    s.provisioned    = false;
 
     bb_json_t root = bb_json_obj_new();
     build_settings_json(&s, root);
@@ -747,7 +749,7 @@ void test_settings_empty_optional_fields(void)
     TEST_ASSERT_EQUAL_STRING(
         "{\"hostname\":\"\","
         "\"display_en\":false,\"ota_skip_check\":true,"
-        "\"mdns_en\":false,\"knot_en\":false}",
+        "\"mdns_en\":false,\"knot_en\":false,\"provisioned\":false}",
         json);
     bb_json_free_str(json);
 }

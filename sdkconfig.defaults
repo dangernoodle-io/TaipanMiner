@@ -33,6 +33,17 @@ CONFIG_LWIP_MAX_SOCKETS=12
 # CLOSE_WAIT-side reduction. Together cuts per-disconnect socket residency
 # from ~25s to ~2.5s.
 CONFIG_LWIP_TCP_FIN_WAIT_TIMEOUT=2000
+# Enable global tcpip-core lock instead of the mbox-and-sem callback path
+# (default off). Without core-locking, every lwip API call from a non-tcpip
+# thread allocates a tcpip_msg on the stack, posts it to the tcpip task's
+# mailbox, and blocks on the netconn's op_completed_sem. If the netconn is
+# freed concurrently (peer RST while bb_http_resp_send_chunk is mid-stream
+# on a chunked response), the LWIP_ASSERT in tcpip_send_msg_wait_sem fires
+# and the device aborts. /api/pool emits ~200 chunks per response after the
+# per-pool stats array landed; the race surfaces under SSE + polling load.
+# Core-locking takes the global lock and runs the callback inline, side-
+# stepping the sem path entirely. Modest perf cost; well-supported in IDF.
+CONFIG_LWIP_TCPIP_CORE_LOCKING=y
 # bb_http reserves N sockets for non-httpd usage. Default 3 (stratum + mDNS
 # UDP + transient outbound) is over-conservative — mDNS uses a separate
 # MEMP_NUM_UDP_PCB pool, so realistic reserve is 1 (stratum). Frees 2 more

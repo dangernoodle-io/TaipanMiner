@@ -40,10 +40,14 @@ void mining_pool_stats_save(void);
 mining_pool_stat_t *mining_pool_stats_find_or_alloc(const char *host, uint16_t port);
 
 /*
- * Increment shares and update best_diff for the given slot.
+ * Increment shares and update best_diff for the given slot. If share_diff
+ * sets a new best, best_diff_ts is updated to `now_ts` (wall-clock unix
+ * seconds; pass 0 if SNTP not yet synced — caller's choice).
  * Persists immediately.
  */
-void mining_pool_stats_record_share(mining_pool_stat_t *slot, double share_diff);
+void mining_pool_stats_record_share(mining_pool_stat_t *slot,
+                                    double               share_diff,
+                                    int64_t              now_ts);
 
 /*
  * Add n to hashes for the given slot.
@@ -52,13 +56,19 @@ void mining_pool_stats_record_share(mining_pool_stat_t *slot, double share_diff)
 void mining_pool_stats_record_hashes(mining_pool_stat_t *slot, uint64_t n);
 
 /*
- * Increment blocks_found for the given slot.
+ * Increment blocks_found for the given slot AND bump the device-lifetime
+ * counter. Both per-slot last_block_ts and lifetime_last_block_ts are set
+ * to `now_ts` (wall-clock unix seconds; 0 if SNTP not yet synced).
  * Persists immediately.
  */
-void mining_pool_stats_record_block(mining_pool_stat_t *slot);
+void mining_pool_stats_record_block(mining_pool_stat_t *slot, int64_t now_ts);
 
 /* Read the device-lifetime block counter (survives slot LRU eviction). */
 uint32_t mining_pool_stats_lifetime_blocks(void);
+
+/* Read the device-lifetime "last block found" wall-clock timestamp.
+ * 0 = no block has been found while SNTP was synced. */
+int64_t mining_pool_stats_lifetime_last_block_ts(void);
 
 /* Read a slot by index (NULL if out of range). Tests + diagnostics. */
 const mining_pool_stat_t *mining_pool_stats_slot(int idx);

@@ -28,6 +28,10 @@ export interface Stats {
   session_shares: number
   session_rejected: number
   session_blocks_found?: number
+  /* Wall-clock unix seconds; 0 (or missing) = unset (no block this session,
+   * or SNTP not yet synced when the event fired). */
+  session_best_diff_ts?: number
+  session_last_block_ts?: number
   // Lifetime aggregates moved to /api/pool's stats[] array (per-pool slots);
   // the headline "lifetime" number in the UI is derived client-side.
   last_share_ago_s: number | null
@@ -245,6 +249,10 @@ export interface PoolStat {
   best_diff: number
   blocks_found: number
   last_seen_s: number
+  /* Wall-clock unix seconds; 0 = unset (best_diff still at default, no block
+   * found at this pool, or SNTP not yet synced when the event fired). */
+  best_diff_ts?: number
+  last_block_ts?: number
 }
 
 export interface Pool {
@@ -273,6 +281,9 @@ export interface Pool {
   stats?: PoolStat[]
   /* Device-lifetime block counter — never reset on LRU pool eviction. */
   lifetime_blocks_total?: number
+  /* Wall-clock unix seconds of the most recent device-lifetime block find.
+   * 0 = unset. */
+  lifetime_last_block_ts?: number
 }
 
 export interface PoolConfigInput {

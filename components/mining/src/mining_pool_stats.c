@@ -92,6 +92,22 @@ static void s_save_slot(int idx, const mining_pool_stat_t *sl)
     bb_nv_set_u32(s_ns, key, hi);
     s_key(key, idx, "ls_lo");
     bb_nv_set_u32(s_ns, key, lo);
+
+    /* best_diff_ts (int64 wall-clock seconds) */
+    hi = (uint32_t)((uint64_t)sl->best_diff_ts >> 32);
+    lo = (uint32_t)((uint64_t)sl->best_diff_ts & 0xFFFFFFFFu);
+    s_key(key, idx, "bdt_hi");
+    bb_nv_set_u32(s_ns, key, hi);
+    s_key(key, idx, "bdt_lo");
+    bb_nv_set_u32(s_ns, key, lo);
+
+    /* last_block_ts (int64 wall-clock seconds) */
+    hi = (uint32_t)((uint64_t)sl->last_block_ts >> 32);
+    lo = (uint32_t)((uint64_t)sl->last_block_ts & 0xFFFFFFFFu);
+    s_key(key, idx, "lbt_hi");
+    bb_nv_set_u32(s_ns, key, hi);
+    s_key(key, idx, "lbt_lo");
+    bb_nv_set_u32(s_ns, key, lo);
 }
 
 static void s_load_slot(int idx, mining_pool_stat_t *sl)
@@ -139,6 +155,20 @@ static void s_load_slot(int idx, mining_pool_stat_t *sl)
     s_key(key, idx, "ls_lo");
     bb_nv_get_u32(s_ns, key, &lo, 0);
     sl->last_seen_us = (int64_t)(((uint64_t)hi << 32) | lo);
+
+    hi = 0; lo = 0;
+    s_key(key, idx, "bdt_hi");
+    bb_nv_get_u32(s_ns, key, &hi, 0);
+    s_key(key, idx, "bdt_lo");
+    bb_nv_get_u32(s_ns, key, &lo, 0);
+    sl->best_diff_ts = (int64_t)(((uint64_t)hi << 32) | lo);
+
+    hi = 0; lo = 0;
+    s_key(key, idx, "lbt_hi");
+    bb_nv_get_u32(s_ns, key, &hi, 0);
+    s_key(key, idx, "lbt_lo");
+    bb_nv_get_u32(s_ns, key, &lo, 0);
+    sl->last_block_ts = (int64_t)(((uint64_t)hi << 32) | lo);
 }
 
 /* -------------------------------------------------------------------------
@@ -179,6 +209,14 @@ void mining_pool_stats_init(void)
     bb_nv_get_u32(s_ns, "ps_life_blocks", &lifetime_blocks, 0);
     S_TABLE->lifetime_blocks_total = lifetime_blocks;
 
+    /* Load device-lifetime "last block found" wall-clock timestamp. */
+    {
+        uint32_t hi = 0, lo = 0;
+        bb_nv_get_u32(s_ns, "ps_lblk_hi", &hi, 0);
+        bb_nv_get_u32(s_ns, "ps_lblk_lo", &lo, 0);
+        S_TABLE->lifetime_last_block_ts = (int64_t)(((uint64_t)hi << 32) | lo);
+    }
+
     /* Load per-slot data from NVS. */
     for (int i = 0; i < MINING_POOL_STATS_MAX; i++) {
         mining_pool_stat_t sl;
@@ -200,10 +238,15 @@ void mining_pool_stats_init(void)
  * each = ~56 NVS ops per share, which would starve IDLE0 on Core 0 and
  * trip the task watchdog on stratum-busy boards. */
 static void s_save_one_slot_and_lifetime(int idx, const mining_pool_stat_t *slot,
-                                         uint32_t lifetime_blocks)
+                                         uint32_t lifetime_blocks,
+                                         int64_t  lifetime_last_block_ts)
 {
     s_save_slot(idx, slot);
     bb_nv_set_u32(s_ns, "ps_life_blocks", lifetime_blocks);
+    uint32_t hi = (uint32_t)((uint64_t)lifetime_last_block_ts >> 32);
+    uint32_t lo = (uint32_t)((uint64_t)lifetime_last_block_ts & 0xFFFFFFFFu);
+    bb_nv_set_u32(s_ns, "ps_lblk_hi", hi);
+    bb_nv_set_u32(s_ns, "ps_lblk_lo", lo);
 }
 
 /* Return the index of `slot` within the live table, or -1 if not found. */
@@ -230,11 +273,23 @@ void mining_pool_stats_save(void)
         s_save_slot(i, &snap.slots[i]);
     }
     bb_nv_set_u32(s_ns, "ps_life_blocks", snap.lifetime_blocks_total);
+    {
+        uint32_t hi = (uint32_t)((uint64_t)snap.lifetime_last_block_ts >> 32);
+        uint32_t lo = (uint32_t)((uint64_t)snap.lifetime_last_block_ts & 0xFFFFFFFFu);
+        bb_nv_set_u32(s_ns, "ps_lblk_hi", hi);
+        bb_nv_set_u32(s_ns, "ps_lblk_lo", lo);
+    }
 #else
     for (int i = 0; i < MINING_POOL_STATS_MAX; i++) {
         s_save_slot(i, &s_table.slots[i]);
     }
     bb_nv_set_u32(s_ns, "ps_life_blocks", s_table.lifetime_blocks_total);
+    {
+        uint32_t hi = (uint32_t)((uint64_t)s_table.lifetime_last_block_ts >> 32);
+        uint32_t lo = (uint32_t)((uint64_t)s_table.lifetime_last_block_ts & 0xFFFFFFFFu);
+        bb_nv_set_u32(s_ns, "ps_lblk_hi", hi);
+        bb_nv_set_u32(s_ns, "ps_lblk_lo", lo);
+    }
 #endif
 }
 
@@ -295,12 +350,15 @@ mining_pool_stat_t *mining_pool_stats_find_or_alloc(const char *host, uint16_t p
     return target;
 }
 
-void mining_pool_stats_record_share(mining_pool_stat_t *slot, double share_diff)
+void mining_pool_stats_record_share(mining_pool_stat_t *slot,
+                                    double               share_diff,
+                                    int64_t              now_ts)
 {
     if (!slot) return;
     slot->shares++;
     if (share_diff > slot->best_diff) {
         slot->best_diff = share_diff;
+        slot->best_diff_ts = now_ts;
     }
     /* Hot path — persist ONLY this slot, not all 8. Saving the full table
      * here is ~56 NVS ops (~500 ms) and starved IDLE0 on stratum-busy boards
@@ -308,7 +366,9 @@ void mining_pool_stats_record_share(mining_pool_stat_t *slot, double share_diff)
      * still flushes everything for hashes accumulation. */
     int idx = s_slot_index(slot);
     if (idx >= 0) {
-        s_save_one_slot_and_lifetime(idx, slot, S_TABLE->lifetime_blocks_total);
+        s_save_one_slot_and_lifetime(idx, slot,
+                                     S_TABLE->lifetime_blocks_total,
+                                     S_TABLE->lifetime_last_block_ts);
     }
 }
 
@@ -319,22 +379,31 @@ void mining_pool_stats_record_hashes(mining_pool_stat_t *slot, uint64_t n)
     /* Not persisted here — only on periodic save. */
 }
 
-void mining_pool_stats_record_block(mining_pool_stat_t *slot)
+void mining_pool_stats_record_block(mining_pool_stat_t *slot, int64_t now_ts)
 {
     if (!slot) return;
     slot->blocks_found++;
+    slot->last_block_ts = now_ts;
     /* Also bump the device-lifetime counter (never evicted). */
     S_TABLE->lifetime_blocks_total++;
+    S_TABLE->lifetime_last_block_ts = now_ts;
     /* Persist only this slot + the lifetime counter (see record_share). */
     int idx = s_slot_index(slot);
     if (idx >= 0) {
-        s_save_one_slot_and_lifetime(idx, slot, S_TABLE->lifetime_blocks_total);
+        s_save_one_slot_and_lifetime(idx, slot,
+                                     S_TABLE->lifetime_blocks_total,
+                                     S_TABLE->lifetime_last_block_ts);
     }
 }
 
 uint32_t mining_pool_stats_lifetime_blocks(void)
 {
     return S_TABLE->lifetime_blocks_total;
+}
+
+int64_t mining_pool_stats_lifetime_last_block_ts(void)
+{
+    return S_TABLE->lifetime_last_block_ts;
 }
 
 const mining_pool_stat_t *mining_pool_stats_slot(int idx)

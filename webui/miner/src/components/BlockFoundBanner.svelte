@@ -1,8 +1,11 @@
 <script lang="ts">
+  import { fmtRelativeFromUnixTs } from '../lib/fmt'
+
   interface BlockFoundInfo {
     host: string
     port: number
     share_diff?: number
+    timestamp?: number
   }
 
   interface Props {
@@ -22,6 +25,9 @@
       🎉 Block found! Pool {state.lastFound.host}:{state.lastFound.port}
       {#if state.lastFound.share_diff != null}
         &nbsp;· diff {state.lastFound.share_diff.toFixed(2)}
+      {/if}
+      {#if state.lastFound.timestamp}
+        &nbsp;· {fmtRelativeFromUnixTs(state.lastFound.timestamp)}
       {/if}
     </span>
     <button class="dismiss-btn" onclick={state.dismiss} aria-label="Dismiss block found notification">×</button>

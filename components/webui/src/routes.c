@@ -201,6 +201,8 @@ static bb_err_t stats_handler(bb_http_request_t *req)
         s.session_rejected_other           = mining_stats.session.rejected_other;
         s.session_rejected_other_last_code = mining_stats.session.rejected_other_last_code;
         s.session_blocks_found             = mining_stats.session.blocks_found;
+        s.session_best_diff_ts             = mining_stats.session.best_diff_ts;
+        s.session_last_block_ts            = mining_stats.session.last_block_ts;
         s.last_share_us    = mining_stats.session.last_share_us;
         s.session_start_us = mining_stats.session.start_us;
         s.best_diff        = mining_stats.session.best_diff;
@@ -412,8 +414,11 @@ static bb_err_t pool_handler(bb_http_request_t *req)
             strncpy(dst->host, src->host, sizeof(dst->host) - 1);
             dst->host[sizeof(dst->host) - 1] = '\0';
             dst->port = src->port;
+            dst->best_diff_ts  = src->best_diff_ts;
+            dst->last_block_ts = src->last_block_ts;
         }
-        s.lifetime_blocks_total = mining_stats.pool_stats.lifetime_blocks_total;
+        s.lifetime_blocks_total    = mining_stats.pool_stats.lifetime_blocks_total;
+        s.lifetime_last_block_ts   = mining_stats.pool_stats.lifetime_last_block_ts;
         xSemaphoreGive(mining_stats.mutex);
 
         // In-place sort by last_seen_us descending.

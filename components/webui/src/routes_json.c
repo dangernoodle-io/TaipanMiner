@@ -41,6 +41,8 @@ void build_stats_json(const stats_snapshot_t *s, bb_json_t root)
     bb_json_obj_set_number(root, "session_shares",  s->session_shares);
     bb_json_obj_set_number(root, "session_rejected", s->session_rejected);
     bb_json_obj_set_number(root, "session_blocks_found", (double)s->session_blocks_found);
+    bb_json_obj_set_number(root, "session_best_diff_ts", (double)s->session_best_diff_ts);
+    bb_json_obj_set_number(root, "session_last_block_ts", (double)s->session_last_block_ts);
 
     bb_json_t rejected = bb_json_obj_new();
     bb_json_obj_set_number(rejected, "total",           (double)s->session_rejected);
@@ -255,6 +257,8 @@ void build_pool_json(const pool_snapshot_t *s, bb_json_t root)
      * emit_pool_stats_json() to keep this snapshot stack-friendly. */
     bb_json_obj_set_number(root, "lifetime_blocks_total",
                            (double)s->lifetime_blocks_total);
+    bb_json_obj_set_number(root, "lifetime_last_block_ts",
+                           (double)s->lifetime_last_block_ts);
 
     /* configured pools — expose persisted config (TA-290/TA-202) */
     bb_json_t cfg_obj = bb_json_obj_new();
@@ -292,6 +296,8 @@ void emit_pool_stats_json(bb_json_t root,
         bb_json_obj_set_number(stat_obj, "blocks_found",  (double)stats[i].blocks_found);
         int64_t last_seen_s = stats[i].last_seen_us / 1000000;
         bb_json_obj_set_number(stat_obj, "last_seen_s",   (double)last_seen_s);
+        bb_json_obj_set_number(stat_obj, "best_diff_ts",  (double)stats[i].best_diff_ts);
+        bb_json_obj_set_number(stat_obj, "last_block_ts", (double)stats[i].last_block_ts);
         bb_json_arr_append_obj(stats_arr, stat_obj);
     }
     bb_json_obj_set_arr(root, "stats", stats_arr);

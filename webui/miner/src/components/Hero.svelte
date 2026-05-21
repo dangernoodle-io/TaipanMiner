@@ -1,6 +1,6 @@
 <script lang="ts">
   import { stats, connected, hasAsic, pool } from '../lib/stores'
-  import { fmtDuration, fmtRelative, fmtHashGhs, fmtDiff, fmtPct, fmtGhsNum, fmtGhsUnit } from '../lib/fmt'
+  import { fmtDuration, fmtRelative, fmtHashGhs, fmtDiff, fmtPct, fmtGhsNum, fmtGhsUnit, fmtRelativeFromUnixTs } from '../lib/fmt'
   import RollingRates from './RollingRates.svelte'
   import RejectStrip from './RejectStrip.svelte'
 
@@ -15,6 +15,13 @@
      field is absent (older firmware). */
   $: lifetimeBlocks = ($pool?.lifetime_blocks_total)
     ?? poolStats.reduce((acc, s) => acc + (s.blocks_found ?? 0), 0)
+  /* Wall-clock unix-second timestamps for tile tooltips. 0/missing → "—". */
+  $: sessionBlockRel  = fmtRelativeFromUnixTs($stats?.session_last_block_ts)
+  $: lifetimeBlockRel = fmtRelativeFromUnixTs($pool?.lifetime_last_block_ts)
+  $: sessionBestRel   = fmtRelativeFromUnixTs($stats?.session_best_diff_ts)
+  $: lifetimeBestRel  = fmtRelativeFromUnixTs(
+       poolStats.reduce((acc, s) => Math.max(acc, s.best_diff_ts ?? 0), 0) || 0,
+     )
 
   $: ghs = $stats?.asic_total_ghs ?? ($stats?.hashrate ? $stats.hashrate / 1e9 : null)
   $: ghs1m = $stats?.asic_total_ghs_1m ?? ($stats?.hashrate_1m != null ? $stats.hashrate_1m / 1e9 : null)
@@ -79,11 +86,11 @@
         <div class="sv">{fmtRelative($stats.last_share_ago_s)}</div>
         <div class="sl">last share</div>
       </div>
-      <div class="stat">
+      <div class="stat" title={`session: ${sessionBestRel} · lifetime: ${lifetimeBestRel}`}>
         <div class="sv">{fmtDiff($stats.best_diff)}<span class="sep">/</span><span class="lt">{fmtDiff(lifetimeBestDiff)}</span></div>
         <div class="sl">best diff {#if diffMult}({diffMult.toFixed(0)}×){/if}</div>
       </div>
-      <div class="stat">
+      <div class="stat" title={`session: ${sessionBlockRel} · lifetime: ${lifetimeBlockRel}`}>
         <div class="sv" class:blocks-found={($stats.session_blocks_found ?? 0) > 0 || lifetimeBlocks > 0}>
           {($stats.session_blocks_found ?? 0).toLocaleString()}<span class="sep">/</span><span class="lt">{lifetimeBlocks.toLocaleString()}</span>
         </div>

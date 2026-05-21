@@ -50,6 +50,8 @@ typedef struct {
     uint32_t session_rejected_other;
     int32_t  session_rejected_other_last_code;
     uint32_t session_blocks_found;  /* blocks meeting network target this boot */
+    int64_t  session_best_diff_ts;  /* unix seconds; 0 = unset */
+    int64_t  session_last_block_ts; /* unix seconds; 0 = unset */
     int64_t  last_share_us;    /* 0 = no share yet */
     int64_t  session_start_us; /* 0 = no session */
     double   expected_ghs;     /* < 0 = unavailable, emit null */
@@ -122,7 +124,9 @@ typedef struct {
     uint64_t hashes;
     double   best_diff;
     uint32_t blocks_found;
-    int64_t  last_seen_us;  /* LRU key; 0 = empty */
+    int64_t  last_seen_us;   /* LRU key; 0 = empty */
+    int64_t  best_diff_ts;   /* unix seconds; 0 = unset */
+    int64_t  last_block_ts;  /* unix seconds; 0 = unset */
 } pool_stat_snapshot_t;
 
 /* Configured pools (TA-290/TA-202). Top-level host/port/worker/wallet
@@ -181,6 +185,7 @@ typedef struct {
      * Per-pool stats array is emitted separately via emit_pool_stats_json()
      * to keep this snapshot stack-friendly on ESP32 (heap-alloc churn fix). */
     uint32_t             lifetime_blocks_total;
+    int64_t              lifetime_last_block_ts;  /* unix seconds; 0 = unset */
 
     /* Configured pools (TA-290/TA-202). */
     pool_cfg_summary_t configured[2];

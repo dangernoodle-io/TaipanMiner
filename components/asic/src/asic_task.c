@@ -46,6 +46,7 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include <math.h>
+#include <time.h>
 
 static const char *TAG = "asic";
 
@@ -678,13 +679,20 @@ void asic_mining_task(void *arg)
                 continue;
             }
 
+            int64_t now_ts;
+            {
+                time_t t = time(NULL);
+                now_ts = ((int64_t)t < 1700000000LL) ? 0 : (int64_t)t;
+            }
             if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                 if (share_diff > mining_stats.session.best_diff) {
                     mining_stats.session.best_diff = share_diff;
+                    mining_stats.session.best_diff_ts = now_ts;
                 }
                 mining_pool_stat_t *slot = stratum_active_pool_slot();
                 if (slot && share_diff > slot->best_diff) {
                     slot->best_diff = share_diff;
+                    slot->best_diff_ts = now_ts;
                 }
                 xSemaphoreGive(mining_stats.mutex);
             }
@@ -693,11 +701,12 @@ void asic_mining_task(void *arg)
             if (share_meets_network_target(hash, orig->nbits)) {
                 if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
                     mining_stats.session.blocks_found++;
+                    mining_stats.session.last_block_ts = now_ts;
                     xSemaphoreGive(mining_stats.mutex);
                 }
                 mining_pool_stat_t *slot = stratum_active_pool_slot();
                 if (slot) {
-                    mining_pool_stats_record_block(slot);
+                    mining_pool_stats_record_block(slot, now_ts);
                 }
                 bb_event_topic_t btopic = mining_pool_stats_get_block_topic();
                 if (btopic) {
@@ -705,8 +714,8 @@ void asic_mining_task(void *arg)
                     const char *bhost = slot ? slot->host : "";
                     uint16_t bport = slot ? slot->port : 0;
                     snprintf(payload, sizeof(payload),
-                        "{\"host\":\"%s\",\"port\":%u,\"share_diff\":%.4f}",
-                        bhost, (unsigned)bport, share_diff);
+                        "{\"host\":\"%s\",\"port\":%u,\"share_diff\":%.4f,\"timestamp\":%lld}",
+                        bhost, (unsigned)bport, share_diff, (long long)now_ts);
                     bb_event_post(btopic, 0, payload, strlen(payload));
                 }
             }

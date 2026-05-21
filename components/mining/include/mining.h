@@ -168,6 +168,10 @@ typedef struct {
     double   best_diff;       // highest share difficulty (raw value)
     double   accepted_diff_sum; // TA-344: running total of accepted-share difficulties
     uint32_t blocks_found;    // blocks meeting network target this boot
+    // Wall-clock (unix seconds) timestamps for the "session" headline. 0 = unset
+    // (block never found / best_diff still at default, or SNTP not yet synced).
+    int64_t  best_diff_ts;
+    int64_t  last_block_ts;
 } mining_session_t;
 
 // Per-pool lifetime stats (persisted to NVS)
@@ -179,6 +183,9 @@ typedef struct {
     double   best_diff;      // raw firmware best for any locally-validated share
     uint32_t blocks_found;
     int64_t  last_seen_us;   // LRU key; 0 = empty slot
+    // Wall-clock (unix seconds) timestamps. 0 = unset.
+    int64_t  best_diff_ts;
+    int64_t  last_block_ts;
 } mining_pool_stat_t;
 
 #define MINING_POOL_STATS_MAX 8
@@ -189,6 +196,7 @@ typedef struct {
      * blocks_found is informational ("this pool found N before we forgot
      * about it"); this is the durable "real solo wins ever" count. */
     uint32_t           lifetime_blocks_total;
+    int64_t            lifetime_last_block_ts;  // unix seconds, 0 = unset
 } mining_pool_stats_t;
 
 // Update EMA with a new hashrate sample (pure math, no FreeRTOS)

@@ -33,11 +33,12 @@ CONFIG_LWIP_MAX_SOCKETS=12
 # CLOSE_WAIT-side reduction. Together cuts per-disconnect socket residency
 # from ~25s to ~2.5s.
 CONFIG_LWIP_TCP_FIN_WAIT_TIMEOUT=2000
-# bb_http reserves N sockets for non-httpd usage. Default 3 (stratum + mDNS
-# UDP + transient outbound) is over-conservative — mDNS uses a separate
-# MEMP_NUM_UDP_PCB pool, so realistic reserve is 1 (stratum). Frees 2 more
-# slots for httpd's client cap.
-CONFIG_BB_HTTP_LWIP_RESERVE=1
+# bb_http reserves N sockets for non-httpd usage. Restored to BB default 3:
+# the previous reserve=1 starved stratum + transient outbound (DNS lookups,
+# OTA pull) under dashboard load — reproduced as bitaxe-650 panic during
+# concurrent /api/* fan-out (TA-385). mDNS uses a separate MEMP_NUM_UDP_PCB
+# pool, but TCP stratum reconnects + DNS still share the lwip socket pool.
+CONFIG_BB_HTTP_LWIP_RESERVE=3
 
 # NVS
 CONFIG_NVS_ENCRYPTION=n
@@ -127,7 +128,10 @@ CONFIG_MBEDTLS_PKCS7_C=n
 CONFIG_MBEDTLS_SSL_RENEGOTIATION=n
 CONFIG_MBEDTLS_SSL_KEEP_PEER_CERTIFICATE=n
 
-# /api/events SSE client cap. BB default is 2 (tight-heap floor); TM needs
-# headroom for persistent update-badge subscription + multi-tab dashboards +
-# the ~15s stale-client reap window. Queue depth stays at BB default (8).
-CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS=4
+# /api/events SSE client cap. Restored to BB default 2: cap=4 reserved ~27KB
+# of heap (4×4KB task stack + 4×~2.7KB queue) on ~100KB-free bitaxe-650,
+# contributing to dashboard-load OOM panics (TA-385). The persistent
+# update-badge subscription + a single open dashboard fit in 2 slots; the
+# ~15s stale-client reap window covers tab-reload churn. Queue depth stays
+# at BB default (8).
+CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS=2

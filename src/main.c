@@ -632,7 +632,6 @@ void app_main(void)
 #endif
 
         bb_ota_pull_set_releases_url("https://api.github.com/repos/dangernoodle-io/TaipanMiner/releases/latest");
-        bb_ota_pull_set_firmware_board("taipanminer-" FIRMWARE_BOARD);
         bb_ota_pull_set_hooks(mining_pause, mining_resume);
         bb_ota_pull_set_skip_check_cb(bb_nv_config_ota_skip_check);
         bb_ota_pull_set_http_timeout_ms(60000);

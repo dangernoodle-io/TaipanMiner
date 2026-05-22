@@ -103,12 +103,18 @@ static bb_err_t taipan_prov_save_cb(bb_http_request_t *req, const char *body, in
     bb_url_decode_field(body, "hostname", hostname, sizeof(hostname));
 
     if (pool_host[0] == '\0' || wallet[0] == '\0' || worker[0] == '\0') {
-        bb_http_resp_send_err(req, 400, "All fields required");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "All fields required");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
     uint16_t port = (uint16_t)strtoul(port_str, NULL, 10);
     if (port == 0) {
-        bb_http_resp_send_err(req, 400, "Valid port required");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "Valid port required");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
 
@@ -124,7 +130,10 @@ static bb_err_t taipan_prov_save_cb(bb_http_request_t *req, const char *body, in
 
     // Validate and save hostname
     if (config_set_hostname(hostname) != BB_OK) {
-        bb_http_resp_send_err(req, 400, "Invalid hostname");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "Invalid hostname");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
 
@@ -149,14 +158,17 @@ static bb_err_t taipan_prov_save_cb(bb_http_request_t *req, const char *body, in
 
     bb_err_t err = config_set_pools(&primary, has_fallback ? &fallback : NULL);
     if (err != BB_OK) {
-        bb_http_resp_send_err(req, 500, "Failed to save config");
-        return BB_ERR_INVALID_ARG;
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "Failed to save config");
+        bb_http_resp_json_obj_end(&e);
+        return err;
     }
 
     bb_http_resp_set_header(req, "Connection", "close");
     bb_http_resp_set_header(req, "Access-Control-Allow-Origin", "*");
     bb_http_resp_set_header(req, "Access-Control-Allow-Private-Network", "true");
-    bb_http_resp_send(req, "", 0);
+    bb_http_resp_send_chunk(req, NULL, 0);
 
     return BB_OK;
 }
@@ -276,11 +288,132 @@ static bb_err_t stats_handler(bb_http_request_t *req)
     s.now_us = (int64_t)(uint64_t)esp_timer_get_time();
 #endif
 
-    bb_json_t root = bb_json_obj_new();
-    build_stats_json(&s, root);
-    bb_err_t rc = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return rc;
+    int64_t uptime_s = (s.session_start_us > 0)
+                       ? (s.now_us - s.session_start_us) / 1000000
+                       : 0;
+    int64_t last_share_ago_s = (s.last_share_us > 0)
+                               ? (s.now_us - s.last_share_us) / 1000000
+                               : -1;
+
+    bb_http_json_obj_stream_t obj;
+    bb_err_t rc = bb_http_resp_json_obj_begin(req, &obj);
+    if (rc != BB_OK) return rc;
+
+    bb_http_resp_json_obj_set_num(&obj, "hashrate",        s.hw_rate);
+    bb_http_resp_json_obj_set_num(&obj, "hashrate_avg",    s.hw_ema);
+    bb_http_resp_json_obj_set_num(&obj, "temp_c",          (double)s.temp_c);
+    bb_http_resp_json_obj_set_int(&obj, "shares",          (int64_t)s.hw_shares);
+    bb_http_resp_json_obj_set_int(&obj, "session_shares",  (int64_t)s.session_shares);
+    bb_http_resp_json_obj_set_int(&obj, "session_rejected",(int64_t)s.session_rejected);
+    bb_http_resp_json_obj_set_int(&obj, "session_blocks_found", (int64_t)s.session_blocks_found);
+    bb_http_resp_json_obj_set_int(&obj, "session_best_diff_ts", s.session_best_diff_ts);
+    bb_http_resp_json_obj_set_int(&obj, "session_last_block_ts", s.session_last_block_ts);
+
+    bb_http_resp_json_obj_set_obj_begin(&obj, "rejected");
+    bb_http_resp_json_obj_set_int(&obj, "total",           (int64_t)s.session_rejected);
+    bb_http_resp_json_obj_set_int(&obj, "job_not_found",   (int64_t)s.session_rejected_job_not_found);
+    bb_http_resp_json_obj_set_int(&obj, "low_difficulty",  (int64_t)s.session_rejected_low_difficulty);
+    bb_http_resp_json_obj_set_int(&obj, "duplicate",       (int64_t)s.session_rejected_duplicate);
+    bb_http_resp_json_obj_set_int(&obj, "stale_prevhash",  (int64_t)s.session_rejected_stale_prevhash);
+    bb_http_resp_json_obj_set_int(&obj, "other",           (int64_t)s.session_rejected_other);
+    bb_http_resp_json_obj_set_int(&obj, "other_last_code", (int64_t)s.session_rejected_other_last_code);
+    bb_http_resp_json_obj_set_obj_end(&obj);
+
+    bb_http_resp_json_obj_set_int(&obj, "last_share_ago_s", last_share_ago_s);
+    bb_http_resp_json_obj_set_num(&obj, "best_diff",        s.best_diff);
+    bb_http_resp_json_obj_set_int(&obj, "uptime_s",         uptime_s);
+
+    if (s.expected_ghs >= 0.0) {
+        bb_http_resp_json_obj_set_num(&obj, "expected_ghs", s.expected_ghs);
+    } else {
+        bb_http_resp_json_obj_set_null(&obj, "expected_ghs");
+    }
+
+#ifndef ASIC_CHIP
+    if (s.hashrate_1m >= 0.0)             bb_http_resp_json_obj_set_num(&obj, "hashrate_1m",             s.hashrate_1m);
+    else                                  bb_http_resp_json_obj_set_null(&obj, "hashrate_1m");
+    if (s.hashrate_10m >= 0.0)            bb_http_resp_json_obj_set_num(&obj, "hashrate_10m",            s.hashrate_10m);
+    else                                  bb_http_resp_json_obj_set_null(&obj, "hashrate_10m");
+    if (s.hashrate_1h >= 0.0)             bb_http_resp_json_obj_set_num(&obj, "hashrate_1h",             s.hashrate_1h);
+    else                                  bb_http_resp_json_obj_set_null(&obj, "hashrate_1h");
+    if (s.pool_effective_hashrate >= 0.0) bb_http_resp_json_obj_set_num(&obj, "pool_effective_hashrate", s.pool_effective_hashrate);
+    else                                  bb_http_resp_json_obj_set_null(&obj, "pool_effective_hashrate");
+    if (s.hw_error_pct_1m >= 0.0)         bb_http_resp_json_obj_set_num(&obj, "hw_error_pct_1m",         s.hw_error_pct_1m);
+    else                                  bb_http_resp_json_obj_set_null(&obj, "hw_error_pct_1m");
+    if (s.hw_error_pct_10m >= 0.0)        bb_http_resp_json_obj_set_num(&obj, "hw_error_pct_10m",        s.hw_error_pct_10m);
+    else                                  bb_http_resp_json_obj_set_null(&obj, "hw_error_pct_10m");
+    if (s.hw_error_pct_1h >= 0.0)         bb_http_resp_json_obj_set_num(&obj, "hw_error_pct_1h",         s.hw_error_pct_1h);
+    else                                  bb_http_resp_json_obj_set_null(&obj, "hw_error_pct_1h");
+#endif
+
+#ifdef ASIC_CHIP
+    bb_http_resp_json_obj_set_num(&obj, "asic_hashrate",     s.asic_rate);
+    bb_http_resp_json_obj_set_num(&obj, "asic_hashrate_avg", s.asic_ema);
+    bb_http_resp_json_obj_set_int(&obj, "asic_shares",       (int64_t)s.asic_shares);
+    bb_http_resp_json_obj_set_num(&obj, "asic_temp_c",       (double)s.asic_temp_c);
+    if (s.asic_freq_cfg >= 0.0f) bb_http_resp_json_obj_set_num(&obj, "asic_freq_configured_mhz", (double)s.asic_freq_cfg);
+    else                         bb_http_resp_json_obj_set_null(&obj, "asic_freq_configured_mhz");
+    if (s.asic_freq_eff >= 0.0f) bb_http_resp_json_obj_set_num(&obj, "asic_freq_effective_mhz", (double)s.asic_freq_eff);
+    else                         bb_http_resp_json_obj_set_null(&obj, "asic_freq_effective_mhz");
+    bb_http_resp_json_obj_set_int(&obj, "asic_small_cores", (int64_t)s.asic_small_cores);
+    bb_http_resp_json_obj_set_int(&obj, "asic_count",       (int64_t)s.asic_count);
+    if (s.asic_total_valid) {
+        bb_http_resp_json_obj_set_num(&obj, "asic_total_ghs",    (double)s.asic_total_ghs);
+        bb_http_resp_json_obj_set_num(&obj, "asic_hw_error_pct", (double)s.asic_hw_error_pct);
+        if (s.asic_total_ghs_1m >= 0.0f)   bb_http_resp_json_obj_set_num(&obj, "asic_total_ghs_1m",   (double)s.asic_total_ghs_1m);
+        else                                bb_http_resp_json_obj_set_null(&obj, "asic_total_ghs_1m");
+        if (s.asic_total_ghs_10m >= 0.0f)  bb_http_resp_json_obj_set_num(&obj, "asic_total_ghs_10m",  (double)s.asic_total_ghs_10m);
+        else                               bb_http_resp_json_obj_set_null(&obj, "asic_total_ghs_10m");
+        if (s.asic_total_ghs_1h >= 0.0f)   bb_http_resp_json_obj_set_num(&obj, "asic_total_ghs_1h",   (double)s.asic_total_ghs_1h);
+        else                               bb_http_resp_json_obj_set_null(&obj, "asic_total_ghs_1h");
+        if (s.asic_hw_error_pct_1m >= 0.0f)  bb_http_resp_json_obj_set_num(&obj, "asic_hw_error_pct_1m",  (double)s.asic_hw_error_pct_1m);
+        else                                  bb_http_resp_json_obj_set_null(&obj, "asic_hw_error_pct_1m");
+        if (s.asic_hw_error_pct_10m >= 0.0f) bb_http_resp_json_obj_set_num(&obj, "asic_hw_error_pct_10m", (double)s.asic_hw_error_pct_10m);
+        else                                  bb_http_resp_json_obj_set_null(&obj, "asic_hw_error_pct_10m");
+        if (s.asic_hw_error_pct_1h >= 0.0f)  bb_http_resp_json_obj_set_num(&obj, "asic_hw_error_pct_1h",  (double)s.asic_hw_error_pct_1h);
+        else                                  bb_http_resp_json_obj_set_null(&obj, "asic_hw_error_pct_1h");
+    } else {
+        bb_http_resp_json_obj_set_null(&obj, "asic_total_ghs");
+        bb_http_resp_json_obj_set_null(&obj, "asic_hw_error_pct");
+        bb_http_resp_json_obj_set_null(&obj, "asic_total_ghs_1m");
+        bb_http_resp_json_obj_set_null(&obj, "asic_total_ghs_10m");
+        bb_http_resp_json_obj_set_null(&obj, "asic_total_ghs_1h");
+        bb_http_resp_json_obj_set_null(&obj, "asic_hw_error_pct_1m");
+        bb_http_resp_json_obj_set_null(&obj, "asic_hw_error_pct_10m");
+        bb_http_resp_json_obj_set_null(&obj, "asic_hw_error_pct_1h");
+    }
+    if (s.pool_effective_hashrate >= 0.0) bb_http_resp_json_obj_set_num(&obj, "pool_effective_hashrate", s.pool_effective_hashrate);
+    else                                  bb_http_resp_json_obj_set_null(&obj, "pool_effective_hashrate");
+
+    bb_http_resp_json_obj_set_arr_begin(&obj, "asic_chips");
+    for (int c = 0; c < s.n_chips; c++) {
+        bb_http_resp_json_obj_set_obj_begin(&obj, NULL);
+        bb_http_resp_json_obj_set_int(&obj, "idx",         (int64_t)c);
+        bb_http_resp_json_obj_set_num(&obj, "total_ghs",   (double)s.chips[c].total_ghs);
+        bb_http_resp_json_obj_set_num(&obj, "error_ghs",   (double)s.chips[c].error_ghs);
+        bb_http_resp_json_obj_set_num(&obj, "hw_err_pct",  (double)s.chips[c].hw_err_pct);
+        bb_http_resp_json_obj_set_int(&obj, "total_raw",   (int64_t)s.chips[c].total_raw);
+        bb_http_resp_json_obj_set_int(&obj, "error_raw",   (int64_t)s.chips[c].error_raw);
+        bb_http_resp_json_obj_set_num(&obj, "total_drops", (double)s.chips[c].total_drops);
+        bb_http_resp_json_obj_set_num(&obj, "error_drops", (double)s.chips[c].error_drops);
+        if (s.chips[c].last_drop_us == 0 || s.now_us < (int64_t)s.chips[c].last_drop_us) {
+            bb_http_resp_json_obj_set_null(&obj, "last_drop_ago_s");
+        } else {
+            uint64_t ago_us = (uint64_t)s.now_us - s.chips[c].last_drop_us;
+            bb_http_resp_json_obj_set_num(&obj, "last_drop_ago_s", (double)(ago_us / 1000000ULL));
+        }
+        bb_http_resp_json_obj_set_arr_begin(&obj, "domain_ghs");
+        for (int d = 0; d < 4; d++) bb_http_resp_json_obj_set_num(&obj, NULL, (double)s.chips[c].domain_ghs[d]);
+        bb_http_resp_json_obj_set_arr_end(&obj);
+        bb_http_resp_json_obj_set_arr_begin(&obj, "domain_drops");
+        for (int d = 0; d < 4; d++) bb_http_resp_json_obj_set_num(&obj, NULL, (double)s.chips[c].domain_drops[d]);
+        bb_http_resp_json_obj_set_arr_end(&obj);
+        bb_http_resp_json_obj_set_obj_end(&obj);
+    }
+    bb_http_resp_json_obj_set_arr_end(&obj);
+#endif
+
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 // ----------------------------------------------------------------------------
@@ -296,15 +429,22 @@ static bb_err_t pool_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
 
-    /* Per-pool stats live in a separate local array (832 B) emitted post-hoc
-     * by emit_pool_stats_json() so the main snapshot stays at ~1880 B and
-     * can sit on the httpd worker stack. The old "calloc on every request"
-     * shape fragmented the heap on classic ESP32 under SSE-attached load. */
-    pool_snapshot_t s = {0};
-    pool_stat_snapshot_t stats_arr[ROUTES_JSON_MAX_POOL_STATS] = {0};
+    /* pool_snapshot_t (~1991 B) + stats_arr[8] (~912 B) + the streaming
+     * obj state (~1040 B) overflow the 4 KB httpd worker stack — heap
+     * these two and free before return. */
+    pool_snapshot_t *s = calloc(1, sizeof(*s));
+    pool_stat_snapshot_t *stats_arr = calloc(ROUTES_JSON_MAX_POOL_STATS, sizeof(*stats_arr));
+    if (!s || !stats_arr) {
+        free(s); free(stats_arr);
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "out of memory");
+        bb_http_resp_json_obj_end(&e);
+        return BB_ERR_NO_SPACE;
+    }
     size_t stats_count = 0;
 
-    s.connected = stratum_is_connected();
+    s->connected = stratum_is_connected();
 
     // Top-level host/port/worker/wallet reflect the *active* pool slot so the
     // UI's connection summary tracks the real connection target after a
@@ -313,12 +453,12 @@ static bb_err_t pool_handler(bb_http_request_t *req)
         int idx = stratum_get_active_pool_idx();
         if (idx < 0) idx = POOL_PRIMARY;
         const char *h = config_pool_host_idx(idx);
-        if (h) strncpy(s.host, h, sizeof(s.host) - 1);
+        if (h) strncpy(s->host, h, sizeof(s->host) - 1);
         const char *wk = config_worker_name_idx(idx);
-        if (wk) strncpy(s.worker, wk, sizeof(s.worker) - 1);
+        if (wk) strncpy(s->worker, wk, sizeof(s->worker) - 1);
         const char *wa = config_wallet_addr_idx(idx);
-        if (wa) strncpy(s.wallet, wa, sizeof(s.wallet) - 1);
-        s.port = config_pool_port_idx(idx);
+        if (wa) strncpy(s->wallet, wa, sizeof(s->wallet) - 1);
+        s->port = config_pool_port_idx(idx);
     }
 
     // session_start_ago_s — null pre-connect; wrap-safe diff in ms then /1000.
@@ -326,12 +466,12 @@ static bb_err_t pool_handler(bb_http_request_t *req)
     if (start_ms != 0) {
         uint32_t now_ms   = pdTICKS_TO_MS(xTaskGetTickCount());
         uint32_t delta_ms = now_ms - start_ms;  // unsigned wrap-safe
-        s.session_start_ago_s = delta_ms / 1000U;
-        s.has_session_start   = true;
+        s->session_start_ago_s = delta_ms / 1000U;
+        s->has_session_start   = true;
     }
 
-    s.current_difficulty = stratum_get_difficulty();
-    s.latency_ms = stratum_get_pool_rtt_ms();  // -1 if no sample yet (TA-118)
+    s->current_difficulty = stratum_get_difficulty();
+    s->latency_ms = stratum_get_pool_rtt_ms();  // -1 if no sample yet (TA-118)
 
     // Negotiated session params — null until subscribe response received.
     stratum_session_snapshot_t sess;
@@ -339,65 +479,65 @@ static bb_err_t pool_handler(bb_http_request_t *req)
         size_t copy_len = sess.extranonce1_len;
         if (copy_len > ROUTES_JSON_EXTRANONCE1_MAX)
             copy_len = ROUTES_JSON_EXTRANONCE1_MAX;
-        memcpy(s.extranonce1, sess.extranonce1, copy_len);
-        s.extranonce1_len  = copy_len;
-        s.extranonce2_size = sess.extranonce2_size;
-        s.version_mask     = sess.version_mask;
+        memcpy(s->extranonce1, sess.extranonce1, copy_len);
+        s->extranonce1_len  = copy_len;
+        s->extranonce2_size = sess.extranonce2_size;
+        s->version_mask     = sess.version_mask;
     }
 
     // notify sub-object — most recent mining.notify (TA-201).
     const stratum_job_t *job = NULL;
     if (stratum_get_job_snapshot(&job) && job) {
-        s.has_notify = true;
-        strncpy(s.job_id, job->job_id, sizeof(s.job_id) - 1);
-        memcpy(s.prevhash, job->prevhash, 32);
+        s->has_notify = true;
+        strncpy(s->job_id, job->job_id, sizeof(s->job_id) - 1);
+        memcpy(s->prevhash, job->prevhash, 32);
 
         size_t cb1 = job->coinb1_len < ROUTES_JSON_MAX_COINB ? job->coinb1_len : ROUTES_JSON_MAX_COINB;
-        memcpy(s.coinb1, job->coinb1, cb1);
-        s.coinb1_len = cb1;
+        memcpy(s->coinb1, job->coinb1, cb1);
+        s->coinb1_len = cb1;
 
         size_t cb2 = job->coinb2_len < ROUTES_JSON_MAX_COINB ? job->coinb2_len : ROUTES_JSON_MAX_COINB;
-        memcpy(s.coinb2, job->coinb2, cb2);
-        s.coinb2_len = cb2;
+        memcpy(s->coinb2, job->coinb2, cb2);
+        s->coinb2_len = cb2;
 
         size_t mc = job->merkle_count < ROUTES_JSON_MAX_MERKLE ? job->merkle_count : ROUTES_JSON_MAX_MERKLE;
         for (size_t i = 0; i < mc; i++)
-            memcpy(s.merkle_branches[i], job->merkle_branches[i], 32);
-        s.merkle_count = mc;
+            memcpy(s->merkle_branches[i], job->merkle_branches[i], 32);
+        s->merkle_count = mc;
 
-        s.version    = job->version;
-        s.nbits      = job->nbits;
-        s.ntime      = job->ntime;
-        s.clean_jobs = job->clean_jobs;
+        s->version    = job->version;
+        s->nbits      = job->nbits;
+        s->ntime      = job->ntime;
+        s->clean_jobs = job->clean_jobs;
     }
 
     // Configured pools (TA-290/TA-202 phase D) — expose persisted config.
     for (int i = 0; i < POOL_COUNT; i++) {
-        s.configured[i].configured = config_pool_configured(i);
-        if (s.configured[i].configured) {
-            strncpy(s.configured[i].host,   config_pool_host_idx(i),   sizeof(s.configured[i].host)   - 1);
-            s.configured[i].port = config_pool_port_idx(i);
-            strncpy(s.configured[i].worker, config_worker_name_idx(i), sizeof(s.configured[i].worker) - 1);
-            strncpy(s.configured[i].wallet, config_wallet_addr_idx(i), sizeof(s.configured[i].wallet) - 1);
-            s.configured[i].extranonce_subscribe =
+        s->configured[i].configured = config_pool_configured(i);
+        if (s->configured[i].configured) {
+            strncpy(s->configured[i].host,   config_pool_host_idx(i),   sizeof(s->configured[i].host)   - 1);
+            s->configured[i].port = config_pool_port_idx(i);
+            strncpy(s->configured[i].worker, config_worker_name_idx(i), sizeof(s->configured[i].worker) - 1);
+            strncpy(s->configured[i].wallet, config_wallet_addr_idx(i), sizeof(s->configured[i].wallet) - 1);
+            s->configured[i].extranonce_subscribe =
                 config_pool_extranonce_subscribe_idx(i);
-            s.configured[i].decode_coinbase =
+            s->configured[i].decode_coinbase =
                 config_pool_decode_coinbase_idx(i);
         }
     }
-    s.active_pool_idx = stratum_get_active_pool_idx();
-    s.extranonce_subscribe_status = (int)stratum_get_extranonce_subscribe_status();
+    s->active_pool_idx = stratum_get_active_pool_idx();
+    s->extranonce_subscribe_status = (int)stratum_get_extranonce_subscribe_status();
 
     double pool_eff_hr = mining_get_pool_effective_hashrate();
-    s.pool_effective_hashrate = (pool_eff_hr > 0.0) ? pool_eff_hr : -1.0;
+    s->pool_effective_hashrate = (pool_eff_hr > 0.0) ? pool_eff_hr : -1.0;
 
     /* TA-363: rolling 1m/10m/1h pool-effective windows */
-    s.pool_effective_hashrate_1m = mining_get_pool_effective_1m();
-    s.pool_effective_hashrate_1m = (s.pool_effective_hashrate_1m > 0.0) ? s.pool_effective_hashrate_1m : -1.0;
-    s.pool_effective_hashrate_10m = mining_get_pool_effective_10m();
-    s.pool_effective_hashrate_10m = (s.pool_effective_hashrate_10m > 0.0) ? s.pool_effective_hashrate_10m : -1.0;
-    s.pool_effective_hashrate_1h = mining_get_pool_effective_1h();
-    s.pool_effective_hashrate_1h = (s.pool_effective_hashrate_1h > 0.0) ? s.pool_effective_hashrate_1h : -1.0;
+    s->pool_effective_hashrate_1m = mining_get_pool_effective_1m();
+    s->pool_effective_hashrate_1m = (s->pool_effective_hashrate_1m > 0.0) ? s->pool_effective_hashrate_1m : -1.0;
+    s->pool_effective_hashrate_10m = mining_get_pool_effective_10m();
+    s->pool_effective_hashrate_10m = (s->pool_effective_hashrate_10m > 0.0) ? s->pool_effective_hashrate_10m : -1.0;
+    s->pool_effective_hashrate_1h = mining_get_pool_effective_1h();
+    s->pool_effective_hashrate_1h = (s->pool_effective_hashrate_1h > 0.0) ? s->pool_effective_hashrate_1h : -1.0;
 
     // Snapshot per-pool stats (ordered by last_seen_us descending, empty slots omitted).
     {
@@ -417,8 +557,8 @@ static bb_err_t pool_handler(bb_http_request_t *req)
             dst->best_diff_ts  = src->best_diff_ts;
             dst->last_block_ts = src->last_block_ts;
         }
-        s.lifetime_blocks_total    = mining_stats.pool_stats.lifetime_blocks_total;
-        s.lifetime_last_block_ts   = mining_stats.pool_stats.lifetime_last_block_ts;
+        s->lifetime_blocks_total    = mining_stats.pool_stats.lifetime_blocks_total;
+        s->lifetime_last_block_ts   = mining_stats.pool_stats.lifetime_last_block_ts;
         xSemaphoreGive(mining_stats.mutex);
 
         // In-place sort by last_seen_us descending.
@@ -433,12 +573,147 @@ static bb_err_t pool_handler(bb_http_request_t *req)
         }
     }
 
-    bb_json_t root = bb_json_obj_new();
-    build_pool_json(&s, root);
-    emit_pool_stats_json(root, stats_arr, stats_count);
-    bb_err_t rc = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return rc;
+    bb_http_json_obj_stream_t obj;
+    bb_err_t rc = bb_http_resp_json_obj_begin(req, &obj);
+    if (rc != BB_OK) return rc;
+
+    bb_http_resp_json_obj_set_str(&obj, "host",   s->host);
+    bb_http_resp_json_obj_set_int(&obj, "port",   (int64_t)s->port);
+    bb_http_resp_json_obj_set_str(&obj, "worker", s->worker);
+    bb_http_resp_json_obj_set_str(&obj, "wallet", s->wallet);
+    bb_http_resp_json_obj_set_bool(&obj, "connected", s->connected);
+
+    if (s->has_session_start) {
+        bb_http_resp_json_obj_set_int(&obj, "session_start_ago_s", (int64_t)s->session_start_ago_s);
+    } else {
+        bb_http_resp_json_obj_set_null(&obj, "session_start_ago_s");
+    }
+
+    bb_http_resp_json_obj_set_num(&obj, "current_difficulty", s->current_difficulty);
+
+    if (s->pool_effective_hashrate >= 0.0) bb_http_resp_json_obj_set_num(&obj, "pool_effective_hashrate", s->pool_effective_hashrate);
+    else                                  bb_http_resp_json_obj_set_null(&obj, "pool_effective_hashrate");
+    if (s->pool_effective_hashrate_1m >= 0.0) bb_http_resp_json_obj_set_num(&obj, "pool_effective_hashrate_1m", s->pool_effective_hashrate_1m);
+    else                                     bb_http_resp_json_obj_set_null(&obj, "pool_effective_hashrate_1m");
+    if (s->pool_effective_hashrate_10m >= 0.0) bb_http_resp_json_obj_set_num(&obj, "pool_effective_hashrate_10m", s->pool_effective_hashrate_10m);
+    else                                      bb_http_resp_json_obj_set_null(&obj, "pool_effective_hashrate_10m");
+    if (s->pool_effective_hashrate_1h >= 0.0) bb_http_resp_json_obj_set_num(&obj, "pool_effective_hashrate_1h", s->pool_effective_hashrate_1h);
+    else                                     bb_http_resp_json_obj_set_null(&obj, "pool_effective_hashrate_1h");
+
+    if (s->latency_ms >= 0) bb_http_resp_json_obj_set_int(&obj, "latency_ms", (int64_t)s->latency_ms);
+    else                   bb_http_resp_json_obj_set_null(&obj, "latency_ms");
+
+    if (s->extranonce1_len > 0) {
+        char en1_hex[2 * ROUTES_JSON_EXTRANONCE1_MAX + 1];
+        bytes_to_hex(s->extranonce1, s->extranonce1_len, en1_hex);
+        bb_http_resp_json_obj_set_str(&obj, "extranonce1", en1_hex);
+        bb_http_resp_json_obj_set_int(&obj, "extranonce2_size", (int64_t)s->extranonce2_size);
+        if (s->version_mask != 0) {
+            char vm_hex[9];
+            snprintf(vm_hex, sizeof(vm_hex), "%08lx", (unsigned long)s->version_mask);
+            bb_http_resp_json_obj_set_str(&obj, "version_mask", vm_hex);
+        } else {
+            bb_http_resp_json_obj_set_null(&obj, "version_mask");
+        }
+    } else {
+        bb_http_resp_json_obj_set_null(&obj, "extranonce1");
+        bb_http_resp_json_obj_set_null(&obj, "extranonce2_size");
+        bb_http_resp_json_obj_set_null(&obj, "version_mask");
+    }
+
+    if (s->has_notify) {
+        bb_http_resp_json_obj_set_obj_begin(&obj, "notify");
+        bb_http_resp_json_obj_set_str(&obj, "job_id", s->job_id);
+
+        char prevhash_hex[65];
+        bytes_to_hex(s->prevhash, 32, prevhash_hex);
+        bb_http_resp_json_obj_set_str(&obj, "prev_hash", prevhash_hex);
+
+        char coinb1_hex[2 * ROUTES_JSON_MAX_COINB + 1];
+        bytes_to_hex(s->coinb1, s->coinb1_len, coinb1_hex);
+        bb_http_resp_json_obj_set_str(&obj, "coinb1", coinb1_hex);
+
+        char coinb2_hex[2 * ROUTES_JSON_MAX_COINB + 1];
+        bytes_to_hex(s->coinb2, s->coinb2_len, coinb2_hex);
+        bb_http_resp_json_obj_set_str(&obj, "coinb2", coinb2_hex);
+
+        bb_http_resp_json_obj_set_arr_begin(&obj, "merkle_branches");
+        for (size_t i = 0; i < s->merkle_count; i++) {
+            char br_hex[65];
+            bytes_to_hex(s->merkle_branches[i], 32, br_hex);
+            bb_http_resp_json_obj_set_str(&obj, NULL, br_hex);
+        }
+        bb_http_resp_json_obj_set_arr_end(&obj);
+
+        char hex8[9];
+        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)s->version);
+        bb_http_resp_json_obj_set_str(&obj, "version", hex8);
+        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)s->nbits);
+        bb_http_resp_json_obj_set_str(&obj, "nbits", hex8);
+        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)s->ntime);
+        bb_http_resp_json_obj_set_str(&obj, "ntime", hex8);
+
+        bb_http_resp_json_obj_set_bool(&obj, "clean_jobs", s->clean_jobs);
+        bb_http_resp_json_obj_set_obj_end(&obj);
+    } else {
+        bb_http_resp_json_obj_set_null(&obj, "notify");
+    }
+
+    if (s->active_pool_idx >= 0) bb_http_resp_json_obj_set_int(&obj, "active_pool_idx", (int64_t)s->active_pool_idx);
+    else                        bb_http_resp_json_obj_set_null(&obj, "active_pool_idx");
+
+    {
+        const char *sub_str;
+        switch (s->extranonce_subscribe_status) {
+            case 1:  sub_str = "pending";  break;
+            case 2:  sub_str = "active";   break;
+            case 3:  sub_str = "rejected"; break;
+            default: sub_str = "off";      break;
+        }
+        bb_http_resp_json_obj_set_str(&obj, "extranonce_subscribe_status", sub_str);
+    }
+
+    bb_http_resp_json_obj_set_int(&obj, "lifetime_blocks_total",  (int64_t)s->lifetime_blocks_total);
+    bb_http_resp_json_obj_set_int(&obj, "lifetime_last_block_ts", s->lifetime_last_block_ts);
+
+    bb_http_resp_json_obj_set_obj_begin(&obj, "configured");
+    for (int i = 0; i < 2; i++) {
+        const char *cfg_key = (i == 0) ? "primary" : "fallback";
+        if (s->configured[i].configured) {
+            bb_http_resp_json_obj_set_obj_begin(&obj, cfg_key);
+            bb_http_resp_json_obj_set_str(&obj, "host",   s->configured[i].host);
+            bb_http_resp_json_obj_set_int(&obj, "port",   (int64_t)s->configured[i].port);
+            bb_http_resp_json_obj_set_str(&obj, "worker", s->configured[i].worker);
+            bb_http_resp_json_obj_set_str(&obj, "wallet", s->configured[i].wallet);
+            bb_http_resp_json_obj_set_bool(&obj, "extranonce_subscribe", s->configured[i].extranonce_subscribe);
+            bb_http_resp_json_obj_set_bool(&obj, "decode_coinbase",      s->configured[i].decode_coinbase);
+            bb_http_resp_json_obj_set_obj_end(&obj);
+        } else {
+            bb_http_resp_json_obj_set_null(&obj, cfg_key);
+        }
+    }
+    bb_http_resp_json_obj_set_obj_end(&obj);
+
+    /* per-pool stats array */
+    bb_http_resp_json_obj_set_arr_begin(&obj, "stats");
+    for (size_t i = 0; i < stats_count; i++) {
+        bb_http_resp_json_obj_set_obj_begin(&obj, NULL);
+        bb_http_resp_json_obj_set_str(&obj, "host",         stats_arr[i].host);
+        bb_http_resp_json_obj_set_int(&obj, "port",         (int64_t)stats_arr[i].port);
+        bb_http_resp_json_obj_set_int(&obj, "shares",       (int64_t)stats_arr[i].shares);
+        bb_http_resp_json_obj_set_int(&obj, "hashes",       (int64_t)stats_arr[i].hashes);
+        bb_http_resp_json_obj_set_num(&obj, "best_diff",    stats_arr[i].best_diff);
+        bb_http_resp_json_obj_set_int(&obj, "blocks_found", (int64_t)stats_arr[i].blocks_found);
+        bb_http_resp_json_obj_set_int(&obj, "last_seen_s",  (int64_t)(stats_arr[i].last_seen_us / 1000000));
+        bb_http_resp_json_obj_set_int(&obj, "best_diff_ts", stats_arr[i].best_diff_ts);
+        bb_http_resp_json_obj_set_int(&obj, "last_block_ts", stats_arr[i].last_block_ts);
+        bb_http_resp_json_obj_set_obj_end(&obj);
+    }
+    bb_http_resp_json_obj_set_arr_end(&obj);
+
+    bb_err_t rc_end = bb_http_resp_json_obj_end(&obj);
+    free(s); free(stats_arr);
+    return rc_end;
 }
 
 // ---------------------------------------------------------------------------
@@ -452,20 +727,29 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
 
     char body[768];
     int body_len = bb_http_req_body_len(req);
-    if (body_len > sizeof(body) - 1) {
-        bb_http_resp_send_err(req, 400, "Body too large");
+    if (body_len > (int)(sizeof(body) - 1)) {
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "Body too large");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
     int len = bb_http_req_recv(req, body, sizeof(body) - 1);
     if (len <= 0) {
-        bb_http_resp_send_err(req, 400, "Empty body");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "Empty body");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
     body[len] = '\0';
 
     bb_json_t root = bb_json_parse(body, 0);
     if (!root) {
-        bb_http_resp_send_err(req, 400, "Invalid JSON");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "Invalid JSON");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
 
@@ -473,7 +757,10 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
     bb_json_t primary_obj = bb_json_obj_get_item(root, "primary");
     if (!primary_obj) {
         bb_json_free(root);
-        bb_http_resp_send_err(req, 400, "primary pool required");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "primary pool required");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
 
@@ -486,7 +773,10 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
     }
     if (primary.host[0] == '\0') {
         bb_json_free(root);
-        bb_http_resp_send_err(req, 400, "primary host required");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "primary host required");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
 
@@ -496,7 +786,10 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
     }
     if (primary.port == 0 || primary.port > 65535) {
         bb_json_free(root);
-        bb_http_resp_send_err(req, 400, "primary port must be in [1, 65535]");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "primary port must be in [1, 65535]");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
 
@@ -506,7 +799,10 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
     }
     if (primary.wallet[0] == '\0') {
         bb_json_free(root);
-        bb_http_resp_send_err(req, 400, "primary wallet required");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "primary wallet required");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
 
@@ -516,7 +812,10 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
     }
     if (primary.worker[0] == '\0') {
         bb_json_free(root);
-        bb_http_resp_send_err(req, 400, "primary worker required");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "primary worker required");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
 
@@ -560,7 +859,10 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
         }
         if (fallback.host[0] == '\0') {
             bb_json_free(root);
-            bb_http_resp_send_err(req, 400, "fallback host required if provided");
+            bb_http_resp_set_status(req, 400);
+            bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+            bb_http_resp_json_obj_set_str(&e, "error", "fallback host required if provided");
+            bb_http_resp_json_obj_end(&e);
             return BB_ERR_INVALID_ARG;
         }
 
@@ -570,7 +872,10 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
         }
         if (fallback.port == 0 || fallback.port > 65535) {
             bb_json_free(root);
-            bb_http_resp_send_err(req, 400, "fallback port must be in [1, 65535]");
+            bb_http_resp_set_status(req, 400);
+            bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+            bb_http_resp_json_obj_set_str(&e, "error", "fallback port must be in [1, 65535]");
+            bb_http_resp_json_obj_end(&e);
             return BB_ERR_INVALID_ARG;
         }
 
@@ -580,7 +885,10 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
         }
         if (fallback.wallet[0] == '\0') {
             bb_json_free(root);
-            bb_http_resp_send_err(req, 400, "fallback wallet required if provided");
+            bb_http_resp_set_status(req, 400);
+            bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+            bb_http_resp_json_obj_set_str(&e, "error", "fallback wallet required if provided");
+            bb_http_resp_json_obj_end(&e);
             return BB_ERR_INVALID_ARG;
         }
 
@@ -590,7 +898,10 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
         }
         if (fallback.worker[0] == '\0') {
             bb_json_free(root);
-            bb_http_resp_send_err(req, 400, "fallback worker required if provided");
+            bb_http_resp_set_status(req, 400);
+            bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+            bb_http_resp_json_obj_set_str(&e, "error", "fallback worker required if provided");
+            bb_http_resp_json_obj_end(&e);
             return BB_ERR_INVALID_ARG;
         }
 
@@ -629,9 +940,9 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
     if (err != BB_OK) {
         bb_json_free(root);
         bb_http_resp_set_status(req, 500);
-        bb_http_resp_set_header(req, "Content-Type", "text/plain");
-        static const char *msg = "Failed to save config";
-        bb_http_resp_send(req, msg, strlen(msg));
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "Failed to save config");
+        bb_http_resp_json_obj_end(&e);
         return err;
     }
 
@@ -647,7 +958,7 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
     }
 
     bb_http_resp_set_status(req, 204);
-    return bb_http_resp_send(req, "", 0);
+    return bb_http_resp_send_chunk(req, NULL, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -661,20 +972,29 @@ static bb_err_t pool_switch_handler(bb_http_request_t *req)
 
     char body[64];
     int body_len = bb_http_req_body_len(req);
-    if (body_len > sizeof(body) - 1) {
-        bb_http_resp_send_err(req, 400, "Body too large");
+    if (body_len > (int)(sizeof(body) - 1)) {
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "Body too large");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
     int len = bb_http_req_recv(req, body, sizeof(body) - 1);
     if (len <= 0) {
-        bb_http_resp_send_err(req, 400, "Empty body");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "Empty body");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
     body[len] = '\0';
 
     bb_json_t root = bb_json_parse(body, 0);
     if (!root) {
-        bb_http_resp_send_err(req, 400, "Invalid JSON");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "Invalid JSON");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
 
@@ -686,7 +1006,10 @@ static bb_err_t pool_switch_handler(bb_http_request_t *req)
 
     if (idx != 0 && idx != 1) {
         bb_json_free(root);
-        bb_http_resp_send_err(req, 400, "idx must be 0 or 1");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "idx must be 0 or 1");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
 
@@ -695,20 +1018,23 @@ static bb_err_t pool_switch_handler(bb_http_request_t *req)
 
     if (err == BB_ERR_INVALID_ARG) {
         bb_http_resp_set_status(req, 400);
-        bb_http_resp_set_header(req, "Content-Type", "text/plain");
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
         char msg[64];
         snprintf(msg, sizeof(msg), "pool slot %d is not configured", idx);
-        return bb_http_resp_send(req, msg, strlen(msg));
+        bb_http_resp_json_obj_set_str(&e, "error", msg);
+        bb_http_resp_json_obj_end(&e);
+        return BB_ERR_INVALID_ARG;
     } else if (err != BB_OK) {
         bb_http_resp_set_status(req, 500);
-        bb_http_resp_set_header(req, "Content-Type", "text/plain");
-        static const char *msg = "Failed to switch pool";
-        return bb_http_resp_send(req, msg, strlen(msg));
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "Failed to switch pool");
+        bb_http_resp_json_obj_end(&e);
+        return err;
     }
 
     // 204 No Content on success
     bb_http_resp_set_status(req, 204);
-    return bb_http_resp_send(req, "", 0);
+    return bb_http_resp_send_chunk(req, NULL, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -724,7 +1050,7 @@ static bb_err_t pool_delete_fallback_handler(bb_http_request_t *req)
     if (!config_pool_configured(POOL_FALLBACK)) {
         // Idempotent: already absent → 204.
         bb_http_resp_set_status(req, 204);
-        return bb_http_resp_send(req, "", 0);
+        return bb_http_resp_send_chunk(req, NULL, 0);
     }
 
     pool_cfg_t primary = {0};
@@ -736,7 +1062,10 @@ static bb_err_t pool_delete_fallback_handler(bb_http_request_t *req)
 
     bb_err_t err = config_set_pools(&primary, NULL);
     if (err != BB_OK) {
-        bb_http_resp_send_err(req, 500, "save failed");
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "save failed");
+        bb_http_resp_json_obj_end(&e);
         return err;
     }
 
@@ -746,7 +1075,7 @@ static bb_err_t pool_delete_fallback_handler(bb_http_request_t *req)
     }
 
     bb_http_resp_set_status(req, 204);
-    return bb_http_resp_send(req, "", 0);
+    return bb_http_resp_send_chunk(req, NULL, 0);
 }
 
 static bb_err_t pool_delete_primary_handler(bb_http_request_t *req)
@@ -755,9 +1084,10 @@ static bb_err_t pool_delete_primary_handler(bb_http_request_t *req)
 
     if (!config_pool_configured(POOL_FALLBACK)) {
         bb_http_resp_set_status(req, 409);
-        bb_http_resp_set_header(req, "Content-Type", "text/plain");
-        static const char *msg = "cannot remove primary without a fallback configured";
-        return bb_http_resp_send(req, msg, strlen(msg));
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "cannot remove primary without a fallback configured");
+        bb_http_resp_json_obj_end(&e);
+        return BB_ERR_INVALID_STATE;
     }
 
     // Snapshot fallback into a struct, write it as the new primary, clear fallback.
@@ -770,7 +1100,10 @@ static bb_err_t pool_delete_primary_handler(bb_http_request_t *req)
 
     bb_err_t err = config_set_pools(&new_primary, NULL);
     if (err != BB_OK) {
-        bb_http_resp_send_err(req, 500, "save failed");
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "save failed");
+        bb_http_resp_json_obj_end(&e);
         return err;
     }
 
@@ -778,7 +1111,7 @@ static bb_err_t pool_delete_primary_handler(bb_http_request_t *req)
     stratum_request_switch_pool(POOL_PRIMARY);
 
     bb_http_resp_set_status(req, 204);
-    return bb_http_resp_send(req, "", 0);
+    return bb_http_resp_send_chunk(req, NULL, 0);
 }
 
 #ifdef ASIC_CHIP
@@ -840,11 +1173,44 @@ static bb_err_t power_handler(bb_http_request_t *req)
         xSemaphoreGive(mining_stats.mutex);
     }
 
-    bb_json_t root = bb_json_obj_new();
-    build_power_json(&s, root);
-    bb_err_t rc = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return rc;
+    bb_http_json_obj_stream_t obj;
+    bb_err_t rc = bb_http_resp_json_obj_begin(req, &obj);
+    if (rc != BB_OK) return rc;
+
+    if (s.vcore_mv >= 0)  bb_http_resp_json_obj_set_int(&obj, "vcore_mv", (int64_t)s.vcore_mv);
+    else                  bb_http_resp_json_obj_set_null(&obj, "vcore_mv");
+    if (s.icore_ma >= 0)  bb_http_resp_json_obj_set_int(&obj, "icore_ma", (int64_t)s.icore_ma);
+    else                  bb_http_resp_json_obj_set_null(&obj, "icore_ma");
+    if (s.pcore_mw >= 0)  bb_http_resp_json_obj_set_int(&obj, "pcore_mw", (int64_t)s.pcore_mw);
+    else                  bb_http_resp_json_obj_set_null(&obj, "pcore_mw");
+    if (s.pcore_mw > 0 && s.asic_hashrate > 0) {
+        bb_http_resp_json_obj_set_num(&obj, "efficiency_jth",
+                                     (s.pcore_mw / 1000.0) / (s.asic_hashrate / 1e12));
+    } else {
+        bb_http_resp_json_obj_set_null(&obj, "efficiency_jth");
+    }
+    if (s.efficiency_jth_1m >= 0.0)          bb_http_resp_json_obj_set_num(&obj, "efficiency_jth_1m", s.efficiency_jth_1m);
+    else                                      bb_http_resp_json_obj_set_null(&obj, "efficiency_jth_1m");
+    if (s.efficiency_jth_10m >= 0.0)         bb_http_resp_json_obj_set_num(&obj, "efficiency_jth_10m", s.efficiency_jth_10m);
+    else                                     bb_http_resp_json_obj_set_null(&obj, "efficiency_jth_10m");
+    if (s.efficiency_jth_1h >= 0.0)          bb_http_resp_json_obj_set_num(&obj, "efficiency_jth_1h", s.efficiency_jth_1h);
+    else                                     bb_http_resp_json_obj_set_null(&obj, "efficiency_jth_1h");
+    if (s.expected_efficiency_jth >= 0.0)    bb_http_resp_json_obj_set_num(&obj, "expected_efficiency_jth", s.expected_efficiency_jth);
+    else                                     bb_http_resp_json_obj_set_null(&obj, "expected_efficiency_jth");
+    if (s.vin_mv >= 0) {
+        bb_http_resp_json_obj_set_int(&obj, "vin_mv", (int64_t)s.vin_mv);
+        bool vin_low = (s.vin_mv < (s.nominal_vin_mv + 500) * 87 / 100);
+        bb_http_resp_json_obj_set_bool(&obj, "vin_low", vin_low);
+    } else {
+        bb_http_resp_json_obj_set_null(&obj, "vin_mv");
+        bb_http_resp_json_obj_set_null(&obj, "vin_low");
+    }
+    if (s.board_temp_c >= 0.0f) bb_http_resp_json_obj_set_num(&obj, "board_temp_c", (double)s.board_temp_c);
+    else                        bb_http_resp_json_obj_set_null(&obj, "board_temp_c");
+    if (s.vr_temp_c >= 0.0f)    bb_http_resp_json_obj_set_num(&obj, "vr_temp_c", (double)s.vr_temp_c);
+    else                        bb_http_resp_json_obj_set_null(&obj, "vr_temp_c");
+
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 static bb_err_t fan_handler(bb_http_request_t *req)
@@ -874,11 +1240,32 @@ static bb_err_t fan_handler(bb_http_request_t *req)
     // TA-141: Fetch autofan telemetry (die/vr EMAs, PID input source)
     asic_task_get_autofan_telemetry(&s.die_ema_c, &s.vr_ema_c, &s.pid_input_c, &s.pid_input_src);
 
-    bb_json_t root = bb_json_obj_new();
-    build_fan_json(&s, root);
-    bb_err_t rc = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return rc;
+    bb_http_json_obj_stream_t obj;
+    bb_err_t rc = bb_http_resp_json_obj_begin(req, &obj);
+    if (rc != BB_OK) return rc;
+
+    if (s.fan_rpm >= 0)      bb_http_resp_json_obj_set_int(&obj, "rpm",       (int64_t)s.fan_rpm);
+    else                     bb_http_resp_json_obj_set_null(&obj, "rpm");
+    if (s.fan_duty_pct >= 0) bb_http_resp_json_obj_set_int(&obj, "duty_pct",  (int64_t)s.fan_duty_pct);
+    else                     bb_http_resp_json_obj_set_null(&obj, "duty_pct");
+    bb_http_resp_json_obj_set_bool(&obj, "autofan", s.autofan);
+    if (s.die_target_c >= 0) bb_http_resp_json_obj_set_int(&obj, "die_target_c", (int64_t)s.die_target_c);
+    else                     bb_http_resp_json_obj_set_null(&obj, "die_target_c");
+    if (s.vr_target_c >= 0)  bb_http_resp_json_obj_set_int(&obj, "vr_target_c",  (int64_t)s.vr_target_c);
+    else                     bb_http_resp_json_obj_set_null(&obj, "vr_target_c");
+    if (s.manual_pct >= 0)   bb_http_resp_json_obj_set_int(&obj, "manual_pct",   (int64_t)s.manual_pct);
+    else                     bb_http_resp_json_obj_set_null(&obj, "manual_pct");
+    if (s.min_pct >= 0)      bb_http_resp_json_obj_set_int(&obj, "min_pct",       (int64_t)s.min_pct);
+    else                     bb_http_resp_json_obj_set_null(&obj, "min_pct");
+    if (s.die_ema_c >= 0.0f) bb_http_resp_json_obj_set_num(&obj, "die_ema_c", (double)s.die_ema_c);
+    else                     bb_http_resp_json_obj_set_null(&obj, "die_ema_c");
+    if (s.vr_ema_c >= 0.0f)  bb_http_resp_json_obj_set_num(&obj, "vr_ema_c",  (double)s.vr_ema_c);
+    else                     bb_http_resp_json_obj_set_null(&obj, "vr_ema_c");
+    if (s.pid_input_c >= 0.0f) bb_http_resp_json_obj_set_num(&obj, "pid_input_c", (double)s.pid_input_c);
+    else                       bb_http_resp_json_obj_set_null(&obj, "pid_input_c");
+    bb_http_resp_json_obj_set_str(&obj, "pid_input_src", s.pid_input_src);
+
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 // TA-315: POST /api/fan — update autofan config fields (form-urlencoded, partial)
@@ -889,12 +1276,18 @@ static bb_err_t fan_post_handler(bb_http_request_t *req)
     char body[128];
     int body_len = bb_http_req_body_len(req);
     if (body_len > (int)(sizeof(body) - 1)) {
-        bb_http_resp_send_err(req, 400, "Body too large");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "Body too large");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
     int len = bb_http_req_recv(req, body, sizeof(body) - 1);
     if (len <= 0) {
-        bb_http_resp_send_err(req, 400, "Empty body");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "Empty body");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
     body[len] = '\0';
@@ -906,7 +1299,10 @@ static bb_err_t fan_post_handler(bb_http_request_t *req)
     if (val[0] != '\0') {
         bool autofan = false;
         if (!bb_url_parse_bool(val, &autofan)) {
-            bb_http_resp_send_err(req, 400, "Invalid autofan value");
+            bb_http_resp_set_status(req, 400);
+            bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+            bb_http_resp_json_obj_set_str(&e, "error", "Invalid autofan value");
+            bb_http_resp_json_obj_end(&e);
             return BB_ERR_INVALID_ARG;
         }
         config_set_autofan_enabled(autofan);
@@ -916,7 +1312,10 @@ static bb_err_t fan_post_handler(bb_http_request_t *req)
     if (val[0] != '\0') {
         unsigned long temp = 0;
         if (!bb_url_parse_uint(val, &temp)) {
-            bb_http_resp_send_err(req, 400, "Invalid die_target_c value");
+            bb_http_resp_set_status(req, 400);
+            bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+            bb_http_resp_json_obj_set_str(&e, "error", "Invalid die_target_c value");
+            bb_http_resp_json_obj_end(&e);
             return BB_ERR_INVALID_ARG;
         }
         config_set_die_target_c((uint16_t)temp);
@@ -926,7 +1325,10 @@ static bb_err_t fan_post_handler(bb_http_request_t *req)
     if (val[0] != '\0') {
         unsigned long temp = 0;
         if (!bb_url_parse_uint(val, &temp)) {
-            bb_http_resp_send_err(req, 400, "Invalid vr_target_c value");
+            bb_http_resp_set_status(req, 400);
+            bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+            bb_http_resp_json_obj_set_str(&e, "error", "Invalid vr_target_c value");
+            bb_http_resp_json_obj_end(&e);
             return BB_ERR_INVALID_ARG;
         }
         config_set_vr_target_c((uint16_t)temp);
@@ -936,7 +1338,10 @@ static bb_err_t fan_post_handler(bb_http_request_t *req)
     if (val[0] != '\0') {
         unsigned long pct = 0;
         if (!bb_url_parse_uint(val, &pct)) {
-            bb_http_resp_send_err(req, 400, "Invalid manual_pct value");
+            bb_http_resp_set_status(req, 400);
+            bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+            bb_http_resp_json_obj_set_str(&e, "error", "Invalid manual_pct value");
+            bb_http_resp_json_obj_end(&e);
             return BB_ERR_INVALID_ARG;
         }
         config_set_manual_fan_pct((uint16_t)pct);
@@ -946,14 +1351,17 @@ static bb_err_t fan_post_handler(bb_http_request_t *req)
     if (val[0] != '\0') {
         unsigned long pct = 0;
         if (!bb_url_parse_uint(val, &pct)) {
-            bb_http_resp_send_err(req, 400, "Invalid min_pct value");
+            bb_http_resp_set_status(req, 400);
+            bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+            bb_http_resp_json_obj_set_str(&e, "error", "Invalid min_pct value");
+            bb_http_resp_json_obj_end(&e);
             return BB_ERR_INVALID_ARG;
         }
         config_set_min_fan_pct((uint16_t)pct);
     }
 
     bb_http_resp_set_status(req, 204);
-    return bb_http_resp_send(req, "", 0);
+    return bb_http_resp_send_chunk(req, NULL, 0);
 }
 #endif // ASIC_BM1370 || ASIC_BM1368
 
@@ -1077,11 +1485,16 @@ static bb_err_t settings_get_handler(bb_http_request_t *req)
     s.knot_en        = config_knot_enabled();
     s.provisioned    = bb_nv_config_is_provisioned();
 
-    bb_json_t root = bb_json_obj_new();
-    build_settings_json(&s, root);
-    bb_err_t rc = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return rc;
+    bb_http_json_obj_stream_t obj;
+    bb_err_t rc = bb_http_resp_json_obj_begin(req, &obj);
+    if (rc != BB_OK) return rc;
+    bb_http_resp_json_obj_set_str(&obj, "hostname",       s.hostname);
+    bb_http_resp_json_obj_set_bool(&obj, "display_en",    s.display_en);
+    bb_http_resp_json_obj_set_bool(&obj, "ota_skip_check", s.ota_skip_check);
+    bb_http_resp_json_obj_set_bool(&obj, "mdns_en",       s.mdns_en);
+    bb_http_resp_json_obj_set_bool(&obj, "knot_en",       s.knot_en);
+    bb_http_resp_json_obj_set_bool(&obj, "provisioned",   s.provisioned);
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 // Shared helper for POST (full) and PATCH (partial) settings
@@ -1094,27 +1507,30 @@ static bb_err_t apply_settings(bb_http_request_t *req, bool partial, bool *out_r
     char body[512];
 
     int body_len = bb_http_req_body_len(req);
-    if (body_len > sizeof(body) - 1) {
+    if (body_len > (int)(sizeof(body) - 1)) {
         bb_http_resp_set_status(req, 400);
-        bb_http_resp_set_header(req, "Content-Type", "text/plain");
-        static const char *msg = "Body too large";
-        return bb_http_resp_send(req, msg, strlen(msg));
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "Body too large");
+        bb_http_resp_json_obj_end(&e);
+        return BB_ERR_INVALID_ARG;
     }
     int len = bb_http_req_recv(req, body, sizeof(body) - 1);
     if (len <= 0) {
         bb_http_resp_set_status(req, 400);
-        bb_http_resp_set_header(req, "Content-Type", "text/plain");
-        static const char *msg = "Empty body";
-        return bb_http_resp_send(req, msg, strlen(msg));
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "Empty body");
+        bb_http_resp_json_obj_end(&e);
+        return BB_ERR_INVALID_ARG;
     }
     body[len] = '\0';
 
     bb_json_t root = bb_json_parse(body, 0);
     if (!root) {
         bb_http_resp_set_status(req, 400);
-        bb_http_resp_set_header(req, "Content-Type", "text/plain");
-        static const char *msg = "Invalid JSON";
-        return bb_http_resp_send(req, msg, strlen(msg));
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "Invalid JSON");
+        bb_http_resp_json_obj_end(&e);
+        return BB_ERR_INVALID_ARG;
     }
 
     // Extract fields — use current values as defaults for PATCH
@@ -1129,19 +1545,19 @@ static bb_err_t apply_settings(bb_http_request_t *req, bool partial, bool *out_r
 
     j = bb_json_obj_get_item(root, "pool_host");
     if (j && bb_json_item_is_string(j)) { pool_host = bb_json_item_get_string(j); }
-    else if (!partial) { if (!j) { bb_json_free(root); bb_http_resp_set_status(req, 400); bb_http_resp_set_header(req, "Content-Type", "text/plain"); bb_http_resp_send(req, "pool_host required", 18); return BB_ERR_INVALID_ARG; } }
+    else if (!partial) { if (!j) { bb_json_free(root); bb_http_resp_set_status(req, 400); bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e); bb_http_resp_json_obj_set_str(&e, "error", "pool_host required"); bb_http_resp_json_obj_end(&e); return BB_ERR_INVALID_ARG; } }
 
     j = bb_json_obj_get_item(root, "pool_port");
     if (j && bb_json_item_is_number(j)) { pool_port = (uint16_t)bb_json_item_get_double(j); }
-    else if (!partial) { if (!j) { bb_json_free(root); bb_http_resp_set_status(req, 400); bb_http_resp_set_header(req, "Content-Type", "text/plain"); bb_http_resp_send(req, "pool_port required", 18); return BB_ERR_INVALID_ARG; } }
+    else if (!partial) { if (!j) { bb_json_free(root); bb_http_resp_set_status(req, 400); bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e); bb_http_resp_json_obj_set_str(&e, "error", "pool_port required"); bb_http_resp_json_obj_end(&e); return BB_ERR_INVALID_ARG; } }
 
     j = bb_json_obj_get_item(root, "wallet");
     if (j && bb_json_item_is_string(j)) { wallet = bb_json_item_get_string(j); }
-    else if (!partial) { if (!j) { bb_json_free(root); bb_http_resp_set_status(req, 400); bb_http_resp_set_header(req, "Content-Type", "text/plain"); bb_http_resp_send(req, "wallet required", 15); return BB_ERR_INVALID_ARG; } }
+    else if (!partial) { if (!j) { bb_json_free(root); bb_http_resp_set_status(req, 400); bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e); bb_http_resp_json_obj_set_str(&e, "error", "wallet required"); bb_http_resp_json_obj_end(&e); return BB_ERR_INVALID_ARG; } }
 
     j = bb_json_obj_get_item(root, "worker");
     if (j && bb_json_item_is_string(j)) { worker = bb_json_item_get_string(j); }
-    else if (!partial) { if (!j) { bb_json_free(root); bb_http_resp_set_status(req, 400); bb_http_resp_set_header(req, "Content-Type", "text/plain"); bb_http_resp_send(req, "worker required", 15); return BB_ERR_INVALID_ARG; } }
+    else if (!partial) { if (!j) { bb_json_free(root); bb_http_resp_set_status(req, 400); bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e); bb_http_resp_json_obj_set_str(&e, "error", "worker required"); bb_http_resp_json_obj_end(&e); return BB_ERR_INVALID_ARG; } }
 
     j = bb_json_obj_get_item(root, "pool_pass");
     if (j && bb_json_item_is_string(j)) { pool_pass = bb_json_item_get_string(j); }
@@ -1160,16 +1576,18 @@ static bb_err_t apply_settings(bb_http_request_t *req, bool partial, bool *out_r
     if (pool_host[0] == '\0' || wallet[0] == '\0' || worker[0] == '\0') {
         bb_json_free(root);
         bb_http_resp_set_status(req, 400);
-        bb_http_resp_set_header(req, "Content-Type", "text/plain");
-        static const char *msg = "pool_host, wallet, worker must not be empty";
-        return bb_http_resp_send(req, msg, strlen(msg));
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "pool_host, wallet, worker must not be empty");
+        bb_http_resp_json_obj_end(&e);
+        return BB_ERR_INVALID_ARG;
     }
     if (pool_port == 0) {
         bb_json_free(root);
         bb_http_resp_set_status(req, 400);
-        bb_http_resp_set_header(req, "Content-Type", "text/plain");
-        static const char *msg = "pool_port must be > 0";
-        return bb_http_resp_send(req, msg, strlen(msg));
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "pool_port must be > 0");
+        bb_http_resp_json_obj_end(&e);
+        return BB_ERR_INVALID_ARG;
     }
 
     // Save mining config if any mining field was provided
@@ -1178,9 +1596,10 @@ static bb_err_t apply_settings(bb_http_request_t *req, bool partial, bool *out_r
         if (err != BB_OK) {
             bb_json_free(root);
             bb_http_resp_set_status(req, 500);
-            bb_http_resp_set_header(req, "Content-Type", "text/plain");
-            static const char *msg = "Failed to save config";
-            return bb_http_resp_send(req, msg, strlen(msg));
+            bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+            bb_http_resp_json_obj_set_str(&e, "error", "Failed to save config");
+            bb_http_resp_json_obj_end(&e);
+            return err;
         }
     }
 
@@ -1192,9 +1611,10 @@ static bb_err_t apply_settings(bb_http_request_t *req, bool partial, bool *out_r
             if (err != BB_OK) {
                 bb_json_free(root);
                 bb_http_resp_set_status(req, 500);
-                bb_http_resp_set_header(req, "Content-Type", "text/plain");
-                static const char *msg = "Failed to save display setting";
-                return bb_http_resp_send(req, msg, strlen(msg));
+                bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+                bb_http_resp_json_obj_set_str(&e, "error", "Failed to save display setting");
+                bb_http_resp_json_obj_end(&e);
+                return err;
             }
         }
     }
@@ -1206,9 +1626,10 @@ static bb_err_t apply_settings(bb_http_request_t *req, bool partial, bool *out_r
             if (err != BB_OK) {
                 bb_json_free(root);
                 bb_http_resp_set_status(req, 500);
-                bb_http_resp_set_header(req, "Content-Type", "text/plain");
-                static const char *msg = "Failed to save ota_skip_check";
-                return bb_http_resp_send(req, msg, strlen(msg));
+                bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+                bb_http_resp_json_obj_set_str(&e, "error", "Failed to save ota_skip_check");
+                bb_http_resp_json_obj_end(&e);
+                return err;
             }
         }
     }
@@ -1216,11 +1637,12 @@ static bb_err_t apply_settings(bb_http_request_t *req, bool partial, bool *out_r
     bb_json_free(root);
 
     // Response
-    char resp[64];
-    snprintf(resp, sizeof(resp), "{\"status\":\"saved\",\"reboot_required\":%s}",
-             reboot_required ? "true" : "false");
-    bb_http_resp_set_header(req, "Content-Type", "application/json");
-    bb_err_t send_rc = bb_http_resp_send(req, resp, strlen(resp));
+    bb_http_json_obj_stream_t obj;
+    bb_err_t send_rc = bb_http_resp_json_obj_begin(req, &obj);
+    if (send_rc != BB_OK) return send_rc;
+    bb_http_resp_json_obj_set_str(&obj, "status", "saved");
+    bb_http_resp_json_obj_set_bool(&obj, "reboot_required", reboot_required);
+    send_rc = bb_http_resp_json_obj_end(&obj);
 
     if (send_rc == BB_OK) {
         *out_reboot_required = reboot_required;
@@ -1252,20 +1674,29 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
     char body[512];
 
     int body_len = bb_http_req_body_len(req);
-    if (body_len > sizeof(body) - 1) {
-        bb_http_resp_send_err(req, 400, "Body too large");
+    if (body_len > (int)(sizeof(body) - 1)) {
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "Body too large");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
     int len = bb_http_req_recv(req, body, sizeof(body) - 1);
     if (len <= 0) {
-        bb_http_resp_send_err(req, 400, "Empty body");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "Empty body");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
     body[len] = '\0';
 
     bb_json_t root = bb_json_parse(body, 0);
     if (!root) {
-        bb_http_resp_send_err(req, 400, "Invalid JSON");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "Invalid JSON");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
 
@@ -1276,7 +1707,10 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
         bb_json_obj_get_item(root, "worker") ||
         bb_json_obj_get_item(root, "pool_pass")) {
         bb_json_free(root);
-        bb_http_resp_send_err(req, 400, "pool config moved to /api/pool");
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "pool config moved to /api/pool");
+        bb_http_resp_json_obj_end(&e);
         return BB_ERR_INVALID_ARG;
     }
 
@@ -1296,7 +1730,10 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
             hostname_changed = true;
             if (hostname[0] != '\0' && config_set_hostname(hostname) != BB_OK) {
                 bb_json_free(root);
-                bb_http_resp_send_err(req, 400, "invalid hostname");
+                bb_http_resp_set_status(req, 400);
+                bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+                bb_http_resp_json_obj_set_str(&e, "error", "invalid hostname");
+                bb_http_resp_json_obj_end(&e);
                 return BB_ERR_INVALID_ARG;
             }
         }
@@ -1314,8 +1751,11 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
             bb_err_t err = bb_nv_config_set_display_enabled(display_val);
             if (err != BB_OK) {
                 bb_json_free(root);
-                bb_http_resp_send_err(req, 500, "Failed to save display setting");
-                return BB_ERR_INVALID_ARG;
+                bb_http_resp_set_status(req, 500);
+                bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+                bb_http_resp_json_obj_set_str(&e, "error", "Failed to save display setting");
+                bb_http_resp_json_obj_end(&e);
+                return err;
             }
         }
     }
@@ -1326,8 +1766,11 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
             bb_err_t err = bb_nv_config_set_ota_skip_check(skip_val);
             if (err != BB_OK) {
                 bb_json_free(root);
-                bb_http_resp_send_err(req, 500, "Failed to save ota_skip_check");
-                return BB_ERR_INVALID_ARG;
+                bb_http_resp_set_status(req, 500);
+                bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+                bb_http_resp_json_obj_set_str(&e, "error", "Failed to save ota_skip_check");
+                bb_http_resp_json_obj_end(&e);
+                return err;
             }
         }
     }
@@ -1350,7 +1793,10 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
         // Cross-field validation: knot_en=true requires mdns_en=true
         if (has_knot && knot_val && !mdns_val) {
             bb_json_free(root);
-            bb_http_resp_send_err(req, 400, "mdns_en must be true to enable knot");
+            bb_http_resp_set_status(req, 400);
+            bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+            bb_http_resp_json_obj_set_str(&e, "error", "mdns_en must be true to enable knot");
+            bb_http_resp_json_obj_end(&e);
             return BB_ERR_INVALID_ARG;
         }
 
@@ -1385,7 +1831,7 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
                 bb_err_t err = bb_nv_config_set_mdns_enabled(false);
                 if (err != BB_OK) {
                     bb_json_free(root);
-                    bb_http_resp_send_err(req, 500, "Failed to save mdns_en");
+                    bb_http_resp_set_status(req, 500); { bb_http_json_obj_stream_t _e; bb_http_resp_json_obj_begin(req, &_e); bb_http_resp_json_obj_set_str(&_e, "error", "Failed to save mdns_en"); bb_http_resp_json_obj_end(&_e); }
                     return BB_ERR_INVALID_ARG;
                 }
             } else if (mdns_val && !current_mdns) {
@@ -1396,7 +1842,7 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
                 bb_err_t err = bb_nv_config_set_mdns_enabled(true);
                 if (err != BB_OK) {
                     bb_json_free(root);
-                    bb_http_resp_send_err(req, 500, "Failed to save mdns_en");
+                    bb_http_resp_set_status(req, 500); { bb_http_json_obj_stream_t _e; bb_http_resp_json_obj_begin(req, &_e); bb_http_resp_json_obj_set_str(&_e, "error", "Failed to save mdns_en"); bb_http_resp_json_obj_end(&_e); }
                     return BB_ERR_INVALID_ARG;
                 }
                 bb_mdns_start();
@@ -1415,7 +1861,7 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
                 bb_err_t err = config_set_knot_enabled(false);
                 if (err != BB_OK) {
                     bb_json_free(root);
-                    bb_http_resp_send_err(req, 500, "Failed to save knot_en");
+                    bb_http_resp_set_status(req, 500); { bb_http_json_obj_stream_t _e; bb_http_resp_json_obj_begin(req, &_e); bb_http_resp_json_obj_set_str(&_e, "error", "Failed to save knot_en"); bb_http_resp_json_obj_end(&_e); }
                     return BB_ERR_INVALID_ARG;
                 }
             } else if (knot_val && !running && bb_nv_config_mdns_enabled()) {
@@ -1423,7 +1869,7 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
                 bb_err_t err = config_set_knot_enabled(true);
                 if (err != BB_OK) {
                     bb_json_free(root);
-                    bb_http_resp_send_err(req, 500, "Failed to save knot_en");
+                    bb_http_resp_set_status(req, 500); { bb_http_json_obj_stream_t _e; bb_http_resp_json_obj_begin(req, &_e); bb_http_resp_json_obj_set_str(&_e, "error", "Failed to save knot_en"); bb_http_resp_json_obj_end(&_e); }
                     return BB_ERR_INVALID_ARG;
                 }
                 KNOT_REARM_LIVE();
@@ -1433,7 +1879,7 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
                 bb_err_t err = config_set_knot_enabled(false);
                 if (err != BB_OK) {
                     bb_json_free(root);
-                    bb_http_resp_send_err(req, 500, "Failed to save knot_en");
+                    bb_http_resp_set_status(req, 500); { bb_http_json_obj_stream_t _e; bb_http_resp_json_obj_begin(req, &_e); bb_http_resp_json_obj_set_str(&_e, "error", "Failed to save knot_en"); bb_http_resp_json_obj_end(&_e); }
                     return BB_ERR_INVALID_ARG;
                 }
             }
@@ -1445,7 +1891,7 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
             bb_err_t err = config_set_knot_enabled(knot_val);
             if (err != BB_OK) {
                 bb_json_free(root);
-                bb_http_resp_send_err(req, 500, "Failed to save knot_en");
+                bb_http_resp_set_status(req, 500); { bb_http_json_obj_stream_t _e; bb_http_resp_json_obj_begin(req, &_e); bb_http_resp_json_obj_set_str(&_e, "error", "Failed to save knot_en"); bb_http_resp_json_obj_end(&_e); }
                 return BB_ERR_INVALID_ARG;
             }
             if (knot_val && mdns_val && !running) {
@@ -1461,11 +1907,12 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
     bb_json_free(root);
 
     // Response
-    char resp[64];
-    snprintf(resp, sizeof(resp), "{\"status\":\"saved\",\"reboot_required\":%s}",
-             reboot_required ? "true" : "false");
-    bb_http_resp_set_header(req, "Content-Type", "application/json");
-    bb_err_t send_rc = bb_http_resp_send(req, resp, strlen(resp));
+    bb_http_json_obj_stream_t resp_obj;
+    bb_err_t send_rc = bb_http_resp_json_obj_begin(req, &resp_obj);
+    if (send_rc != BB_OK) return send_rc;
+    bb_http_resp_json_obj_set_str(&resp_obj, "status", "saved");
+    bb_http_resp_json_obj_set_bool(&resp_obj, "reboot_required", reboot_required);
+    send_rc = bb_http_resp_json_obj_end(&resp_obj);
 
     // schedule deferred restart if reboot is needed
     if (reboot_required) {
@@ -1728,11 +2175,34 @@ static bb_err_t diag_asic_handler(bb_http_request_t *req)
     }
 #endif /* ASIC_CHIP */
 
-    bb_json_t root = bb_json_obj_new();
-    build_diag_asic_json(&s, root);
-    bb_err_t rc = bb_http_resp_send_json(req, root);
-    bb_json_free(root);
-    return rc;
+    bb_http_json_obj_stream_t obj;
+    bb_err_t rc = bb_http_resp_json_obj_begin(req, &obj);
+    if (rc != BB_OK) return rc;
+
+    bb_http_resp_json_obj_set_arr_begin(&obj, "recent_drops");
+    for (size_t i = 0; i < s.n_drops; i++) {
+        const routes_json_drop_event_t *d = &s.drops[i];
+        uint64_t age_us = (d->ts_us <= s.now_us) ? (s.now_us - d->ts_us) : 0;
+        const char *kind_str;
+        switch ((routes_json_drop_kind_t)d->kind) {
+            case ROUTES_JSON_DROP_KIND_ERROR:  kind_str = "error";  break;
+            case ROUTES_JSON_DROP_KIND_DOMAIN: kind_str = "domain"; break;
+            default:                           kind_str = "total";  break;
+        }
+        bb_http_resp_json_obj_set_obj_begin(&obj, NULL);
+        bb_http_resp_json_obj_set_num(&obj, "ts_ago_s",  (double)(age_us / 1000000ULL));
+        bb_http_resp_json_obj_set_int(&obj, "chip",      (int64_t)d->chip_idx);
+        bb_http_resp_json_obj_set_str(&obj, "kind",      kind_str);
+        bb_http_resp_json_obj_set_int(&obj, "domain",    (int64_t)d->domain_idx);
+        bb_http_resp_json_obj_set_int(&obj, "addr",      (int64_t)d->asic_addr);
+        bb_http_resp_json_obj_set_num(&obj, "ghs",       (double)d->ghs);
+        bb_http_resp_json_obj_set_int(&obj, "delta",     (int64_t)d->delta);
+        bb_http_resp_json_obj_set_num(&obj, "elapsed_s", (double)d->elapsed_s);
+        bb_http_resp_json_obj_set_obj_end(&obj);
+    }
+    bb_http_resp_json_obj_set_arr_end(&obj);
+
+    return bb_http_resp_json_obj_end(&obj);
 }
 
 static const bb_route_response_t s_diag_asic_responses[] = {

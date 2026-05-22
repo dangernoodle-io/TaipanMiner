@@ -429,15 +429,22 @@ static bb_err_t pool_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
 
-    /* Per-pool stats live in a separate local array (832 B) emitted post-hoc
-     * by emit_pool_stats_json() so the main snapshot stays at ~1880 B and
-     * can sit on the httpd worker stack. The old "calloc on every request"
-     * shape fragmented the heap on classic ESP32 under SSE-attached load. */
-    pool_snapshot_t s = {0};
-    pool_stat_snapshot_t stats_arr[ROUTES_JSON_MAX_POOL_STATS] = {0};
+    /* pool_snapshot_t (~1991 B) + stats_arr[8] (~912 B) + the streaming
+     * obj state (~1040 B) overflow the 4 KB httpd worker stack — heap
+     * these two and free before return. */
+    pool_snapshot_t *s = calloc(1, sizeof(*s));
+    pool_stat_snapshot_t *stats_arr = calloc(ROUTES_JSON_MAX_POOL_STATS, sizeof(*stats_arr));
+    if (!s || !stats_arr) {
+        free(s); free(stats_arr);
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "out of memory");
+        bb_http_resp_json_obj_end(&e);
+        return BB_ERR_NO_SPACE;
+    }
     size_t stats_count = 0;
 
-    s.connected = stratum_is_connected();
+    s->connected = stratum_is_connected();
 
     // Top-level host/port/worker/wallet reflect the *active* pool slot so the
     // UI's connection summary tracks the real connection target after a
@@ -446,12 +453,12 @@ static bb_err_t pool_handler(bb_http_request_t *req)
         int idx = stratum_get_active_pool_idx();
         if (idx < 0) idx = POOL_PRIMARY;
         const char *h = config_pool_host_idx(idx);
-        if (h) strncpy(s.host, h, sizeof(s.host) - 1);
+        if (h) strncpy(s->host, h, sizeof(s->host) - 1);
         const char *wk = config_worker_name_idx(idx);
-        if (wk) strncpy(s.worker, wk, sizeof(s.worker) - 1);
+        if (wk) strncpy(s->worker, wk, sizeof(s->worker) - 1);
         const char *wa = config_wallet_addr_idx(idx);
-        if (wa) strncpy(s.wallet, wa, sizeof(s.wallet) - 1);
-        s.port = config_pool_port_idx(idx);
+        if (wa) strncpy(s->wallet, wa, sizeof(s->wallet) - 1);
+        s->port = config_pool_port_idx(idx);
     }
 
     // session_start_ago_s — null pre-connect; wrap-safe diff in ms then /1000.
@@ -459,12 +466,12 @@ static bb_err_t pool_handler(bb_http_request_t *req)
     if (start_ms != 0) {
         uint32_t now_ms   = pdTICKS_TO_MS(xTaskGetTickCount());
         uint32_t delta_ms = now_ms - start_ms;  // unsigned wrap-safe
-        s.session_start_ago_s = delta_ms / 1000U;
-        s.has_session_start   = true;
+        s->session_start_ago_s = delta_ms / 1000U;
+        s->has_session_start   = true;
     }
 
-    s.current_difficulty = stratum_get_difficulty();
-    s.latency_ms = stratum_get_pool_rtt_ms();  // -1 if no sample yet (TA-118)
+    s->current_difficulty = stratum_get_difficulty();
+    s->latency_ms = stratum_get_pool_rtt_ms();  // -1 if no sample yet (TA-118)
 
     // Negotiated session params — null until subscribe response received.
     stratum_session_snapshot_t sess;
@@ -472,65 +479,65 @@ static bb_err_t pool_handler(bb_http_request_t *req)
         size_t copy_len = sess.extranonce1_len;
         if (copy_len > ROUTES_JSON_EXTRANONCE1_MAX)
             copy_len = ROUTES_JSON_EXTRANONCE1_MAX;
-        memcpy(s.extranonce1, sess.extranonce1, copy_len);
-        s.extranonce1_len  = copy_len;
-        s.extranonce2_size = sess.extranonce2_size;
-        s.version_mask     = sess.version_mask;
+        memcpy(s->extranonce1, sess.extranonce1, copy_len);
+        s->extranonce1_len  = copy_len;
+        s->extranonce2_size = sess.extranonce2_size;
+        s->version_mask     = sess.version_mask;
     }
 
     // notify sub-object — most recent mining.notify (TA-201).
     const stratum_job_t *job = NULL;
     if (stratum_get_job_snapshot(&job) && job) {
-        s.has_notify = true;
-        strncpy(s.job_id, job->job_id, sizeof(s.job_id) - 1);
-        memcpy(s.prevhash, job->prevhash, 32);
+        s->has_notify = true;
+        strncpy(s->job_id, job->job_id, sizeof(s->job_id) - 1);
+        memcpy(s->prevhash, job->prevhash, 32);
 
         size_t cb1 = job->coinb1_len < ROUTES_JSON_MAX_COINB ? job->coinb1_len : ROUTES_JSON_MAX_COINB;
-        memcpy(s.coinb1, job->coinb1, cb1);
-        s.coinb1_len = cb1;
+        memcpy(s->coinb1, job->coinb1, cb1);
+        s->coinb1_len = cb1;
 
         size_t cb2 = job->coinb2_len < ROUTES_JSON_MAX_COINB ? job->coinb2_len : ROUTES_JSON_MAX_COINB;
-        memcpy(s.coinb2, job->coinb2, cb2);
-        s.coinb2_len = cb2;
+        memcpy(s->coinb2, job->coinb2, cb2);
+        s->coinb2_len = cb2;
 
         size_t mc = job->merkle_count < ROUTES_JSON_MAX_MERKLE ? job->merkle_count : ROUTES_JSON_MAX_MERKLE;
         for (size_t i = 0; i < mc; i++)
-            memcpy(s.merkle_branches[i], job->merkle_branches[i], 32);
-        s.merkle_count = mc;
+            memcpy(s->merkle_branches[i], job->merkle_branches[i], 32);
+        s->merkle_count = mc;
 
-        s.version    = job->version;
-        s.nbits      = job->nbits;
-        s.ntime      = job->ntime;
-        s.clean_jobs = job->clean_jobs;
+        s->version    = job->version;
+        s->nbits      = job->nbits;
+        s->ntime      = job->ntime;
+        s->clean_jobs = job->clean_jobs;
     }
 
     // Configured pools (TA-290/TA-202 phase D) — expose persisted config.
     for (int i = 0; i < POOL_COUNT; i++) {
-        s.configured[i].configured = config_pool_configured(i);
-        if (s.configured[i].configured) {
-            strncpy(s.configured[i].host,   config_pool_host_idx(i),   sizeof(s.configured[i].host)   - 1);
-            s.configured[i].port = config_pool_port_idx(i);
-            strncpy(s.configured[i].worker, config_worker_name_idx(i), sizeof(s.configured[i].worker) - 1);
-            strncpy(s.configured[i].wallet, config_wallet_addr_idx(i), sizeof(s.configured[i].wallet) - 1);
-            s.configured[i].extranonce_subscribe =
+        s->configured[i].configured = config_pool_configured(i);
+        if (s->configured[i].configured) {
+            strncpy(s->configured[i].host,   config_pool_host_idx(i),   sizeof(s->configured[i].host)   - 1);
+            s->configured[i].port = config_pool_port_idx(i);
+            strncpy(s->configured[i].worker, config_worker_name_idx(i), sizeof(s->configured[i].worker) - 1);
+            strncpy(s->configured[i].wallet, config_wallet_addr_idx(i), sizeof(s->configured[i].wallet) - 1);
+            s->configured[i].extranonce_subscribe =
                 config_pool_extranonce_subscribe_idx(i);
-            s.configured[i].decode_coinbase =
+            s->configured[i].decode_coinbase =
                 config_pool_decode_coinbase_idx(i);
         }
     }
-    s.active_pool_idx = stratum_get_active_pool_idx();
-    s.extranonce_subscribe_status = (int)stratum_get_extranonce_subscribe_status();
+    s->active_pool_idx = stratum_get_active_pool_idx();
+    s->extranonce_subscribe_status = (int)stratum_get_extranonce_subscribe_status();
 
     double pool_eff_hr = mining_get_pool_effective_hashrate();
-    s.pool_effective_hashrate = (pool_eff_hr > 0.0) ? pool_eff_hr : -1.0;
+    s->pool_effective_hashrate = (pool_eff_hr > 0.0) ? pool_eff_hr : -1.0;
 
     /* TA-363: rolling 1m/10m/1h pool-effective windows */
-    s.pool_effective_hashrate_1m = mining_get_pool_effective_1m();
-    s.pool_effective_hashrate_1m = (s.pool_effective_hashrate_1m > 0.0) ? s.pool_effective_hashrate_1m : -1.0;
-    s.pool_effective_hashrate_10m = mining_get_pool_effective_10m();
-    s.pool_effective_hashrate_10m = (s.pool_effective_hashrate_10m > 0.0) ? s.pool_effective_hashrate_10m : -1.0;
-    s.pool_effective_hashrate_1h = mining_get_pool_effective_1h();
-    s.pool_effective_hashrate_1h = (s.pool_effective_hashrate_1h > 0.0) ? s.pool_effective_hashrate_1h : -1.0;
+    s->pool_effective_hashrate_1m = mining_get_pool_effective_1m();
+    s->pool_effective_hashrate_1m = (s->pool_effective_hashrate_1m > 0.0) ? s->pool_effective_hashrate_1m : -1.0;
+    s->pool_effective_hashrate_10m = mining_get_pool_effective_10m();
+    s->pool_effective_hashrate_10m = (s->pool_effective_hashrate_10m > 0.0) ? s->pool_effective_hashrate_10m : -1.0;
+    s->pool_effective_hashrate_1h = mining_get_pool_effective_1h();
+    s->pool_effective_hashrate_1h = (s->pool_effective_hashrate_1h > 0.0) ? s->pool_effective_hashrate_1h : -1.0;
 
     // Snapshot per-pool stats (ordered by last_seen_us descending, empty slots omitted).
     {
@@ -550,8 +557,8 @@ static bb_err_t pool_handler(bb_http_request_t *req)
             dst->best_diff_ts  = src->best_diff_ts;
             dst->last_block_ts = src->last_block_ts;
         }
-        s.lifetime_blocks_total    = mining_stats.pool_stats.lifetime_blocks_total;
-        s.lifetime_last_block_ts   = mining_stats.pool_stats.lifetime_last_block_ts;
+        s->lifetime_blocks_total    = mining_stats.pool_stats.lifetime_blocks_total;
+        s->lifetime_last_block_ts   = mining_stats.pool_stats.lifetime_last_block_ts;
         xSemaphoreGive(mining_stats.mutex);
 
         // In-place sort by last_seen_us descending.
@@ -570,40 +577,40 @@ static bb_err_t pool_handler(bb_http_request_t *req)
     bb_err_t rc = bb_http_resp_json_obj_begin(req, &obj);
     if (rc != BB_OK) return rc;
 
-    bb_http_resp_json_obj_set_str(&obj, "host",   s.host);
-    bb_http_resp_json_obj_set_int(&obj, "port",   (int64_t)s.port);
-    bb_http_resp_json_obj_set_str(&obj, "worker", s.worker);
-    bb_http_resp_json_obj_set_str(&obj, "wallet", s.wallet);
-    bb_http_resp_json_obj_set_bool(&obj, "connected", s.connected);
+    bb_http_resp_json_obj_set_str(&obj, "host",   s->host);
+    bb_http_resp_json_obj_set_int(&obj, "port",   (int64_t)s->port);
+    bb_http_resp_json_obj_set_str(&obj, "worker", s->worker);
+    bb_http_resp_json_obj_set_str(&obj, "wallet", s->wallet);
+    bb_http_resp_json_obj_set_bool(&obj, "connected", s->connected);
 
-    if (s.has_session_start) {
-        bb_http_resp_json_obj_set_int(&obj, "session_start_ago_s", (int64_t)s.session_start_ago_s);
+    if (s->has_session_start) {
+        bb_http_resp_json_obj_set_int(&obj, "session_start_ago_s", (int64_t)s->session_start_ago_s);
     } else {
         bb_http_resp_json_obj_set_null(&obj, "session_start_ago_s");
     }
 
-    bb_http_resp_json_obj_set_num(&obj, "current_difficulty", s.current_difficulty);
+    bb_http_resp_json_obj_set_num(&obj, "current_difficulty", s->current_difficulty);
 
-    if (s.pool_effective_hashrate >= 0.0) bb_http_resp_json_obj_set_num(&obj, "pool_effective_hashrate", s.pool_effective_hashrate);
+    if (s->pool_effective_hashrate >= 0.0) bb_http_resp_json_obj_set_num(&obj, "pool_effective_hashrate", s->pool_effective_hashrate);
     else                                  bb_http_resp_json_obj_set_null(&obj, "pool_effective_hashrate");
-    if (s.pool_effective_hashrate_1m >= 0.0) bb_http_resp_json_obj_set_num(&obj, "pool_effective_hashrate_1m", s.pool_effective_hashrate_1m);
+    if (s->pool_effective_hashrate_1m >= 0.0) bb_http_resp_json_obj_set_num(&obj, "pool_effective_hashrate_1m", s->pool_effective_hashrate_1m);
     else                                     bb_http_resp_json_obj_set_null(&obj, "pool_effective_hashrate_1m");
-    if (s.pool_effective_hashrate_10m >= 0.0) bb_http_resp_json_obj_set_num(&obj, "pool_effective_hashrate_10m", s.pool_effective_hashrate_10m);
+    if (s->pool_effective_hashrate_10m >= 0.0) bb_http_resp_json_obj_set_num(&obj, "pool_effective_hashrate_10m", s->pool_effective_hashrate_10m);
     else                                      bb_http_resp_json_obj_set_null(&obj, "pool_effective_hashrate_10m");
-    if (s.pool_effective_hashrate_1h >= 0.0) bb_http_resp_json_obj_set_num(&obj, "pool_effective_hashrate_1h", s.pool_effective_hashrate_1h);
+    if (s->pool_effective_hashrate_1h >= 0.0) bb_http_resp_json_obj_set_num(&obj, "pool_effective_hashrate_1h", s->pool_effective_hashrate_1h);
     else                                     bb_http_resp_json_obj_set_null(&obj, "pool_effective_hashrate_1h");
 
-    if (s.latency_ms >= 0) bb_http_resp_json_obj_set_int(&obj, "latency_ms", (int64_t)s.latency_ms);
+    if (s->latency_ms >= 0) bb_http_resp_json_obj_set_int(&obj, "latency_ms", (int64_t)s->latency_ms);
     else                   bb_http_resp_json_obj_set_null(&obj, "latency_ms");
 
-    if (s.extranonce1_len > 0) {
+    if (s->extranonce1_len > 0) {
         char en1_hex[2 * ROUTES_JSON_EXTRANONCE1_MAX + 1];
-        bytes_to_hex(s.extranonce1, s.extranonce1_len, en1_hex);
+        bytes_to_hex(s->extranonce1, s->extranonce1_len, en1_hex);
         bb_http_resp_json_obj_set_str(&obj, "extranonce1", en1_hex);
-        bb_http_resp_json_obj_set_int(&obj, "extranonce2_size", (int64_t)s.extranonce2_size);
-        if (s.version_mask != 0) {
+        bb_http_resp_json_obj_set_int(&obj, "extranonce2_size", (int64_t)s->extranonce2_size);
+        if (s->version_mask != 0) {
             char vm_hex[9];
-            snprintf(vm_hex, sizeof(vm_hex), "%08lx", (unsigned long)s.version_mask);
+            snprintf(vm_hex, sizeof(vm_hex), "%08lx", (unsigned long)s->version_mask);
             bb_http_resp_json_obj_set_str(&obj, "version_mask", vm_hex);
         } else {
             bb_http_resp_json_obj_set_null(&obj, "version_mask");
@@ -614,50 +621,50 @@ static bb_err_t pool_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_set_null(&obj, "version_mask");
     }
 
-    if (s.has_notify) {
+    if (s->has_notify) {
         bb_http_resp_json_obj_set_obj_begin(&obj, "notify");
-        bb_http_resp_json_obj_set_str(&obj, "job_id", s.job_id);
+        bb_http_resp_json_obj_set_str(&obj, "job_id", s->job_id);
 
         char prevhash_hex[65];
-        bytes_to_hex(s.prevhash, 32, prevhash_hex);
+        bytes_to_hex(s->prevhash, 32, prevhash_hex);
         bb_http_resp_json_obj_set_str(&obj, "prev_hash", prevhash_hex);
 
         char coinb1_hex[2 * ROUTES_JSON_MAX_COINB + 1];
-        bytes_to_hex(s.coinb1, s.coinb1_len, coinb1_hex);
+        bytes_to_hex(s->coinb1, s->coinb1_len, coinb1_hex);
         bb_http_resp_json_obj_set_str(&obj, "coinb1", coinb1_hex);
 
         char coinb2_hex[2 * ROUTES_JSON_MAX_COINB + 1];
-        bytes_to_hex(s.coinb2, s.coinb2_len, coinb2_hex);
+        bytes_to_hex(s->coinb2, s->coinb2_len, coinb2_hex);
         bb_http_resp_json_obj_set_str(&obj, "coinb2", coinb2_hex);
 
         bb_http_resp_json_obj_set_arr_begin(&obj, "merkle_branches");
-        for (size_t i = 0; i < s.merkle_count; i++) {
+        for (size_t i = 0; i < s->merkle_count; i++) {
             char br_hex[65];
-            bytes_to_hex(s.merkle_branches[i], 32, br_hex);
+            bytes_to_hex(s->merkle_branches[i], 32, br_hex);
             bb_http_resp_json_obj_set_str(&obj, NULL, br_hex);
         }
         bb_http_resp_json_obj_set_arr_end(&obj);
 
         char hex8[9];
-        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)s.version);
+        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)s->version);
         bb_http_resp_json_obj_set_str(&obj, "version", hex8);
-        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)s.nbits);
+        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)s->nbits);
         bb_http_resp_json_obj_set_str(&obj, "nbits", hex8);
-        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)s.ntime);
+        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)s->ntime);
         bb_http_resp_json_obj_set_str(&obj, "ntime", hex8);
 
-        bb_http_resp_json_obj_set_bool(&obj, "clean_jobs", s.clean_jobs);
+        bb_http_resp_json_obj_set_bool(&obj, "clean_jobs", s->clean_jobs);
         bb_http_resp_json_obj_set_obj_end(&obj);
     } else {
         bb_http_resp_json_obj_set_null(&obj, "notify");
     }
 
-    if (s.active_pool_idx >= 0) bb_http_resp_json_obj_set_int(&obj, "active_pool_idx", (int64_t)s.active_pool_idx);
+    if (s->active_pool_idx >= 0) bb_http_resp_json_obj_set_int(&obj, "active_pool_idx", (int64_t)s->active_pool_idx);
     else                        bb_http_resp_json_obj_set_null(&obj, "active_pool_idx");
 
     {
         const char *sub_str;
-        switch (s.extranonce_subscribe_status) {
+        switch (s->extranonce_subscribe_status) {
             case 1:  sub_str = "pending";  break;
             case 2:  sub_str = "active";   break;
             case 3:  sub_str = "rejected"; break;
@@ -666,20 +673,20 @@ static bb_err_t pool_handler(bb_http_request_t *req)
         bb_http_resp_json_obj_set_str(&obj, "extranonce_subscribe_status", sub_str);
     }
 
-    bb_http_resp_json_obj_set_int(&obj, "lifetime_blocks_total",  (int64_t)s.lifetime_blocks_total);
-    bb_http_resp_json_obj_set_int(&obj, "lifetime_last_block_ts", s.lifetime_last_block_ts);
+    bb_http_resp_json_obj_set_int(&obj, "lifetime_blocks_total",  (int64_t)s->lifetime_blocks_total);
+    bb_http_resp_json_obj_set_int(&obj, "lifetime_last_block_ts", s->lifetime_last_block_ts);
 
     bb_http_resp_json_obj_set_obj_begin(&obj, "configured");
     for (int i = 0; i < 2; i++) {
         const char *cfg_key = (i == 0) ? "primary" : "fallback";
-        if (s.configured[i].configured) {
+        if (s->configured[i].configured) {
             bb_http_resp_json_obj_set_obj_begin(&obj, cfg_key);
-            bb_http_resp_json_obj_set_str(&obj, "host",   s.configured[i].host);
-            bb_http_resp_json_obj_set_int(&obj, "port",   (int64_t)s.configured[i].port);
-            bb_http_resp_json_obj_set_str(&obj, "worker", s.configured[i].worker);
-            bb_http_resp_json_obj_set_str(&obj, "wallet", s.configured[i].wallet);
-            bb_http_resp_json_obj_set_bool(&obj, "extranonce_subscribe", s.configured[i].extranonce_subscribe);
-            bb_http_resp_json_obj_set_bool(&obj, "decode_coinbase",      s.configured[i].decode_coinbase);
+            bb_http_resp_json_obj_set_str(&obj, "host",   s->configured[i].host);
+            bb_http_resp_json_obj_set_int(&obj, "port",   (int64_t)s->configured[i].port);
+            bb_http_resp_json_obj_set_str(&obj, "worker", s->configured[i].worker);
+            bb_http_resp_json_obj_set_str(&obj, "wallet", s->configured[i].wallet);
+            bb_http_resp_json_obj_set_bool(&obj, "extranonce_subscribe", s->configured[i].extranonce_subscribe);
+            bb_http_resp_json_obj_set_bool(&obj, "decode_coinbase",      s->configured[i].decode_coinbase);
             bb_http_resp_json_obj_set_obj_end(&obj);
         } else {
             bb_http_resp_json_obj_set_null(&obj, cfg_key);
@@ -704,7 +711,9 @@ static bb_err_t pool_handler(bb_http_request_t *req)
     }
     bb_http_resp_json_obj_set_arr_end(&obj);
 
-    return bb_http_resp_json_obj_end(&obj);
+    bb_err_t rc_end = bb_http_resp_json_obj_end(&obj);
+    free(s); free(stats_arr);
+    return rc_end;
 }
 
 // ---------------------------------------------------------------------------

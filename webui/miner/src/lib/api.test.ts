@@ -28,6 +28,7 @@ import {
   fetchDiagPanic,
   clearAbnormalResets,
   clearDiagPanic,
+  clearDiagBoot,
   coredumpUrl,
 } from './api'
 
@@ -450,10 +451,10 @@ describe('kickOtaCheck', () => {
 })
 
 describe('triggerOtaUpdate', () => {
-  it('POSTs /api/ota/update', async () => {
+  it('POSTs /api/update/apply', async () => {
     const spy = setFetch(200)
     await triggerOtaUpdate()
-    expect(spy.mock.calls[0][0]).toBe('/api/ota/update')
+    expect(spy.mock.calls[0][0]).toBe('/api/update/apply')
     expect(spy.mock.calls[0][1].method).toBe('POST')
   })
 
@@ -464,10 +465,10 @@ describe('triggerOtaUpdate', () => {
 })
 
 describe('fetchOtaStatus', () => {
-  it('GETs /api/ota/status', async () => {
+  it('GETs /api/update/progress', async () => {
     const spy = setFetch(200, { state: 'idle', in_progress: false, progress_pct: 0 })
     const result = await fetchOtaStatus()
-    expect(spy.mock.calls[0][0]).toBe('/api/ota/status')
+    expect(spy.mock.calls[0][0]).toBe('/api/update/progress')
     expect(result).toMatchObject({ state: 'idle' })
   })
 
@@ -486,8 +487,8 @@ describe('ping', () => {
     vi.restoreAllMocks()
   })
 
-  it('returns true when /api/version responds 200', async () => {
-    setFetch(200, 'v1.0.0')
+  it('returns true when /api/health responds 200', async () => {
+    setFetch(200, { ok: true })
     const result = await ping(5000)
     expect(result).toBe(true)
   })
@@ -631,17 +632,16 @@ describe('fetchDiagHeap', () => {
 })
 
 describe('checkDiagHeap', () => {
-  it('POSTs to /api/diag/heap/check and returns ok boolean', async () => {
-    const spy = setFetch(200, { ok: true })
+  it('GETs /api/diag/heap?check=true and returns integrity_ok boolean', async () => {
+    const spy = setFetch(200, { integrity_ok: true, internal: {}, dma: {}, default: {} })
     const result = await checkDiagHeap()
-    const [url, init] = spy.mock.calls[0]
-    expect(url).toBe('/api/diag/heap/check')
-    expect(init.method).toBe('POST')
+    const [url] = spy.mock.calls[0]
+    expect(url).toBe('/api/diag/heap?check=true')
     expect(result).toBe(true)
   })
 
-  it('returns false when ok is false', async () => {
-    setFetch(200, { ok: false })
+  it('returns false when integrity_ok is false', async () => {
+    setFetch(200, { integrity_ok: false })
     const result = await checkDiagHeap()
     expect(result).toBe(false)
   })
@@ -704,33 +704,36 @@ describe('fetchDiagPanic', () => {
 // Reset and panic clearing
 // ---------------------------------------------------------------------------
 
-describe('clearAbnormalResets', () => {
-  it('DELETEs /api/diag/abnormal-resets', async () => {
+describe('clearDiagBoot', () => {
+  it('DELETEs /api/diag/boot (clears panic + abnormal-reset counter)', async () => {
     const spy = setFetch(200)
-    await clearAbnormalResets()
+    await clearDiagBoot()
     const [url, init] = spy.mock.calls[0]
-    expect(url).toBe('/api/diag/abnormal-resets')
+    expect(url).toBe('/api/diag/boot')
     expect(init.method).toBe('DELETE')
   })
 
   it('throws on non-OK response', async () => {
     setFetch(500)
-    await expect(clearAbnormalResets()).rejects.toThrow('clear abnormal-resets failed')
+    await expect(clearDiagBoot()).rejects.toThrow('clear diag boot failed')
   })
 })
 
-describe('clearDiagPanic', () => {
-  it('DELETEs /api/diag/panic', async () => {
+describe('clearAbnormalResets (alias → clearDiagBoot)', () => {
+  it('DELETEs /api/diag/boot', async () => {
+    const spy = setFetch(200)
+    await clearAbnormalResets()
+    expect(spy.mock.calls[0][0]).toBe('/api/diag/boot')
+    expect(spy.mock.calls[0][1].method).toBe('DELETE')
+  })
+})
+
+describe('clearDiagPanic (alias → clearDiagBoot)', () => {
+  it('DELETEs /api/diag/boot', async () => {
     const spy = setFetch(200)
     await clearDiagPanic()
-    const [url, init] = spy.mock.calls[0]
-    expect(url).toBe('/api/diag/panic')
-    expect(init.method).toBe('DELETE')
-  })
-
-  it('throws on non-OK response', async () => {
-    setFetch(500)
-    await expect(clearDiagPanic()).rejects.toThrow('clear panic failed')
+    expect(spy.mock.calls[0][0]).toBe('/api/diag/boot')
+    expect(spy.mock.calls[0][1].method).toBe('DELETE')
   })
 })
 

@@ -1,15 +1,16 @@
 export type AccessPoint = { ssid: string; rssi: number; secure: boolean }
 
 export async function fetchScan(): Promise<AccessPoint[]> {
-  const r = await fetch('/api/scan')
+  const r = await fetch('/api/scan', { method: 'POST' })
   if (!r.ok) throw new Error(`scan failed: ${r.status}`)
   return r.json()
 }
 
 export async function fetchVersion(): Promise<string> {
-  const r = await fetch('/api/version')
+  const r = await fetch('/api/info')
   if (!r.ok) throw new Error(`version failed: ${r.status}`)
-  return (await r.text()).trim()
+  const info = await r.json() as { version?: string }
+  return (info.version ?? '').trim()
 }
 
 export type SaveBody = {

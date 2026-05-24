@@ -17,10 +17,11 @@ beforeEach(() => {
 })
 
 describe('fetchScan', () => {
-  it('GETs /api/scan and returns parsed JSON', async () => {
+  it('POSTs /api/scan and returns parsed JSON', async () => {
     const spy = setFetch(200, [{ ssid: 'test-network', rssi: -50, secure: true }])
     const result = await fetchScan()
     expect(spy.mock.calls[0][0]).toBe('/api/scan')
+    expect(spy.mock.calls[0][1].method).toBe('POST')
     expect(result).toHaveLength(1)
     expect(result[0]).toMatchObject({ ssid: 'test-network', rssi: -50, secure: true })
   })
@@ -38,16 +39,21 @@ describe('fetchScan', () => {
 })
 
 describe('fetchVersion', () => {
-  it('GETs /api/version and returns trimmed text', async () => {
-    const spy = setFetch(200, 'v1.2.3')
+  it('GETs /api/info and returns version field trimmed', async () => {
+    const spy = setFetch(200, { version: 'v1.2.3', board: 'tdongle-s3' })
     const result = await fetchVersion()
-    expect(spy.mock.calls[0][0]).toBe('/api/version')
+    expect(spy.mock.calls[0][0]).toBe('/api/info')
     expect(result).toBe('v1.2.3')
   })
 
-  it('trims whitespace from response', async () => {
-    const spy = vi.fn(async () => new Response('  v1.2.3  \n', { status: 200 }))
-    ;(globalThis as unknown as { fetch: typeof fetch }).fetch = spy as unknown as typeof fetch
+  it('returns empty string when version field is missing', async () => {
+    setFetch(200, { board: 'tdongle-s3' })
+    const result = await fetchVersion()
+    expect(result).toBe('')
+  })
+
+  it('trims whitespace from version field', async () => {
+    setFetch(200, { version: '  v1.2.3  ' })
     const result = await fetchVersion()
     expect(result).toBe('v1.2.3')
   })

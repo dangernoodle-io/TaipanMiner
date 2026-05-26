@@ -148,22 +148,24 @@ bool sha256_hw_dport_kernel(const uint8_t header_80[80],
 
     /* 11. Full readback under DPORT erratum workaround.
      *
-     * DPORT register layout is REVERSED vs canonical SHA-256 H[] order:
-     *   SHA_TEXT[7] = canonical H[0] (MSB word)
-     *   SHA_TEXT[0] = canonical H[7] (LSB word)
-     * Map so that state[0] = canonical H[0] (MSB) ... state[7] = canonical H[7] (LSB).
-     * mining_hash_from_state then writes state[0] BE bytes at hash_out[0..3] →
-     * hash_out[0..3] = MSB word bytes = correct LE-internal byte order for meets_target. */
+     * Classic ESP32 SHA TEXT registers are in CANONICAL SHA-256 H[] order:
+     *   SHA_TEXT[0] = canonical H[0] (MSB word)
+     *   SHA_TEXT[7] = canonical H[7] (LSB word)
+     * Read state[i] = SHA_TEXT[i] so mining_hash_from_state writes state[0] BE
+     * at hash_out[0..3] = canonical MSB word bytes = raw SHA256d byte output.
+     * meets_target() uses LE-internal convention (byte[31]=LSB of H[7], which is
+     * the least-significant byte of the 256-bit value = raw SHA256d byte[31] → 0
+     * for valid Bitcoin hashes). */
     DPORT_INTERRUPT_DISABLE();
     uint32_t state[8];
-    state[0] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 7 * 4);
-    state[1] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 6 * 4);
-    state[2] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 5 * 4);
-    state[3] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 4 * 4);
-    state[4] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 3 * 4);
-    state[5] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 2 * 4);
-    state[6] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 1 * 4);
-    state[7] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 0 * 4);
+    state[7] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 7 * 4);
+    state[0] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 0 * 4);
+    state[1] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 1 * 4);
+    state[2] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 2 * 4);
+    state[3] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 3 * 4);
+    state[4] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 4 * 4);
+    state[5] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 5 * 4);
+    state[6] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 6 * 4);
     DPORT_INTERRUPT_RESTORE();
     mining_hash_from_state(state, hash_out);
     return true;

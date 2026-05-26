@@ -127,34 +127,36 @@ static inline void dport_wait_idle(void)
     while (DPORT_REG_READ(SHA_256_BUSY_REG)) {}    /* mining.cpp:942 */
 }
 
-/* Pool-target-aware early-reject on MSB word of the digest.
+/* Pool-target-aware early-reject on the LE-MSB word of the digest.
  *
- * DPORT register layout is REVERSED vs canonical SHA-256 H[] order:
- *   SHA_TEXT[7] = canonical H[0] (MSB word, most-significant)
- *   SHA_TEXT[0] = canonical H[7] (LSB word, least-significant)
- * Early-reject reads SHA_TEXT[7] — this IS the MSB canonical word, so the
- * comparison against target_word0_max is correct as-is.
- * Full readback maps state[0]=canonical H[0] ... state[7]=canonical H[7] so
- * mining_hash_from_state produces LE-internal byte order matching meets_target. */
+ * Classic ESP32 SHA TEXT registers are in CANONICAL SHA-256 H[] order:
+ *   SHA_TEXT[0] = canonical H[0] (MSB of canonical SHA-256 state)
+ *   SHA_TEXT[7] = canonical H[7] (LSB of canonical SHA-256 state)
+ * Bitcoin raw SHA256d byte output = mining_hash_from_state(canonical H[]):
+ *   raw[0..3]  = H[0] BE, raw[28..31] = H[7] BE.
+ * meets_target() uses LE-internal (byte[31] = MSB of 256-bit integer = H[7]&0xff).
+ * Valid Bitcoin hashes have H[7] small (leading zeros in display hash are zeros
+ * at the END of the raw byte stream = H[7] near zero).
+ * Early-reject reads SHA_TEXT[7]=H[7] — the correct LE-MSB word. */
 static inline bool dport_read_digest_swap_if(uint8_t out[32], uint32_t target_word0_max)
 {
     DPORT_INTERRUPT_DISABLE();
-    /* SHA_TEXT[7] = canonical MSB word H[0] — correct for early-reject. */
-    uint32_t word0 = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 7 * 4);
-    if (word0 > target_word0_max) {
+    /* SHA_TEXT[7] = canonical H[7] — the LE-MSB word for Bitcoin mining. */
+    uint32_t word7 = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 7 * 4);
+    if (word7 > target_word0_max) {
         DPORT_INTERRUPT_RESTORE();
         return false;  /* early reject — cheapest path */
     }
-    /* Full readback: reverse register index → state index mapping. */
+    /* Full readback: canonical register order state[i] = SHA_TEXT[i] = H[i]. */
     uint32_t state[8];
-    state[0] = word0;
-    state[1] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 6 * 4);
-    state[2] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 5 * 4);
-    state[3] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 4 * 4);
-    state[4] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 3 * 4);
-    state[5] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 2 * 4);
-    state[6] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 1 * 4);
-    state[7] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 0 * 4);
+    state[7] = word7;
+    state[0] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 0 * 4);
+    state[1] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 1 * 4);
+    state[2] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 2 * 4);
+    state[3] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 3 * 4);
+    state[4] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 4 * 4);
+    state[5] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 5 * 4);
+    state[6] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 6 * 4);
     DPORT_INTERRUPT_RESTORE();
     mining_hash_from_state(state, out);
     return true;
@@ -278,8 +280,9 @@ bb_err_t sha256_hw_dport_self_test(void)
  *   - HW: sha256_hw_dport_per_nonce(header, nonce) → dport byte format.
  *
  * Byte-order: both SW (sha256d → sha256_final → mining_hash_from_state) and HW
- * (dport_read_digest_swap_if → mining_hash_from_state) produce LE-internal byte order
- * (hash[0..3] = canonical MSB word BE bytes, hash[28..31] = canonical LSB word BE bytes).
+ * (dport_read_digest_swap_if → mining_hash_from_state) produce the raw SHA256d
+ * byte output: hash[0..3] = H[0] BE (canonical MSB), hash[28..31] = H[7] BE
+ * (canonical LSB = LE-MSB for Bitcoin meets_target).
  * memcmp(hash_hw, hash_sw, 32) is a direct comparison — no conversion needed.
  *
  * Caller MUST hold sha256_hw_dport_acquire() — no re-acquire here.

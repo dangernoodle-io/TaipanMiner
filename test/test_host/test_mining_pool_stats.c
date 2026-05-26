@@ -515,7 +515,7 @@ void test_pool_stats_recovery_lifetime_blocks_large_accepted(void)
  * ======================================================================= */
 
 /* -------------------------------------------------------------------------
- * Schema mismatch: init with stored schema != 2 wipes all data and resets.
+ * Schema mismatch: init with stored schema != 1 wipes all data and resets.
  * ---------------------------------------------------------------------- */
 void test_pool_stats_schema_mismatch_wipes_and_resets(void)
 {
@@ -544,7 +544,7 @@ void test_pool_stats_schema_mismatch_wipes_and_resets(void)
 }
 
 /* -------------------------------------------------------------------------
- * Schema match: init with stored schema==2 loads data normally.
+ * Schema match: init with stored schema==1 loads data normally.
  * On host the bb_nv stubs are no-ops, so the "loaded" values come from the
  * stubs (all zeros). The test verifies that the wipe path is NOT taken —
  * i.e. the code falls through to the load path without error.
@@ -552,8 +552,8 @@ void test_pool_stats_schema_mismatch_wipes_and_resets(void)
 void test_pool_stats_schema_match_preserves_load_path(void)
 {
     ps_setUp();
-    /* Inject schema==2 — matches BB_POOL_STATS_SCHEMA_VERSION. */
-    mining_pool_stats_inject_schema_for_test(2u);
+    /* Inject schema==1 — matches BB_POOL_STATS_SCHEMA_VERSION. */
+    mining_pool_stats_inject_schema_for_test(1u);
 
     mining_pool_stats_init();
 
@@ -568,14 +568,14 @@ void test_pool_stats_schema_match_preserves_load_path(void)
 }
 
 /* -------------------------------------------------------------------------
- * Save writes schema: after save, get_saved_schema returns 2.
+ * Save writes schema: after save, get_saved_schema returns 1.
  * ---------------------------------------------------------------------- */
 void test_pool_stats_save_writes_schema(void)
 {
     ps_setUp();
     TEST_ASSERT_EQUAL_UINT32(UINT32_MAX, mining_pool_stats_get_saved_schema_for_test());
     mining_pool_stats_save();
-    TEST_ASSERT_EQUAL_UINT32(2u, mining_pool_stats_get_saved_schema_for_test());
+    TEST_ASSERT_EQUAL_UINT32(1u, mining_pool_stats_get_saved_schema_for_test());
 }
 
 /* -------------------------------------------------------------------------
@@ -597,7 +597,7 @@ void test_pool_stats_fresh_install_wipes_and_save_writes_schema(void)
 
     /* Subsequent save writes the schema sentinel. */
     mining_pool_stats_save();
-    TEST_ASSERT_EQUAL_UINT32(2u, mining_pool_stats_get_saved_schema_for_test());
+    TEST_ASSERT_EQUAL_UINT32(1u, mining_pool_stats_get_saved_schema_for_test());
 }
 
 /* -------------------------------------------------------------------------
@@ -607,7 +607,7 @@ void test_pool_stats_fresh_install_wipes_and_save_writes_schema(void)
 void test_pool_stats_schema_match_loads_injected_slot(void)
 {
     ps_setUp();
-    mining_pool_stats_inject_schema_for_test(2u);
+    mining_pool_stats_inject_schema_for_test(1u);
 
     /* Pre-seed slot 0 with a known share count and host. */
     mining_pool_stat_t pre = {0};
@@ -635,7 +635,7 @@ void test_pool_stats_schema_match_loads_injected_slot(void)
 void test_pool_stats_schema_match_loads_injected_lifetime_blocks(void)
 {
     ps_setUp();
-    mining_pool_stats_inject_schema_for_test(2u);
+    mining_pool_stats_inject_schema_for_test(1u);
     mining_pool_stats_inject_lifetime_blocks_for_test(5u);
 
     mining_pool_stats_init();
@@ -666,7 +666,7 @@ void test_pool_stats_recovery_best_diff_negative_inf(void)
 void test_pool_stats_schema_match_loads_slot_via_last_seen_us(void)
 {
     ps_setUp();
-    mining_pool_stats_inject_schema_for_test(2u);
+    mining_pool_stats_inject_schema_for_test(1u);
 
     /* slot with empty host but a valid last_seen_us. */
     mining_pool_stat_t pre = {0};

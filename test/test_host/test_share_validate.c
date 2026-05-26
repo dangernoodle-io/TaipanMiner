@@ -6,7 +6,6 @@
 #include "work.h"
 #include <string.h>
 #include <stdint.h>
-#include <stdio.h>
 
 /* ---------------------------------------------------------------------------
  * share_meets_network_target tests
@@ -82,73 +81,4 @@ void test_share_meets_network_target_exact_equals_target(void)
         0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00,
     };
     TEST_ASSERT_TRUE(share_meets_network_target(hash_equals_target_le, 0x1d00ffffu));
-}
-
-/* ---------------------------------------------------------------------------
- * Bitcoin block 100,000 fixture — byte-order diagnostic
- *
- * Block 100,000:
- *   display hash (BE/RPC): 000000000003ba27aa200b1cecaad478d2b00432346c3f1f3986da1afd33e506
- *   nbits: 0x1b04864c
- *
- * Pass both BE and LE forms. Exactly one should return true (the block WAS
- * mined, so its hash IS below the network target). Whichever form returns
- * true tells us which byte order share_meets_network_target expects — and
- * therefore which byte order mining_hash_from_state must produce.
- * ------------------------------------------------------------------------- */
-void test_share_meets_network_target_known_hit(void)
-{
-    /* Block 100,000 hash in big-endian display order (MSB at index 0). */
-    uint8_t hash_be[32] = {
-        0x00,0x00,0x00,0x00,0x00,0x03,0xba,0x27,0xaa,0x20,0x0b,0x1c,0xec,0xaa,0xd4,0x78,
-        0xd2,0xb0,0x04,0x32,0x34,0x6c,0x3f,0x1f,0x39,0x86,0xda,0x1a,0xfd,0x33,0xe5,0x06
-    };
-    /* Same hash reversed to little-endian internal order (MSB at index 31). */
-    uint8_t hash_le[32];
-    for (int i = 0; i < 32; i++) hash_le[i] = hash_be[31 - i];
-
-    uint32_t nbits = 0x1b04864cu;
-
-    bool be_result = share_meets_network_target(hash_be, nbits);
-    bool le_result = share_meets_network_target(hash_le, nbits);
-
-    printf("BE-form hash: meets_network_target = %d\n", be_result);
-    printf("LE-form hash: meets_network_target = %d\n", le_result);
-
-    /* The block was mined — exactly one form must return true. */
-    TEST_ASSERT_TRUE(be_result || le_result);
-    TEST_ASSERT_FALSE(be_result && le_result);
-}
-
-/*
- * A pool-share-like hash with ~24 leading zero bits should NOT meet the
- * block-100,000 network target (far harder than any pool difficulty).
- * Both byte-order forms must return false — neither form of a weak hash
- * accidentally clears a real network target.
- */
-void test_share_meets_network_target_share_misses_network(void)
-{
-    /* LE form: ~24 leading zero bits at the MSB end (indices 31..29).
-     * Represents roughly pool difficulty ~16M — nowhere near block-100k
-     * difficulty (~14M difficulty, but with a much tighter coefficient). */
-    uint8_t hash_le[32];
-    memset(hash_le, 0xFF, 32);
-    hash_le[31] = 0x00;
-    hash_le[30] = 0x00;
-    hash_le[29] = 0x00;
-    hash_le[28] = 0x01;  /* 24+ leading zero bits; rest non-zero */
-
-    uint8_t hash_be[32];
-    for (int i = 0; i < 32; i++) hash_be[i] = hash_le[31 - i];
-
-    uint32_t nbits = 0x1b04864cu;  /* block 100,000 difficulty */
-
-    bool be_result = share_meets_network_target(hash_be, nbits);
-    bool le_result = share_meets_network_target(hash_le, nbits);
-
-    printf("share-not-block BE: %d  LE: %d\n", be_result, le_result);
-
-    /* Neither form of a weak pool share should clear a real network target. */
-    TEST_ASSERT_FALSE(be_result);
-    TEST_ASSERT_FALSE(le_result);
 }

@@ -33,8 +33,10 @@
 #include "esp_timer.h"
 #endif
 
-/* Bump this in any PR that changes the on-disk key set or value encoding. */
-#define BB_POOL_STATS_SCHEMA_VERSION 1u
+/* Bump this in any PR that changes the on-disk key set or value encoding.
+ * v2: DPORT SHA byte-order fix landed; force wipe of inflated lifetime_blocks
+ *     values from record_block false-positives on esp32-wroom32. */
+#define BB_POOL_STATS_SCHEMA_VERSION 2u
 
 /* block.found event topic handle; set by mining_pool_stats_set_block_topic(). */
 static bb_event_topic_t s_block_topic = NULL;

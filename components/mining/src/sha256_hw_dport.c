@@ -128,29 +128,33 @@ static inline void dport_wait_idle(void)
 }
 
 /* Pool-target-aware early-reject on MSB word of the digest.
- * Reads word 7 (MSB of final state) and compares against target_word0_max.
- * If word 7 > target_word0_max, returns false immediately (early reject).
- * On potential hit (word 7 <= target_word0_max): reads all 8 canonical state words
- * under DPORT_INTERRUPT_DISABLE (per erratum), calls mining_hash_from_state.
- * DPORT peripheral registers hold canonical SHA words (BE numeric value as host
- * uint32_t), so the register read passes directly to state[i] — no bswap needed. */
+ *
+ * DPORT register layout is REVERSED vs canonical SHA-256 H[] order:
+ *   SHA_TEXT[7] = canonical H[0] (MSB word, most-significant)
+ *   SHA_TEXT[0] = canonical H[7] (LSB word, least-significant)
+ * Early-reject reads SHA_TEXT[7] — this IS the MSB canonical word, so the
+ * comparison against target_word0_max is correct as-is.
+ * Full readback maps state[0]=canonical H[0] ... state[7]=canonical H[7] so
+ * mining_hash_from_state produces LE-internal byte order matching meets_target. */
 static inline bool dport_read_digest_swap_if(uint8_t out[32], uint32_t target_word0_max)
 {
     DPORT_INTERRUPT_DISABLE();
-    uint32_t word7 = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 7 * 4);
-    if (word7 > target_word0_max) {
+    /* SHA_TEXT[7] = canonical MSB word H[0] — correct for early-reject. */
+    uint32_t word0 = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 7 * 4);
+    if (word0 > target_word0_max) {
         DPORT_INTERRUPT_RESTORE();
         return false;  /* early reject — cheapest path */
     }
+    /* Full readback: reverse register index → state index mapping. */
     uint32_t state[8];
-    state[7] = word7;
-    state[0] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 0 * 4);
-    state[1] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 1 * 4);
-    state[2] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 2 * 4);
-    state[3] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 3 * 4);
-    state[4] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 4 * 4);
-    state[5] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 5 * 4);
-    state[6] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 6 * 4);
+    state[0] = word0;
+    state[1] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 6 * 4);
+    state[2] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 5 * 4);
+    state[3] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 4 * 4);
+    state[4] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 3 * 4);
+    state[5] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 2 * 4);
+    state[6] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 1 * 4);
+    state[7] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 0 * 4);
     DPORT_INTERRUPT_RESTORE();
     mining_hash_from_state(state, out);
     return true;
@@ -274,8 +278,9 @@ bb_err_t sha256_hw_dport_self_test(void)
  *   - HW: sha256_hw_dport_per_nonce(header, nonce) → dport byte format.
  *
  * Byte-order: both SW (sha256d → sha256_final → mining_hash_from_state) and HW
- * (dport_read_digest_swap_if → mining_hash_from_state) produce the same BE-per-word
- * format. memcmp(hash_hw, hash_sw, 32) is a direct comparison — no conversion needed.
+ * (dport_read_digest_swap_if → mining_hash_from_state) produce LE-internal byte order
+ * (hash[0..3] = canonical MSB word BE bytes, hash[28..31] = canonical LSB word BE bytes).
+ * memcmp(hash_hw, hash_sw, 32) is a direct comparison — no conversion needed.
  *
  * Caller MUST hold sha256_hw_dport_acquire() — no re-acquire here.
  * Returns BB_OK on PASS, BB_ERR_INVALID_STATE on first mismatch.

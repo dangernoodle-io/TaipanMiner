@@ -17,15 +17,16 @@ extern "C" {
 
 /*
  * Load pool stats from NVS on startup; erase legacy lt_* keys.
- * Reads the schema-version sentinel first; if mismatched (or absent on
- * fresh install) all ps_* NVS keys are wiped before loading proceeds.
+ * Loaded values pass through the sanitizer (NaN/inf, timestamp range,
+ * cross-field invariants) so corrupt fields self-heal without wiping
+ * legitimate data.
  * Must be called after mining_stats_init() (mutex must exist on ESP).
  * Safe to call on host (in-memory bb_nv stubs).
  */
 void mining_pool_stats_init(void);
 
 /*
- * Persist current pool_stats table to NVS including the schema sentinel.
+ * Persist current pool_stats table to NVS.
  * Called by the 10-min stats_save_task; also called after record_share
  * and record_block to persist immediately for those events.
  * Takes the mining_stats mutex internally on ESP_PLATFORM.
@@ -90,8 +91,8 @@ bb_event_topic_t mining_pool_stats_get_block_topic(void);
 
 #ifndef ESP_PLATFORM
 /*
- * Test hook: zero-fill the in-memory pool stats table and reset schema
- * injection state. Call from setUp() to isolate tests from each other.
+ * Test hook: zero-fill the in-memory pool stats table and reset injection
+ * state. Call from setUp() to isolate tests from each other.
  */
 void mining_pool_stats_reset_for_test(void);
 
@@ -114,30 +115,16 @@ void mining_pool_stats_sanitize_lifetime_for_test(void);
 void mining_pool_stats_set_lifetime_blocks_for_test(uint32_t v);
 
 /*
- * Test hook: set the schema version that mining_pool_stats_init() will read
- * from NVS. On host, bb_nv stubs always return the fallback (0); this hook
- * simulates a real partition with a specific stored version.
- * Pass UINT32_MAX to clear the injection (revert to stub behaviour = 0).
- */
-void mining_pool_stats_inject_schema_for_test(uint32_t schema);
-
-/*
- * Test hook: return the schema version written by the most recent
- * mining_pool_stats_save() call. UINT32_MAX = not yet written in this test.
- */
-uint32_t mining_pool_stats_get_saved_schema_for_test(void);
-
-/*
  * Test hook: pre-seed slot `idx` with `*sl` so that the next
- * mining_pool_stats_init() call (with schema match) "loads" that data
- * instead of calling the bb_nv stubs (which always return zeros on host).
+ * mining_pool_stats_init() call "loads" that data instead of calling the
+ * bb_nv stubs (which always return zeros on host).
  * Allows coverage of the slot-populated load path.
  */
 void mining_pool_stats_inject_slot_for_test(int idx, const mining_pool_stat_t *sl);
 
 /*
  * Test hook: pre-seed the lifetime_blocks value that the next
- * mining_pool_stats_init() call will load (on schema match).
+ * mining_pool_stats_init() call will load.
  * UINT32_MAX = not injected (use bb_nv stub fallback = 0).
  */
 void mining_pool_stats_inject_lifetime_blocks_for_test(uint32_t v);

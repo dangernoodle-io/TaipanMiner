@@ -389,16 +389,13 @@ void test_pool_stats_recovery_lifetime_last_block_ts_corrupt(void);
 void test_pool_stats_recovery_lifetime_last_block_ts_valid(void);
 void test_pool_stats_recovery_lifetime_blocks_zero_ts_nonzero(void);
 void test_pool_stats_recovery_lifetime_blocks_large_accepted(void);
-// schema sentinel
-void test_pool_stats_schema_mismatch_wipes_and_resets(void);
-void test_pool_stats_schema_match_preserves_load_path(void);
-void test_pool_stats_save_writes_schema(void);
-void test_pool_stats_fresh_install_wipes_and_save_writes_schema(void);
-void test_pool_stats_schema_match_loads_injected_slot(void);
-void test_pool_stats_schema_match_loads_injected_lifetime_blocks(void);
+// init load path
+void test_pool_stats_init_fresh_install(void);
+void test_pool_stats_load_injected_slot(void);
+void test_pool_stats_init_preserves_lifetime_blocks(void);
 // branch coverage gap-fill
 void test_pool_stats_recovery_best_diff_negative_inf(void);
-void test_pool_stats_schema_match_loads_slot_via_last_seen_us(void);
+void test_pool_stats_load_slot_via_last_seen_us(void);
 void test_pool_stats_find_or_alloc_null_host(void);
 void test_pool_stats_inject_slot_null_and_oob(void);
 void test_pool_stats_record_share_out_of_table_slot_skips_persist(void);
@@ -967,16 +964,13 @@ int main(void) {
     RUN_TEST(test_pool_stats_recovery_lifetime_last_block_ts_valid);
     RUN_TEST(test_pool_stats_recovery_lifetime_blocks_zero_ts_nonzero);
     RUN_TEST(test_pool_stats_recovery_lifetime_blocks_large_accepted);
-    // schema sentinel
-    RUN_TEST(test_pool_stats_schema_mismatch_wipes_and_resets);
-    RUN_TEST(test_pool_stats_schema_match_preserves_load_path);
-    RUN_TEST(test_pool_stats_save_writes_schema);
-    RUN_TEST(test_pool_stats_fresh_install_wipes_and_save_writes_schema);
-    RUN_TEST(test_pool_stats_schema_match_loads_injected_slot);
-    RUN_TEST(test_pool_stats_schema_match_loads_injected_lifetime_blocks);
+    // init load path
+    RUN_TEST(test_pool_stats_init_fresh_install);
+    RUN_TEST(test_pool_stats_load_injected_slot);
+    RUN_TEST(test_pool_stats_init_preserves_lifetime_blocks);
     // branch coverage gap-fill
     RUN_TEST(test_pool_stats_recovery_best_diff_negative_inf);
-    RUN_TEST(test_pool_stats_schema_match_loads_slot_via_last_seen_us);
+    RUN_TEST(test_pool_stats_load_slot_via_last_seen_us);
     RUN_TEST(test_pool_stats_find_or_alloc_null_host);
     RUN_TEST(test_pool_stats_inject_slot_null_and_oob);
     RUN_TEST(test_pool_stats_record_share_out_of_table_slot_skips_persist);

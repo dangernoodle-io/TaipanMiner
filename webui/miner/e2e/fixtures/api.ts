@@ -195,14 +195,14 @@ export const poolFixture = {
 
 export const knotFixture: unknown[] = []
 
-// /api/ota/check is now a kick-only endpoint that returns immediately.
+// POST /api/update/check — kick-only endpoint, returns immediately.
 // The actual check result lands in /api/update/status (see updateStatusFixture).
 export const otaCheckFixture = {
   status: 'checking',
 }
 
 // /api/update/status — populated by bb_update_check's worker; the webui polls
-// this after kicking via /api/ota/check until last_check_ts advances.
+// this after kicking via POST /api/update/check until last_check_ts advances.
 export const updateStatusFixture = {
   current: '1.2.3',
   latest: '1.2.3',
@@ -213,11 +213,15 @@ export const updateStatusFixture = {
   last_check_ts: 1000000000,
 }
 
-export const otaStatusFixture = {
+// /api/update/progress — replaces /api/ota/status
+export const otaProgressFixture = {
   state: 'idle',
   in_progress: false,
   progress_pct: 0,
 }
+
+// Keep alias for backward compat with any tests still referencing otaStatusFixture
+export const otaStatusFixture = otaProgressFixture
 
 export const diagAsicFixture = {
   recent_drops: [],
@@ -240,12 +244,11 @@ export type EndpointMap = Partial<{
   '/api/settings': unknown
   '/api/pool': unknown
   '/api/knot': unknown
-  '/api/ota/check': unknown
+  '/api/update/check': unknown
   '/api/update/status': unknown
-  '/api/ota/status': unknown
+  '/api/update/progress': unknown
   '/api/diag/asic': unknown
   '/api/log/level': unknown
-  '/api/version': unknown
 }>
 
 const defaults: EndpointMap = {
@@ -257,12 +260,11 @@ const defaults: EndpointMap = {
   '/api/settings': settingsFixture,
   '/api/pool': poolFixture,
   '/api/knot': knotFixture,
-  '/api/ota/check': otaCheckFixture,
+  '/api/update/check': otaCheckFixture,
   '/api/update/status': updateStatusFixture,
-  '/api/ota/status': otaStatusFixture,
+  '/api/update/progress': otaProgressFixture,
   '/api/diag/asic': diagAsicFixture,
   '/api/log/level': logLevelsFixture,
-  '/api/version': '1.2.3',
 }
 
 export interface MockOptions {
@@ -299,11 +301,10 @@ export async function mockMinerApi(page: Page, opts: MockOptions = {}): Promise<
 
     if (path in merged) {
       const body = merged[path as keyof EndpointMap]
-      const isPlainText = path === '/api/version'
       await route.fulfill({
         status: 200,
-        contentType: isPlainText ? 'text/plain' : 'application/json',
-        body: isPlainText ? String(body) : JSON.stringify(body),
+        contentType: 'application/json',
+        body: JSON.stringify(body),
       })
       return
     }

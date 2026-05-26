@@ -321,10 +321,10 @@ export interface DiagHeap {
 export const fetchDiagHeap = () => getJson<DiagHeap>('/api/diag/heap')
 
 export async function checkDiagHeap(): Promise<boolean> {
-  const res = await fetch(`${baseUrl}/api/diag/heap/check`, { method: 'POST' })
+  const res = await fetch(`${baseUrl}/api/diag/heap?check=true`)
   if (!res.ok) throw new Error(`heap check failed: ${res.status}`)
-  const d = await res.json() as { ok: boolean }
-  return d.ok
+  const d = await res.json() as { integrity_ok: boolean }
+  return d.integrity_ok
 }
 
 export type TaskState = 'running' | 'ready' | 'blocked' | 'suspended' | 'deleted' | 'invalid'
@@ -349,15 +349,28 @@ export interface DiagPanic {
 }
 export const fetchDiagPanic = () => getJson<DiagPanic>('/api/diag/panic')
 
-export async function clearAbnormalResets(): Promise<void> {
-  const res = await fetch(`${baseUrl}/api/diag/abnormal-resets`, { method: 'DELETE' })
-  if (!res.ok) throw new Error(`clear abnormal-resets failed: ${res.status}`)
+export interface DiagBootPanic {
+  available: boolean
+  boots_since?: number
+  reset_reason?: string
+}
+export interface DiagBoot {
+  reset_reason: string
+  abnormal_reset_count: number
+  panic: DiagBootPanic
+}
+export const fetchDiagBoot = () => getJson<DiagBoot>('/api/diag/boot')
+
+// DELETE /api/diag/boot — clears panic log + abnormal-reset counter in one call
+// (replaces the removed DELETE /api/diag/panic + DELETE /api/diag/abnormal-resets)
+export async function clearDiagBoot(): Promise<void> {
+  const res = await fetch(`${baseUrl}/api/diag/boot`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(`clear diag boot failed: ${res.status}`)
 }
 
-export async function clearDiagPanic(): Promise<void> {
-  const res = await fetch(`${baseUrl}/api/diag/panic`, { method: 'DELETE' })
-  if (!res.ok) throw new Error(`clear panic failed: ${res.status}`)
-}
+// Kept for API compat: both operations now collapse to a single DELETE /api/diag/boot
+export const clearAbnormalResets = clearDiagBoot
+export const clearDiagPanic      = clearDiagBoot
 
 export const coredumpUrl = `${baseUrl}/api/diag/panic/coredump`
 
@@ -420,14 +433,12 @@ export async function postReboot(): Promise<void> {
   if (!res.ok) throw new Error(`reboot failed: ${res.status}`)
 }
 
-// Lightweight liveness probe. Uses /api/version since it's the cheapest
-// existing endpoint (plain text, no heavy JSON). Swap to /api/ping when
-// TA-214 lands.
+// Lightweight liveness probe. Polls /api/health — any 200 means the device is up.
 export async function ping(timeoutMs = 2000): Promise<boolean> {
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
-    const res = await fetch(`${baseUrl}/api/version`, { signal: ctrl.signal })
+    const res = await fetch(`${baseUrl}/api/health`, { signal: ctrl.signal })
     return res.ok
   } catch {
     return false
@@ -485,7 +496,7 @@ export async function kickOtaCheck(): Promise<number> {
   const beforeJson: UpdateStatus | null = before.ok ? await before.json() : null
   const beforeTs = beforeJson?.last_check_ts ?? 0
 
-  const kick = await fetch(`${baseUrl}/api/ota/check`)
+  const kick = await fetch(`${baseUrl}/api/update/check`, { method: 'POST' })
   if (!kick.ok && kick.status !== 202) {
     throw new Error(`ota check failed: ${kick.status}`)
   }
@@ -507,24 +518,30 @@ export async function fetchOtaCheck(since = 0): Promise<OtaCheckResult | 'pendin
 }
 
 export async function triggerOtaUpdate(): Promise<void> {
-  const res = await fetch(`${baseUrl}/api/ota/update`, { method: 'POST' })
+  const res = await fetch(`${baseUrl}/api/update/apply`, { method: 'POST' })
   if (!res.ok) throw new Error(`ota update failed: ${res.status}`)
 }
 
 export async function fetchOtaStatus(): Promise<OtaStatus> {
-  const res = await fetch(`${baseUrl}/api/ota/status`)
+  const res = await fetch(`${baseUrl}/api/update/progress`)
   if (!res.ok) throw new Error(`ota status failed: ${res.status}`)
   return res.json()
 }
 
-// Upload firmware binary to /api/ota/push with progress callback.
+// Mark OTA as valid — POST /api/update/mark-valid.
+export async function markOtaValid(): Promise<void> {
+  const res = await fetch(`${baseUrl}/api/update/mark-valid`, { method: 'POST' })
+  if (!res.ok) throw new Error(`mark-valid failed: ${res.status}`)
+}
+
+// Upload firmware binary to /api/update/push with progress callback.
 export function uploadOta(
   file: File,
   onProgress: (pct: number) => void
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
-    xhr.open('POST', `${baseUrl}/api/ota/push`)
+    xhr.open('POST', `${baseUrl}/api/update/push`)
     xhr.setRequestHeader('Content-Type', 'application/octet-stream')
 
     xhr.upload.addEventListener('progress', (e) => {

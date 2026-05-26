@@ -329,7 +329,7 @@ void test_pool_stats_recovery_best_diff_valid_passes_through(void)
 /* -------------------------------------------------------------------------
  * best_diff: very large finite value is now accepted (no magnitude ceiling).
  * A bitaxe at 1.4 TH/s can accumulate difficulty well above the old 1e25
- * cap; the correct mechanism for layout corruption is the schema sentinel.
+ * cap; the sanitizer rejects only NaN/inf, not "large but finite".
  * ---------------------------------------------------------------------- */
 void test_pool_stats_recovery_best_diff_large_finite_accepted(void)
 {
@@ -511,117 +511,43 @@ void test_pool_stats_recovery_lifetime_blocks_large_accepted(void)
 }
 
 /* =========================================================================
- * Schema-sentinel tests
+ * Init load-path tests (sanitizer-only, no schema sentinel)
  * ======================================================================= */
 
 /* -------------------------------------------------------------------------
- * Schema mismatch: init with stored schema != 2 wipes all data and resets.
+ * Fresh install: init on empty NVS leaves all slots zeroed; lifetime=0.
  * ---------------------------------------------------------------------- */
-void test_pool_stats_schema_mismatch_wipes_and_resets(void)
+void test_pool_stats_init_fresh_install(void)
 {
     ps_setUp();
-    /* Simulate NVS containing schema=99 (wrong version) and some slot data
-     * that would survive a normal load. We pre-populate in-memory state to
-     * simulate what a stale-layout read would produce, then call init with
-     * the mismatch injection so it exercises the wipe path. */
-    mining_pool_stats_inject_schema_for_test(99u);
-    /* Pre-load a slot so we can verify it is wiped. */
-    mining_pool_stat_t *sl = mining_pool_stats_find_or_alloc("pool.example.com", 3333);
-    mining_pool_stats_record_share(sl, 512.0, 1750000000);
-    TEST_ASSERT_EQUAL_UINT32(1, sl->shares);
-
-    /* Call init — sees schema=99, wipes, resets to zeros. */
     mining_pool_stats_init();
 
-    /* All slots must be zeroed after the wipe. */
-    for (int i = 0; i < MINING_POOL_STATS_MAX; i++) {
-        const mining_pool_stat_t *s = mining_pool_stats_slot(i);
-        TEST_ASSERT_NOT_NULL(s);
-        TEST_ASSERT_EQUAL_INT64(0, s->last_seen_us);
-        TEST_ASSERT_EQUAL_UINT32(0, s->shares);
-    }
-    TEST_ASSERT_EQUAL_UINT32(0, mining_pool_stats_lifetime_blocks());
-}
-
-/* -------------------------------------------------------------------------
- * Schema match: init with stored schema==3 loads data normally.
- * On host the bb_nv stubs are no-ops, so the "loaded" values come from the
- * stubs (all zeros). The test verifies that the wipe path is NOT taken —
- * i.e. the code falls through to the load path without error.
- * ---------------------------------------------------------------------- */
-void test_pool_stats_schema_match_preserves_load_path(void)
-{
-    ps_setUp();
-    /* Inject schema==3 — matches BB_POOL_STATS_SCHEMA_VERSION. */
-    mining_pool_stats_inject_schema_for_test(3u);
-
-    mining_pool_stats_init();
-
-    /* Host stubs return 0 for all gets, so slots are zero — but the load
-     * path ran (no wipe). We verify no assertion fired and init returned. */
     for (int i = 0; i < MINING_POOL_STATS_MAX; i++) {
         const mining_pool_stat_t *sl = mining_pool_stats_slot(i);
         TEST_ASSERT_NOT_NULL(sl);
+        TEST_ASSERT_EQUAL_INT64(0, sl->last_seen_us);
     }
-    /* lifetime_blocks: stub returned 0. */
     TEST_ASSERT_EQUAL_UINT32(0, mining_pool_stats_lifetime_blocks());
 }
 
 /* -------------------------------------------------------------------------
- * Save writes schema: after save, get_saved_schema returns 3.
+ * Init load path: pre-seeded slot with a host string is loaded into the
+ * live table (covers the host[0]!='\0' branch of the slot-store condition).
  * ---------------------------------------------------------------------- */
-void test_pool_stats_save_writes_schema(void)
+void test_pool_stats_load_injected_slot(void)
 {
     ps_setUp();
-    TEST_ASSERT_EQUAL_UINT32(UINT32_MAX, mining_pool_stats_get_saved_schema_for_test());
-    mining_pool_stats_save();
-    TEST_ASSERT_EQUAL_UINT32(3u, mining_pool_stats_get_saved_schema_for_test());
-}
-
-/* -------------------------------------------------------------------------
- * Fresh install (schema key absent): init wipes cleanly, subsequent save
- * writes schema. On host, bb_nv stubs always return 0, simulating the
- * "key not found → fallback=0" path on a real partition.
- * ---------------------------------------------------------------------- */
-void test_pool_stats_fresh_install_wipes_and_save_writes_schema(void)
-{
-    ps_setUp();
-    /* No schema injection → bb_nv stub returns 0 → treated as fresh install. */
-    mining_pool_stats_init();
-
-    /* Slots are zero. */
-    for (int i = 0; i < MINING_POOL_STATS_MAX; i++) {
-        const mining_pool_stat_t *sl = mining_pool_stats_slot(i);
-        TEST_ASSERT_EQUAL_INT64(0, sl->last_seen_us);
-    }
-
-    /* Subsequent save writes the schema sentinel. */
-    mining_pool_stats_save();
-    TEST_ASSERT_EQUAL_UINT32(3u, mining_pool_stats_get_saved_schema_for_test());
-}
-
-/* -------------------------------------------------------------------------
- * Schema match with pre-seeded slot data: exercises the "slot populated"
- * branch of the init load path (lines guarded by host[0]!='\0' check).
- * ---------------------------------------------------------------------- */
-void test_pool_stats_schema_match_loads_injected_slot(void)
-{
-    ps_setUp();
-    mining_pool_stats_inject_schema_for_test(3u);
 
     /* Pre-seed slot 0 with a known share count and host. */
     mining_pool_stat_t pre = {0};
     strncpy(pre.host, "pool.example.com", sizeof(pre.host) - 1);
     pre.port   = 3333;
     pre.shares = 42;
-    /* last_seen_us must be in valid timestamp range for the load path to
-     * store the slot (the check is host[0]!='\0' || last_seen_us!=0). */
     pre.last_seen_us = 0; /* host[0]!='\0' is sufficient */
     mining_pool_stats_inject_slot_for_test(0, &pre);
 
     mining_pool_stats_init();
 
-    /* Slot 0 should have been loaded with the injected data. */
     const mining_pool_stat_t *sl = mining_pool_stats_slot(0);
     TEST_ASSERT_NOT_NULL(sl);
     TEST_ASSERT_EQUAL_STRING("pool.example.com", sl->host);
@@ -629,13 +555,13 @@ void test_pool_stats_schema_match_loads_injected_slot(void)
 }
 
 /* -------------------------------------------------------------------------
- * Schema match with pre-seeded lifetime blocks > 0: exercises the
- * "lifetime blocks" log branch in the init load path.
+ * Lifetime preservation: pre-seeded lifetime_blocks is loaded as-is — no
+ * schema bump wipes it. This guards the bitaxe-403 regression where every
+ * BB_POOL_STATS_SCHEMA_VERSION bump nuked accumulated lifetime stats.
  * ---------------------------------------------------------------------- */
-void test_pool_stats_schema_match_loads_injected_lifetime_blocks(void)
+void test_pool_stats_init_preserves_lifetime_blocks(void)
 {
     ps_setUp();
-    mining_pool_stats_inject_schema_for_test(3u);
     mining_pool_stats_inject_lifetime_blocks_for_test(5u);
 
     mining_pool_stats_init();
@@ -663,10 +589,9 @@ void test_pool_stats_recovery_best_diff_negative_inf(void)
  * init load path: slot has empty host but non-zero last_seen_us — covers the
  * "|| last_seen_us != 0" branch of the slot-store condition.
  * ---------------------------------------------------------------------- */
-void test_pool_stats_schema_match_loads_slot_via_last_seen_us(void)
+void test_pool_stats_load_slot_via_last_seen_us(void)
 {
     ps_setUp();
-    mining_pool_stats_inject_schema_for_test(3u);
 
     /* slot with empty host but a valid last_seen_us. */
     mining_pool_stat_t pre = {0};

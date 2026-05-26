@@ -8,13 +8,9 @@
  *   ESP_PLATFORM — mining_stats.pool_stats (shared struct, guarded by mutex)
  *   Host/native  — file-static s_table (no FreeRTOS)
  *
- * Schema sentinel (BB_POOL_STATS_SCHEMA_VERSION):
- *   Written to NVS key "ps_schema" on every save. Read before loading any
- *   per-slot or lifetime data. If the stored value differs from the compiled
- *   version (including 0 = never written), all ps_* keys are wiped and the
- *   component starts fresh. This catches stale-layout reads after firmware
- *   upgrades that change the on-disk format. Bump the version in any PR that
- *   changes which keys are written or how values are encoded.
+ * Corruption recovery: NVS values are validated by the sanitizer (NaN/inf,
+ * timestamp range, cross-field invariants) at load time. Lifetime counters
+ * are preserved across firmware upgrades — no schema-version wipe path.
  */
 
 #include "mining_pool_stats.h"
@@ -32,13 +28,6 @@
 #include "freertos/semphr.h"
 #include "esp_timer.h"
 #endif
-
-/* Bump this in any PR that changes the on-disk key set or value encoding.
- * v2: DPORT SHA byte-order fix landed (PR #428); force wipe of inflated
- *     lifetime_blocks from record_block false-positives on esp32-wroom32.
- * v3: Reverted #428's incorrect register mapping; any shares "found" by #428's
- *     broken hash format are invalid — wipe pool stats again for a clean slate. */
-#define BB_POOL_STATS_SCHEMA_VERSION 3u
 
 /* block.found event topic handle; set by mining_pool_stats_set_block_topic(). */
 static bb_event_topic_t s_block_topic = NULL;
@@ -61,12 +50,6 @@ static mining_pool_stats_t s_table;
 /* Monotonically increasing timestamp counter. Reset by reset_for_test(). */
 static int64_t s_host_clock = 1;
 
-/* Schema injection: UINT32_MAX = not injected (stubs return 0). */
-static uint32_t s_injected_schema = UINT32_MAX;
-
-/* Captures schema version written by the most recent save(). UINT32_MAX = not written. */
-static uint32_t s_saved_schema = UINT32_MAX;
-
 /* Pre-seeded NVS slot data: when valid[i], s_load_slot returns slots[i] directly
  * instead of calling bb_nv stubs. Covers the slot-populated init load path. */
 static mining_pool_stat_t s_injected_slots[MINING_POOL_STATS_MAX];
@@ -83,8 +66,7 @@ static uint32_t s_injected_lifetime_blocks = UINT32_MAX;
  * timestamps, and cross-field invariants. Magnitude ceilings on monotonic
  * counters (shares, hashes, blocks) have been removed — legitimate values
  * grow without bound (a bitaxe at 1.4 TH/s accumulates ~4e19 hashes/year,
- * far above any finite ceiling). Schema-version mismatch is the correct
- * mechanism for detecting layout changes.
+ * far above any finite ceiling).
  * ---------------------------------------------------------------------- */
 
 /* best_diff (double): must be finite (not NaN, not inf) and non-negative.
@@ -164,44 +146,6 @@ static void s_sanitize_lifetime(mining_pool_stats_t *ps)
 static void s_key(char buf[16], int slot, const char *field)
 {
     snprintf(buf, 16, "ps%d_%s", slot, field);
-}
-
-/* -------------------------------------------------------------------------
- * pool_stats_wipe_keys — erase all ps_* NVS keys owned by this component.
- *
- * Uses the explicit-key approach: iterate over every key that this component
- * can write and erase it. bb_nv_erase is a no-op if the key does not exist,
- * so there is no need to check for presence first.
- *
- * This must NOT erase the full "taipanminer" namespace — it is shared with
- * other TaipanMiner components.
- * ---------------------------------------------------------------------- */
-static void pool_stats_wipe_keys(void)
-{
-    char key[16];
-
-    /* Lifetime + schema keys. */
-    bb_nv_erase(s_ns, "ps_schema");
-    bb_nv_erase(s_ns, "ps_life_blocks");
-    bb_nv_erase(s_ns, "ps_lblk_hi");
-    bb_nv_erase(s_ns, "ps_lblk_lo");
-
-    /* Per-slot keys for every possible slot. */
-    static const char *s_slot_fields[] = {
-        "host", "port", "shr",
-        "h_lo", "h_hi",
-        "bd_hi", "bd_lo",
-        "blk",
-        "ls_hi", "ls_lo",
-        "bdt_hi", "bdt_lo",
-        "lbt_hi", "lbt_lo",
-    };
-    for (int i = 0; i < MINING_POOL_STATS_MAX; i++) {
-        for (int f = 0; f < (int)(sizeof(s_slot_fields) / sizeof(s_slot_fields[0])); f++) {
-            s_key(key, i, s_slot_fields[f]);
-            bb_nv_erase(s_ns, key);
-        }
-    }
 }
 
 /* -------------------------------------------------------------------------
@@ -363,36 +307,7 @@ void mining_pool_stats_init(void)
         bb_nv_erase(s_ns, s_legacy[i]);
     }
 
-    /* Schema-version sentinel: detect layout/format changes.
-     *
-     * On ESP: reads the stored version; 0 = never written (fresh install or
-     * partition wiped). On host: s_injected_schema simulates the NVS read
-     * (UINT32_MAX = not injected → falls through to bb_nv_get_u32 which
-     * returns 0 on host stubs). */
-    uint32_t schema = 0;
-#ifndef ESP_PLATFORM
-    if (s_injected_schema != UINT32_MAX) {
-        schema = s_injected_schema;
-    } else {
-        bb_nv_get_u32(s_ns, "ps_schema", &schema, 0);
-    }
-#else
-    bb_nv_get_u32(s_ns, "ps_schema", &schema, 0);
-#endif
-
-    if (schema != BB_POOL_STATS_SCHEMA_VERSION) {
-        if (schema != 0) {
-            bb_log_w(TAG, "pool_stats: schema version mismatch (stored=%u, expected=%u); wiping ps_* keys",
-                     (unsigned)schema, BB_POOL_STATS_SCHEMA_VERSION);
-        }
-        pool_stats_wipe_keys();
-        /* Zero the in-memory table so callers see a clean slate. */
-        memset(S_TABLE, 0, sizeof(*S_TABLE));
-        /* First save tick writes the new schema. */
-        return;
-    }
-
-    /* Schema matches — load device-lifetime block counter. */
+    /* Load device-lifetime block counter. */
     uint32_t lifetime_blocks = 0;
 #ifndef ESP_PLATFORM
     if (s_injected_lifetime_blocks != UINT32_MAX) {
@@ -483,7 +398,6 @@ void mining_pool_stats_save(void)
         bb_nv_set_u32(s_ns, "ps_lblk_hi", hi);
         bb_nv_set_u32(s_ns, "ps_lblk_lo", lo);
     }
-    bb_nv_set_u32(s_ns, "ps_schema", BB_POOL_STATS_SCHEMA_VERSION);
 #else
     for (int i = 0; i < MINING_POOL_STATS_MAX; i++) {
         s_save_slot(i, &s_table.slots[i]);
@@ -495,8 +409,6 @@ void mining_pool_stats_save(void)
         bb_nv_set_u32(s_ns, "ps_lblk_hi", hi);
         bb_nv_set_u32(s_ns, "ps_lblk_lo", lo);
     }
-    bb_nv_set_u32(s_ns, "ps_schema", BB_POOL_STATS_SCHEMA_VERSION);
-    s_saved_schema = BB_POOL_STATS_SCHEMA_VERSION;
 #endif
 }
 
@@ -634,8 +546,6 @@ void mining_pool_stats_reset_for_test(void)
 {
     memset(&s_table, 0, sizeof(s_table));
     s_host_clock          = 1;
-    s_injected_schema     = UINT32_MAX;
-    s_saved_schema        = UINT32_MAX;
     s_injected_lifetime_blocks = UINT32_MAX;
     memset(s_injected_slots, 0, sizeof(s_injected_slots));
     memset(s_injected_slot_valid, 0, sizeof(s_injected_slot_valid));
@@ -654,16 +564,6 @@ void mining_pool_stats_sanitize_lifetime_for_test(void)
 void mining_pool_stats_set_lifetime_blocks_for_test(uint32_t v)
 {
     S_TABLE->lifetime_blocks_total = v;
-}
-
-void mining_pool_stats_inject_schema_for_test(uint32_t schema)
-{
-    s_injected_schema = schema;
-}
-
-uint32_t mining_pool_stats_get_saved_schema_for_test(void)
-{
-    return s_saved_schema;
 }
 
 void mining_pool_stats_inject_slot_for_test(int idx, const mining_pool_stat_t *sl)

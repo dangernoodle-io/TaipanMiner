@@ -85,39 +85,54 @@ void test_share_meets_network_target_exact_equals_target(void)
 }
 
 /* ---------------------------------------------------------------------------
- * Bitcoin block 100,000 fixture — byte-order diagnostic
+ * Bitcoin block 100,000 fixture — byte-order regression test
  *
  * Block 100,000:
  *   display hash (BE/RPC): 000000000003ba27aa200b1cecaad478d2b00432346c3f1f3986da1afd33e506
  *   nbits: 0x1b04864c
+ *   raw SHA256d output (= mining_hash_from_state output for this block):
+ *     06 e5 33 fd 1a da 86 39 1f 3f 6c 34 32 04 b0 d2
+ *     78 d4 aa ec 1c 0b 20 aa 27 ba 03 00 00 00 00 00
+ *   (display bytes reversed; raw[31]=0x00, raw[30]=0x00 = LE-MSB bytes)
  *
- * Pass both BE and LE forms. Exactly one should return true (the block WAS
- * mined, so its hash IS below the network target). Whichever form returns
- * true tells us which byte order share_meets_network_target expects — and
- * therefore which byte order mining_hash_from_state must produce.
+ * share_meets_network_target expects the hash in raw SHA256d byte order
+ * (= Bitcoin internal LE convention: raw[31] = LE-MSB = 0 for this block).
+ * This matches the output of mining_hash_from_state(canonical_state, hash)
+ * where canonical_state[0..7] = SHA256d H[0..7].
+ *
+ * Regression: the LE form (raw SHA256d) MUST return true, the BE form
+ * (display/reversed) MUST return false.  If the register-mapping or
+ * hash-serialization byte order regresses, one of these assertions flips.
  * ------------------------------------------------------------------------- */
 void test_share_meets_network_target_known_hit(void)
 {
-    /* Block 100,000 hash in big-endian display order (MSB at index 0). */
-    uint8_t hash_be[32] = {
-        0x00,0x00,0x00,0x00,0x00,0x03,0xba,0x27,0xaa,0x20,0x0b,0x1c,0xec,0xaa,0xd4,0x78,
-        0xd2,0xb0,0x04,0x32,0x34,0x6c,0x3f,0x1f,0x39,0x86,0xda,0x1a,0xfd,0x33,0xe5,0x06
+    /* Block 100,000 hash in raw SHA256d byte order (= LE internal convention).
+     * This is the format mining_hash_from_state produces for a real mined block.
+     * raw[31]=0x00, raw[30]=0x00 ... raw[5]=0x03 (leading zeros of the display
+     * hash appear at the END of raw bytes). */
+    static const uint8_t hash_raw_sha256d[32] = {
+        0x06,0xe5,0x33,0xfd,0x1a,0xda,0x86,0x39,
+        0x1f,0x3f,0x6c,0x34,0x32,0x04,0xb0,0xd2,
+        0x78,0xd4,0xaa,0xec,0x1c,0x0b,0x20,0xaa,
+        0x27,0xba,0x03,0x00,0x00,0x00,0x00,0x00,
     };
-    /* Same hash reversed to little-endian internal order (MSB at index 31). */
-    uint8_t hash_le[32];
-    for (int i = 0; i < 32; i++) hash_le[i] = hash_be[31 - i];
+    /* Same hash reversed to display/BE order (MSB at index 0). */
+    uint8_t hash_display[32];
+    for (int i = 0; i < 32; i++) hash_display[i] = hash_raw_sha256d[31 - i];
 
     uint32_t nbits = 0x1b04864cu;
 
-    bool be_result = share_meets_network_target(hash_be, nbits);
-    bool le_result = share_meets_network_target(hash_le, nbits);
+    bool raw_result     = share_meets_network_target(hash_raw_sha256d, nbits);
+    bool display_result = share_meets_network_target(hash_display, nbits);
 
-    printf("BE-form hash: meets_network_target = %d\n", be_result);
-    printf("LE-form hash: meets_network_target = %d\n", le_result);
+    printf("raw SHA256d (LE) form: meets_network_target = %d (expect 1)\n", raw_result);
+    printf("display (BE) form:     meets_network_target = %d (expect 0)\n", display_result);
 
-    /* The block was mined — exactly one form must return true. */
-    TEST_ASSERT_TRUE(be_result || le_result);
-    TEST_ASSERT_FALSE(be_result && le_result);
+    /* Raw SHA256d (LE internal) form MUST return true — this is the format
+     * mining_hash_from_state produces and the block WAS mined. */
+    TEST_ASSERT_TRUE(raw_result);
+    /* Display (BE reversed) form MUST return false — wrong byte order. */
+    TEST_ASSERT_FALSE(display_result);
 }
 
 /*
@@ -151,4 +166,38 @@ void test_share_meets_network_target_share_misses_network(void)
     /* Neither form of a weak pool share should clear a real network target. */
     TEST_ASSERT_FALSE(be_result);
     TEST_ASSERT_FALSE(le_result);
+}
+
+/* ---------------------------------------------------------------------------
+ * Regression: pool-diff hash meets pool target but NOT network target.
+ *
+ * Synthesizes a hash in raw SHA256d / LE-internal format that satisfies
+ * pool difficulty ~0.006 (leading zeros at LE-MSB end = raw[31..29]=0,
+ * raw[28]=0x50 < target[28]=0xA6) but is far above any real mainnet target
+ * (2024-era nbits 0x17053894).  share_meets_network_target MUST return false.
+ *
+ * This is the regression guard for the false-positive bug where incorrect
+ * DPORT register mapping caused ~5977 spurious block detections in minutes.
+ * ------------------------------------------------------------------------- */
+void test_share_meets_network_target_pool_diff_not_network(void)
+{
+    /* Raw SHA256d format (LE-internal): leading zeros at high indices.
+     * raw[31..29]=0x00, raw[28]=0x50 → meets pool diff ~0.006 target.
+     * raw[27..0] = non-trivial pattern, far above any mainnet target. */
+    uint8_t hash[32];
+    memset(hash, 0xAB, 32);  /* fill with non-zero pattern */
+    hash[31] = 0x00;
+    hash[30] = 0x00;
+    hash[29] = 0x00;
+    hash[28] = 0x50;  /* pool diff ~0.006: target[28]=0xA6, 0x50 < 0xA6 → valid share */
+    /* hash[27..0] = 0xAB — large values, nowhere near mainnet target */
+
+    /* Verify the hash meets pool diff ~0.006 target (sanity check). */
+    uint8_t pool_target[32];
+    difficulty_to_target(0.006, pool_target);
+    TEST_ASSERT_TRUE(meets_target(hash, pool_target));
+
+    /* 2024-era mainnet nbits 0x17053894 → very hard network target.
+     * A pool-difficulty hash MUST NOT meet it. */
+    TEST_ASSERT_FALSE(share_meets_network_target(hash, 0x17053894u));
 }

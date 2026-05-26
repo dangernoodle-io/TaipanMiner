@@ -422,6 +422,7 @@ void test_share_meets_network_target_pool_share_fails(void);
 void test_share_meets_network_target_exact_equals_target(void);
 void test_share_meets_network_target_known_hit(void);
 void test_share_meets_network_target_share_misses_network(void);
+void test_share_meets_network_target_pool_diff_not_network(void);
 // TA-380: version_mask fallback
 void test_asic_version_mask_fallback_case_a_pool_mask(void);
 void test_asic_version_mask_fallback_case_b_fallback_mask(void);
@@ -1225,6 +1226,7 @@ int main(void) {
     RUN_TEST(test_share_meets_network_target_exact_equals_target);
     RUN_TEST(test_share_meets_network_target_known_hit);
     RUN_TEST(test_share_meets_network_target_share_misses_network);
+    RUN_TEST(test_share_meets_network_target_pool_diff_not_network);
     // TA-380: version_mask fallback
     RUN_TEST(test_asic_version_mask_fallback_case_a_pool_mask);
     RUN_TEST(test_asic_version_mask_fallback_case_b_fallback_mask);

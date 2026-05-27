@@ -378,15 +378,64 @@ void test_pool_stats_recovery_best_diff_ts_valid(void)
 }
 
 /* -------------------------------------------------------------------------
- * last_seen_us: out-of-range timestamp reset to 0.
+ * last_seen_us: NOT a wall-clock timestamp — it's esp_timer_get_time()
+ * microseconds-since-boot. Small post-reboot values (like 12.88 s) must
+ * pass through unchanged so find_or_alloc doesn't treat the slot as empty
+ * and memset it during the next lookup.
  * ---------------------------------------------------------------------- */
-void test_pool_stats_recovery_last_seen_us_out_of_range(void)
+void test_pool_stats_recovery_last_seen_us_small_value_preserved(void)
 {
     ps_setUp();
     mining_pool_stat_t *sl = mining_pool_stats_find_or_alloc("pool.example.com", 3333);
-    sl->last_seen_us = (int64_t)999999999; /* pre-2020 */
+    sl->last_seen_us = (int64_t)12886795; /* ~12.88 s into boot — real device sample */
+    mining_pool_stats_sanitize_slot_for_test(sl, 0);
+    TEST_ASSERT_EQUAL_INT64(12886795, sl->last_seen_us);
+}
+
+/* -------------------------------------------------------------------------
+ * last_seen_us: negative values are the only true corruption signature.
+ * ---------------------------------------------------------------------- */
+void test_pool_stats_recovery_last_seen_us_negative_reset(void)
+{
+    ps_setUp();
+    mining_pool_stat_t *sl = mining_pool_stats_find_or_alloc("pool.example.com", 3333);
+    sl->last_seen_us = (int64_t)(-1);
     mining_pool_stats_sanitize_slot_for_test(sl, 0);
     TEST_ASSERT_EQUAL_INT64(0, sl->last_seen_us);
+}
+
+/* -------------------------------------------------------------------------
+ * Regression: init → find_or_alloc roundtrip preserves accumulated shares.
+ *
+ * Bug: sanitizer wrongly reset last_seen_us to 0 (validated as wall-clock
+ * seconds when it's actually esp_timer_get_time() microseconds). find_or_alloc
+ * then saw last_seen_us==0, treated the slot as empty, and memset away the
+ * loaded shr/hashes/best_diff on the very next call.
+ *
+ * Guard: pre-seed slot 0 with host="pool.example.com":3333, shr=4541,
+ * last_seen_us=small-microseconds value. Init loads it. find_or_alloc with
+ * the same host:port must return the SAME slot with shr=4541 intact.
+ * ---------------------------------------------------------------------- */
+void test_pool_stats_init_then_find_or_alloc_preserves_shares(void)
+{
+    ps_setUp();
+
+    mining_pool_stat_t pre = {0};
+    strncpy(pre.host, "pool.example.com", sizeof(pre.host) - 1);
+    pre.port         = 3333;
+    pre.shares       = 4541;
+    pre.hashes       = (uint64_t)1.19e17;
+    pre.best_diff    = 16991900.0;
+    pre.last_seen_us = (int64_t)12886795; /* ~12.88 s post-boot */
+    mining_pool_stats_inject_slot_for_test(0, &pre);
+
+    mining_pool_stats_init();
+
+    mining_pool_stat_t *sl = mining_pool_stats_find_or_alloc("pool.example.com", 3333);
+    TEST_ASSERT_NOT_NULL(sl);
+    TEST_ASSERT_EQUAL_UINT32(4541, sl->shares);
+    TEST_ASSERT_EQUAL_UINT64((uint64_t)1.19e17, sl->hashes);
+    TEST_ASSERT_EQUAL_DOUBLE(16991900.0, sl->best_diff);
 }
 
 /* -------------------------------------------------------------------------

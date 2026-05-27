@@ -1,15 +1,13 @@
-# Bitaxe 403 — delta from sdkconfig.defaults
-CONFIG_UART_ISR_IN_IRAM=y
-CONFIG_VFS_SELECT_IN_RAM=y
-CONFIG_BB_DISPLAY_SSD1306_HEIGHT=32
+# LilyGo T-Dongle S3 — delta from sdkconfig.defaults
 
-# PSRAM — ESP32-S3-WROOM-1-N16R8 (8MB octal).
-# Unlocks ~8MB heap; moves WiFi/LWIP and mbedTLS large buffers off internal SRAM
-# so OTA pull HTTPS handshakes no longer fragmentation-fail at high uptime.
+# PSRAM — LilyGo ships T-Dongle S3 in both no-PSRAM and Plus (with PSRAM)
+# variants. Quad mode + IGNORE_NOTFOUND so the same binary works on either:
+# present hardware is used; absent hardware logs a warning and falls back.
 CONFIG_SPIRAM=y
-CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_MODE_QUAD=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_IGNORE_NOTFOUND=y
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
 # Pin WiFi block-ack window to match our tight RX buffer counts (8 dynamic, 4 static).

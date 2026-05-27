@@ -196,6 +196,7 @@ UI-only changes merged to `main` do NOT auto-deploy — run the workflow manuall
 - FreeRTOS task stacks: 4096–8192 bytes; justify anything outside that range
 - Mining task runs at priority 20 on core 1 — new tasks must not preempt it unintentionally
 - Always take the `mining_stats` mutex before reading or writing shared stats
+- Mining hot-loop data must be cache-isolated: any variable read by `mine_nonce_range` on a per-nonce basis (currently `block2[64]`, `hw_backend_ctx_t hw_ctx`) MUST be declared `static __attribute__((aligned(32)))`. Stack-locals are forbidden because their address depends on FreeRTOS task stack base, which shifts with cumulative BSS growth — that puts the hot reads on different D-cache lines and causes ~1–3% throughput loss per unrelated feature addition. New mining backends or per-nonce helpers must follow the same pattern. See TA-392 + PR #435 for the historical regression. The `mine_nonce_range` Tier-2 log emits an `eff: NN.N%` column alongside the hashrate; sustained drops in that ratio vs the board's historical steady state are the tripwire for this class of regression (tdongle-s3 ≈ 99–101% of ceiling, esp32-wroom32 ≈ 65–70%).
 - Gate verbose debug output with `#ifdef TAIPANMINER_DEBUG`
 - Network reconnect uses a goto-based loop — do not restructure to callbacks
 - Board dispatch via `components/board/include/board.h` `#if defined(BOARD_*)` chain — never hardcode pins outside board headers

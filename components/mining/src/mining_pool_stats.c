@@ -108,10 +108,14 @@ static void s_sanitize_slot(int idx, mining_pool_stat_t *sl)
                  idx, sl->best_diff_ts);
         sl->best_diff_ts = 0;
     }
-    if (!s_value_is_sane_ts(sl->last_seen_us)) {
-        /* last_seen_us on disk is a wall-clock seconds timestamp for the init
-         * path (stored as seconds); only validate when non-zero. */
-        bb_log_w(TAG, "pool_stats: slot %d last_seen_us corrupt (raw=%" PRId64 "); reset to 0",
+    /* last_seen_us is esp_timer_get_time() microseconds-since-boot, NOT a
+     * wall-clock timestamp. After a reboot it's always in the low-microsecond
+     * range. Don't sanitize against the wall-clock range — that wrongly resets
+     * it to 0, which makes find_or_alloc treat the slot as empty and memset
+     * away the loaded shares/hashes/best_diff. Negative values would indicate
+     * corruption but esp_timer is monotonic and non-negative. */
+    if (sl->last_seen_us < 0) {
+        bb_log_w(TAG, "pool_stats: slot %d last_seen_us negative (raw=%" PRId64 "); reset to 0",
                  idx, sl->last_seen_us);
         sl->last_seen_us = 0;
     }

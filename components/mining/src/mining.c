@@ -767,7 +767,24 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                         shares = mining_stats.hw_shares;
                         xSemaphoreGive(mining_stats.mutex);
                     }
-                    bb_log_i(TAG, "hw: %.1f kH/s | shares: %" PRIu32, hashrate / 1000.0, shares);
+                    /* Log efficiency vs SHA peripheral ceiling so regressions
+                     * in the per-nonce inner loop (cache contention from BSS
+                     * layout shifts, MMIO bus contention, etc.) are visible
+                     * in /api/logs and parseable by CI. Per-board expected
+                     * efficiency varies (tdongle/S3 ~99–101%, esp32/DPORT
+                     * ~65–70%) so we log the ratio without a threshold; the
+                     * value to compare against is the board's own historical
+                     * steady state. See TA-392 + PR #435. */
+                    double khs_ceiling = 0.0;
+                    if (mining_get_sha_microbench(NULL, &khs_ceiling) &&
+                        khs_ceiling > 0.0) {
+                        bb_log_i(TAG, "hw: %.1f kH/s | shares: %" PRIu32 " | eff: %.1f%%",
+                                 hashrate / 1000.0, shares,
+                                 (hashrate / 1000.0 / khs_ceiling) * 100.0);
+                    } else {
+                        bb_log_i(TAG, "hw: %.1f kH/s | shares: %" PRIu32,
+                                 hashrate / 1000.0, shares);
+                    }
                 }
 
                 {

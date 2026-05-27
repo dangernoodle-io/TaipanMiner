@@ -569,7 +569,16 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                                  mining_result_t *result_out,
                                  bool *found_out)
 {
-    uint8_t block2[64];
+    /* Pin block2 to a cache-line-aligned static so per-nonce reads in
+     * hw_hot_loop_kernel land on the same D-cache lines regardless of
+     * mine_nonce_range's stack base. Without this, BSS growth from any
+     * feature addition shifts the stack base, putting block2 on different
+     * cache lines and causing eviction by neighbor globals.
+     *
+     * TA-392: identified +112 ns/nonce regression at TM #413 stemming from
+     * exactly this mechanism; cache-isolated placement protects the mining
+     * hot loop from future feature-induced layout shifts. */
+    static uint8_t __attribute__((aligned(32))) block2[64];
     build_block2(block2, work->header);
     backend->prepare_job(backend, work, block2);
 
@@ -808,8 +817,13 @@ void mining_task(void *arg)
         return;
     }
 
-    // Set up hash backend
-    hw_backend_ctx_t hw_ctx;
+    /* Pin hw_ctx to a cache-line-aligned static so its fields read in the
+     * per-nonce hot loop (midstate_hw[], block2_words pointer) live at a
+     * fixed BSS address isolated on their own cache lines. Together with
+     * static block2 in mine_nonce_range, the mining hot loop's data is
+     * immune to BSS layout shifts from future feature additions.
+     * See TA-392. */
+    static __attribute__((aligned(32))) hw_backend_ctx_t hw_ctx;
     hash_backend_t backend;
     hw_backend_setup(&backend, &hw_ctx);
 

@@ -586,16 +586,22 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                                  mining_result_t *result_out,
                                  bool *found_out)
 {
-    /* Pin block2 to a cache-line-aligned static so per-nonce reads in
-     * hw_hot_loop_kernel land on the same D-cache lines regardless of
-     * mine_nonce_range's stack base. Without this, BSS growth from any
-     * feature addition shifts the stack base, putting block2 on different
-     * cache lines and causing eviction by neighbor globals.
+    /* Hot-loop data placement is per-board tunable via CONFIG_MINING_PIN_HOTLOOP_DATA.
      *
-     * TA-392: identified +112 ns/nonce regression at TM #413 stemming from
-     * exactly this mechanism; cache-isolated placement protects the mining
-     * hot loop from future feature-induced layout shifts. */
+     * Pinned (default, S3/AHB): block2 + hw_ctx live in cache-line-aligned BSS
+     * statics so their per-nonce reads land on fixed, isolated D-cache lines,
+     * immune to layout shifts from future feature additions (TA-392/PR#435). The
+     * S3 hot loop has a larger per-nonce working set (midstate_hw[8] + block2_words)
+     * and measurably benefits from this.
+     *
+     * Unpinned (esp32-wroom32/D0): plain stack locals. After the TA-396 filter
+     * fix, the D0 reject-path working set is tiny and the aligned-static placement
+     * measured ~1.5% SLOWER than stack (445 → 452 kH/s), so D0 opts out. */
+#if CONFIG_MINING_PIN_HOTLOOP_DATA
     static uint8_t __attribute__((aligned(32))) block2[64];
+#else
+    uint8_t block2[64];
+#endif
     build_block2(block2, work->header);
     backend->prepare_job(backend, work, block2);
 
@@ -920,13 +926,15 @@ void mining_task(void *arg)
         return;
     }
 
-    /* Pin hw_ctx to a cache-line-aligned static so its fields read in the
-     * per-nonce hot loop (midstate_hw[], block2_words pointer) live at a
-     * fixed BSS address isolated on their own cache lines. Together with
-     * static block2 in mine_nonce_range, the mining hot loop's data is
-     * immune to BSS layout shifts from future feature additions.
-     * See TA-392. */
+    /* Cache placement gated by CONFIG_MINING_PIN_HOTLOOP_DATA — see the note in
+     * mine_nonce_range. Pinned (default/S3) isolates hw_ctx's per-nonce fields
+     * on their own cache lines; unpinned (D0) uses the stack, which measured
+     * faster there post-TA-396. */
+#if CONFIG_MINING_PIN_HOTLOOP_DATA
     static __attribute__((aligned(32))) hw_backend_ctx_t hw_ctx;
+#else
+    hw_backend_ctx_t hw_ctx;
+#endif
     hash_backend_t backend;
     hw_backend_setup(&backend, &hw_ctx);
 

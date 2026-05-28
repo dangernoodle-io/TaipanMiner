@@ -9,3 +9,7 @@ CONFIG_ESP32_DEFAULT_CPU_FREQ_240=y
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=n
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_esp32_4mb.csv"
+
+# D0 reject-path hot loop is tiny post-TA-396; stack placement of hot-loop
+# data measures ~1.5% faster than cache-aligned statics here. See mining Kconfig.
+CONFIG_MINING_PIN_HOTLOOP_DATA=n

@@ -128,6 +128,13 @@ CONFIG_MBEDTLS_PKCS7_C=n
 CONFIG_MBEDTLS_SSL_RENEGOTIATION=n
 CONFIG_MBEDTLS_SSL_KEEP_PEER_CERTIFICATE=n
 
+# mbedTLS record sizes paired with bb_ota_pull partial_http_download (4 KB GETs).
+# Drops peak mbedtls IN-buffer alloc from ~17 KB to ~9 KB, unblocking OTA pull
+# on no-PSRAM boards (tdongle-s3, esp32-wroom32) with fragmented internal heap.
+# OUT lowered to 1 KB — we never send TLS payloads larger than HTTP request headers.
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=8192
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=1024
+
 # /api/events SSE client cap. Restored to BB default 2: cap=4 reserved ~27KB
 # of heap (4×4KB task stack + 4×~2.7KB queue) on ~100KB-free bitaxe-650,
 # contributing to dashboard-load OOM panics (TA-385). The persistent

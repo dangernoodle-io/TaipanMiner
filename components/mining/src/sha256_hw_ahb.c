@@ -583,8 +583,7 @@ void sha256_hw_ahb_boot_probes(void)
     sha256_hw_verify_text_preserved();
     sha256_hw_overlap_canary();
     sha256_hw_hwrite_canary();
-    sha256_hw_microbench();
-    sha256_hw_profile_hotloop(2000);
+    sha256_hw_profile_hotloop(1000);
     bb_err_t rc = sha256_hw_ahb_self_test_lockstep(1000);
     if (rc != BB_OK) {
         bb_log_e(TAG, "S3 lockstep self-test FAILED — SHA hot loop digest diverges from SW SHA256d");
@@ -715,7 +714,10 @@ void sha256_hw_profile_hotloop(uint32_t iterations)
 
     double n = (double)iterations;
     double total_per   = (double)total_cyc       / n;
-    double khs = ((double)esp_clk_cpu_freq() / total_per) / 1000.0;
+    uint32_t cpu_freq = (uint32_t)esp_clk_cpu_freq();
+    double khs = ((double)cpu_freq / total_per) / 1000.0;
+    /* us_per_op: S3 does 2 SHA ops per nonce (pass1 midstate-continue + pass2 start). */
+    double us_per_op_equiv = (1e6 * total_per / (double)cpu_freq) / 2.0;
 
     bb_log_i(TAG,
         "SHA hotloop profile (%" PRIu32 " iters): "
@@ -728,6 +730,7 @@ void sha256_hw_profile_hotloop(uint32_t iterations)
         (double)pass2_wait_cyc  / n,
         (double)reject_cyc      / n,
         total_per, khs);
+    mining_set_sha_microbench(us_per_op_equiv, khs);
 }
 
 // --- Debug utilities ---

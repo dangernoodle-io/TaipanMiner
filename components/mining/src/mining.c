@@ -1,4 +1,5 @@
 #include "mining.h"
+#include "mining_diag.h"
 #include "mining_pool_stats.h"
 #include "share_validate.h"
 #include "diag.h"
@@ -138,6 +139,7 @@ sha_overlap_state_t mining_get_sha_hwrite_state(void) {
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_task_wdt.h"
+#include "esp_cpu.h"
 #include "mining_avg.h"
 #if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32C3
 #include "sha256_hw_ahb.h"
@@ -585,6 +587,16 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
 #ifdef ESP_PLATFORM
     int64_t start_us = esp_timer_get_time();
     uint32_t hashes = 0;
+#if MINING_HOTLOOP_DIAG
+    /* Diag: per-nonce kernel cycle accumulator (TA-395 ceiling investigation). */
+    uint64_t kernel_cyc_accum = 0;
+    uint32_t kernel_cyc_samples = 0;
+    /* Diag (diff-vs-hashrate): HW pre-filter hit counter + share_validate cost.
+     * At lower pool diff, target_word0_max loosens so more nonces pass HW filter
+     * and enter share_validate — even SHARE_BELOW_TARGET pays full validate cost. */
+    uint32_t hashcheck_hits = 0;
+    uint64_t validate_cyc_accum = 0;
+#endif
 #if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32C3
     hw_backend_ctx_t *hw_ctx = (hw_backend_ctx_t *)backend->ctx;
 #elif CONFIG_IDF_TARGET_ESP32
@@ -597,20 +609,52 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
         uint8_t hash[32];
 #if defined(ESP_PLATFORM) && (CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32C3)
         // S3/S2/C3 hot loop: call kernel directly to skip the function-pointer indirection.
+#if MINING_HOTLOOP_DIAG
+        uint32_t k_start_cyc = esp_cpu_get_cycle_count();
+#endif
         hash_result_t hr = hw_hot_loop_kernel(hw_ctx->midstate_hw, hw_ctx->block2_words, nonce, hash);
+#if MINING_HOTLOOP_DIAG
+        kernel_cyc_accum += (uint32_t)(esp_cpu_get_cycle_count() - k_start_cyc);
+        kernel_cyc_samples++;
+#endif
 #elif defined(ESP_PLATFORM) && CONFIG_IDF_TARGET_ESP32
         // D0 hot loop: TA-367 pipelined fill + raw MMIO kernel
+#if MINING_HOTLOOP_DIAG
+        uint32_t k_start_cyc = esp_cpu_get_cycle_count();
+#endif
         hash_result_t hr = sha256_hw_dport_kernel(hw_ctx->header, nonce, hw_ctx->target_word0_max, hash) ? HASH_CHECK : HASH_MISS;
+#if MINING_HOTLOOP_DIAG
+        kernel_cyc_accum += (uint32_t)(esp_cpu_get_cycle_count() - k_start_cyc);
+        kernel_cyc_samples++;
+#endif
 #else
         hash_result_t hr = backend->hash_nonce(backend, nonce, hash);
 #endif
 
         if (hr == HASH_CHECK) {
 #ifdef ESP_PLATFORM
-            // On device: full ordered validation — is_target_valid first to avoid
-            // operating on corrupt targets (fixes SW-path ordering bug).
+            /* Fast-path: meets_target alone. is_target_valid + diff<0.001 are
+             * already validated in the work-queue handler (see is_target_valid
+             * check before the mining loop starts) and don't change mid-job —
+             * calling them per HASH_CHECK is wasted work that scales with HW
+             * filter false-positive rate (~65% of nonces at low pool diff). */
+#if MINING_HOTLOOP_DIAG
+            hashcheck_hits++;
+            uint32_t v_start_cyc = esp_cpu_get_cycle_count();
+#endif
+            bool may_be_share = meets_target(hash, work->target);
+#if MINING_HOTLOOP_DIAG
+            validate_cyc_accum += (uint32_t)(esp_cpu_get_cycle_count() - v_start_cyc);
+#endif
             double share_diff = 0.0;
-            share_verdict_t verdict = share_validate(work, hash, &share_diff);
+            share_verdict_t verdict;
+            if (!may_be_share) {
+                verdict = SHARE_BELOW_TARGET;
+            } else {
+                /* Rare: candidate passed full target compare; pay the full
+                 * validate cost (diff calc + low-difficulty floor check). */
+                verdict = share_validate(work, hash, &share_diff);
+            }
 
             if (verdict == SHARE_BELOW_TARGET) {
                 // Normal miss — hash passed HW pre-filter but missed the real target.
@@ -785,6 +829,21 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                         bb_log_i(TAG, "hw: %.1f kH/s | shares: %" PRIu32,
                                  hashrate / 1000.0, shares);
                     }
+#if MINING_HOTLOOP_DIAG
+                    /* Diag (TA-395): per-nonce kernel cycle cost averaged over
+                     * the Tier-2 batch. Compare avg_cyc / cpu_hz against
+                     * expected kernel µs/op; gap = per-nonce non-kernel overhead. */
+                    if (kernel_cyc_samples > 0) {
+                        uint32_t avg_cyc = (uint32_t)(kernel_cyc_accum / kernel_cyc_samples);
+                        uint32_t v_avg = hashcheck_hits ? (uint32_t)(validate_cyc_accum / hashcheck_hits) : 0;
+                        bb_log_i(DIAG, "kernel_cyc_avg=%" PRIu32 " (n=%" PRIu32 ") hashcheck=%" PRIu32 " validate_cyc_avg=%" PRIu32,
+                                 avg_cyc, kernel_cyc_samples, hashcheck_hits, v_avg);
+                        kernel_cyc_accum = 0;
+                        kernel_cyc_samples = 0;
+                        validate_cyc_accum = 0;
+                        hashcheck_hits = 0;
+                    }
+#endif
                 }
 
                 {

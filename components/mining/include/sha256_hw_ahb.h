@@ -50,18 +50,6 @@ void sha256_hw_init_job(const uint8_t block2[64]);
 // arbitrary register state.
 void sha256_hw_pipeline_prep(void);
 
-// Per nonce first hash: write midstate to SHA_H, repair damaged SHA_TEXT words,
-// write nonce, SHA_CONTINUE, poll, read result to state.
-void sha256_hw_mine_first(uint32_t state[8],
-                          const uint32_t midstate[8],
-                          const uint8_t block2[64],
-                          uint32_t nonce);
-
-// Per nonce second hash: write state[0-7] to SHA_TEXT[0-7], set word 8+15,
-// SHA_START, poll. Returns SHA_H[0] for early reject.
-// If SHA_H[0] <= target_word0, reads full digest into state[0-7].
-uint32_t sha256_hw_mine_second(uint32_t state[8], uint32_t target_word0);
-
 // --- Phase 3: Optimized zero-bswap HW-format pipeline ---
 
 // Compute midstate in HW-native format (no bswap on readback).

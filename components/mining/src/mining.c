@@ -804,11 +804,15 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                 if (elapsed_us > 0) {
                     double hashrate = (double)hashes / ((double)elapsed_us / 1000000.0);
                     uint32_t shares = 0;
+                    uint32_t accepted = 0;
+                    uint32_t rejected = 0;
                     if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
                         mining_stats.hw_hashrate = hashrate;
                         mining_stats_update_ema(&mining_stats.hw_ema, hashrate, esp_timer_get_time());
                         mining_stats.session.hashes += hashes;
                         shares = mining_stats.hw_shares;
+                        accepted = mining_stats.session.shares;
+                        rejected = mining_stats.session.rejected;
                         xSemaphoreGive(mining_stats.mutex);
                     }
                     /* Log efficiency vs SHA peripheral ceiling so regressions
@@ -819,15 +823,23 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                      * ~65–70%) so we log the ratio without a threshold; the
                      * value to compare against is the board's own historical
                      * steady state. See TA-392 + PR #435. */
+                    /* Pool acceptance ratio: shares vs (shares + rejected).
+                     * Verifies the share_validate fast-path isn't fabricating or
+                     * dropping shares — if accepted_pct drops well below the
+                     * historical baseline after a hot-loop change, the new
+                     * validation logic is wrong. */
+                    double accepted_pct = (accepted + rejected) > 0
+                        ? (double)accepted * 100.0 / (double)(accepted + rejected)
+                        : 0.0;
                     double khs_ceiling = 0.0;
                     if (mining_get_sha_microbench(NULL, &khs_ceiling) &&
                         khs_ceiling > 0.0) {
-                        bb_log_i(TAG, "hw: %.1f kH/s | shares: %" PRIu32 " | eff: %.1f%%",
-                                 hashrate / 1000.0, shares,
+                        bb_log_i(TAG, "hw: %.1f kH/s | shares: %" PRIu32 " (acc %" PRIu32 "/rej %" PRIu32 " = %.1f%%) | eff: %.1f%%",
+                                 hashrate / 1000.0, shares, accepted, rejected, accepted_pct,
                                  (hashrate / 1000.0 / khs_ceiling) * 100.0);
                     } else {
-                        bb_log_i(TAG, "hw: %.1f kH/s | shares: %" PRIu32,
-                                 hashrate / 1000.0, shares);
+                        bb_log_i(TAG, "hw: %.1f kH/s | shares: %" PRIu32 " (acc %" PRIu32 "/rej %" PRIu32 " = %.1f%%)",
+                                 hashrate / 1000.0, shares, accepted, rejected, accepted_pct);
                     }
 #if MINING_HOTLOOP_DIAG
                     /* Diag (TA-395): per-nonce kernel cycle cost averaged over

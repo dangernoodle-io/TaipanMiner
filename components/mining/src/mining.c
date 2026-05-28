@@ -363,10 +363,17 @@ void build_block2(uint8_t block2[64], const uint8_t header[80])
 // Pack target bytes [28-31] into a single word for early reject comparison
 uint32_t pack_target_word0(const uint8_t target[32])
 {
-    return ((uint32_t)target[28] << 24) |
-           ((uint32_t)target[29] << 16) |
-           ((uint32_t)target[30] <<  8) |
-            (uint32_t)target[31];
+    /* The TRUE most-significant 32-bit word of the 256-bit PoW target, in
+     * meets_target's convention (target[31] = MSB byte, target[0] = LSB).
+     * Callers compare this against bswap32(H[7]) — the true PoW MSB word —
+     * NOT the raw SHA register word. Packing target[28] as the high byte
+     * (the prior order) byte-reverses the word; since byte-swapping is not
+     * monotonic, `bswap(hash) <= bswap(target)` does NOT imply
+     * `hash <= target`, so the early-reject became a near-no-op (TA-396). */
+    return ((uint32_t)target[31] << 24) |
+           ((uint32_t)target[30] << 16) |
+           ((uint32_t)target[29] <<  8) |
+            (uint32_t)target[28];
 }
 
 // Fill a mining_result_t from work + nonce + version info
@@ -430,8 +437,11 @@ hash_result_t sw_hash_nonce(hash_backend_t *b,
     memcpy(state, sha256_H0, 32);
     sha256_transform_words(state, ctx->block3_words);
 
-    // Early reject: check MSB word
-    if (state[7] <= ctx->target_word0) {
+    /* Early reject: compare the TRUE PoW most-significant word. state[7] is
+     * canonical H[7]; mining_hash_from_state stores it big-endian at hash[28..31],
+     * so the true MSB word (meets_target's hash[31]=MSB convention) is
+     * bswap32(state[7]). target_word0 is packed in that same true-MSB order. */
+    if (__builtin_bswap32(state[7]) <= ctx->target_word0) {
         mining_hash_from_state(state, hash_out);
         return HASH_CHECK;
     }

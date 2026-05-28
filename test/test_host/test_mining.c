@@ -5,6 +5,7 @@
 #endif
 #include "work.h"
 #include "sha256.h"
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <inttypes.h>
@@ -510,4 +511,84 @@ void test_mining_get_pool_effective_rolling_host_stubs(void)
     TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0.0, mining_get_pool_effective_1m());
     TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0.0, mining_get_pool_effective_10m());
     TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0.0, mining_get_pool_effective_1h());
+}
+
+// --- TA-396: byte-order regression tests ---
+
+// Test: pack_target_word0 returns the TRUE most-significant word in correct byte order.
+// The old buggy pack used target[28] as the HIGH byte (byte-reversed).
+// E.g. for target[31..28] = {0x00,0x00,0x00,0x63} the old code returned 0x63000000,
+// the correct code returns 0x00000063.
+void test_pack_target_word0_exact_byte_order(void)
+{
+    uint8_t target[32];
+
+    // Case 1: single-byte in target[28], zeros elsewhere
+    // True MSB word = (target[31]<<24)|(target[30]<<16)|(target[29]<<8)|target[28]
+    //               = 0x00000063
+    // Old buggy result: (target[28]<<24)|... = 0x63000000
+    memset(target, 0, 32);
+    target[31] = 0x00;
+    target[30] = 0x00;
+    target[29] = 0x00;
+    target[28] = 0x63;
+    TEST_ASSERT_EQUAL_HEX32(0x00000063U, pack_target_word0(target));
+
+    // Case 2: multi-byte — old reversed pack returns 0x78563412
+    memset(target, 0, 32);
+    target[31] = 0x12;
+    target[30] = 0x34;
+    target[29] = 0x56;
+    target[28] = 0x78;
+    TEST_ASSERT_EQUAL_HEX32(0x12345678U, pack_target_word0(target));
+}
+
+// Test: sw_hash_nonce early-reject observable directly (not through mine_nonce_range).
+//
+// Calibrated vectors (verified empirically by running the binary):
+//   - nonce 0x9962e301 (genesis block): bswap32(state[7]) = 0x00000000 (many leading zeros)
+//   - nonce 0x00000000 (arbitrary):     bswap32(state[7]) = 0x1bf57b5a (nonzero)
+//
+// Case A (HASH_CHECK): genesis nonce with loose target (diff 0.001).
+//   target_word0 from difficulty_to_target(0.001) is large (easy target).
+//   bswap32(state[7])=0 <= target_word0 → HASH_CHECK.
+//
+// Case B (HASH_MISS): nonce 0 whose MSB word is 0x1bf57b5a.
+//   Hand-set target so target_word0 = 0x1bf57b59 (one below the hash's MSB word).
+//   0x1bf57b5a > 0x1bf57b59 → HASH_MISS.
+//   With the OLD no-op filter (byte-reversed pack), target_word0 would be
+//   byte-reversed and the comparison broken — returning HASH_CHECK wrongly.
+void test_sw_hash_nonce_rejects_over_target(void)
+{
+    mining_work_t work;
+    setup_block1_work(&work);
+
+    sw_backend_ctx_t ctx;
+    hash_backend_t backend;
+    sw_backend_setup(&backend, &ctx);
+
+    uint8_t block2[64];
+    build_block2(block2, work.header);
+
+    // --- Case A: loose target, genesis nonce -> HASH_CHECK ---
+    difficulty_to_target(0.001, work.target);
+    sw_prepare_job(&backend, &work, block2);
+    uint8_t hash_out[32];
+    hash_result_t result_a = sw_hash_nonce(&backend, 0x9962e301, hash_out);
+    TEST_ASSERT_EQUAL_INT(HASH_CHECK, result_a);
+
+    // --- Case B: tight target, nonce 0 -> HASH_MISS ---
+    // nonce 0's true MSB word is 0x1bf57b5a (calibrated).
+    // Set target's MSB word to 0x1bf57b59 (strictly below hash MSB word).
+    // Correct pack: target[31..28] = {0x1b, 0xf5, 0x7b, 0x59}
+    //   -> target_word0 = 0x1bf57b59
+    // Old buggy pack: target[28..31] as high bytes -> byte-reversed, filter broken.
+    memset(work.target, 0, 32);
+    work.target[31] = 0x1b;
+    work.target[30] = 0xf5;
+    work.target[29] = 0x7b;
+    work.target[28] = 0x59; // one below 0x1bf57b5a
+    sw_prepare_job(&backend, &work, block2);
+    hash_result_t result_b = sw_hash_nonce(&backend, 0x00000000, hash_out);
+    TEST_ASSERT_EQUAL_INT(HASH_MISS, result_b);
 }

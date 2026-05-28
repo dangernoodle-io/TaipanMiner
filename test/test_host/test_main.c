@@ -225,6 +225,9 @@ void test_mining_compute_pool_effective_hps_diff1_share(void);
 void test_mining_compute_pool_effective_hps_divide_by_zero_guard(void);
 void test_mining_get_pool_effective_hashrate_host_stub(void);
 void test_mining_get_pool_effective_rolling_host_stubs(void);
+// TA-396: byte-order regression tests
+void test_pack_target_word0_exact_byte_order(void);
+void test_sw_hash_nonce_rejects_over_target(void);
 
 // Forward declarations from test_mining_hotloop_sync.c
 void test_mining_hotloop_finds_known_share(void);
@@ -929,6 +932,9 @@ int main(void) {
     RUN_TEST(test_mining_compute_pool_effective_hps_divide_by_zero_guard);
     RUN_TEST(test_mining_get_pool_effective_hashrate_host_stub);
     RUN_TEST(test_mining_get_pool_effective_rolling_host_stubs);
+    // TA-396: byte-order regression tests
+    RUN_TEST(test_pack_target_word0_exact_byte_order);
+    RUN_TEST(test_sw_hash_nonce_rejects_over_target);
     RUN_TEST(test_mining_hotloop_finds_known_share);
     RUN_TEST(test_mining_hotloop_rejects_non_matching_nonce);
 

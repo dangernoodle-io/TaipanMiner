@@ -140,19 +140,23 @@ static inline void dport_wait_idle(void)
  * meets_target() uses LE-internal (byte[31] = MSB of 256-bit integer = H[7]&0xff).
  * Valid Bitcoin hashes have H[7] small (leading zeros in display hash are zeros
  * at the END of the raw byte stream = H[7] near zero).
- * Early-reject reads SHA_TEXT[7]=H[7] — the correct LE-MSB word. */
+ * Early-reject: SHA_TEXT[7] is canonical H[7] in big-endian register form; the
+ * TRUE most-significant 32-bit word of the PoW value is bswap32(H[7]), and
+ * target_word0_max is packed in that same true-MSB order (TA-396). */
 static inline bool dport_read_digest_swap_if(uint8_t out[32], uint32_t target_word0_max)
 {
     DPORT_INTERRUPT_DISABLE();
-    /* SHA_TEXT[7] = canonical H[7] — the LE-MSB word for Bitcoin mining. */
-    uint32_t word7 = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 7 * 4);
-    if (word7 > target_word0_max) {
+    /* SHA_TEXT[7] = canonical H[7] (big-endian register). Compare bswap32(H[7])
+     * — the true PoW MSB word — against target_word0_max, but keep the raw
+     * register value for mining_hash_from_state, which expects canonical H[i]. */
+    uint32_t word7_raw = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 7 * 4);
+    if (__builtin_bswap32(word7_raw) > target_word0_max) {
         DPORT_INTERRUPT_RESTORE();
         return false;  /* early reject — cheapest path */
     }
     /* Full readback: canonical register order state[i] = SHA_TEXT[i] = H[i]. */
     uint32_t state[8];
-    state[7] = word7;
+    state[7] = word7_raw;
     state[0] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 0 * 4);
     state[1] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 1 * 4);
     state[2] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 2 * 4);

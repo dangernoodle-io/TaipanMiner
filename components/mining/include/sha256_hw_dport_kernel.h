@@ -139,9 +139,16 @@ bool sha256_hw_dport_kernel(const uint8_t header_80[80],
 
     /* 10. Wait LOAD; raw early-reject on word 7 (no DPORT_SEQ needed —
      *     a corrupted value either rejects a real share rarely or falls
-     *     into the full readback path which IS DPORT-safe). */
+     *     into the full readback path which IS DPORT-safe).
+     *
+     *     TA-396: sha_text[7] holds canonical H[7] in big-endian register form;
+     *     the TRUE most-significant 32-bit word of the PoW value (the chunk
+     *     meets_target compares first) is bswap32(sha_text[7]). target_word0_max
+     *     is now packed in that same true-MSB order, so this is an EXACT
+     *     top-32-bit target compare — passing only genuine candidates rather
+     *     than the ~38% the byte-reversed compare let through. */
     while (*sha_busy) {}
-    uint32_t word7 = sha_text[7];
+    uint32_t word7 = __builtin_bswap32(sha_text[7]);
     if (word7 > target_word0_max) {
         return false;
     }

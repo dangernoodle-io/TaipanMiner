@@ -533,11 +533,16 @@ static void hw_prepare_job(hash_backend_t *b,
     hw_backend_ctx_t *ctx = (hw_backend_ctx_t *)b->ctx;
     (void)block2;
     ctx->header = work->header;
-    // Early-reject threshold: MSB word of pool target (bytes 28-31 in BE byte order)
-    ctx->target_word0_max = ((uint32_t)work->target[28] << 24) |
-                            ((uint32_t)work->target[29] << 16) |
-                            ((uint32_t)work->target[30] <<  8) |
-                             (uint32_t)work->target[31];
+    /* Early-reject threshold: the TRUE most-significant 32-bit word of the
+     * 256-bit PoW target, in meets_target's convention (target[31]=MSB byte).
+     * The kernel compares bswap32(sha_text[7]) — the true hash top word — against
+     * this. Prior code packed target[28] as the high byte (byte-reversed), which
+     * made the filter compare scrambled bytes and pass ~38% of nonces regardless
+     * of difficulty (TA-396). */
+    ctx->target_word0_max = ((uint32_t)work->target[31] << 24) |
+                            ((uint32_t)work->target[30] << 16) |
+                            ((uint32_t)work->target[29] <<  8) |
+                             (uint32_t)work->target[28];
     /* TA-369 D.1: preload persistent TEXT[10..15] for this job */
     sha256_hw_dport_kernel_init(work->header);
 }

@@ -2586,7 +2586,7 @@ static const bb_route_t * const s_mining_routes[] = {
 void webui_reserve_mining_routes(void)
 {
     size_t n = sizeof(s_mining_routes) / sizeof(s_mining_routes[0]);
-#if !CONFIG_FREERTOS_UNICORE
+#if CONFIG_WEBUI_MINING_UI
     n += sizeof(s_mining_assets) / sizeof(s_mining_assets[0]);
 #endif
     bb_http_reserve_routes((int)n);
@@ -2595,7 +2595,7 @@ void webui_reserve_mining_routes(void)
 bb_err_t webui_register_mining_routes(bb_http_handle_t server)
 {
     bb_err_t rc;
-#if !CONFIG_FREERTOS_UNICORE
+#if CONFIG_WEBUI_MINING_UI
     // Static SPA assets (index.html/js/css/svg). Skipped on single-core (S2/C3)
     // boards: serving the bundle needs more contiguous heap than these no-PSRAM
     // parts have, and it can't load there anyway. The /api/* routes below stay

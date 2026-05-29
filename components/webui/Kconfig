@@ -1,0 +1,18 @@
+menu "Web UI"
+
+config WEBUI_MINING_UI
+    bool "Serve the mining-mode web dashboard (SPA)"
+    default y
+    help
+      Register the static mining dashboard SPA on the HTTP server. Assets are
+      served as pre-gzipped blobs straight from flash (the browser decompresses),
+      so the runtime heap cost is just the httpd response buffers.
+
+      The /api/* routes are always registered regardless of this option, so a
+      headless device still exposes stats, pool config, and OTA endpoints.
+
+      Disable only on parts too heap-constrained to serve the dashboard without
+      risking OOM (the no-PSRAM ESP32-S2 Mini). The C3 SuperMini and dual-core
+      boards leave this on.
+
+endmenu

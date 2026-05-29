@@ -61,18 +61,8 @@ static void schedule_deferred_restart(void)
 
 extern const uint8_t index_html_gz[];
 extern const size_t index_html_gz_len;
-extern const uint8_t index_js_gz[];
-extern const size_t index_js_gz_len;
-extern const uint8_t index_css_gz[];
-extern const size_t index_css_gz_len;
-extern const uint8_t runtime_js_gz[];
-extern const size_t runtime_js_gz_len;
 extern const uint8_t vendor_js_gz[];
 extern const size_t vendor_js_gz_len;
-extern const uint8_t index2_js_gz[];
-extern const size_t index2_js_gz_len;
-extern const uint8_t index3_js_gz[];
-extern const size_t index3_js_gz_len;
 extern const uint8_t pool_js_gz[];
 extern const size_t pool_js_gz_len;
 extern const uint8_t update_js_gz[];
@@ -2508,12 +2498,7 @@ const bb_http_asset_t *webui_prov_assets(size_t *n)
 
 static bb_http_asset_t s_mining_assets[] = {
     { "/",                       "text/html",              "gzip", NULL, 0 },
-    { "/assets/index.js",        "application/javascript", "gzip", NULL, 0 },
-    { "/assets/index.css",       "text/css",               "gzip", NULL, 0 },
-    { "/assets/runtime.js",      "application/javascript", "gzip", NULL, 0 },
     { "/assets/vendor.js",       "application/javascript", "gzip", NULL, 0 },
-    { "/assets/index2.js",       "application/javascript", "gzip", NULL, 0 },
-    { "/assets/index3.js",       "application/javascript", "gzip", NULL, 0 },
     { "/assets/Pool.js",         "application/javascript", "gzip", NULL, 0 },
     { "/assets/Update.js",       "application/javascript", "gzip", NULL, 0 },
     { "/assets/Diagnostics.js",  "application/javascript", "gzip", NULL, 0 },
@@ -2528,36 +2513,26 @@ static void init_mining_assets(void)
 {
     static bool initialized = false;
     if (!initialized) {
-        s_mining_assets[0].data  = index_html_gz;
-        s_mining_assets[0].len  = index_html_gz_len;
-        s_mining_assets[1].data  = index_js_gz;
-        s_mining_assets[1].len  = index_js_gz_len;
-        s_mining_assets[2].data  = index_css_gz;
-        s_mining_assets[2].len  = index_css_gz_len;
-        s_mining_assets[3].data  = runtime_js_gz;
-        s_mining_assets[3].len  = runtime_js_gz_len;
-        s_mining_assets[4].data  = vendor_js_gz;
-        s_mining_assets[4].len  = vendor_js_gz_len;
-        s_mining_assets[5].data  = index2_js_gz;
-        s_mining_assets[5].len  = index2_js_gz_len;
-        s_mining_assets[6].data  = index3_js_gz;
-        s_mining_assets[6].len  = index3_js_gz_len;
-        s_mining_assets[7].data  = pool_js_gz;
-        s_mining_assets[7].len  = pool_js_gz_len;
-        s_mining_assets[8].data  = update_js_gz;
-        s_mining_assets[8].len  = update_js_gz_len;
-        s_mining_assets[9].data  = diagnostics_js_gz;
-        s_mining_assets[9].len  = diagnostics_js_gz_len;
-        s_mining_assets[10].data = settings_js_gz;
-        s_mining_assets[10].len = settings_js_gz_len;
-        s_mining_assets[11].data = history_js_gz;
-        s_mining_assets[11].len = history_js_gz_len;
-        s_mining_assets[12].data = knot_js_gz;
-        s_mining_assets[12].len = knot_js_gz_len;
-        s_mining_assets[13].data = logo_svg_gz;
-        s_mining_assets[13].len = logo_svg_gz_len;
-        s_mining_assets[14].data = favicon_svg_gz;
-        s_mining_assets[14].len = favicon_svg_gz_len;
+        s_mining_assets[0].data = index_html_gz;
+        s_mining_assets[0].len = index_html_gz_len;
+        s_mining_assets[1].data = vendor_js_gz;
+        s_mining_assets[1].len = vendor_js_gz_len;
+        s_mining_assets[2].data = pool_js_gz;
+        s_mining_assets[2].len = pool_js_gz_len;
+        s_mining_assets[3].data = update_js_gz;
+        s_mining_assets[3].len = update_js_gz_len;
+        s_mining_assets[4].data = diagnostics_js_gz;
+        s_mining_assets[4].len = diagnostics_js_gz_len;
+        s_mining_assets[5].data = settings_js_gz;
+        s_mining_assets[5].len = settings_js_gz_len;
+        s_mining_assets[6].data = history_js_gz;
+        s_mining_assets[6].len = history_js_gz_len;
+        s_mining_assets[7].data = knot_js_gz;
+        s_mining_assets[7].len = knot_js_gz_len;
+        s_mining_assets[8].data = logo_svg_gz;
+        s_mining_assets[8].len = logo_svg_gz_len;
+        s_mining_assets[9].data = favicon_svg_gz;
+        s_mining_assets[9].len = favicon_svg_gz_len;
         initialized = true;
     }
 }

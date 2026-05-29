@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
+import { viteSingleFile } from 'vite-plugin-singlefile'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_')
@@ -10,7 +11,24 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [svelte()],
+    plugins: [
+      svelte(),
+      // Inline the core entry chunks + CSS into index.html (1 initial request).
+      // useRecommendedBuildConfig:false preserves dynamic imports so lazy page
+      // chunks (Pool/Diagnostics/Update/Settings/History/Knot + vendor) stay
+      // external and load on-demand. inlinePattern limits inlining to the core
+      // chunks only; lazy chunks are left as separate files in dist/assets/.
+      viteSingleFile({
+        useRecommendedBuildConfig: false,
+        inlinePattern: [
+          'assets/index.js',
+          'assets/index.css',
+          'assets/runtime.js',
+          'assets/index2.js',
+          'assets/index3.js',
+        ],
+      }),
+    ],
     build: {
       minify: 'terser',
       terserOptions: {

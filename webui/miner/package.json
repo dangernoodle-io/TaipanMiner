@@ -33,6 +33,7 @@
     "typescript": "^5.4.5",
     "uplot": "^1.6.32",
     "vite": "^8.0.11",
+    "vite-plugin-singlefile": "^2.3.3",
     "vitest": "^4.1.5"
   },
   "dependencies": {

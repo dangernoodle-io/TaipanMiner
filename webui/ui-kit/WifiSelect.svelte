@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { signalBars } from './signal'
+
   type WifiNetwork = { ssid: string; rssi: number; secure: boolean }
 
   const MANUAL_VALUE = '__manual__'
@@ -81,9 +83,9 @@
           </svg>
         {/if}
         <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M9.1 16.8A4.5 4.5 0 0114.9 16.8L13 18.8A1.5 1.5 0 0011 18.8Z" fill={ap.rssi >= -80 ? 'currentColor' : 'var(--muted)'}/>
-          <path d="M5.6 12.4A10 10 0 0118.4 12.4L16.4 14.6A7 7 0 007.6 14.6Z" fill={ap.rssi >= -67 ? 'currentColor' : 'var(--muted)'}/>
-          <path d="M2.2 7.8A15.5 15.5 0 0121.8 7.8L19.8 10A12 12 0 004.2 10Z" fill={ap.rssi >= -50 ? 'currentColor' : 'var(--muted)'}/>
+          <path d="M9.1 16.8A4.5 4.5 0 0114.9 16.8L13 18.8A1.5 1.5 0 0011 18.8Z" fill={signalBars(ap.rssi) >= 1 ? 'currentColor' : 'var(--muted)'}/>
+          <path d="M5.6 12.4A10 10 0 0118.4 12.4L16.4 14.6A7 7 0 007.6 14.6Z" fill={signalBars(ap.rssi) >= 2 ? 'currentColor' : 'var(--muted)'}/>
+          <path d="M2.2 7.8A15.5 15.5 0 0121.8 7.8L19.8 10A12 12 0 004.2 10Z" fill={signalBars(ap.rssi) >= 3 ? 'currentColor' : 'var(--muted)'}/>
         </svg>
       </span>
     {:else if error}

@@ -6,6 +6,16 @@ bb_embed_assets(
         ../../webui/miner/dist/index.html:index_html_gz
         ../../webui/miner/dist/assets/index.js:index_js_gz
         ../../webui/miner/dist/assets/index.css:index_css_gz
+        ../../webui/miner/dist/assets/runtime.js:runtime_js_gz
+        ../../webui/miner/dist/assets/vendor.js:vendor_js_gz
+        ../../webui/miner/dist/assets/index2.js:index2_js_gz
+        ../../webui/miner/dist/assets/index3.js:index3_js_gz
+        ../../webui/miner/dist/assets/Pool.js:pool_js_gz
+        ../../webui/miner/dist/assets/Update.js:update_js_gz
+        ../../webui/miner/dist/assets/Diagnostics.js:diagnostics_js_gz
+        ../../webui/miner/dist/assets/Settings.js:settings_js_gz
+        ../../webui/miner/dist/assets/History.js:history_js_gz
+        ../../webui/miner/dist/assets/Knot.js:knot_js_gz
         ../../webui/miner/dist/logo.svg:logo_svg_gz
         ../../webui/miner/dist/favicon.svg:favicon_svg_gz
         ../../webui/prov/dist/index.html:prov_index_html_gz

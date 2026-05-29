@@ -44,12 +44,7 @@ CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=3
 # Lever 3: reduce mDNS event pool (EVT_POOL_SIZE governs queue depth now)
 CONFIG_BB_MDNS_EVT_POOL_SIZE=4
 
-# Disable mDNS entirely on the S2: the mdns task + knot parser + browse/query
-# buffers are the single largest remaining heap consumer (~30KB BSS + runtime),
-# and on this no-PSRAM part that heap is needed for the stratum/mining tasks and
-# to serve /api/stats. Device is still discoverable via the router DHCP list
-# (hostname s2mini-1); only .local resolution is lost.
-CONFIG_BB_MDNS_AUTOREGISTER=n
+# mDNS is kept on the S2 — main.c inits it on the runtime mdns_en flag regardless of AUTOREGISTER; it runs fine here (knot peer discovery works).
 
 # Disable the HTTPS pull/check path on the S2. update_check creates an idle 8KB
 # worker task (BB_HTTP_CLIENT_TASK_STACK) at boot that just blocks — it can never
@@ -59,6 +54,9 @@ CONFIG_BB_MDNS_AUTOREGISTER=n
 # ota_push (plain HTTP, mining paused) stays enabled — the working OTA path here.
 CONFIG_BB_UPDATE_CHECK_AUTOREGISTER=n
 CONFIG_BB_OTA_PULL_AUTOREGISTER=n
+# OTA push receive buffer: v0.41.2 makes this a Kconfig (default 1024).
+# 1024 stalled the push on the single-core S2 (task_wdt); 4096 completes.
+CONFIG_BB_OTA_PUSH_RECV_BUF_SIZE=4096
 
 # Heap budget: S2 has no PSRAM, so runtime heap is tight. Shrink the log-stream
 # ring (lazy-allocated, default 6KB) to free heap for stratum + httpd/SPA.

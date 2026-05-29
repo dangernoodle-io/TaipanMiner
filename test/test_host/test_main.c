@@ -405,6 +405,11 @@ void test_pool_stats_find_or_alloc_null_host(void);
 void test_pool_stats_inject_slot_null_and_oob(void);
 void test_pool_stats_record_share_out_of_table_slot_skips_persist(void);
 void test_pool_stats_record_block_out_of_table_slot_skips_persist(void);
+// DPORT zero-hash corruption recovery
+void test_pool_stats_init_zerohash_lifetime_blocks_reset(void);
+void test_pool_stats_init_zerohash_best_diff_reset(void);
+void test_pool_stats_init_zerohash_slot_blocks_found_reset(void);
+void test_pool_stats_init_zerohash_lifetime_boundary(void);
 
 #ifdef ASIC_CHIP
 // Forward declarations from test_asic_share_validator.c (TA-274 / Track-3)
@@ -985,6 +990,11 @@ int main(void) {
     RUN_TEST(test_pool_stats_inject_slot_null_and_oob);
     RUN_TEST(test_pool_stats_record_share_out_of_table_slot_skips_persist);
     RUN_TEST(test_pool_stats_record_block_out_of_table_slot_skips_persist);
+    // DPORT zero-hash corruption recovery
+    RUN_TEST(test_pool_stats_init_zerohash_lifetime_blocks_reset);
+    RUN_TEST(test_pool_stats_init_zerohash_best_diff_reset);
+    RUN_TEST(test_pool_stats_init_zerohash_slot_blocks_found_reset);
+    RUN_TEST(test_pool_stats_init_zerohash_lifetime_boundary);
 
     // Stratum utils tests
     RUN_TEST(test_format_submit_no_version);

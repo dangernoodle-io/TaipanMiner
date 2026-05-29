@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
+import { viteSingleFile } from 'vite-plugin-singlefile'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_')
@@ -10,7 +11,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [svelte()],
+    plugins: [svelte(), viteSingleFile()],
     build: {
       minify: 'terser',
       terserOptions: {

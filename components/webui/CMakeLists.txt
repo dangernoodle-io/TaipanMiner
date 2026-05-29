@@ -4,10 +4,8 @@ bb_embed_assets(
     OUT_SRCS _embed_srcs
     ASSETS
         ../../webui/miner/dist/index.html:index_html_gz
-        ../../webui/miner/dist/assets/index.js:index_js_gz
-        ../../webui/miner/dist/assets/index.css:index_css_gz
-        ../../webui/miner/dist/logo.svg:logo_svg_gz
-        ../../webui/miner/dist/favicon.svg:favicon_svg_gz
+        ../../webui/ui-kit/assets/logo.svg:logo_svg_gz
+        ../../webui/ui-kit/assets/favicon.svg:favicon_svg_gz
         ../../webui/prov/dist/index.html:prov_index_html_gz
         ../../webui/prov/dist/assets/index.js:prov_index_js_gz
         ../../webui/prov/dist/assets/index.css:prov_index_css_gz

@@ -1,0 +1,22 @@
+# ESP32-C3 SuperMini configuration — delta from sdkconfig.defaults
+CONFIG_IDF_TARGET="esp32c3"
+CONFIG_IDF_TARGET_ESP32C3=y
+CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=n
+CONFIG_ESP32S3_DATA_CACHE_32KB=n
+
+# Single-core: override defaults that assume dual-core
+CONFIG_FREERTOS_UNICORE=y
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+
+# Flash size: C3 SuperMini has 4MB
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=n
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_esp32_4mb.csv"
+
+# Console: USB Serial/JTAG (C3 has no USB CDC; JTAG peripheral is the CDC path)
+CONFIG_ESP_CONSOLE_USB_CDC=n
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# Hot-loop pinning not beneficial on single-core; stack placement is faster here.
+# See mining Kconfig.
+CONFIG_MINING_PIN_HOTLOOP_DATA=n

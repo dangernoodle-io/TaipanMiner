@@ -112,8 +112,15 @@ static void start_mining(void)
         // surfaces on the dashboard and the device can be recovered.
         bb_log_w(TAG, "SHA self-test failed: stratum and mining tasks not started");
     } else {
-        // Start stratum task on Core 0
-        xTaskCreatePinnedToCore(stratum_task, "stratum", 8192, NULL, 5, NULL, 0);
+        // Start stratum task on Core 0. Single-core (S2/C3) has no PSRAM and
+        // tight, fragmented heap after WiFi/lwIP/mDNS init — an 8KB stack can't
+        // find a contiguous block. 6KB fits and is ample for plain-TCP stratum.
+#if CONFIG_FREERTOS_UNICORE
+        const uint32_t stratum_stack = 6144;
+#else
+        const uint32_t stratum_stack = 8192;
+#endif
+        xTaskCreatePinnedToCore(stratum_task, "stratum", stratum_stack, NULL, 5, NULL, 0);
 
         // Start miner task (board-specific config from g_miner_config)
         xTaskCreatePinnedToCore(g_miner_config.task_fn, g_miner_config.name,

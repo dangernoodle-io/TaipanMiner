@@ -1,0 +1,4 @@
+# ESP32-S2 Mini debug overlay — delta from sdkconfig/esp32-s2-mini
+CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y
+CONFIG_LOG_DEFAULT_LEVEL=4
+CONFIG_LOG_MAXIMUM_LEVEL=4

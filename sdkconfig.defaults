@@ -81,6 +81,11 @@ CONFIG_FREERTOS_UNICORE=n
 
 # mDNS
 CONFIG_MDNS_TASK_PRIORITY=3
+# We publish 5 TXT keys before mDNS starts (worker, board, version, state,
+# and update_check's initial update=unknown). The breadboard default of 4
+# drops the 5th at boot ("txt pending buffer full"), advertising an
+# incomplete record so knot peers see missing fields. Size for our keys.
+CONFIG_BB_MDNS_TXT_PENDING_MAX=8
 
 # Event loop task stack — default 2304 overflows with mDNS + WiFi + user callbacks
 CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096

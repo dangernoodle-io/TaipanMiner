@@ -12,6 +12,10 @@ sdkconfig.bitaxe-650
 sdkconfig.bitaxe-650-debug
 sdkconfig.esp32-wroom32
 sdkconfig.esp32-wroom32-debug
+sdkconfig.esp32-s2-mini
+sdkconfig.esp32-s2-mini-debug
+sdkconfig.esp32-c3-supermini
+sdkconfig.esp32-c3-supermini-debug
 components/http_server/src/*_gz.c
 .code-graph/
 /compile_commands.json

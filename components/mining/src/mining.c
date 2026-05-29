@@ -15,6 +15,13 @@
 #ifdef ESP_PLATFORM
 #include "esp_attr.h"
 #endif
+
+/* Single-core targets (S2, C3) have no core 1; pin miner to core 0 there. */
+#if CONFIG_FREERTOS_UNICORE
+#  define MINER_TASK_CORE 0
+#else
+#  define MINER_TASK_CORE 1
+#endif
 #include <string.h>
 #include <stdio.h>
 #include <inttypes.h>
@@ -807,6 +814,15 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                 nonce = params->nonce_start - 1;
                 continue;
             }
+#if CONFIG_FREERTOS_UNICORE
+            // Single-core: the miner shares core 0 with WiFi/lwIP/IDLE. This
+            // hot loop is CPU-bound and never otherwise blocks, so without an
+            // explicit yield it starves the network stack and the device drops
+            // off WiFi. Block one tick each tier-1 cycle (HW already released)
+            // so lower-priority tasks get a time slice. Dual-core pins mining to
+            // its own core and never reaches this.
+            vTaskDelay(1);
+#endif
             sha256_hw_acquire();
 
             // Diag: measure time spent inside the Tier-1 dance (release → peek → acquire →
@@ -981,7 +997,11 @@ void mining_task(void *arg)
             mine_params_t params = {
                 .nonce_start = 0,
                 .nonce_end = 0xFFFFFFFFU,
+#if CONFIG_FREERTOS_UNICORE
+                .yield_mask = 0x3FFF,   // single-core: yield ~16x more often so networking stays responsive
+#else
                 .yield_mask = 0x3FFFF,
+#endif
                 .log_mask = 0xFFFFF,
                 .ver_bits = ver_bits,
                 .base_version = base_version,
@@ -1005,9 +1025,19 @@ const miner_config_t g_miner_config = {
     .init = NULL,
     .task_fn = mining_task,
     .name = "mining_hw",
+#if CONFIG_FREERTOS_UNICORE
+    .stack_size = 6144,   // single-core: fit tight/fragmented heap; SW loop's big buffers are static
+    // Single-core: mining shares core 0 with stratum(5)/httpd(5)/lwIP(18)/wifi.
+    // At priority 20 the CPU-bound hash loop preempts httpd between yields, so
+    // HTTP requests never complete (UI/stats time out). Drop below those tasks
+    // so networking always preempts mining; the miner runs in the slack. Costs
+    // some hashrate when the network is busy, but keeps the device usable.
+    .priority = 4,
+#else
     .stack_size = 8192,
     .priority = 20,
-    .core = 1,
+#endif
+    .core = MINER_TASK_CORE,
     .extranonce2_roll = false,
     .roll_interval_ms = 0,
 };

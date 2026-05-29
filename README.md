@@ -12,6 +12,8 @@ Bitcoin mining firmware for ESP32 boards, with optional ASIC support for Bitaxe 
 |-------|------|-----------|
 | LilyGo T-Dongle S3 | None (ESP32-S3 HW SHA) | ~310 kH/s |
 | ESP32-WROOM-32 / DevKit1 | None (ESP32 HW SHA) | ~300 kH/s |
+| ESP32-S2 Mini (LOLIN) | None (ESP32-S2 SW SHA) | ~TBD kH/s |
+| ESP32-C3 SuperMini | None (ESP32-C3 SW SHA) | ~TBD kH/s |
 | Bitaxe 403 | BM1368 | ~545 GH/s |
 | Bitaxe 601 Gamma | BM1370 | ~1.1 TH/s |
 | Bitaxe Gamma Duo (650) | 2× BM1370 | ~1.5 TH/s |

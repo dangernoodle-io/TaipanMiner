@@ -33,6 +33,8 @@ compile-db: ## Generate compile_commands.json for all boards (clangd LSP)
 	$(PIO) run -t compiledb -e bitaxe-403
 	$(PIO) run -t compiledb -e bitaxe-650
 	$(PIO) run -t compiledb -e tdongle-s3
+	$(PIO) run -t compiledb -e esp32-s2-mini
+	$(PIO) run -t compiledb -e esp32-c3-supermini
 
 lsp-%: ## Switch clangd to <env> (e.g. make lsp-bitaxe-601) — generates DB and updates symlink
 	$(PIO) run -t compiledb -e $*

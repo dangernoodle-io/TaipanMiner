@@ -1,0 +1,80 @@
+# ESP32-S2 Mini configuration — delta from sdkconfig.defaults
+CONFIG_IDF_TARGET="esp32s2"
+CONFIG_IDF_TARGET_ESP32S2=y
+CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=n
+CONFIG_ESP32S3_DATA_CACHE_32KB=n
+
+# Single-core: override defaults that assume dual-core
+CONFIG_FREERTOS_UNICORE=y
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+
+# Flash size: S2 Mini has 4MB
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=n
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_esp32_4mb.csv"
+
+# Console: UART0 (GPIO43 TX / GPIO44 RX). The S2 ROM USB-CDC console faults in
+# usb_dc_ep_write (null endpoint deref) when log output can't drain headless,
+# crash-looping the board. UART0 is reliable; needs an external USB-UART adapter.
+CONFIG_ESP_CONSOLE_USB_CDC=n
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_UART_NUM=0
+
+# Hot-loop pinning not beneficial on single-core; stack placement is faster here.
+# See mining Kconfig.
+CONFIG_MINING_PIN_HOTLOOP_DATA=n
+
+# S2 SRAM budget: 320KB single-core — trim WiFi IRAM vs sdkconfig.defaults.
+# WiFi IRAM code maps into dram0_0_seg (shared SRAM); disabling moves code to
+# flash, freeing ~15KB+ of DRAM at the cost of WiFi throughput (SW mining only,
+# no ASIC — throughput doesn't matter here).
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+
+# Lever 1: move TX buffers to heap (avoids static alloc at esp_wifi_init)
+# ESP_WIFI_STATIC_TX_BUFFER / ESP_WIFI_DYNAMIC_TX_BUFFER are a choice block;
+# select Dynamic by enabling it (disables Static implicitly).
+# NUM kept modest: each dynamic TX buffer is ~1.6KB of heap; 8 is plenty for a
+# miner and leaves contiguous heap for the 8KB stratum task stack + TLS. (16
+# fragmented the heap so badly the stratum task couldn't allocate its stack.)
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER=y
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=8
+# Lever 2: reduce static RX buffers (min=3 for RX_BA_WIN=6)
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=3
+# Lever 3: reduce mDNS event pool (EVT_POOL_SIZE governs queue depth now)
+CONFIG_BB_MDNS_EVT_POOL_SIZE=4
+
+# Disable mDNS entirely on the S2: the mdns task + knot parser + browse/query
+# buffers are the single largest remaining heap consumer (~30KB BSS + runtime),
+# and on this no-PSRAM part that heap is needed for the stratum/mining tasks and
+# to serve /api/stats. Device is still discoverable via the router DHCP list
+# (hostname s2mini-1); only .local resolution is lost.
+CONFIG_BB_MDNS_AUTOREGISTER=n
+
+# Disable the HTTPS pull/check path on the S2. update_check creates an idle 8KB
+# worker task (BB_HTTP_CLIENT_TASK_STACK) at boot that just blocks — it can never
+# run its TLS manifest fetch in this heap, and its periodic timer is an OOM risk.
+# ota_pull (HTTPS download) is likewise infeasible (12KB task + TLS). Reclaiming
+# that ~8KB gives an OTA-pushed image room to survive its mark-valid window.
+# ota_push (plain HTTP, mining paused) stays enabled — the working OTA path here.
+CONFIG_BB_UPDATE_CHECK_AUTOREGISTER=n
+CONFIG_BB_OTA_PULL_AUTOREGISTER=n
+
+# Heap budget: S2 has no PSRAM, so runtime heap is tight. Shrink the log-stream
+# ring (lazy-allocated, default 6KB) to free heap for stratum + httpd/SPA.
+CONFIG_BB_LOG_STREAM_BUF_BYTES=2048
+
+# More heap reclaim so the 8KB mining-task stack can allocate (stratum took the
+# first 8KB block; the miner needs a second). Stratum is low-bandwidth, so fewer
+# WiFi RX buffers + smaller lwIP TCP windows are fine here.
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=4
+# RX_BA_WIN must be <= DYNAMIC_RX_BUFFER_NUM; lower the block-ack window to match
+# (reduces RX aggregation throughput, irrelevant for low-bandwidth stratum).
+CONFIG_ESP_WIFI_RX_BA_WIN=4
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=2880
+CONFIG_LWIP_TCP_WND_DEFAULT=2880
+
+# WiFi power-save: breadboard v0.41.1 defaults to min-modem power-save;
+# disable it on the S2 — modem-sleep caused idle disconnects under the
+# single-core scheduler where the WiFi task gets starved.
+CONFIG_BB_WIFI_PS_NONE=y

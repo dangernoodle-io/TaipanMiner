@@ -14,12 +14,6 @@
   import BlockFoundBanner from './components/BlockFoundBanner.svelte'
   import Dashboard from './pages/Dashboard.svelte'
   import System from './pages/System.svelte'
-  import Pool from './pages/Pool.svelte'
-  import Update from './pages/Update.svelte'
-  import Diagnostics from './pages/Diagnostics.svelte'
-  import Settings from './pages/Settings.svelte'
-  import History from './pages/History.svelte'
-  import Knot from './pages/Knot.svelte'
   import 'ui-kit/theme.css'
   import 'ui-kit/utilities.css'
 
@@ -83,17 +77,47 @@
   {#if $route === 'system'}
     <System />
   {:else if $route === 'pool'}
-    <Pool />
+    {#await import('./pages/Pool.svelte')}
+      <div class="page-loading">Loading…</div>
+    {:then m}
+      {@const Page = m.default}
+      <Page />
+    {/await}
   {:else if $route === 'update'}
-    <Update />
+    {#await import('./pages/Update.svelte')}
+      <div class="page-loading">Loading…</div>
+    {:then m}
+      {@const Page = m.default}
+      <Page />
+    {/await}
   {:else if $route === 'diagnostics'}
-    <Diagnostics />
+    {#await import('./pages/Diagnostics.svelte')}
+      <div class="page-loading">Loading…</div>
+    {:then m}
+      {@const Page = m.default}
+      <Page />
+    {/await}
   {:else if $route === 'settings'}
-    <Settings />
+    {#await import('./pages/Settings.svelte')}
+      <div class="page-loading">Loading…</div>
+    {:then m}
+      {@const Page = m.default}
+      <Page />
+    {/await}
   {:else if $route === 'history'}
-    <History />
+    {#await import('./pages/History.svelte')}
+      <div class="page-loading">Loading…</div>
+    {:then m}
+      {@const Page = m.default}
+      <Page />
+    {/await}
   {:else if $route === 'knot'}
-    <Knot />
+    {#await import('./pages/Knot.svelte')}
+      <div class="page-loading">Loading…</div>
+    {:then m}
+      {@const Page = m.default}
+      <Page />
+    {/await}
   {:else}
     <Dashboard />
   {/if}
@@ -103,6 +127,12 @@
 <FanEditDialog />
 
 <style>
+  .page-loading {
+    padding: 32px;
+    text-align: center;
+    color: var(--color-text-muted, #888);
+  }
+
   main {
     max-width: 1100px;
     margin: 0 auto;

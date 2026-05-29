@@ -26,14 +26,34 @@ export default defineConfig(({ mode }) => {
         format: { comments: false }
       },
       cssMinify: 'lightningcss',
+      cssCodeSplit: false,
       rollupOptions: {
         output: {
           entryFileNames: 'assets/index.js',
-          chunkFileNames: 'assets/index.js',
+          chunkFileNames: (chunkInfo) => {
+            // Stable names for lazy page chunks; shared chunks get stable names
+            const pageNames = ['Pool', 'Update', 'Diagnostics', 'Settings', 'History', 'Knot']
+            const name = chunkInfo.name ?? ''
+            if (pageNames.includes(name)) return `assets/${name}.js`
+            if (name === 'runtime') return 'assets/runtime.js'
+            if (name === 'vendor') return 'assets/vendor.js'
+            // Remaining shared chunks (small cross-page utilities) get a stable prefix
+            return 'assets/index.js'
+          },
           assetFileNames: (info) => {
             const name = info.name ?? ''
             if (name.endsWith('.css')) return 'assets/index.css'
             return 'assets/[name][extname]'
+          },
+          manualChunks: (id) => {
+            // Pin svelte runtime to a stable chunk separate from app code
+            if (id.includes('node_modules/svelte')) {
+              return 'runtime'
+            }
+            // Pin uplot to vendor (large, History-only)
+            if (id.includes('node_modules/uplot')) {
+              return 'vendor'
+            }
           },
         },
       },

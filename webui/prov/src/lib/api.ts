@@ -6,11 +6,13 @@ export async function fetchScan(): Promise<AccessPoint[]> {
   return r.json()
 }
 
-export async function fetchVersion(): Promise<string> {
+export type DeviceInfo = { board: string; version: string }
+
+export async function fetchInfo(): Promise<DeviceInfo> {
   const r = await fetch('/api/info')
-  if (!r.ok) throw new Error(`version failed: ${r.status}`)
-  const info = await r.json() as { version?: string }
-  return (info.version ?? '').trim()
+  if (!r.ok) throw new Error(`info failed: ${r.status}`)
+  const info = await r.json() as { board?: string; version?: string }
+  return { board: (info.board ?? '').trim(), version: (info.version ?? '').trim() }
 }
 
 export type SaveBody = {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fetchScan, fetchVersion, postSave, type SaveBody } from './api'
+import { fetchScan, fetchInfo, postSave, type SaveBody } from './api'
 
 function mockFetch(status: number, body: unknown = {}): ReturnType<typeof vi.fn> {
   const bodyStr = typeof body === 'string' ? body : JSON.stringify(body)
@@ -38,29 +38,29 @@ describe('fetchScan', () => {
   })
 })
 
-describe('fetchVersion', () => {
-  it('GETs /api/info and returns version field trimmed', async () => {
+describe('fetchInfo', () => {
+  it('GETs /api/info and returns board + version trimmed', async () => {
     const spy = setFetch(200, { version: 'v1.2.3', board: 'tdongle-s3' })
-    const result = await fetchVersion()
+    const result = await fetchInfo()
     expect(spy.mock.calls[0][0]).toBe('/api/info')
-    expect(result).toBe('v1.2.3')
+    expect(result).toEqual({ board: 'tdongle-s3', version: 'v1.2.3' })
   })
 
-  it('returns empty string when version field is missing', async () => {
-    setFetch(200, { board: 'tdongle-s3' })
-    const result = await fetchVersion()
-    expect(result).toBe('')
+  it('returns empty strings when fields are missing', async () => {
+    setFetch(200, {})
+    const result = await fetchInfo()
+    expect(result).toEqual({ board: '', version: '' })
   })
 
-  it('trims whitespace from version field', async () => {
-    setFetch(200, { version: '  v1.2.3  ' })
-    const result = await fetchVersion()
-    expect(result).toBe('v1.2.3')
+  it('trims whitespace from both fields', async () => {
+    setFetch(200, { version: '  v1.2.3  ', board: '  tdongle-s3  ' })
+    const result = await fetchInfo()
+    expect(result).toEqual({ board: 'tdongle-s3', version: 'v1.2.3' })
   })
 
   it('throws on non-OK response', async () => {
     setFetch(404)
-    await expect(fetchVersion()).rejects.toThrow('version failed')
+    await expect(fetchInfo()).rejects.toThrow('info failed')
   })
 })
 

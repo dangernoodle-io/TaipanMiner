@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render } from '@testing-library/svelte'
+import { render, waitFor } from '@testing-library/svelte'
 
 vi.mock('./lib/api', () => ({
   fetchScan: vi.fn().mockResolvedValue([]),
-  fetchVersion: vi.fn().mockResolvedValue('v1.0.0'),
+  fetchInfo: vi.fn().mockResolvedValue({ board: 'esp32-c3-supermini', version: 'v1.0.0' }),
   postSave: vi.fn().mockResolvedValue(undefined),
 }))
 
@@ -30,32 +30,25 @@ describe('App', () => {
     expect(main).toBeTruthy()
   })
 
-  it('renders footer with version placeholder', () => {
+  it('shows board · version in the header subtitle (no doubled v prefix)', async () => {
     const { container } = render(App)
-    const footer = container.querySelector('footer')
-    expect(footer).toBeTruthy()
-    expect(footer?.textContent).toContain('Powered by TaipanMiner')
+    // version from /api/info already carries its own `v` prefix on tagged
+    // builds — the subtitle must not prepend another (no `vv1.0.0`).
+    await waitFor(() =>
+      expect(container.querySelector('.sub')?.textContent)
+        .toBe('esp32-c3-supermini · v1.0.0'))
+    expect(container.querySelector('.sub')?.textContent).not.toContain('vv1.0.0')
   })
 
-  it('renders with expected HTML structure', () => {
+  it('has no footer', () => {
     const { container } = render(App)
-    const main = container.querySelector('main')
-    const footer = container.querySelector('footer')
-    expect(main).toBeTruthy()
-    expect(footer).toBeTruthy()
+    expect(container.querySelector('footer')).toBeNull()
   })
 
   it('main element has correct class or structure', () => {
     const { container } = render(App)
     const main = container.querySelector('main')
     expect(main?.tagName).toBe('MAIN')
-  })
-
-  it('footer element has span with text content', () => {
-    const { container } = render(App)
-    const span = container.querySelector('footer span')
-    expect(span).toBeTruthy()
-    expect(span?.textContent).toContain('TaipanMiner')
   })
 
   it('renders without api errors during mount', () => {

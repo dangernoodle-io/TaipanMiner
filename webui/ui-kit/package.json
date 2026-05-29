@@ -12,6 +12,10 @@
       "svelte": "./Brand.svelte",
       "default": "./Brand.svelte"
     },
+    "./Header.svelte": {
+      "svelte": "./Header.svelte",
+      "default": "./Header.svelte"
+    },
     "./Select.svelte": {
       "svelte": "./Select.svelte",
       "default": "./Select.svelte"
@@ -23,6 +27,14 @@
     "./PasswordInput.svelte": {
       "svelte": "./PasswordInput.svelte",
       "default": "./PasswordInput.svelte"
+    },
+    "./version": {
+      "types": "./version.ts",
+      "default": "./version.ts"
+    },
+    "./signal": {
+      "types": "./signal.ts",
+      "default": "./signal.ts"
     },
     "./theme.css": "./styles/theme.css",
     "./utilities.css": "./styles/utilities.css",

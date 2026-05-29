@@ -1,14 +1,20 @@
 <script lang="ts">
-  import Brand from 'ui-kit/Brand.svelte'
+  import Header from 'ui-kit/Header.svelte'
+  import { formatVersion } from 'ui-kit/version'
   import WifiSetup from './pages/WifiSetup.svelte'
   import Save from './pages/Save.svelte'
-  import { fetchVersion } from './lib/api'
+  import { fetchInfo, type DeviceInfo } from './lib/api'
 
   type View = 'setup' | 'saving'
   let view = $state<View>('setup')
-  let version = $state<string>('')
+  let info = $state<DeviceInfo | null>(null)
 
-  fetchVersion().then(v => { version = v }).catch(() => {})
+  fetchInfo().then(i => { info = i }).catch(() => {})
+
+  let subtitle = $derived.by(() => {
+    if (!info) return undefined
+    return [info.board, formatVersion(info.version)].filter(Boolean).join(' · ') || undefined
+  })
 
   function onSaved() {
     view = 'saving'
@@ -16,19 +22,13 @@
 </script>
 
 <main>
-  <Brand title="TaipanMiner">
-    <p class="subtitle">First-time setup</p>
-  </Brand>
+  <Header title="TaipanMiner" {subtitle} />
 
   {#if view === 'setup'}
     <WifiSetup onSaved={onSaved} />
   {:else}
     <Save />
   {/if}
-
-  <footer>
-    <span>Powered by TaipanMiner{version ? ` v${version}` : ''}</span>
-  </footer>
 </main>
 
 <style>
@@ -39,16 +39,5 @@
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
-  }
-  .subtitle {
-    color: var(--label);
-    font-size: 13px;
-    margin: 0;
-  }
-  footer {
-    text-align: center;
-    margin-top: 1.5rem;
-    color: var(--footer);
-    font-size: 11px;
   }
 </style>

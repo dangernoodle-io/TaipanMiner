@@ -46,6 +46,13 @@ CONFIG_BB_MDNS_EVT_POOL_SIZE=4
 
 # mDNS is kept on the S2 — main.c inits it on the runtime mdns_en flag regardless of AUTOREGISTER; it runs fine here (knot peer discovery works).
 
+# Mining-mode web dashboard: OFF on the S2. Validated on-device that serving the
+# SPA drives heap_minimum_ever to ~2.4KB (TCP send-window saturation, a fixed
+# ~9KB cost independent of bundle size) — one concurrent request from OOM on
+# this no-PSRAM part. /api/* stays registered (headless observability). C3 +
+# dual-core boards keep the UI (default y).
+CONFIG_WEBUI_MINING_UI=n
+
 # Disable the HTTPS pull/check path on the S2. update_check creates an idle 8KB
 # worker task (BB_HTTP_CLIENT_TASK_STACK) at boot that just blocks — it can never
 # run its TLS manifest fetch in this heap, and its periodic timer is an OOM risk.

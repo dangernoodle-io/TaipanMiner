@@ -32,7 +32,7 @@ bb_err_t sha256_hw_dport_self_test(void);
  * Returns BB_OK on PASS, BB_ERR_INVALID_STATE on mismatch. */
 bb_err_t sha256_hw_dport_self_test_lockstep(void);
 
-/* Boot probes bundle (lockstep self-test + microbench + logs results).
+/* Boot probes bundle (TA-403 canaries + lockstep self-test + microbench + logs results).
  * Caller MUST hold sha256_hw_dport_acquire(). */
 void sha256_hw_dport_boot_probes(void);
 

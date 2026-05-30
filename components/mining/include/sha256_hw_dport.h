@@ -16,6 +16,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "bb_core.h"
+#include "sha256.h"   // sha_bench_result_t
 
 void sha256_hw_dport_init(void);
 void sha256_hw_dport_acquire(void);
@@ -39,6 +40,10 @@ void sha256_hw_dport_boot_probes(void);
  * and feeds mining_set_sha_microbench() so /api/info.expected_ghs is
  * populated on D0 builds. Caller MUST hold sha256_hw_dport_acquire(). */
 void sha256_hw_dport_microbench(void);
+
+/* TA-33: on-demand bench for /api/diag/benchmark. Parameterized iteration
+ * count; fills *out (may be NULL). Caller MUST hold sha256_hw_dport_acquire(). */
+void sha256_hw_dport_bench_pass2(uint32_t iterations, sha_bench_result_t *out);
 
 /* Pool-target-aware early-reject on digest MSB word (state[7]).
  * Returns true on potential hit (MSB word <= target_word0_max). Caller

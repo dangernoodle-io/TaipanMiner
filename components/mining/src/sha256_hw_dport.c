@@ -4,7 +4,7 @@
 #if CONFIG_IDF_TARGET_ESP32
 
 #include "sha256_hw_dport.h"
-#include "sha256.h"
+#include "sha256.h"   // sha_bench_result_t, sha256_H0
 #include "work.h"
 #include "mining.h"
 #include "bb_core.h"
@@ -394,6 +394,39 @@ void sha256_hw_dport_microbench(void)
     bb_log_i(TAG, "HW SHA microbench (real kernel): %.0f cyc/nonce (~%.0f kH/s reject-path ceiling)",
              (double)cycles_per_nonce, khs);
     mining_set_sha_microbench(us_per_op, khs);
+}
+
+/* ---------------------------------------------------------------------------
+ * TA-33: on-demand bench for /api/diag/benchmark.
+ * Measures DPORT kernel throughput using the same reject-path timing approach
+ * as the boot microbench but parameterized by iteration count. Caller must
+ * hold sha256_hw_dport_acquire().
+ * ---------------------------------------------------------------------------
+ */
+void sha256_hw_dport_bench_pass2(uint32_t iterations, sha_bench_result_t *out)
+{
+    static uint8_t synthetic_header[80];   /* zeros; content is arbitrary */
+
+    sha256_hw_dport_kernel_init(synthetic_header);
+
+    uint32_t cpu_freq = (uint32_t)esp_clk_cpu_freq();
+    int64_t start = esp_timer_get_time();
+    for (uint32_t i = 0; i < iterations; i++) {
+        uint8_t hash_out[32];
+        sha256_hw_dport_kernel(synthetic_header, i, /*target_word0_max=*/0, hash_out);
+    }
+    int64_t elapsed_us = esp_timer_get_time() - start;
+    (void)cpu_freq;  /* used only in microbench; bench uses wall time */
+
+    /* us_per_op: one nonce = 3 SHA ops on D0; report per-SHA-op for comparability */
+    double us_per_op = (iterations > 0) ? (double)elapsed_us / iterations / 3.0 : 0.0;
+    bb_log_i(TAG, "dport bench (%"PRIu32" iters): %"PRId64" us total, %.2f us/SHA-op",
+             iterations, elapsed_us, us_per_op);
+
+    if (out) {
+        out->total_us  = elapsed_us;
+        out->us_per_op = us_per_op;
+    }
 }
 
 /* ---------------------------------------------------------------------------

@@ -56,3 +56,15 @@ bb_err_t sha256_sw_self_test(void);
 // PASS/FAIL with backend_tag (e.g. "sw", "ahb", "dport"). HW backends call
 // this with the digest they read from peripheral registers.
 bb_err_t sha256_check_abc_vector(const char *backend_tag, const uint8_t hash[32]);
+
+// TA-33: SHA benchmark result type. Used by both sw and hw bench helpers.
+typedef struct {
+    int64_t  total_us;
+    double   us_per_op;
+} sha_bench_result_t;
+
+// TA-33: SW-path bench for on-demand benchmark endpoint.
+// Runs iterations of sha256_transform (the mining hot-path compression function).
+// Portable: works on host, C3, S2, wroom32 SW fallback, and device tests.
+// out may be NULL (results only logged).
+void sha256_sw_bench_pass2(uint32_t iterations, sha_bench_result_t *out);

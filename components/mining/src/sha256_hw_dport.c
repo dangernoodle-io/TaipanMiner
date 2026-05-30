@@ -11,9 +11,7 @@
 #include "bb_byte_order.h"
 #include "esp_crypto_lock.h"
 #include "esp_private/periph_ctrl.h"
-#include "esp_private/esp_clk.h"
 #include "esp_timer.h"
-#include "esp_cpu.h"
 #include "soc/dport_access.h"
 #include "soc/hwcrypto_reg.h"
 #include "esp_attr.h"
@@ -370,30 +368,22 @@ bb_err_t sha256_hw_dport_self_test_lockstep(void)
  */
 void sha256_hw_dport_microbench(void)
 {
-    /* Synthetic 80-byte header (zeros). Content is arbitrary — reject path
-     * only reads TEXT[7] and returns false before any hash_out write. */
-    static uint8_t synthetic_header[80];
+    const uint32_t iters = 1000;
+    sha_bench_result_t result = {0};
+    sha256_hw_dport_bench_pass2(iters, &result);
 
-    const uint32_t iterations = 1000;
+    /* Honest nonce-domain kH/s — same formula as /api/diag/benchmark.
+     * Previously used cpu_freq / cycles_per_nonce / 1000 via esp_cpu_get_cycle_count,
+     * which over-counted vs wall-time by ~28% (cold-cache + CCOUNT/wall-time skew),
+     * making sha_khs_ceiling lower than the live mining rate (mining > ceiling
+     * is nonsensical). Closes TA-395 root cause. */
+    double khs = (result.total_us > 0)
+        ? ((double)iters * 1000.0 / (double)result.total_us)
+        : 0.0;
 
-    /* Preload persistent TEXT[10..15] for this synthetic header (required by kernel). */
-    sha256_hw_dport_kernel_init(synthetic_header);
-
-    uint32_t cpu_freq = (uint32_t)esp_clk_cpu_freq();
-    uint32_t t0 = esp_cpu_get_cycle_count();
-    for (uint32_t i = 0; i < iterations; i++) {
-        uint8_t hash_out[32];
-        sha256_hw_dport_kernel(synthetic_header, i, /*target_word0_max=*/0, hash_out);
-    }
-    uint32_t total_cyc = esp_cpu_get_cycle_count() - t0;
-
-    uint32_t cycles_per_nonce = total_cyc / iterations;
-    double khs = ((double)cpu_freq / (double)cycles_per_nonce) / 1000.0;
-    /* us_per_op: D0 does 3 SHA ops per nonce (block1 + block2 + block3). */
-    double us_per_op = (1e6 * (double)cycles_per_nonce / (double)cpu_freq) / 3.0;
-    bb_log_i(TAG, "HW SHA microbench (real kernel): %.0f cyc/nonce (~%.0f kH/s reject-path ceiling)",
-             (double)cycles_per_nonce, khs);
-    mining_set_sha_microbench(us_per_op, khs);
+    bb_log_i(TAG, "HW SHA microbench (real kernel): %"PRId64" us / %"PRIu32" iters, %.2f us/SHA-op, ~%.0f kH/s reject-path ceiling",
+             result.total_us, iters, result.us_per_op, khs);
+    mining_set_sha_microbench(result.us_per_op, khs);
 }
 
 /* ---------------------------------------------------------------------------
@@ -409,14 +399,12 @@ void sha256_hw_dport_bench_pass2(uint32_t iterations, sha_bench_result_t *out)
 
     sha256_hw_dport_kernel_init(synthetic_header);
 
-    uint32_t cpu_freq = (uint32_t)esp_clk_cpu_freq();
     int64_t start = esp_timer_get_time();
     for (uint32_t i = 0; i < iterations; i++) {
         uint8_t hash_out[32];
         sha256_hw_dport_kernel(synthetic_header, i, /*target_word0_max=*/0, hash_out);
     }
     int64_t elapsed_us = esp_timer_get_time() - start;
-    (void)cpu_freq;  /* used only in microbench; bench uses wall time */
 
     /* us_per_op: one nonce = 3 SHA ops on D0; report per-SHA-op for comparability */
     double us_per_op = (iterations > 0) ? (double)elapsed_us / iterations / 3.0 : 0.0;

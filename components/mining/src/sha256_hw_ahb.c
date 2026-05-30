@@ -16,7 +16,6 @@
 #include "bb_log.h"
 #include "esp_crypto_periph_clk.h"
 #include "esp_cpu.h"
-#include "esp_private/esp_clk.h"
 #include <inttypes.h>
 
 // ESP32-S3 SHA hardware stores registers as raw bytes in memory-mapped IO.
@@ -506,6 +505,14 @@ void sha256_hw_ahb_boot_probes(void)
 // throughput regressions are visible in every boot log without rebuilding
 // -debug. Mining does 2 SHA ops per nonce, so kH/s = 500 / us_per_op.
 // Budget: ~5ms boot cost (1000 iters * ~5us).
+//
+// NOTE: This function is DEAD CODE. The boot sequence calls
+// sha256_hw_profile_hotloop (which delegates to sha256_hw_bench_pass2) via
+// sha256_hw_acquire() → sha256_hw_acquire_and_probe() → sha256_hw_microbench
+// is NOT on that call path. Preserved for reference; do not remove without
+// confirming no board-specific boot path calls it. The measurement here uses
+// esp_timer_get_time() (wall time) so the TA-395 cycle-count bug does not
+// apply here.
 void sha256_hw_microbench(void)
 {
     static const uint32_t test_msg[16] = {
@@ -622,24 +629,30 @@ void sha256_hw_profile_hotloop(uint32_t iterations)
     (void)digest_hw;
 
     double n = (double)iterations;
-    double total_per   = (double)total_cyc       / n;
-    uint32_t cpu_freq = (uint32_t)esp_clk_cpu_freq();
-    double khs = ((double)cpu_freq / total_per) / 1000.0;
-    /* us_per_op: S3 does 2 SHA ops per nonce (pass1 midstate-continue + pass2 start). */
-    double us_per_op_equiv = (1e6 * total_per / (double)cpu_freq) / 2.0;
+    double total_per = (double)total_cyc / n;
 
+    /* Per-phase cycle breakdown is purely diagnostic — keep it. */
     bb_log_i(TAG,
         "SHA hotloop profile (%" PRIu32 " iters): "
         "pass1_setup=%.0f pass1_wait=%.0f pass2_setup=%.0f pass2_wait=%.0f reject=%.0f "
-        "total=%.0f cyc/nonce (~%.0f kH/s effective)",
+        "total=%.0f cyc/nonce",
         iterations,
         (double)pass1_setup_cyc / n,
         (double)pass1_wait_cyc  / n,
         (double)pass2_setup_cyc / n,
         (double)pass2_wait_cyc  / n,
         (double)reject_cyc      / n,
-        total_per, khs);
-    mining_set_sha_microbench(us_per_op_equiv, khs);
+        total_per);
+
+    /* Derive khs and us_per_op from wall-time bench_pass2 (single source of truth
+     * with /api/diag/benchmark, post-#456 normalized to per-SHA-block-op).
+     * Cycle-counted khs was ~28% optimistic vs wall time (CCOUNT/wall skew). */
+    sha_bench_result_t bench = {0};
+    sha256_hw_bench_pass2(iterations, &bench);
+    double khs = (bench.total_us > 0)
+        ? ((double)iterations * 1000.0 / (double)bench.total_us)
+        : 0.0;
+    mining_set_sha_microbench(bench.us_per_op, khs);
 }
 
 // --- Benchmark (TA-33) ---

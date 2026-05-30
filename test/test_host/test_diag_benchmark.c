@@ -137,7 +137,7 @@ void test_diag_bench_json_shape_sw_backend(void)
         .duration_us        = 8275,
         .us_per_op          = 0.8275,
         .khs                = 1208.2,
-        .sha_kops_per_sec   = 1208.5,
+        .sha_ops_per_sec   = 1208.5,
         .backend            = "sw",
         .text_overlap_state = SHA_OVERLAP_SAFE,
         .h_write_state      = SHA_OVERLAP_SAFE,
@@ -153,7 +153,7 @@ void test_diag_bench_json_shape_sw_backend(void)
     TEST_ASSERT_NOT_NULL(strstr(json, "\"duration_us\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"us_per_op\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"khs\""));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"sha_kops_per_sec\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"sha_ops_per_sec\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"backend\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"canary\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"text_overlap\""));
@@ -180,7 +180,7 @@ void test_diag_bench_json_shape_ahb_backend(void)
         .duration_us        = 20000,
         .us_per_op          = 4.0,
         .khs                = 250.0,
-        .sha_kops_per_sec   = 250000.0,
+        .sha_ops_per_sec   = 250000.0,
         .backend            = "ahb",
         .text_overlap_state = SHA_OVERLAP_SAFE,
         .h_write_state      = SHA_OVERLAP_UNSAFE,
@@ -203,7 +203,7 @@ void test_diag_bench_json_shape_dport_backend(void)
         .duration_us        = 15000,
         .us_per_op          = 15.0,
         .khs                = 66.7,
-        .sha_kops_per_sec   = 66666.7,
+        .sha_ops_per_sec   = 66666.7,
         .backend            = "dport",
         .text_overlap_state = SHA_OVERLAP_UNSAFE,
         .h_write_state      = SHA_OVERLAP_UNSAFE,
@@ -225,7 +225,7 @@ void test_diag_bench_json_asic_active_present_when_flagged(void)
         .duration_us        = 1000,
         .us_per_op          = 0.1,
         .khs                = 10000.0,
-        .sha_kops_per_sec   = 10000000.0,
+        .sha_ops_per_sec   = 10000000.0,
         .backend            = "ahb",
         .text_overlap_state = SHA_OVERLAP_SAFE,
         .h_write_state      = SHA_OVERLAP_SAFE,
@@ -247,7 +247,7 @@ void test_diag_bench_json_canary_unknown(void)
         .duration_us        = 1000,
         .us_per_op          = 0.1,
         .khs                = 10000.0,
-        .sha_kops_per_sec   = 10000000.0,
+        .sha_ops_per_sec   = 10000000.0,
         .backend            = "ahb",
         .text_overlap_state = SHA_OVERLAP_UNKNOWN,
         .h_write_state      = SHA_OVERLAP_UNKNOWN,
@@ -271,7 +271,7 @@ void test_diag_bench_json_canary_mixed(void)
         .duration_us        = 1000,
         .us_per_op          = 0.1,
         .khs                = 10000.0,
-        .sha_kops_per_sec   = 10000000.0,
+        .sha_ops_per_sec   = 10000000.0,
         .backend            = "ahb",
         .text_overlap_state = SHA_OVERLAP_UNSAFE,
         .h_write_state      = SHA_OVERLAP_UNKNOWN,
@@ -287,13 +287,13 @@ void test_diag_bench_json_canary_mixed(void)
 }
 
 /* ============================================================================
- * TA-395: khs / sha_kops_per_sec relationship invariant
+ * TA-395: khs / sha_ops_per_sec relationship invariant
  *
  * Synthetic bench result: duration_us=3000, iters=1000, us_per_op=1.0
  *   khs MUST be iters * 1000 / duration_us = 1000 * 1000 / 3000 = 333.33...
- *   sha_kops_per_sec MUST be 1e6 / us_per_op = 1e6 / 1.0 = 1000000.0
+ *   sha_ops_per_sec MUST be 1e6 / us_per_op = 1e6 / 1.0 = 1000000.0
  *
- * Cross-check: sha_kops_per_sec / khs ~= 3 (Bitcoin double-SHA = 3 SHA ops/nonce)
+ * Cross-check: sha_ops_per_sec / khs ~= 3 (Bitcoin double-SHA = 3 SHA ops/nonce)
  * This invariant catches regression back to the old khs = 1/us_per_op formula.
  * ========================================================================= */
 void test_diag_bench_json_khs_invariant(void)
@@ -302,10 +302,10 @@ void test_diag_bench_json_khs_invariant(void)
         .iters              = 1000,
         .duration_us        = 3000,
         .us_per_op          = 1.0,
-        /* khs and sha_kops_per_sec are computed by the handler, not the snapshot.
+        /* khs and sha_ops_per_sec are computed by the handler, not the snapshot.
          * Populate them with the correct values to test build_diag_bench_json passthrough. */
         .khs                = 333.333333,   /* iters * 1000 / duration_us */
-        .sha_kops_per_sec   = 1000000.0,    /* 1e6 / us_per_op (ops/s) */
+        .sha_ops_per_sec   = 1000000.0,    /* 1e6 / us_per_op (ops/s) */
         .backend            = "dport",
         .text_overlap_state = SHA_OVERLAP_SAFE,
         .h_write_state      = SHA_OVERLAP_SAFE,
@@ -322,13 +322,13 @@ void test_diag_bench_json_khs_invariant(void)
     double got_khs = bb_json_item_get_double(j_khs);
     TEST_ASSERT_DOUBLE_WITHIN(0.01, 333.333333, got_khs);
 
-    /* Verify sha_kops_per_sec is present */
-    bb_json_t j_sha = bb_json_obj_get_item(root, "sha_kops_per_sec");
+    /* Verify sha_ops_per_sec is present */
+    bb_json_t j_sha = bb_json_obj_get_item(root, "sha_ops_per_sec");
     TEST_ASSERT_NOT_NULL(j_sha);
     double got_sha_kops = bb_json_item_get_double(j_sha);
     TEST_ASSERT_DOUBLE_WITHIN(0.01, 1000000.0, got_sha_kops);
 
-    /* Cross-check: sha_kops_per_sec (ops/s) / (khs * 1000) (nonces/s) ~= 3
+    /* Cross-check: sha_ops_per_sec (ops/s) / (khs * 1000) (nonces/s) ~= 3
      * (Bitcoin double-SHA = 3 SHA ops/nonce on classic ESP32 D0).
      * Fails if khs is incorrectly computed as 1/us_per_op instead of iters/duration_us. */
     double ratio = got_sha_kops / (got_khs * 1000.0);
@@ -349,9 +349,9 @@ void test_diag_bench_json_khs_invariant(void)
  * Synthetic AHB-shaped snapshot: duration_us=2000, iters=1000, us_per_op=1.0
  *   (represents elapsed_us / iters / 2 = 2000 / 1000 / 2 = 1.0 us/SHA-op)
  *   khs = iters * 1000 / duration_us = 1000 * 1000 / 2000 = 500.0
- *   sha_kops_per_sec = 1e6 / us_per_op = 1e6 / 1.0 = 1000000.0
+ *   sha_ops_per_sec = 1e6 / us_per_op = 1e6 / 1.0 = 1000000.0
  *
- * Cross-check: sha_kops_per_sec / (khs * 1000) ~= 2 for AHB (2 SHA ops/nonce).
+ * Cross-check: sha_ops_per_sec / (khs * 1000) ~= 2 for AHB (2 SHA ops/nonce).
  * ========================================================================= */
 void test_diag_bench_json_khs_invariant_ahb(void)
 {
@@ -360,7 +360,7 @@ void test_diag_bench_json_khs_invariant_ahb(void)
         .duration_us        = 2000,
         .us_per_op          = 1.0,   /* elapsed_us / iters / 2 = 2000/1000/2 */
         .khs                = 500.0, /* iters * 1000 / duration_us */
-        .sha_kops_per_sec   = 1000000.0, /* 1e6 / us_per_op */
+        .sha_ops_per_sec   = 1000000.0, /* 1e6 / us_per_op */
         .backend            = "ahb",
         .text_overlap_state = SHA_OVERLAP_SAFE,
         .h_write_state      = SHA_OVERLAP_SAFE,
@@ -376,12 +376,12 @@ void test_diag_bench_json_khs_invariant_ahb(void)
     double got_khs = bb_json_item_get_double(j_khs);
     TEST_ASSERT_DOUBLE_WITHIN(0.01, 500.0, got_khs);
 
-    bb_json_t j_sha = bb_json_obj_get_item(root, "sha_kops_per_sec");
+    bb_json_t j_sha = bb_json_obj_get_item(root, "sha_ops_per_sec");
     TEST_ASSERT_NOT_NULL(j_sha);
     double got_sha_kops = bb_json_item_get_double(j_sha);
     TEST_ASSERT_DOUBLE_WITHIN(0.01, 1000000.0, got_sha_kops);
 
-    /* Cross-check: sha_kops_per_sec / (khs * 1000) ~= 2 for AHB.
+    /* Cross-check: sha_ops_per_sec / (khs * 1000) ~= 2 for AHB.
      * AHB uses midstate — only 2 SHA block ops per nonce (not 3 like DPORT).
      * This invariant binds the live AHB bench helper after TA-401; would have
      * caught the pre-fix ratio ≈ 1 (us_per_op was per-nonce, not per-SHA-op). */

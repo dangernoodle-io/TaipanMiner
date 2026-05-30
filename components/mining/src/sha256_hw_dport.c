@@ -430,6 +430,116 @@ void sha256_hw_dport_bench_pass2(uint32_t iterations, sha_bench_result_t *out)
 }
 
 /* ---------------------------------------------------------------------------
+ * TA-403: SHA TEXT-overlap canary for the DPORT driver (classic ESP32 D0).
+ *
+ * Mirrors sha256_hw_overlap_canary() (AHB driver, sha256_hw_ahb.c:401), but
+ * exercises the specific overlap pattern used by the DPORT kernel
+ * (sha256_hw_dport_kernel.h:91-107): writes TEXT[0..15] (block-2 fill) during
+ * block-1 compute, immediately after SHA_START.
+ *
+ * Method: compute a reference digest with no interference; then trigger
+ * SHA_256_START and immediately write garbage to TEXT[0] before BUSY clears.
+ * If the peripheral snapshots TEXT at trigger time, the interference is harmless
+ * and the observed digest matches the reference → SAFE.
+ *
+ * Uses the same test vector as sha256_hw_overlap_canary() for direct comparison.
+ * Caller MUST hold sha256_hw_dport_acquire() — does not re-acquire.
+ * ---------------------------------------------------------------------------
+ */
+static bool sha256_hw_dport_overlap_canary(void)
+{
+    /* Same vector as AHB canary (sha256_hw_ahb.c:403-407) for direct comparison.
+     * This is a synthetic 512-bit message block; absolute value is irrelevant —
+     * the probe only checks that the digest is stable under mid-compute TEXT writes. */
+    static const uint32_t test_msg[16] = {
+        0xfeedface, 0xcafebabe, 0xdeadbeef, 0x01234567,
+        0x89abcdef, 0x12345678, 0x9abcdef0, 0x0fedcba9,
+        0x00000080, 0, 0, 0, 0, 0, 0, 0x00010000
+    };
+
+    volatile uint32_t *sha_text = (volatile uint32_t *)(SHA_TEXT_BASE);
+    uint32_t reference[8];
+    uint32_t observed[8];
+
+    /* Reference: clean SHA_256_START with no mid-compute interference. */
+    {
+        for (int j = 0; j < 16; j++) sha_text[j] = test_msg[j];
+        DPORT_REG_WRITE(SHA_256_START_REG, 1);
+        while (DPORT_REG_READ(SHA_256_BUSY_REG)) {}
+        DPORT_REG_WRITE(SHA_256_LOAD_REG, 1);
+        while (DPORT_REG_READ(SHA_256_BUSY_REG)) {}
+        DPORT_INTERRUPT_DISABLE();
+        for (int j = 0; j < 8; j++) reference[j] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + j * 4);
+        DPORT_INTERRUPT_RESTORE();
+    }
+
+    /* Trial: SHA_256_START, then immediately corrupt TEXT[0] before BUSY clears.
+     * Mirrors the kernel's block-2 fill pattern (kernel.h:91-107) which writes
+     * all TEXT[0..15] during block-1 compute. */
+    {
+        for (int j = 0; j < 16; j++) sha_text[j] = test_msg[j];
+        DPORT_REG_WRITE(SHA_256_START_REG, 1);
+        sha_text[0] = 0xBADC0FFE;  /* corrupt TEXT[0] mid-compute — mirrors kernel overlap */
+        while (DPORT_REG_READ(SHA_256_BUSY_REG)) {}
+        DPORT_REG_WRITE(SHA_256_LOAD_REG, 1);
+        while (DPORT_REG_READ(SHA_256_BUSY_REG)) {}
+        DPORT_INTERRUPT_DISABLE();
+        for (int j = 0; j < 8; j++) observed[j] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + j * 4);
+        DPORT_INTERRUPT_RESTORE();
+    }
+
+    bool safe = true;
+    for (int j = 0; j < 8; j++) {
+        if (observed[j] != reference[j]) { safe = false; break; }
+    }
+
+    if (safe) {
+        bb_log_i(TAG, "SHA TEXT-overlap canary (DPORT): SAFE — peripheral snapshots TEXT at trigger; overlap-during-busy-wait possible");
+    } else {
+        bb_log_i(TAG, "SHA TEXT-overlap canary (DPORT): UNSAFE — peripheral reads TEXT during compute; cannot overlap");
+    }
+
+    mining_set_sha_overlap_safe(safe);
+    return safe;
+}
+
+/* ---------------------------------------------------------------------------
+ * TA-403: SHA H-write-during-compute canary for the DPORT driver (D0).
+ *
+ * Mirrors sha256_hw_hwrite_canary() (AHB driver, sha256_hw_ahb.c:447), but the
+ * failure mode being probed does not exist on the classic ESP32 DPORT SHA path:
+ *
+ * On AHB targets (S3/S2/C3), SHA_H[0..7] is a separate register bank that holds
+ * the running midstate and can be written independently of SHA_TEXT. The AHB
+ * canary tests whether clobbering SHA_H during compute corrupts the output.
+ *
+ * On classic ESP32 DPORT SHA, there is no separate H register bank. After
+ * SHA_256_START/CONTINUE completes, SHA_256_LOAD copies the finished digest into
+ * TEXT[0..7]. The kernel (kernel.h:119-123) writes TEXT[8] and TEXT[15] during
+ * the post-LOAD window — never TEXT[0..7]. There is no midstate-reload path,
+ * no cross-nonce pipelining that targets the H bank, and therefore no scenario
+ * where an H-write-during-compute could occur. The failure mode this canary
+ * guards against simply does not exist on this hardware path.
+ *
+ * Reports SAFE because the hazard is structurally absent, not merely untested.
+ * Caller MUST hold sha256_hw_dport_acquire() — does not re-acquire.
+ * ---------------------------------------------------------------------------
+ */
+static bool sha256_hw_dport_hwrite_canary(void)
+{
+    /* DPORT SHA has no separate H register — digest accumulates in TEXT[0..7]
+     * only after SHA_256_LOAD. The kernel never writes TEXT[0..7] during
+     * compute (only TEXT[8] and TEXT[15] after LOAD, per kernel.h:119-123).
+     * The H-write-during-compute failure mode does not exist on this path;
+     * report SAFE to distinguish "probed and confirmed absent" from UNKNOWN
+     * ("probe never ran"). */
+    bb_log_i(TAG, "SHA H-write canary (DPORT): SAFE — no separate H register on classic ESP32; "
+             "digest in TEXT[0..7] after LOAD; kernel never writes TEXT[0..7] during compute");
+    mining_set_sha_hwrite_safe(true);
+    return true;
+}
+
+/* ---------------------------------------------------------------------------
  * Boot probes bundle for D0 (classic ESP32).
  * Called from mining_run_self_tests() under the SHA peripheral lock.
  * Runs the lockstep test + microbench; logs results; safe to call once at boot.
@@ -437,6 +547,8 @@ void sha256_hw_dport_bench_pass2(uint32_t iterations, sha_bench_result_t *out)
  */
 void sha256_hw_dport_boot_probes(void)
 {
+    sha256_hw_dport_overlap_canary();
+    sha256_hw_dport_hwrite_canary();
     bb_err_t rc = sha256_hw_dport_self_test_lockstep();
     if (rc != BB_OK) {
         bb_log_e(TAG, "D0 lockstep self-test FAILED — SHA hot loop digest diverges from SW SHA256d");

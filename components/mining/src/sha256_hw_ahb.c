@@ -670,8 +670,13 @@ void sha256_hw_bench_pass2(uint32_t iterations, sha_bench_result_t *out)
     }
     int64_t elapsed_us = esp_timer_get_time() - start;
 
-    double us_per_op = (iterations > 0) ? (double)elapsed_us / iterations : 0.0;
-    bb_log_i(TAG, "pass2 bench (%"PRIu32" iters): %"PRId64" us total, %.2f us/op",
+    /* us_per_op: AHB uses midstate (block1 computed once per job, not per nonce).
+     * Per nonce the hot loop runs 2 SHA ops: pass1 (SHA_CONTINUE, block2 tail)
+     * + pass2 (SHA_START, outer double-SHA digest). Divide by 2 so us_per_op
+     * means per-SHA-block-op, matching the DPORT convention (which divides by 3
+     * because DPORT processes all three blocks per nonce without midstate). */
+    double us_per_op = (iterations > 0) ? (double)elapsed_us / iterations / 2.0 : 0.0;
+    bb_log_i(TAG, "ahb bench (%"PRIu32" iters): %"PRId64" us total, %.2f us/SHA-op",
              iterations, elapsed_us, us_per_op);
 
     if (out) {

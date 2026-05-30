@@ -336,3 +336,57 @@ void test_diag_bench_json_khs_invariant(void)
 
     bb_json_free(root);
 }
+
+/* ============================================================================
+ * TA-401: AHB bench us_per_op semantic invariant
+ *
+ * AHB uses the midstate optimization: block1 (first SHA on the 80-byte header)
+ * is computed once per job, not per nonce. Per nonce the hot loop does 2 SHA
+ * block ops: pass1 (SHA_CONTINUE, block2 tail with midstate) + pass2 (SHA_START,
+ * outer double-SHA digest). sha256_hw_bench_pass2 divides by 2 so us_per_op
+ * is per-SHA-block-op, matching DPORT semantics.
+ *
+ * Synthetic AHB-shaped snapshot: duration_us=2000, iters=1000, us_per_op=1.0
+ *   (represents elapsed_us / iters / 2 = 2000 / 1000 / 2 = 1.0 us/SHA-op)
+ *   khs = iters * 1000 / duration_us = 1000 * 1000 / 2000 = 500.0
+ *   sha_kops_per_sec = 1e6 / us_per_op = 1e6 / 1.0 = 1000000.0
+ *
+ * Cross-check: sha_kops_per_sec / (khs * 1000) ~= 2 for AHB (2 SHA ops/nonce).
+ * ========================================================================= */
+void test_diag_bench_json_khs_invariant_ahb(void)
+{
+    diag_bench_snapshot_t s = {
+        .iters              = 1000,
+        .duration_us        = 2000,
+        .us_per_op          = 1.0,   /* elapsed_us / iters / 2 = 2000/1000/2 */
+        .khs                = 500.0, /* iters * 1000 / duration_us */
+        .sha_kops_per_sec   = 1000000.0, /* 1e6 / us_per_op */
+        .backend            = "ahb",
+        .text_overlap_state = SHA_OVERLAP_SAFE,
+        .h_write_state      = SHA_OVERLAP_SAFE,
+        .asic_active        = false,
+        .has_asic_active    = false,
+    };
+
+    bb_json_t root = bb_json_obj_new();
+    build_diag_bench_json(&s, root);
+
+    bb_json_t j_khs = bb_json_obj_get_item(root, "khs");
+    TEST_ASSERT_NOT_NULL(j_khs);
+    double got_khs = bb_json_item_get_double(j_khs);
+    TEST_ASSERT_DOUBLE_WITHIN(0.01, 500.0, got_khs);
+
+    bb_json_t j_sha = bb_json_obj_get_item(root, "sha_kops_per_sec");
+    TEST_ASSERT_NOT_NULL(j_sha);
+    double got_sha_kops = bb_json_item_get_double(j_sha);
+    TEST_ASSERT_DOUBLE_WITHIN(0.01, 1000000.0, got_sha_kops);
+
+    /* Cross-check: sha_kops_per_sec / (khs * 1000) ~= 2 for AHB.
+     * AHB uses midstate — only 2 SHA block ops per nonce (not 3 like DPORT).
+     * This invariant binds the live AHB bench helper after TA-401; would have
+     * caught the pre-fix ratio ≈ 1 (us_per_op was per-nonce, not per-SHA-op). */
+    double ratio = got_sha_kops / (got_khs * 1000.0);
+    TEST_ASSERT_DOUBLE_WITHIN(0.01, 2.0, ratio);
+
+    bb_json_free(root);
+}

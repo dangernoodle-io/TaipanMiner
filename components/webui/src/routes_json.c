@@ -534,6 +534,12 @@ void build_diag_bench_json(const diag_bench_snapshot_t *s, bb_json_t root)
     bb_json_obj_set_number(root, "sha_ops_per_sec", s->sha_ops_per_sec);
     bb_json_obj_set_string(root, "backend",          s->backend ? s->backend : "sw");
 
+    /* Adaptive convergence fields */
+    bb_json_obj_set_bool(root,   "settled",             s->settled);
+    bb_json_obj_set_number(root, "settled_after_iters", (double)s->settled_after_iters);
+    bb_json_obj_set_number(root, "settled_iters",       (double)s->settled_iters);
+    bb_json_obj_set_number(root, "settled_total_us",    (double)s->settled_total_us);
+
     bb_json_t canary = bb_json_obj_new();
     bb_json_obj_set_string(canary, "text_overlap", s_overlap_str(s->text_overlap_state));
     bb_json_obj_set_string(canary, "h_write",      s_overlap_str(s->h_write_state));

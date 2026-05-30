@@ -360,70 +360,130 @@ bb_err_t sha256_hw_dport_self_test_lockstep(void)
 
 /* ---------------------------------------------------------------------------
  * Boot-time micro-bench: real kernel throughput ceiling on D0 (classic ESP32).
- * Calls sha256_hw_dport_kernel() with target=0 (always-reject early path) so
- * the measured cost is the reject-path ceiling — the actual hot-loop bound.
+ * Calls sha256_hw_dport_bench_pass2() with adaptive convergence detection.
  * D0 kernel does 3 SHA ops/nonce (block1 + block2 + block3/double-hash).
+ * Bumped to 10000 iters: S2 worst-case settles at ~4900 iters; 10000 gives
+ * ample headroom for 3 settled buckets beyond the settling point.
  * Caller must hold the SHA peripheral lock.
  * ---------------------------------------------------------------------------
  */
 void sha256_hw_dport_microbench(void)
 {
-    const uint32_t iters = 5000;
+    const uint32_t iters = 10000;
     sha_bench_result_t result = {0};
     sha256_hw_dport_bench_pass2(iters, &result);
 
-    /* Honest nonce-domain kH/s — same formula as /api/diag/benchmark.
-     * Previously used cpu_freq / cycles_per_nonce / 1000 via esp_cpu_get_cycle_count,
-     * which over-counted vs wall-time by ~28% (cold-cache + CCOUNT/wall-time skew),
-     * making sha_khs_ceiling lower than the live mining rate (mining > ceiling
-     * is nonsensical). Closes TA-395 root cause. */
-    double khs = (result.total_us > 0)
-        ? ((double)iters * 1000.0 / (double)result.total_us)
-        : 0.0;
+    /* Use settled portion for khs when convergence was reached; fall back to full-window. */
+    double khs = (result.settled && result.settled_total_us > 0)
+        ? ((double)result.settled_iters * 1000.0 / (double)result.settled_total_us)
+        : ((result.total_us > 0) ? ((double)iters * 1000.0 / (double)result.total_us) : 0.0);
 
-    bb_log_i(TAG, "HW SHA microbench (real kernel): %"PRId64" us / %"PRIu32" iters, %.2f us/SHA-op, ~%.0f kH/s reject-path ceiling",
-             result.total_us, iters, result.us_per_op, khs);
+    bb_log_i(TAG, "HW SHA microbench (real kernel): %"PRId64" us / %"PRIu32" iters, %.2f us/SHA-op, ~%.0f kH/s reject-path ceiling (settled=%s)",
+             result.total_us, iters, result.us_per_op, khs, result.settled ? "yes" : "no");
     mining_set_sha_microbench(result.us_per_op, khs);
 }
 
 /* ---------------------------------------------------------------------------
  * TA-33: on-demand bench for /api/diag/benchmark.
- * Measures DPORT kernel throughput using the same reject-path timing approach
- * as the boot microbench but parameterized by iteration count. Caller must
- * hold sha256_hw_dport_acquire().
+ * Measures DPORT kernel throughput using adaptive bucketed convergence detection.
+ * Iters are split into buckets of DPORT_BENCH_BUCKET_SIZE. When
+ * DPORT_BENCH_MIN_SETTLED_BUCKETS consecutive buckets are within
+ * DPORT_BENCH_SETTLE_THRESHOLD_PCT of each other, steady-state is declared.
+ * us_per_op and settled_* fields are computed from settled portion only.
+ * Fallback: if convergence is never reached, reports full-window avg + warning.
+ * Caller must hold sha256_hw_dport_acquire().
  * ---------------------------------------------------------------------------
  */
+#define DPORT_BENCH_BUCKET_SIZE          200
+#define DPORT_BENCH_MAX_BUCKETS          128
+#define DPORT_BENCH_SETTLE_THRESHOLD_PCT   5
+#define DPORT_BENCH_MIN_SETTLED_BUCKETS    3
+
 void sha256_hw_dport_bench_pass2(uint32_t iterations, sha_bench_result_t *out)
 {
     static uint8_t synthetic_header[80];   /* zeros; content is arbitrary */
 
     sha256_hw_dport_kernel_init(synthetic_header);
 
-    /* Warmup: run the kernel a few times un-timed to populate icache + branch
-     * predictor so the timed loop reflects steady-state (mining-warm) throughput.
-     * Without this, boot bench reads ~6-27% slower than a live bench at the same
-     * iter count (cold-cache prologue drag). */
-#define SHA_BENCH_WARMUP_ITERS 200
-    for (uint32_t i = 0; i < SHA_BENCH_WARMUP_ITERS; i++) {
-        uint8_t hash_out[32];
-        sha256_hw_dport_kernel(synthetic_header, i, /*target_word0_max=*/0, hash_out);
+#if BB_BENCH_DIAG
+    bb_log_i(TAG, "bench probe: cpu=%u Hz, apb=%u Hz, iters=%" PRIu32,
+             (unsigned)esp_clk_cpu_freq(), (unsigned)esp_clk_apb_freq(), iterations);
+#endif
+
+    /* Compute bucket size; grow if iters > DPORT_BENCH_MAX_BUCKETS * DPORT_BENCH_BUCKET_SIZE. */
+    uint32_t bucket_size = DPORT_BENCH_BUCKET_SIZE;
+    if (iterations / DPORT_BENCH_MAX_BUCKETS > bucket_size) {
+        bucket_size = iterations / DPORT_BENCH_MAX_BUCKETS;
+    }
+    uint32_t num_buckets = iterations / bucket_size;
+    if (num_buckets == 0) num_buckets = 1;
+    if (num_buckets > DPORT_BENCH_MAX_BUCKETS) num_buckets = DPORT_BENCH_MAX_BUCKETS;
+
+    static int64_t bucket_us[DPORT_BENCH_MAX_BUCKETS]; /* static — avoid stack pressure */
+    int32_t settled_first = -1;
+    int consecutive_settled = 0;
+
+    int64_t bench_start = esp_timer_get_time();
+    for (uint32_t b = 0; b < num_buckets; b++) {
+        int64_t bs = esp_timer_get_time();
+        for (uint32_t i = 0; i < bucket_size; i++) {
+            uint8_t hash_out[32];
+            sha256_hw_dport_kernel(synthetic_header, b * bucket_size + i,
+                                   /*target_word0_max=*/0, hash_out);
+        }
+        bucket_us[b] = esp_timer_get_time() - bs;
+
+        /* Convergence check vs prior bucket. */
+        if (b > 0 && settled_first < 0) {
+            int64_t prev = bucket_us[b - 1];
+            int64_t curr = bucket_us[b];
+            int64_t diff = (curr > prev) ? (curr - prev) : (prev - curr);
+            int64_t pct  = (prev > 0) ? (diff * 100 / prev) : 100;
+            if (pct <= DPORT_BENCH_SETTLE_THRESHOLD_PCT) {
+                consecutive_settled++;
+                if (consecutive_settled >= DPORT_BENCH_MIN_SETTLED_BUCKETS) {
+                    settled_first = (int32_t)b - DPORT_BENCH_MIN_SETTLED_BUCKETS + 1;
+                }
+            } else {
+                consecutive_settled = 0;
+            }
+        }
+    }
+    int64_t total_us = esp_timer_get_time() - bench_start;
+
+    /* Compute steady-state metrics from settled-onward portion. */
+    int64_t settled_us     = 0;
+    uint32_t settled_iters = 0;
+    bool settled = (settled_first >= 0);
+    double us_per_op;
+
+    if (settled) {
+        for (uint32_t b = (uint32_t)settled_first; b < num_buckets; b++) {
+            settled_us    += bucket_us[b];
+            settled_iters += bucket_size;
+        }
+        /* DPORT: 3 SHA ops per nonce (block1 + block2 + double-hash). */
+        us_per_op = (settled_iters > 0) ? (double)settled_us / settled_iters / 3.0 : 0.0;
+    } else {
+        /* Fallback: full-window average (transparently flagged). */
+        us_per_op = (iterations > 0) ? (double)total_us / iterations / 3.0 : 0.0;
+        bb_log_w(TAG, "bench did NOT settle after %"PRIu32" iters / %"PRIu32" buckets — fallback to full-window avg",
+                 iterations, num_buckets);
     }
 
-    int64_t start = esp_timer_get_time();
-    for (uint32_t i = 0; i < iterations; i++) {
-        uint8_t hash_out[32];
-        sha256_hw_dport_kernel(synthetic_header, i, /*target_word0_max=*/0, hash_out);
-    }
-    int64_t elapsed_us = esp_timer_get_time() - start;
-
-    /* us_per_op: one nonce = 3 SHA ops on D0; report per-SHA-op for comparability */
-    double us_per_op = (iterations > 0) ? (double)elapsed_us / iterations / 3.0 : 0.0;
-    bb_log_i(TAG, "dport bench (%"PRIu32" iters): %"PRId64" us total, %.2f us/SHA-op",
-             iterations, elapsed_us, us_per_op);
+    bb_log_i(TAG, "dport bench: %"PRIu32" iters, %"PRIu32" buckets*%"PRIu32", settled=%s after %"PRIu32" iters, us/op=%.2f%s",
+             iterations, num_buckets, bucket_size,
+             settled ? "yes" : "no",
+             settled ? (uint32_t)settled_first * bucket_size : iterations,
+             us_per_op, settled ? "" : " (UNSETTLED)");
 
     if (out) {
-        out->total_us  = elapsed_us;
-        out->us_per_op = us_per_op;
+        out->total_us           = total_us;
+        out->us_per_op          = us_per_op;
+        out->settled            = settled;
+        out->settled_after_iters = settled ? (uint32_t)settled_first * bucket_size : 0;
+        out->settled_total_us   = settled ? settled_us : 0;
+        out->settled_iters      = settled ? settled_iters : 0;
     }
 }
 

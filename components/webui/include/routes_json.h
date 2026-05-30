@@ -337,14 +337,19 @@ void build_fan_json(const fan_snapshot_t *s, bb_json_t root);
 typedef struct {
     uint32_t    iters;
     int64_t     duration_us;
-    double      us_per_op;          /* per-SHA-block-op (total/iters/3 on D0) */
-    double      khs;                /* nonce-domain: iters * 1000 / duration_us */
+    double      us_per_op;          /* per-SHA-block-op — steady-state only when settled=true */
+    double      khs;                /* nonce-domain: settled_iters*1000/settled_us (or fallback) */
     double      sha_ops_per_sec;    /* per-SHA-block-op ops/s: 1e6 / us_per_op */
     const char *backend;        /* "sw", "ahb", or "dport" — static string */
     sha_overlap_state_t text_overlap_state;  /* SHA_OVERLAP_UNKNOWN | SAFE | UNSAFE */
     sha_overlap_state_t h_write_state;       /* SHA_OVERLAP_UNKNOWN | SAFE | UNSAFE */
     bool        asic_active;    /* only meaningful when ASIC_CHIP is defined */
     bool        has_asic_active;/* true only on ASIC boards */
+    /* Adaptive convergence fields (from sha_bench_result_t): */
+    bool        settled;             /* true if steady-state was detected */
+    uint32_t    settled_after_iters; /* 0 if not settled */
+    uint32_t    settled_iters;       /* count of iters in settled portion */
+    int64_t     settled_total_us;    /* wall time of settled portion */
 } diag_bench_snapshot_t;
 
 /* Parse JSON body and extract iters (default DIAG_BENCH_ITERS_DEFAULT if absent).

@@ -2554,22 +2554,31 @@ static bb_err_t diag_benchmark_handler(bb_http_request_t *req)
         default:                 hwrite_str = "unknown"; break;
     }
 
-    /* Build and stream response */
-    /* khs: nonce-domain (iters * 1000 / duration_us) — matches /api/info sha_khs_ceiling */
-    double khs = (bench.total_us > 0) ? ((double)iters * 1000.0 / (double)bench.total_us) : 0.0;
-    /* sha_ops_per_sec: per-SHA-block-op rate (ops/s = 1e6 / us_per_op) */
+    /* Build and stream response.
+     * khs: use settled portion when settled; fall back to full-window iters/duration_us. */
+    double khs;
+    if (bench.settled && bench.settled_total_us > 0) {
+        khs = (double)bench.settled_iters * 1000.0 / (double)bench.settled_total_us;
+    } else {
+        khs = (bench.total_us > 0) ? ((double)iters * 1000.0 / (double)bench.total_us) : 0.0;
+    }
+    /* sha_ops_per_sec: per-SHA-block-op rate (ops/s = 1e6 / us_per_op); us_per_op is steady-state */
     double sha_ops_per_sec = (bench.us_per_op > 0.0) ? (1000000.0 / bench.us_per_op) : 0.0;
 
     bb_http_json_obj_stream_t obj;
     rc = bb_http_resp_json_obj_begin(req, &obj);
     if (rc != BB_OK) return rc;
 
-    bb_http_resp_json_obj_set_int(&obj, "iters",            (int64_t)iters);
-    bb_http_resp_json_obj_set_int(&obj, "duration_us",      bench.total_us);
-    bb_http_resp_json_obj_set_num(&obj, "us_per_op",        bench.us_per_op);
-    bb_http_resp_json_obj_set_num(&obj, "khs",              khs);
-    bb_http_resp_json_obj_set_num(&obj, "sha_ops_per_sec", sha_ops_per_sec);
-    bb_http_resp_json_obj_set_str(&obj, "backend",          backend);
+    bb_http_resp_json_obj_set_int(&obj, "iters",               (int64_t)iters);
+    bb_http_resp_json_obj_set_int(&obj, "duration_us",         bench.total_us);
+    bb_http_resp_json_obj_set_num(&obj, "us_per_op",           bench.us_per_op);
+    bb_http_resp_json_obj_set_num(&obj, "khs",                 khs);
+    bb_http_resp_json_obj_set_num(&obj, "sha_ops_per_sec",    sha_ops_per_sec);
+    bb_http_resp_json_obj_set_str(&obj, "backend",             backend);
+    bb_http_resp_json_obj_set_bool(&obj, "settled",            bench.settled);
+    bb_http_resp_json_obj_set_int(&obj, "settled_after_iters", (int64_t)bench.settled_after_iters);
+    bb_http_resp_json_obj_set_int(&obj, "settled_iters",       (int64_t)bench.settled_iters);
+    bb_http_resp_json_obj_set_int(&obj, "settled_total_us",    bench.settled_total_us);
 
     bb_http_resp_json_obj_set_obj_begin(&obj, "canary");
     bb_http_resp_json_obj_set_str(&obj, "text_overlap", overlap_str);

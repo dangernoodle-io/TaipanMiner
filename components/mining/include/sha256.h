@@ -59,8 +59,12 @@ bb_err_t sha256_check_abc_vector(const char *backend_tag, const uint8_t hash[32]
 
 // TA-33: SHA benchmark result type. Used by both sw and hw bench helpers.
 typedef struct {
-    int64_t  total_us;
-    double   us_per_op;
+    int64_t  total_us;             // wall time of ALL iters
+    double   us_per_op;            // per-SHA-block-op — steady-state only when settled=true
+    bool     settled;              // true if adaptive convergence was reached
+    uint32_t settled_after_iters;  // 0 if not settled; else iters elapsed when steady-state began
+    int64_t  settled_total_us;     // wall time of settled-only buckets (0 if not settled)
+    uint32_t settled_iters;        // count of iters in settled portion (0 if not settled)
 } sha_bench_result_t;
 
 // TA-33: SW-path bench for on-demand benchmark endpoint.

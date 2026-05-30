@@ -527,11 +527,12 @@ bb_err_t diag_bench_parse_request(const char *body, int body_len, uint32_t *out_
 
 void build_diag_bench_json(const diag_bench_snapshot_t *s, bb_json_t root)
 {
-    bb_json_obj_set_number(root, "iters",       (double)s->iters);
-    bb_json_obj_set_number(root, "duration_us", (double)s->duration_us);
-    bb_json_obj_set_number(root, "us_per_op",   s->us_per_op);
-    bb_json_obj_set_number(root, "khs",         s->khs);
-    bb_json_obj_set_string(root, "backend",     s->backend ? s->backend : "sw");
+    bb_json_obj_set_number(root, "iters",            (double)s->iters);
+    bb_json_obj_set_number(root, "duration_us",      (double)s->duration_us);
+    bb_json_obj_set_number(root, "us_per_op",        s->us_per_op);
+    bb_json_obj_set_number(root, "khs",              s->khs);
+    bb_json_obj_set_number(root, "sha_kops_per_sec", s->sha_kops_per_sec);
+    bb_json_obj_set_string(root, "backend",          s->backend ? s->backend : "sw");
 
     bb_json_t canary = bb_json_obj_new();
     bb_json_obj_set_string(canary, "text_overlap", s_overlap_str(s->text_overlap_state));

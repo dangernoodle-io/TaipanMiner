@@ -674,6 +674,15 @@ void sha256_hw_bench_pass2(uint32_t iterations, sha_bench_result_t *out)
 
     sha256_hw_pipeline_prep();
 
+    /* Warmup: run the kernel a few times un-timed to populate icache + branch
+     * predictor so the timed loop reflects steady-state (mining-warm) throughput.
+     * Without this, boot bench reads ~6-27% slower than a live bench at the same
+     * iter count (cold-cache prologue drag). */
+#define SHA_BENCH_WARMUP_ITERS 200
+    for (uint32_t i = 0; i < SHA_BENCH_WARMUP_ITERS; i++) {
+        (void)sha256_hw_mine_nonce(synthetic_midstate, synthetic_block2, i, digest_hw);
+    }
+
     int64_t start = esp_timer_get_time();
     for (uint32_t i = 0; i < iterations; i++) {
         (void)sha256_hw_mine_nonce(synthetic_midstate, synthetic_block2, i, digest_hw);

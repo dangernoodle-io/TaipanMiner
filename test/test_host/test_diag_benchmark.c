@@ -143,6 +143,10 @@ void test_diag_bench_json_shape_sw_backend(void)
         .h_write_state      = SHA_OVERLAP_SAFE,
         .asic_active        = false,
         .has_asic_active    = false,
+        .settled            = true,
+        .settled_after_iters = 1000,
+        .settled_iters      = 9000,
+        .settled_total_us   = 7448,
     };
 
     char *json = build_and_serialize(&s);
@@ -158,6 +162,11 @@ void test_diag_bench_json_shape_sw_backend(void)
     TEST_ASSERT_NOT_NULL(strstr(json, "\"canary\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"text_overlap\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"h_write\""));
+    /* Convergence fields */
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"settled\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"settled_after_iters\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"settled_iters\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"settled_total_us\""));
 
     /* Backend name is "sw" */
     TEST_ASSERT_NOT_NULL(strstr(json, "\"sw\""));
@@ -186,6 +195,10 @@ void test_diag_bench_json_shape_ahb_backend(void)
         .h_write_state      = SHA_OVERLAP_UNSAFE,
         .asic_active        = false,
         .has_asic_active    = false,
+        .settled            = true,
+        .settled_after_iters = 400,
+        .settled_iters      = 4600,
+        .settled_total_us   = 18400,
     };
 
     char *json = build_and_serialize(&s);
@@ -209,6 +222,10 @@ void test_diag_bench_json_shape_dport_backend(void)
         .h_write_state      = SHA_OVERLAP_UNSAFE,
         .asic_active        = false,
         .has_asic_active    = false,
+        .settled            = false,
+        .settled_after_iters = 0,
+        .settled_iters      = 0,
+        .settled_total_us   = 0,
     };
 
     char *json = build_and_serialize(&s);
@@ -231,6 +248,10 @@ void test_diag_bench_json_asic_active_present_when_flagged(void)
         .h_write_state      = SHA_OVERLAP_SAFE,
         .asic_active        = true,
         .has_asic_active    = true,
+        .settled            = true,
+        .settled_after_iters = 200,
+        .settled_iters      = 9800,
+        .settled_total_us   = 980,
     };
 
     char *json = build_and_serialize(&s);
@@ -253,6 +274,10 @@ void test_diag_bench_json_canary_unknown(void)
         .h_write_state      = SHA_OVERLAP_UNKNOWN,
         .asic_active        = false,
         .has_asic_active    = false,
+        .settled            = true,
+        .settled_after_iters = 200,
+        .settled_iters      = 9800,
+        .settled_total_us   = 980,
     };
 
     char *json = build_and_serialize(&s);
@@ -277,6 +302,10 @@ void test_diag_bench_json_canary_mixed(void)
         .h_write_state      = SHA_OVERLAP_UNKNOWN,
         .asic_active        = false,
         .has_asic_active    = false,
+        .settled            = true,
+        .settled_after_iters = 200,
+        .settled_iters      = 9800,
+        .settled_total_us   = 980,
     };
 
     char *json = build_and_serialize(&s);
@@ -304,13 +333,17 @@ void test_diag_bench_json_khs_invariant(void)
         .us_per_op          = 1.0,
         /* khs and sha_ops_per_sec are computed by the handler, not the snapshot.
          * Populate them with the correct values to test build_diag_bench_json passthrough. */
-        .khs                = 333.333333,   /* iters * 1000 / duration_us */
+        .khs                = 333.333333,   /* settled_iters * 1000 / settled_total_us */
         .sha_ops_per_sec   = 1000000.0,    /* 1e6 / us_per_op (ops/s) */
         .backend            = "dport",
         .text_overlap_state = SHA_OVERLAP_SAFE,
         .h_write_state      = SHA_OVERLAP_SAFE,
         .asic_active        = false,
         .has_asic_active    = false,
+        .settled            = true,
+        .settled_after_iters = 200,
+        .settled_iters      = 800,
+        .settled_total_us   = 2400,  /* 800 * 1000 / 333.333 = 2400 us */
     };
 
     bb_json_t root = bb_json_obj_new();
@@ -358,14 +391,18 @@ void test_diag_bench_json_khs_invariant_ahb(void)
     diag_bench_snapshot_t s = {
         .iters              = 1000,
         .duration_us        = 2000,
-        .us_per_op          = 1.0,   /* elapsed_us / iters / 2 = 2000/1000/2 */
-        .khs                = 500.0, /* iters * 1000 / duration_us */
+        .us_per_op          = 1.0,   /* settled_us / settled_iters / 2 */
+        .khs                = 500.0, /* settled_iters * 1000 / settled_total_us */
         .sha_ops_per_sec   = 1000000.0, /* 1e6 / us_per_op */
         .backend            = "ahb",
         .text_overlap_state = SHA_OVERLAP_SAFE,
         .h_write_state      = SHA_OVERLAP_SAFE,
         .asic_active        = false,
         .has_asic_active    = false,
+        .settled            = true,
+        .settled_after_iters = 200,
+        .settled_iters      = 800,
+        .settled_total_us   = 1600,  /* 800 * 1000 / 500.0 = 1600 us */
     };
 
     bb_json_t root = bb_json_obj_new();
@@ -389,4 +426,65 @@ void test_diag_bench_json_khs_invariant_ahb(void)
     TEST_ASSERT_DOUBLE_WITHIN(0.01, 2.0, ratio);
 
     bb_json_free(root);
+}
+
+/* ============================================================================
+ * Adaptive convergence: unsettled fallback path test.
+ *
+ * When iters too small or SHA peripheral never settles, bench_pass2 falls
+ * back to full-window average with settled=false. The JSON response MUST:
+ *   - emit settled=false
+ *   - emit settled_after_iters=0, settled_iters=0, settled_total_us=0
+ *   - us_per_op and khs come from the fallback (full-window):
+ *       us_per_op = total_us / iters / 2 (AHB) = 5000 / 1000 / 2 = 2.5
+ *       khs = iters * 1000 / total_us = 1000 * 1000 / 5000 = 200.0
+ * ========================================================================= */
+void test_diag_bench_json_unsettled_fallback(void)
+{
+    diag_bench_snapshot_t s = {
+        .iters              = 1000,
+        .duration_us        = 5000,
+        .us_per_op          = 2.5,    /* total_us / iters / 2 (AHB fallback) */
+        .khs                = 200.0,  /* iters * 1000 / total_us (fallback) */
+        .sha_ops_per_sec   = 400000.0, /* 1e6 / us_per_op */
+        .backend            = "ahb",
+        .text_overlap_state = SHA_OVERLAP_SAFE,
+        .h_write_state      = SHA_OVERLAP_SAFE,
+        .asic_active        = false,
+        .has_asic_active    = false,
+        .settled            = false,
+        .settled_after_iters = 0,
+        .settled_iters      = 0,
+        .settled_total_us   = 0,
+    };
+
+    char *json = build_and_serialize(&s);
+    TEST_ASSERT_NOT_NULL(json);
+
+    /* settled must be false */
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"settled\":false"));
+
+    /* settled_after_iters must be 0 */
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"settled_after_iters\":0"));
+
+    /* settled_iters must be 0 */
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"settled_iters\":0"));
+
+    /* settled_total_us must be 0 */
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"settled_total_us\":0"));
+
+    /* khs and us_per_op are present and reflect fallback values */
+    bb_json_t root = bb_json_parse(json, 0);
+    TEST_ASSERT_NOT_NULL(root);
+
+    bb_json_t j_khs = bb_json_obj_get_item(root, "khs");
+    TEST_ASSERT_NOT_NULL(j_khs);
+    TEST_ASSERT_DOUBLE_WITHIN(0.01, 200.0, bb_json_item_get_double(j_khs));
+
+    bb_json_t j_usop = bb_json_obj_get_item(root, "us_per_op");
+    TEST_ASSERT_NOT_NULL(j_usop);
+    TEST_ASSERT_DOUBLE_WITHIN(0.01, 2.5, bb_json_item_get_double(j_usop));
+
+    bb_json_free(root);
+    bb_json_free_str(json);
 }

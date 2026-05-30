@@ -491,7 +491,7 @@ void sha256_hw_ahb_boot_probes(void)
     sha256_hw_verify_text_preserved();
     sha256_hw_overlap_canary();
     sha256_hw_hwrite_canary();
-    sha256_hw_profile_hotloop(5000);
+    sha256_hw_profile_hotloop(10000);
     bb_err_t rc = sha256_hw_ahb_self_test_lockstep(1000);
     if (rc != BB_OK) {
         bb_log_e(TAG, "S3 lockstep self-test FAILED — SHA hot loop digest diverges from SW SHA256d");
@@ -648,10 +648,11 @@ void sha256_hw_profile_hotloop(uint32_t iterations)
      * with /api/diag/benchmark, post-#456 normalized to per-SHA-block-op).
      * Cycle-counted khs was ~28% optimistic vs wall time (CCOUNT/wall skew). */
     sha_bench_result_t bench = {0};
-    sha256_hw_bench_pass2(iterations, &bench);
-    double khs = (bench.total_us > 0)
-        ? ((double)iterations * 1000.0 / (double)bench.total_us)
-        : 0.0;
+    sha256_hw_bench_pass2(10000, &bench);
+    /* Use settled portion for khs when convergence was reached; fall back to full-window. */
+    double khs = (bench.settled && bench.settled_total_us > 0)
+        ? ((double)bench.settled_iters * 1000.0 / (double)bench.settled_total_us)
+        : ((bench.total_us > 0) ? (10000.0 * 1000.0 / (double)bench.total_us) : 0.0);
     mining_set_sha_microbench(bench.us_per_op, khs);
 }
 
@@ -662,6 +663,18 @@ void sha256_hw_profile_hotloop(uint32_t iterations)
 // nonce, exercising both passes (SHA_CONTINUE + SHA_START) with the TA-320b/f
 // overlap optimization — exactly what real mining executes. Caller must hold
 // sha256_hw_acquire(). Results returned in *out; also logged for diagnostics.
+//
+// Adaptive bucketed convergence detection: iters are split into buckets of
+// BENCH_BUCKET_SIZE. After each bucket, wall time is compared to the prior
+// bucket. When BENCH_MIN_SETTLED_BUCKETS consecutive buckets are within
+// BENCH_SETTLE_THRESHOLD_PCT of each other, steady-state is declared.
+// us_per_op and khs are computed from the settled portion only.
+// Fallback: if convergence is never reached, reports full-window avg + warning.
+#define BENCH_BUCKET_SIZE          200
+#define BENCH_MAX_BUCKETS          128
+#define BENCH_SETTLE_THRESHOLD_PCT   5
+#define BENCH_MIN_SETTLED_BUCKETS    3
+
 void sha256_hw_bench_pass2(uint32_t iterations, sha_bench_result_t *out)
 {
     /* Synthetic midstate + block2_words; content is arbitrary — the early-reject
@@ -674,49 +687,103 @@ void sha256_hw_bench_pass2(uint32_t iterations, sha_bench_result_t *out)
 
     sha256_hw_pipeline_prep();
 
-    /* Warmup: run the kernel a few times un-timed to populate icache + branch
-     * predictor so the timed loop reflects steady-state (mining-warm) throughput.
-     * Without this, boot bench reads ~6-27% slower than a live bench at the same
-     * iter count (cold-cache prologue drag). */
-#define SHA_BENCH_WARMUP_ITERS 200
-    for (uint32_t i = 0; i < SHA_BENCH_WARMUP_ITERS; i++) {
-        (void)sha256_hw_mine_nonce(synthetic_midstate, synthetic_block2, i, digest_hw);
+#if BB_BENCH_DIAG
+    uint32_t diag_cpu_hz = (uint32_t)esp_clk_cpu_freq();
+    uint32_t diag_apb_hz = (uint32_t)esp_clk_apb_freq();
+    bb_log_i(TAG, "bench probe: cpu=%u Hz, apb=%u Hz, iters=%" PRIu32,
+             diag_cpu_hz, diag_apb_hz, iterations);
+#endif
+
+    /* Compute bucket size; grow if iters > BENCH_MAX_BUCKETS * BENCH_BUCKET_SIZE
+     * so the static array is never overrun. */
+    uint32_t bucket_size = BENCH_BUCKET_SIZE;
+    if (iterations / BENCH_MAX_BUCKETS > bucket_size) {
+        bucket_size = iterations / BENCH_MAX_BUCKETS;
+    }
+    uint32_t num_buckets = iterations / bucket_size;
+    if (num_buckets == 0) num_buckets = 1;
+    /* Clamp to array capacity (defensive). */
+    if (num_buckets > BENCH_MAX_BUCKETS) num_buckets = BENCH_MAX_BUCKETS;
+
+    static int64_t bucket_us[BENCH_MAX_BUCKETS]; /* static — avoid stack pressure */
+    int32_t settled_first = -1; /* first settled bucket index, or -1 */
+    int consecutive_settled = 0;
+
+    int64_t bench_start = esp_timer_get_time();
+    for (uint32_t b = 0; b < num_buckets; b++) {
+        int64_t bs = esp_timer_get_time();
+        for (uint32_t i = 0; i < bucket_size; i++) {
+            uint32_t nonce = b * bucket_size + i;
+            (void)sha256_hw_mine_nonce(synthetic_midstate, synthetic_block2, nonce, digest_hw);
+        }
+        bucket_us[b] = esp_timer_get_time() - bs;
+
+        /* Convergence check vs prior bucket (skip b==0; need previous to compare). */
+        if (b > 0 && settled_first < 0) {
+            int64_t prev = bucket_us[b - 1];
+            int64_t curr = bucket_us[b];
+            int64_t diff = (curr > prev) ? (curr - prev) : (prev - curr);
+            int64_t pct  = (prev > 0) ? (diff * 100 / prev) : 100;
+            if (pct <= BENCH_SETTLE_THRESHOLD_PCT) {
+                consecutive_settled++;
+                if (consecutive_settled >= BENCH_MIN_SETTLED_BUCKETS) {
+                    settled_first = (int32_t)b - BENCH_MIN_SETTLED_BUCKETS + 1;
+                }
+            } else {
+                consecutive_settled = 0;
+            }
+        }
+    }
+    int64_t total_us = esp_timer_get_time() - bench_start;
+
+    /* Compute steady-state metrics from settled-onward portion. */
+    int64_t settled_us    = 0;
+    uint32_t settled_iters = 0;
+    bool settled = (settled_first >= 0);
+    double us_per_op;
+
+    if (settled) {
+        for (uint32_t b = (uint32_t)settled_first; b < num_buckets; b++) {
+            settled_us    += bucket_us[b];
+            settled_iters += bucket_size;
+        }
+        /* AHB: 2 SHA block ops per nonce (pass1 SHA_CONTINUE + pass2 SHA_START). */
+        us_per_op = (settled_iters > 0) ? (double)settled_us / settled_iters / 2.0 : 0.0;
+    } else {
+        /* Fallback: full-window average (transparently flagged in result). */
+        us_per_op = (iterations > 0) ? (double)total_us / iterations / 2.0 : 0.0;
+        bb_log_w(TAG, "bench did NOT settle after %"PRIu32" iters / %"PRIu32" buckets — fallback to full-window avg",
+                 iterations, num_buckets);
     }
 
-    int64_t start = esp_timer_get_time();
-    for (uint32_t i = 0; i < iterations; i++) {
-        (void)sha256_hw_mine_nonce(synthetic_midstate, synthetic_block2, i, digest_hw);
-    }
-    int64_t elapsed_us = esp_timer_get_time() - start;
+    bb_log_i(TAG, "ahb bench: %"PRIu32" iters, %"PRIu32" buckets*%"PRIu32", settled=%s after %"PRIu32" iters, us/op=%.2f%s",
+             iterations, num_buckets, bucket_size,
+             settled ? "yes" : "no",
+             settled ? (uint32_t)settled_first * bucket_size : iterations,
+             us_per_op, settled ? "" : " (UNSETTLED)");
 
-    /* us_per_op: AHB uses midstate — 2 SHA block ops per nonce (pass1 SHA_CONTINUE
-     * + pass2 SHA_START). iters here = nonces (one call to sha256_hw_mine_nonce per
-     * iter), so elapsed_us / iters / 2 gives real per-SHA-block-op time.
-     * khs = iters * 1000 / duration_us reflects mining-domain throughput (nonces/s).
-     * Cross-check: sha_ops_per_sec / (khs * 1000) ≈ 2 (AHB invariant). */
-    double us_per_op = (iterations > 0) ? (double)elapsed_us / iterations / 2.0 : 0.0;
-    bb_log_i(TAG, "ahb bench (%"PRIu32" nonces): %"PRId64" us total, %.2f us/SHA-op",
-             iterations, elapsed_us, us_per_op);
+#if BB_BENCH_DIAG
+    /* Store boot diagnostics on first call (s_boot_diag.valid starts false). */
+    if (!s_boot_diag.valid) {
+        s_boot_diag.cpu_hz     = diag_cpu_hz;
+        s_boot_diag.apb_hz     = diag_apb_hz;
+        s_boot_diag.iters      = iterations;
+        s_boot_diag.tail_avg_cyc = 0;
+        s_boot_diag.tail_count   = 0;
+        s_boot_diag.total_us  = total_us;
+        s_boot_diag.us_per_op = us_per_op;
+        s_boot_diag.valid = true;  /* mark complete — must be last */
+    }
+#endif
 
     if (out) {
-        out->total_us  = elapsed_us;
-        out->us_per_op = us_per_op;
+        out->total_us           = total_us;
+        out->us_per_op          = us_per_op;
+        out->settled            = settled;
+        out->settled_after_iters = settled ? (uint32_t)settled_first * bucket_size : 0;
+        out->settled_total_us   = settled ? settled_us : 0;
+        out->settled_iters      = settled ? settled_iters : 0;
     }
-
-#ifdef TAIPANMINER_DEBUG
-    // Extra: also benchmark SHA_START for comparison
-    int64_t start2 = esp_timer_get_time();
-    for (uint32_t i = 0; i < iterations; i++) {
-        for (int j = 0; j < 16; j++) {
-            SHA_TEXT_REG[j] = test_msg[j];
-        }
-        REG_WRITE(SHA_START_REG, 1);
-        while (REG_READ(SHA_BUSY_REG)) {}
-    }
-    int64_t elapsed_start = esp_timer_get_time() - start2;
-    bb_log_i(TAG, "  SHA_START vs CONTINUE: start=%.2f us/op, continue=%.2f us/op",
-             (double)elapsed_start / iterations, us_per_op);
-#endif
 }
 
 #endif // CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32C3

@@ -717,8 +717,11 @@ void test_diag_bench_json_shape_sw_backend(void);
 void test_diag_bench_json_shape_ahb_backend(void);
 void test_diag_bench_json_shape_dport_backend(void);
 void test_diag_bench_json_asic_active_present_when_flagged(void);
+void test_diag_bench_json_canary_unknown(void);
+void test_diag_bench_json_canary_mixed(void);
 void test_diag_bench_json_khs_invariant(void);
 void test_diag_bench_json_khs_invariant_ahb(void);
+void test_diag_bench_json_unsettled_fallback(void);
 
 // TA-234: stratum_watchdogs
 void test_stratum_watchdog_job_drought_never_observed(void);
@@ -1381,8 +1384,11 @@ int main(void) {
     RUN_TEST(test_diag_bench_json_shape_ahb_backend);
     RUN_TEST(test_diag_bench_json_shape_dport_backend);
     RUN_TEST(test_diag_bench_json_asic_active_present_when_flagged);
+    RUN_TEST(test_diag_bench_json_canary_unknown);
+    RUN_TEST(test_diag_bench_json_canary_mixed);
     RUN_TEST(test_diag_bench_json_khs_invariant);
     RUN_TEST(test_diag_bench_json_khs_invariant_ahb);
+    RUN_TEST(test_diag_bench_json_unsettled_fallback);
 
     RUN_TEST(test_knot_empty);
     RUN_TEST(test_knot_two_peers);

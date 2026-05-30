@@ -554,6 +554,14 @@ void app_main(void)
                  * back to a sanitized worker so mDNS still has *something* to announce
                  * during the AP/prov flow. */
                 bb_mdns_build_hostname(config_worker_name(), NULL, hn, sizeof(hn));
+                /* TA-405: persist the derived value to NVS so subsequent reads
+                 * (/api/info, knot self-peer at lines ~577-583, taipan-cli filtered
+                 * queries) see a real hostname instead of empty. Pre-fix, the fallback
+                 * only seeded the live mDNS announce; NVS stayed empty across boots. */
+                bb_err_t rc = bb_nv_config_set_hostname(hn);
+                if (rc != BB_OK) {
+                    bb_log_w(TAG, "TA-405: failed to persist derived hostname '%s': %d", hn, rc);
+                }
             }
             /* Instance name == hostname so dns-sd browses surface a useful identifier. */
             bb_mdns_set_instance_name(hn);

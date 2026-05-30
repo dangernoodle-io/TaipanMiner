@@ -491,7 +491,7 @@ void sha256_hw_ahb_boot_probes(void)
     sha256_hw_verify_text_preserved();
     sha256_hw_overlap_canary();
     sha256_hw_hwrite_canary();
-    sha256_hw_profile_hotloop(1000);
+    sha256_hw_profile_hotloop(5000);
     bb_err_t rc = sha256_hw_ahb_self_test_lockstep(1000);
     if (rc != BB_OK) {
         bb_log_e(TAG, "S3 lockstep self-test FAILED — SHA hot loop digest diverges from SW SHA256d");
@@ -657,39 +657,36 @@ void sha256_hw_profile_hotloop(uint32_t iterations)
 
 // --- Benchmark (TA-33) ---
 
-// sha256_hw_bench_pass2: measure AHB SHA peripheral throughput on the second
-// hash pass (SHA_CONTINUE path used by the mining hot loop). Caller must hold
+// sha256_hw_bench_pass2: measure AHB SHA peripheral throughput using the real
+// per-nonce hot-loop function (sha256_hw_mine_nonce). Each iteration = one
+// nonce, exercising both passes (SHA_CONTINUE + SHA_START) with the TA-320b/f
+// overlap optimization — exactly what real mining executes. Caller must hold
 // sha256_hw_acquire(). Results returned in *out; also logged for diagnostics.
 void sha256_hw_bench_pass2(uint32_t iterations, sha_bench_result_t *out)
 {
-    // Fixed test block: 32-byte hash body + SHA-256 padding for pass2
-    uint32_t test_msg[16] = {
-        0x12345678, 0x9abcdef0, 0x12345678, 0x9abcdef0,
-        0x12345678, 0x9abcdef0, 0x12345678, 0x9abcdef0,
-        0x00000080, 0, 0, 0, 0, 0, 0, 0x00010000
-    };
+    /* Synthetic midstate + block2_words; content is arbitrary — the early-reject
+     * path fires on almost every nonce (upper 16 bits of h7 nonzero), which is
+     * the dominant production case. Prime persistent TEXT slots once before the
+     * loop (matches production: sha256_hw_pipeline_prep called per job). */
+    static const uint32_t synthetic_midstate[8] = {0};
+    static const uint32_t synthetic_block2[3]   = {0};
+    uint32_t digest_hw[8];
 
-    // Benchmark SHA_CONTINUE with pre-loaded H0 (the hot-loop path)
+    sha256_hw_pipeline_prep();
+
     int64_t start = esp_timer_get_time();
     for (uint32_t i = 0; i < iterations; i++) {
-        for (int j = 0; j < 8; j++) {
-            SHA_H_REG[j] = H0_hw[j];
-        }
-        for (int j = 0; j < 16; j++) {
-            SHA_TEXT_REG[j] = test_msg[j];
-        }
-        REG_WRITE(SHA_CONTINUE_REG, 1);
-        while (REG_READ(SHA_BUSY_REG)) {}
+        (void)sha256_hw_mine_nonce(synthetic_midstate, synthetic_block2, i, digest_hw);
     }
     int64_t elapsed_us = esp_timer_get_time() - start;
 
-    /* us_per_op: AHB uses midstate (block1 computed once per job, not per nonce).
-     * Per nonce the hot loop runs 2 SHA ops: pass1 (SHA_CONTINUE, block2 tail)
-     * + pass2 (SHA_START, outer double-SHA digest). Divide by 2 so us_per_op
-     * means per-SHA-block-op, matching the DPORT convention (which divides by 3
-     * because DPORT processes all three blocks per nonce without midstate). */
+    /* us_per_op: AHB uses midstate — 2 SHA block ops per nonce (pass1 SHA_CONTINUE
+     * + pass2 SHA_START). iters here = nonces (one call to sha256_hw_mine_nonce per
+     * iter), so elapsed_us / iters / 2 gives real per-SHA-block-op time.
+     * khs = iters * 1000 / duration_us reflects mining-domain throughput (nonces/s).
+     * Cross-check: sha_ops_per_sec / (khs * 1000) ≈ 2 (AHB invariant). */
     double us_per_op = (iterations > 0) ? (double)elapsed_us / iterations / 2.0 : 0.0;
-    bb_log_i(TAG, "ahb bench (%"PRIu32" iters): %"PRId64" us total, %.2f us/SHA-op",
+    bb_log_i(TAG, "ahb bench (%"PRIu32" nonces): %"PRId64" us total, %.2f us/SHA-op",
              iterations, elapsed_us, us_per_op);
 
     if (out) {

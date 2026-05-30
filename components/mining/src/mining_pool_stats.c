@@ -32,6 +32,13 @@
 /* block.found event topic handle; set by mining_pool_stats_set_block_topic(). */
 static bb_event_topic_t s_block_topic = NULL;
 
+/* Upper bound on the device-lifetime block count and the per-slot blocks_found
+ * counter. A SW/HW-SHA miner on these boards can't find real Bitcoin blocks
+ * (difficulty is 15+ orders of magnitude above reach). Values above this are
+ * persisted corruption from the classic-ESP32 DPORT zero-hash erratum where
+ * all-zero hashes spuriously met every pool target and fired record_block(). */
+#define LIFETIME_BLOCKS_SANE_MAX 1024u
+
 static const char *TAG  = "pool_stats";
 static const char *s_ns = "taipanminer";
 
@@ -103,6 +110,16 @@ static void s_sanitize_slot(int idx, mining_pool_stat_t *sl)
         bb_log_w(TAG, "pool_stats: slot %d best_diff corrupt (raw=%g); reset to 0", idx, sl->best_diff);
         sl->best_diff = 0.0;
     }
+    if (sl->best_diff >= 1e15) {
+        bb_log_w(TAG, "pool_stats: slot %d best_diff=%g is the zero-hash clamp; reset to 0", idx, sl->best_diff);
+        sl->best_diff = 0.0;
+        sl->best_diff_ts = 0;
+    }
+    if (sl->blocks_found > LIFETIME_BLOCKS_SANE_MAX) {
+        bb_log_w(TAG, "pool_stats: slot %d blocks_found=%" PRIu32 " implausible; reset to 0", idx, sl->blocks_found);
+        sl->blocks_found = 0;
+        sl->last_block_ts = 0;
+    }
     if (!s_value_is_sane_ts(sl->best_diff_ts)) {
         bb_log_w(TAG, "pool_stats: slot %d best_diff_ts corrupt (raw=%" PRId64 "); reset to 0",
                  idx, sl->best_diff_ts);
@@ -128,6 +145,12 @@ static void s_sanitize_slot(int idx, mining_pool_stat_t *sl)
 
 static void s_sanitize_lifetime(mining_pool_stats_t *ps)
 {
+    if (ps->lifetime_blocks_total > LIFETIME_BLOCKS_SANE_MAX) {
+        bb_log_w(TAG, "pool_stats: lifetime_blocks_total=%" PRIu32 " implausible; reset to 0",
+                 ps->lifetime_blocks_total);
+        ps->lifetime_blocks_total = 0;
+        ps->lifetime_last_block_ts = 0;
+    }
     if (!s_value_is_sane_ts(ps->lifetime_last_block_ts)) {
         bb_log_w(TAG, "pool_stats: lifetime_last_block_ts corrupt (raw=%" PRId64 "); reset to 0",
                  ps->lifetime_last_block_ts);

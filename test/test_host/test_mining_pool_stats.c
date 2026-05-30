@@ -327,17 +327,17 @@ void test_pool_stats_recovery_best_diff_valid_passes_through(void)
 }
 
 /* -------------------------------------------------------------------------
- * best_diff: very large finite value is now accepted (no magnitude ceiling).
- * A bitaxe at 1.4 TH/s can accumulate difficulty well above the old 1e25
- * cap; the sanitizer rejects only NaN/inf, not "large but finite".
+ * best_diff: value below 1e15 is accepted (not the zero-hash clamp sentinel).
+ * Values >= 1e15 are the corrupt zero-hash clamp and are reset to 0.
  * ---------------------------------------------------------------------- */
 void test_pool_stats_recovery_best_diff_large_finite_accepted(void)
 {
     ps_setUp();
     mining_pool_stat_t *sl = mining_pool_stats_find_or_alloc("pool.example.com", 3333);
-    sl->best_diff = 1e30;
+    /* Large-but-below-sentinel: passes through. */
+    sl->best_diff = 1e14;
     mining_pool_stats_sanitize_slot_for_test(sl, 0);
-    TEST_ASSERT_EQUAL_DOUBLE(1e30, sl->best_diff);
+    TEST_ASSERT_EQUAL_DOUBLE(1e14, sl->best_diff);
 }
 
 /* -------------------------------------------------------------------------
@@ -546,17 +546,22 @@ void test_pool_stats_recovery_lifetime_blocks_zero_ts_nonzero(void)
 }
 
 /* -------------------------------------------------------------------------
- * lifetime: large lifetime_blocks_total is now accepted — no magnitude cap.
- * (The old >100 ceiling has been removed.)
+ * lifetime: lifetime_blocks_total above LIFETIME_BLOCKS_SANE_MAX (1024) is
+ * implausible for a SW/HW-SHA miner and is treated as persisted corruption
+ * from the classic-ESP32 DPORT zero-hash erratum. Clamped to 0.
  * ---------------------------------------------------------------------- */
 void test_pool_stats_recovery_lifetime_blocks_large_accepted(void)
 {
     ps_setUp();
-    mining_pool_stats_set_lifetime_blocks_for_test(25951u);
-    TEST_ASSERT_EQUAL_UINT32(25951u, mining_pool_stats_lifetime_blocks());
+    /* Value at the ceiling passes through unchanged. */
+    mining_pool_stats_set_lifetime_blocks_for_test(1024u);
     mining_pool_stats_sanitize_lifetime_for_test();
-    /* No ceiling — large value passes through unchanged. */
-    TEST_ASSERT_EQUAL_UINT32(25951u, mining_pool_stats_lifetime_blocks());
+    TEST_ASSERT_EQUAL_UINT32(1024u, mining_pool_stats_lifetime_blocks());
+
+    /* Value above the ceiling is reset (zero-hash corruption sentinel). */
+    mining_pool_stats_set_lifetime_blocks_for_test(1025u);
+    mining_pool_stats_sanitize_lifetime_for_test();
+    TEST_ASSERT_EQUAL_UINT32(0u, mining_pool_stats_lifetime_blocks());
 }
 
 /* =========================================================================
@@ -715,4 +720,78 @@ void test_pool_stats_record_block_out_of_table_slot_skips_persist(void)
     TEST_ASSERT_EQUAL_UINT32(1, fake.blocks_found);
     /* Lifetime counter IS incremented (that happens before s_slot_index). */
     TEST_ASSERT_EQUAL_UINT32(before + 1, mining_pool_stats_lifetime_blocks());
+}
+
+/* =========================================================================
+ * DPORT zero-hash corruption recovery tests (classic-ESP32 erratum)
+ * ======================================================================= */
+
+/* -------------------------------------------------------------------------
+ * Lifetime blocks=23358 (wroom32 symptom) is implausible → reset to 0 on
+ * init. Exercises the LIFETIME_BLOCKS_SANE_MAX guard added for TA-DPORT.
+ * ---------------------------------------------------------------------- */
+void test_pool_stats_init_zerohash_lifetime_blocks_reset(void)
+{
+    ps_setUp();
+    mining_pool_stats_inject_lifetime_blocks_for_test(23358u);
+    mining_pool_stats_init();
+    TEST_ASSERT_EQUAL_UINT32(0u, mining_pool_stats_lifetime_blocks());
+}
+
+/* -------------------------------------------------------------------------
+ * Slot with best_diff=1e15 (zero-hash clamp) is reset to 0.0 on init.
+ * ---------------------------------------------------------------------- */
+void test_pool_stats_init_zerohash_best_diff_reset(void)
+{
+    ps_setUp();
+    mining_pool_stat_t pre = {0};
+    strncpy(pre.host, "pool.example.com", sizeof(pre.host) - 1);
+    pre.port         = 3333;
+    pre.best_diff    = 1e15;
+    pre.best_diff_ts = (int64_t)1750000000;
+    pre.last_seen_us = (int64_t)12886795;
+    mining_pool_stats_inject_slot_for_test(0, &pre);
+    mining_pool_stats_init();
+    const mining_pool_stat_t *sl = mining_pool_stats_slot(0);
+    TEST_ASSERT_NOT_NULL(sl);
+    TEST_ASSERT_EQUAL_DOUBLE(0.0, sl->best_diff);
+    TEST_ASSERT_EQUAL_INT64(0, sl->best_diff_ts);
+}
+
+/* -------------------------------------------------------------------------
+ * Slot with blocks_found > 1024 is implausible (zero-hash false blocks) →
+ * reset to 0 on init.
+ * ---------------------------------------------------------------------- */
+void test_pool_stats_init_zerohash_slot_blocks_found_reset(void)
+{
+    ps_setUp();
+    mining_pool_stat_t pre = {0};
+    strncpy(pre.host, "pool.example.com", sizeof(pre.host) - 1);
+    pre.port          = 3333;
+    pre.blocks_found  = 1025u;
+    pre.last_block_ts = (int64_t)1750000000;
+    pre.last_seen_us  = (int64_t)12886795;
+    mining_pool_stats_inject_slot_for_test(0, &pre);
+    mining_pool_stats_init();
+    const mining_pool_stat_t *sl = mining_pool_stats_slot(0);
+    TEST_ASSERT_NOT_NULL(sl);
+    TEST_ASSERT_EQUAL_UINT32(0u, sl->blocks_found);
+    TEST_ASSERT_EQUAL_INT64(0, sl->last_block_ts);
+}
+
+/* -------------------------------------------------------------------------
+ * Boundary: lifetime_blocks=1024 is at the ceiling → preserved (not reset).
+ *           lifetime_blocks=1025 is above → reset to 0.
+ * ---------------------------------------------------------------------- */
+void test_pool_stats_init_zerohash_lifetime_boundary(void)
+{
+    ps_setUp();
+    mining_pool_stats_inject_lifetime_blocks_for_test(1024u);
+    mining_pool_stats_init();
+    TEST_ASSERT_EQUAL_UINT32(1024u, mining_pool_stats_lifetime_blocks());
+
+    ps_setUp();
+    mining_pool_stats_inject_lifetime_blocks_for_test(1025u);
+    mining_pool_stats_init();
+    TEST_ASSERT_EQUAL_UINT32(0u, mining_pool_stats_lifetime_blocks());
 }

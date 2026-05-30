@@ -28,6 +28,18 @@
 #include <math.h>
 #include <time.h>
 
+/* Detect an all-zero SHA256d result. A valid double-SHA256 is never all-zero;
+ * on classic ESP32 (D0) the DPORT cross-bus erratum can return a zeroed hash.
+ * Used by the share-verdict block to drop corrupt reads before they corrupt
+ * best_diff or fire false block detections. */
+static inline bool s_hash_is_all_zero(const uint8_t *hash)
+{
+    for (int i = 0; i < 32; i++) {
+        if (hash[i] != 0) return false;
+    }
+    return true;
+}
+
 /* Wall-clock unix seconds, sanitized so pre-SNTP epochs don't bleed into UI.
  * Returns 0 if the clock hasn't been synced yet — UI renders that as "—". */
 static inline int64_t s_wall_clock_or_zero(void)
@@ -678,6 +690,14 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
             share_verdict_t verdict;
             if (!may_be_share) {
                 verdict = SHARE_BELOW_TARGET;
+            } else if (s_hash_is_all_zero(hash)) {
+                /* A valid SHA256d result is never all-zero. An all-zero hash
+                 * is a corrupt read (classic-ESP32 DPORT cross-bus erratum):
+                 * it spuriously meets every target and clamps
+                 * hash_to_difficulty() to 1e15. Drop it — never count it as a
+                 * share, best_diff, or block. */
+                verdict = SHARE_BELOW_TARGET;
+                bb_log_w(TAG, "dropped all-zero hash (corrupt SHA read, nonce=%08" PRIx32 ")", nonce);
             } else {
                 /* Rare: candidate passed full target compare; pay the full
                  * validate cost (diff calc + low-difficulty floor check). */

@@ -2555,17 +2555,21 @@ static bb_err_t diag_benchmark_handler(bb_http_request_t *req)
     }
 
     /* Build and stream response */
-    double khs = (bench.us_per_op > 0.0) ? (1000.0 / bench.us_per_op) : 0.0;
+    /* khs: nonce-domain (iters * 1000 / duration_us) — matches /api/info sha_khs_ceiling */
+    double khs = (bench.total_us > 0) ? ((double)iters * 1000.0 / (double)bench.total_us) : 0.0;
+    /* sha_kops_per_sec: per-SHA-block-op rate (ops/s = 1e6 / us_per_op); previous misleading khs value, honest name */
+    double sha_kops_per_sec = (bench.us_per_op > 0.0) ? (1000000.0 / bench.us_per_op) : 0.0;
 
     bb_http_json_obj_stream_t obj;
     rc = bb_http_resp_json_obj_begin(req, &obj);
     if (rc != BB_OK) return rc;
 
-    bb_http_resp_json_obj_set_int(&obj, "iters",       (int64_t)iters);
-    bb_http_resp_json_obj_set_int(&obj, "duration_us", bench.total_us);
-    bb_http_resp_json_obj_set_num(&obj, "us_per_op",   bench.us_per_op);
-    bb_http_resp_json_obj_set_num(&obj, "khs",         khs);
-    bb_http_resp_json_obj_set_str(&obj, "backend",     backend);
+    bb_http_resp_json_obj_set_int(&obj, "iters",            (int64_t)iters);
+    bb_http_resp_json_obj_set_int(&obj, "duration_us",      bench.total_us);
+    bb_http_resp_json_obj_set_num(&obj, "us_per_op",        bench.us_per_op);
+    bb_http_resp_json_obj_set_num(&obj, "khs",              khs);
+    bb_http_resp_json_obj_set_num(&obj, "sha_kops_per_sec", sha_kops_per_sec);
+    bb_http_resp_json_obj_set_str(&obj, "backend",          backend);
 
     bb_http_resp_json_obj_set_obj_begin(&obj, "canary");
     bb_http_resp_json_obj_set_str(&obj, "text_overlap", overlap_str);
@@ -2582,12 +2586,13 @@ static bb_err_t diag_benchmark_handler(bb_http_request_t *req)
 static const bb_route_response_t s_diag_benchmark_responses[] = {
     { 200, "application/json",
       "{\"type\":\"object\","
-      "\"required\":[\"iters\",\"duration_us\",\"us_per_op\",\"khs\",\"backend\",\"canary\"],"
+      "\"required\":[\"iters\",\"duration_us\",\"us_per_op\",\"khs\",\"sha_kops_per_sec\",\"backend\",\"canary\"],"
       "\"properties\":{"
       "\"iters\":{\"type\":\"integer\"},"
       "\"duration_us\":{\"type\":\"integer\"},"
-      "\"us_per_op\":{\"type\":\"number\"},"
-      "\"khs\":{\"type\":\"number\"},"
+      "\"us_per_op\":{\"type\":\"number\",\"description\":\"per-SHA-block-op latency\"},"
+      "\"khs\":{\"type\":\"number\",\"description\":\"nonce-domain kH/s: iters*1000/duration_us\"},"
+      "\"sha_kops_per_sec\":{\"type\":\"number\",\"description\":\"SHA-block-op rate: 1e6/us_per_op\"},"
       "\"backend\":{\"type\":\"string\",\"enum\":[\"sw\",\"ahb\",\"dport\"]},"
       "\"canary\":{\"type\":\"object\","
       "\"properties\":{"

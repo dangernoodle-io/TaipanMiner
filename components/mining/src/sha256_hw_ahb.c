@@ -78,7 +78,7 @@ void sha256_hw_init(void)
     // with mining task startup.
 
 #ifdef TAIPANMINER_DEBUG
-    sha256_hw_bench_pass2(100000);
+    sha256_hw_bench_pass2(100000, NULL);
 #endif
 
     sha256_hw_release();
@@ -642,33 +642,22 @@ void sha256_hw_profile_hotloop(uint32_t iterations)
     mining_set_sha_microbench(us_per_op_equiv, khs);
 }
 
-// --- Debug utilities ---
+// --- Benchmark (TA-33) ---
 
-#ifdef TAIPANMINER_DEBUG
-#include "esp_log.h"
-
-void sha256_hw_bench_pass2(uint32_t iterations)
+// sha256_hw_bench_pass2: measure AHB SHA peripheral throughput on the second
+// hash pass (SHA_CONTINUE path used by the mining hot loop). Caller must hold
+// sha256_hw_acquire(). Results returned in *out; also logged for diagnostics.
+void sha256_hw_bench_pass2(uint32_t iterations, sha_bench_result_t *out)
 {
-    // Prepare a fixed test block (32-byte hash + padding for second pass)
+    // Fixed test block: 32-byte hash body + SHA-256 padding for pass2
     uint32_t test_msg[16] = {
         0x12345678, 0x9abcdef0, 0x12345678, 0x9abcdef0,
         0x12345678, 0x9abcdef0, 0x12345678, 0x9abcdef0,
         0x00000080, 0, 0, 0, 0, 0, 0, 0x00010000
     };
 
-    // Benchmark SHA_START (current approach)
+    // Benchmark SHA_CONTINUE with pre-loaded H0 (the hot-loop path)
     int64_t start = esp_timer_get_time();
-    for (uint32_t i = 0; i < iterations; i++) {
-        for (int j = 0; j < 16; j++) {
-            SHA_TEXT_REG[j] = test_msg[j];
-        }
-        REG_WRITE(SHA_START_REG, 1);
-        while (REG_READ(SHA_BUSY_REG)) {}
-    }
-    int64_t elapsed_start = esp_timer_get_time() - start;
-
-    // Benchmark SHA_CONTINUE with pre-loaded H0
-    start = esp_timer_get_time();
     for (uint32_t i = 0; i < iterations; i++) {
         for (int j = 0; j < 8; j++) {
             SHA_H_REG[j] = H0_hw[j];
@@ -679,23 +668,32 @@ void sha256_hw_bench_pass2(uint32_t iterations)
         REG_WRITE(SHA_CONTINUE_REG, 1);
         while (REG_READ(SHA_BUSY_REG)) {}
     }
-    int64_t elapsed_continue = esp_timer_get_time() - start;
+    int64_t elapsed_us = esp_timer_get_time() - start;
 
-    bb_log_i(TAG, "pass2 bench (%"PRIu32" iterations):", iterations);
-    bb_log_i(TAG, "  SHA_START:       %"PRId64" us (%.2f us/op)",
-             elapsed_start, (double)elapsed_start / iterations);
-    bb_log_i(TAG, "  SHA_CONTINUE+H0: %"PRId64" us (%.2f us/op)",
-             elapsed_continue, (double)elapsed_continue / iterations);
+    double us_per_op = (iterations > 0) ? (double)elapsed_us / iterations : 0.0;
+    bb_log_i(TAG, "pass2 bench (%"PRIu32" iters): %"PRId64" us total, %.2f us/op",
+             iterations, elapsed_us, us_per_op);
 
-    if (elapsed_continue < elapsed_start) {
-        bb_log_i(TAG, "  CONTINUE is %.1f%% faster",
-                 (1.0 - (double)elapsed_continue / elapsed_start) * 100.0);
-    } else {
-        bb_log_i(TAG, "  START is %.1f%% faster (or equal) — keep current approach",
-                 (1.0 - (double)elapsed_start / elapsed_continue) * 100.0);
+    if (out) {
+        out->total_us  = elapsed_us;
+        out->us_per_op = us_per_op;
     }
-}
+
+#ifdef TAIPANMINER_DEBUG
+    // Extra: also benchmark SHA_START for comparison
+    int64_t start2 = esp_timer_get_time();
+    for (uint32_t i = 0; i < iterations; i++) {
+        for (int j = 0; j < 16; j++) {
+            SHA_TEXT_REG[j] = test_msg[j];
+        }
+        REG_WRITE(SHA_START_REG, 1);
+        while (REG_READ(SHA_BUSY_REG)) {}
+    }
+    int64_t elapsed_start = esp_timer_get_time() - start2;
+    bb_log_i(TAG, "  SHA_START vs CONTINUE: start=%.2f us/op, continue=%.2f us/op",
+             (double)elapsed_start / iterations, us_per_op);
 #endif
+}
 
 #endif // CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32C3
 

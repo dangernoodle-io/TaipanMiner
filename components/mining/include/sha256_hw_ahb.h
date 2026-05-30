@@ -10,6 +10,7 @@
 #include "esp_attr.h"
 #include "soc/soc.h"
 #include "soc/hwcrypto_reg.h"
+#include "sha256.h"   // sha_bench_result_t
 
 // ESP32-S3/S2/C3: separate H and TEXT register regions
 #define SHA_H_REG    ((volatile uint32_t *)SHA_H_BASE)
@@ -202,11 +203,10 @@ bool sha256_hw_overlap_canary(void);
 // mining_set_sha_hwrite_safe.
 bool sha256_hw_hwrite_canary(void);
 
-#ifdef TAIPANMINER_DEBUG
-// Debug benchmark comparing SHA_START vs SHA_CONTINUE+H0 for second hash pass.
-// Runs iterations times for each approach and logs timing results.
-void sha256_hw_bench_pass2(uint32_t iterations);
-#endif
+// Benchmark SHA peripheral for the second-hash pass (TA-33).
+// Takes iter_count iterations; fills *out with timing. out may be NULL.
+// Caller must hold sha256_hw_acquire(). ESP_PLATFORM only.
+void sha256_hw_bench_pass2(uint32_t iterations, sha_bench_result_t *out);
 
 #endif // CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32C3
 

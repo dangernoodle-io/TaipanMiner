@@ -702,6 +702,22 @@ void test_autofan_independent_ema_updates(void);
 void test_autofan_source_switch_die_overtakes_vr(void);
 void test_autofan_ema_initialization(void);
 
+// TA-33: /api/diag/benchmark — parse and JSON-shape tests
+void test_diag_bench_parse_null_body_defaults(void);
+void test_diag_bench_parse_empty_body_defaults(void);
+void test_diag_bench_parse_no_iters_field_defaults(void);
+void test_diag_bench_parse_iters_below_min_rejected(void);
+void test_diag_bench_parse_iters_above_max_rejected(void);
+void test_diag_bench_parse_iters_at_min_accepted(void);
+void test_diag_bench_parse_iters_at_max_accepted(void);
+void test_diag_bench_parse_iters_10000_accepted(void);
+void test_diag_bench_parse_iters_wrong_type_rejected(void);
+void test_diag_bench_parse_invalid_json_rejected(void);
+void test_diag_bench_json_shape_sw_backend(void);
+void test_diag_bench_json_shape_ahb_backend(void);
+void test_diag_bench_json_shape_dport_backend(void);
+void test_diag_bench_json_asic_active_present_when_flagged(void);
+
 // TA-234: stratum_watchdogs
 void test_stratum_watchdog_job_drought_never_observed(void);
 void test_stratum_watchdog_job_drought_below_threshold(void);
@@ -1347,6 +1363,23 @@ int main(void) {
     RUN_TEST(test_diag_asic_empty);
     RUN_TEST(test_diag_asic_three_events);
     RUN_TEST(test_diag_asic_future_ts_clamps_to_zero);
+
+    // TA-33: /api/diag/benchmark parse + JSON shape tests
+    RUN_TEST(test_diag_bench_parse_null_body_defaults);
+    RUN_TEST(test_diag_bench_parse_empty_body_defaults);
+    RUN_TEST(test_diag_bench_parse_no_iters_field_defaults);
+    RUN_TEST(test_diag_bench_parse_iters_below_min_rejected);
+    RUN_TEST(test_diag_bench_parse_iters_above_max_rejected);
+    RUN_TEST(test_diag_bench_parse_iters_at_min_accepted);
+    RUN_TEST(test_diag_bench_parse_iters_at_max_accepted);
+    RUN_TEST(test_diag_bench_parse_iters_10000_accepted);
+    RUN_TEST(test_diag_bench_parse_iters_wrong_type_rejected);
+    RUN_TEST(test_diag_bench_parse_invalid_json_rejected);
+    RUN_TEST(test_diag_bench_json_shape_sw_backend);
+    RUN_TEST(test_diag_bench_json_shape_ahb_backend);
+    RUN_TEST(test_diag_bench_json_shape_dport_backend);
+    RUN_TEST(test_diag_bench_json_asic_active_present_when_flagged);
+
     RUN_TEST(test_knot_empty);
     RUN_TEST(test_knot_two_peers);
     RUN_TEST(test_knot_peer_single_peer);

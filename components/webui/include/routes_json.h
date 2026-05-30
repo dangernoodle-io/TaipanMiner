@@ -13,6 +13,7 @@
  */
 
 #include "bb_json.h"
+#include "bb_core.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -26,6 +27,19 @@
 #endif
 
 #include "knot.h"
+
+/* Include mining.h for sha_overlap_state_t (TA-320 canary states).
+ * On host builds (native env), this is a pure C enum with no dependencies. */
+#ifdef ESP_PLATFORM
+#include "mining.h"
+#else
+/* Host-testable stub: enum definition for host compilation */
+typedef enum {
+    SHA_OVERLAP_UNKNOWN = 0,
+    SHA_OVERLAP_SAFE,
+    SHA_OVERLAP_UNSAFE
+} sha_overlap_state_t;
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -311,6 +325,35 @@ typedef struct {
 
 void build_fan_json(const fan_snapshot_t *s, bb_json_t root);
 #endif /* ASIC_CHIP */
+
+/* ============================================================================
+ * /api/diag/benchmark  (TA-33)
+ * ========================================================================= */
+
+#define DIAG_BENCH_ITERS_DEFAULT  10000U
+#define DIAG_BENCH_ITERS_MIN       1000U
+#define DIAG_BENCH_ITERS_MAX     100000U
+
+typedef struct {
+    uint32_t    iters;
+    int64_t     duration_us;
+    double      us_per_op;
+    double      khs;
+    const char *backend;        /* "sw", "ahb", or "dport" — static string */
+    sha_overlap_state_t text_overlap_state;  /* SHA_OVERLAP_UNKNOWN | SAFE | UNSAFE */
+    sha_overlap_state_t h_write_state;       /* SHA_OVERLAP_UNKNOWN | SAFE | UNSAFE */
+    bool        asic_active;    /* only meaningful when ASIC_CHIP is defined */
+    bool        has_asic_active;/* true only on ASIC boards */
+} diag_bench_snapshot_t;
+
+/* Parse JSON body and extract iters (default DIAG_BENCH_ITERS_DEFAULT if absent).
+ * Returns BB_OK and sets *out_iters on success.
+ * Returns BB_ERR_INVALID_ARG when body is not valid JSON or field is wrong type.
+ * Returns BB_ERR_NO_SPACE when iters is out of range [ITERS_MIN, ITERS_MAX]. */
+bb_err_t diag_bench_parse_request(const char *body, int body_len, uint32_t *out_iters);
+
+/* Build the benchmark response JSON into root. */
+void build_diag_bench_json(const diag_bench_snapshot_t *s, bb_json_t root);
 
 #ifdef __cplusplus
 }

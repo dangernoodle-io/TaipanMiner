@@ -36,6 +36,12 @@
 #include "bb_board.h"
 #include "knot.h"
 #include "routes_json.h"
+#include "sha256.h"
+#if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32C3
+#include "sha256_hw_ahb.h"
+#elif CONFIG_IDF_TARGET_ESP32
+#include "sha256_hw_dport.h"
+#endif
 
 /* Forward declaration: stratum_get_active_pool_idx from TA-202 phase B (provisional) */
 extern int stratum_get_active_pool_idx(void);
@@ -2469,6 +2475,142 @@ static const bb_route_t s_fan_post_route = {
 #endif /* ASIC_CHIP */
 
 // ============================================================================
+// /api/diag/benchmark — POST (TA-33)
+// ============================================================================
+
+static bb_err_t diag_benchmark_handler(bb_http_request_t *req)
+{
+    set_common_headers(req);
+
+    /* Read body */
+    char body[128] = {0};
+    int body_len = bb_http_req_body_len(req);
+    if (body_len > (int)(sizeof(body) - 1)) body_len = (int)(sizeof(body) - 1);
+    if (body_len > 0) {
+        int n = bb_http_req_recv(req, body, sizeof(body) - 1);
+        if (n > 0) body[n] = '\0';
+        else        body[0] = '\0';
+        body_len = (n > 0) ? n : 0;
+    }
+
+    /* Parse and validate iters */
+    uint32_t iters = DIAG_BENCH_ITERS_DEFAULT;
+    bb_err_t rc = diag_bench_parse_request(body, body_len, &iters);
+    if (rc == BB_ERR_INVALID_ARG) {
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "invalid body");
+        bb_http_resp_json_obj_end(&e);
+        return rc;
+    }
+    if (rc == BB_ERR_NO_SPACE) {  /* out-of-range sentinel */
+        bb_http_resp_set_status(req, 400);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "iters out of range");
+        bb_http_resp_json_obj_end(&e);
+        return BB_ERR_INVALID_ARG;
+    }
+
+    /* Pause mining */
+    bool paused = mining_pause();
+
+    /* Run bench on the active backend */
+    sha_bench_result_t bench = {0};
+
+#if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32C3
+    sha256_hw_acquire();
+    sha256_hw_bench_pass2(iters, &bench);
+    sha256_hw_release();
+    const char *backend = "ahb";
+#elif CONFIG_IDF_TARGET_ESP32
+    sha256_hw_dport_acquire();
+    sha256_hw_dport_bench_pass2(iters, &bench);
+    sha256_hw_dport_release();
+    const char *backend = "dport";
+#else
+    sha256_sw_bench_pass2(iters, &bench);
+    const char *backend = "sw";
+#endif
+
+    /* Read TA-320 canaries (tristate enum: UNKNOWN | SAFE | UNSAFE) */
+    sha_overlap_state_t text_overlap = mining_get_sha_overlap_state();
+    sha_overlap_state_t hwrite       = mining_get_sha_hwrite_state();
+
+    /* Resume mining */
+    if (paused) mining_resume();
+
+    /* Map tristate to JSON string */
+    const char *overlap_str;
+    switch (text_overlap) {
+        case SHA_OVERLAP_SAFE:   overlap_str = "safe";   break;
+        case SHA_OVERLAP_UNSAFE: overlap_str = "unsafe"; break;
+        default:                 overlap_str = "unknown"; break;
+    }
+
+    const char *hwrite_str;
+    switch (hwrite) {
+        case SHA_OVERLAP_SAFE:   hwrite_str = "safe";   break;
+        case SHA_OVERLAP_UNSAFE: hwrite_str = "unsafe"; break;
+        default:                 hwrite_str = "unknown"; break;
+    }
+
+    /* Build and stream response */
+    double khs = (bench.us_per_op > 0.0) ? (1000.0 / bench.us_per_op) : 0.0;
+
+    bb_http_json_obj_stream_t obj;
+    rc = bb_http_resp_json_obj_begin(req, &obj);
+    if (rc != BB_OK) return rc;
+
+    bb_http_resp_json_obj_set_int(&obj, "iters",       (int64_t)iters);
+    bb_http_resp_json_obj_set_int(&obj, "duration_us", bench.total_us);
+    bb_http_resp_json_obj_set_num(&obj, "us_per_op",   bench.us_per_op);
+    bb_http_resp_json_obj_set_num(&obj, "khs",         khs);
+    bb_http_resp_json_obj_set_str(&obj, "backend",     backend);
+
+    bb_http_resp_json_obj_set_obj_begin(&obj, "canary");
+    bb_http_resp_json_obj_set_str(&obj, "text_overlap", overlap_str);
+    bb_http_resp_json_obj_set_str(&obj, "h_write",      hwrite_str);
+    bb_http_resp_json_obj_set_obj_end(&obj);
+
+#ifdef ASIC_CHIP
+    bb_http_resp_json_obj_set_bool(&obj, "asic_active", true);
+#endif
+
+    return bb_http_resp_json_obj_end(&obj);
+}
+
+static const bb_route_response_t s_diag_benchmark_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"required\":[\"iters\",\"duration_us\",\"us_per_op\",\"khs\",\"backend\",\"canary\"],"
+      "\"properties\":{"
+      "\"iters\":{\"type\":\"integer\"},"
+      "\"duration_us\":{\"type\":\"integer\"},"
+      "\"us_per_op\":{\"type\":\"number\"},"
+      "\"khs\":{\"type\":\"number\"},"
+      "\"backend\":{\"type\":\"string\",\"enum\":[\"sw\",\"ahb\",\"dport\"]},"
+      "\"canary\":{\"type\":\"object\","
+      "\"properties\":{"
+      "\"text_overlap\":{\"type\":\"string\",\"enum\":[\"safe\",\"unsafe\",\"unknown\"]},"
+      "\"h_write\":{\"type\":\"string\",\"enum\":[\"safe\",\"unsafe\",\"unknown\"]}}},"
+      "\"asic_active\":{\"type\":\"boolean\","
+      "\"description\":\"present only on ASIC boards; ASIC keeps hashing during bench\"}}}",
+      "benchmark result" },
+    { 400, "application/json", NULL, "iters out of range or invalid body" },
+    { 0 },
+};
+
+static const bb_route_t s_diag_benchmark_route = {
+    .method       = BB_HTTP_POST,
+    .path         = "/api/diag/benchmark",
+    .tag          = "diag",
+    .summary      = "Run on-demand SHA throughput benchmark",
+    .operation_id = "postDiagBenchmark",
+    .responses    = s_diag_benchmark_responses,
+    .handler      = diag_benchmark_handler,
+};
+
+// ============================================================================
 // REGISTRATION
 // ============================================================================
 
@@ -2572,6 +2714,7 @@ static const bb_route_t * const s_mining_routes[] = {
     &s_pool_delete_primary_route,
     &s_pool_delete_fallback_route,
     &s_diag_asic_route,
+    &s_diag_benchmark_route,
     &s_knot_route,
     &s_settings_get_route,
     &s_settings_post_route,

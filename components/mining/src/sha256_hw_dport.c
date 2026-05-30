@@ -368,7 +368,7 @@ bb_err_t sha256_hw_dport_self_test_lockstep(void)
  */
 void sha256_hw_dport_microbench(void)
 {
-    const uint32_t iters = 1000;
+    const uint32_t iters = 5000;
     sha_bench_result_t result = {0};
     sha256_hw_dport_bench_pass2(iters, &result);
 

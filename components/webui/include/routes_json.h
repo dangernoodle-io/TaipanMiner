@@ -28,6 +28,19 @@
 
 #include "knot.h"
 
+/* Include mining.h for sha_overlap_state_t (TA-320 canary states).
+ * On host builds (native env), this is a pure C enum with no dependencies. */
+#ifdef ESP_PLATFORM
+#include "mining.h"
+#else
+/* Host-testable stub: enum definition for host compilation */
+typedef enum {
+    SHA_OVERLAP_UNKNOWN = 0,
+    SHA_OVERLAP_SAFE,
+    SHA_OVERLAP_UNSAFE
+} sha_overlap_state_t;
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -327,8 +340,8 @@ typedef struct {
     double      us_per_op;
     double      khs;
     const char *backend;        /* "sw", "ahb", or "dport" — static string */
-    bool        text_overlap_ok;
-    bool        h_write_ok;
+    sha_overlap_state_t text_overlap_state;  /* SHA_OVERLAP_UNKNOWN | SAFE | UNSAFE */
+    sha_overlap_state_t h_write_state;       /* SHA_OVERLAP_UNKNOWN | SAFE | UNSAFE */
     bool        asic_active;    /* only meaningful when ASIC_CHIP is defined */
     bool        has_asic_active;/* true only on ASIC boards */
 } diag_bench_snapshot_t;

@@ -486,6 +486,16 @@ void build_fan_json(const fan_snapshot_t *s, bb_json_t root)
  * /api/diag/benchmark  (TA-33)
  * ========================================================================= */
 
+/* Map sha_overlap_state_t to JSON string ("safe", "unsafe", "unknown") */
+static const char *s_overlap_str(sha_overlap_state_t s)
+{
+    switch (s) {
+        case SHA_OVERLAP_SAFE:   return "safe";
+        case SHA_OVERLAP_UNSAFE: return "unsafe";
+        default:                 return "unknown";
+    }
+}
+
 bb_err_t diag_bench_parse_request(const char *body, int body_len, uint32_t *out_iters)
 {
     *out_iters = DIAG_BENCH_ITERS_DEFAULT;
@@ -524,8 +534,8 @@ void build_diag_bench_json(const diag_bench_snapshot_t *s, bb_json_t root)
     bb_json_obj_set_string(root, "backend",     s->backend ? s->backend : "sw");
 
     bb_json_t canary = bb_json_obj_new();
-    bb_json_obj_set_bool(canary, "text_overlap_ok", s->text_overlap_ok);
-    bb_json_obj_set_bool(canary, "h_write_ok",      s->h_write_ok);
+    bb_json_obj_set_string(canary, "text_overlap", s_overlap_str(s->text_overlap_state));
+    bb_json_obj_set_string(canary, "h_write",      s_overlap_str(s->h_write_state));
     bb_json_obj_set_obj(root, "canary", canary);
 
     if (s->has_asic_active) {

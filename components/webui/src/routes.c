@@ -2532,12 +2532,27 @@ static bb_err_t diag_benchmark_handler(bb_http_request_t *req)
     const char *backend = "sw";
 #endif
 
-    /* Read TA-320 canaries */
+    /* Read TA-320 canaries (tristate enum: UNKNOWN | SAFE | UNSAFE) */
     sha_overlap_state_t text_overlap = mining_get_sha_overlap_state();
     sha_overlap_state_t hwrite       = mining_get_sha_hwrite_state();
 
     /* Resume mining */
     if (paused) mining_resume();
+
+    /* Map tristate to JSON string */
+    const char *overlap_str;
+    switch (text_overlap) {
+        case SHA_OVERLAP_SAFE:   overlap_str = "safe";   break;
+        case SHA_OVERLAP_UNSAFE: overlap_str = "unsafe"; break;
+        default:                 overlap_str = "unknown"; break;
+    }
+
+    const char *hwrite_str;
+    switch (hwrite) {
+        case SHA_OVERLAP_SAFE:   hwrite_str = "safe";   break;
+        case SHA_OVERLAP_UNSAFE: hwrite_str = "unsafe"; break;
+        default:                 hwrite_str = "unknown"; break;
+    }
 
     /* Build and stream response */
     double khs = (bench.us_per_op > 0.0) ? (1000.0 / bench.us_per_op) : 0.0;
@@ -2553,10 +2568,8 @@ static bb_err_t diag_benchmark_handler(bb_http_request_t *req)
     bb_http_resp_json_obj_set_str(&obj, "backend",     backend);
 
     bb_http_resp_json_obj_set_obj_begin(&obj, "canary");
-    bb_http_resp_json_obj_set_bool(&obj, "text_overlap_ok",
-                                   text_overlap == SHA_OVERLAP_SAFE);
-    bb_http_resp_json_obj_set_bool(&obj, "h_write_ok",
-                                   hwrite == SHA_OVERLAP_SAFE);
+    bb_http_resp_json_obj_set_str(&obj, "text_overlap", overlap_str);
+    bb_http_resp_json_obj_set_str(&obj, "h_write",      hwrite_str);
     bb_http_resp_json_obj_set_obj_end(&obj);
 
 #ifdef ASIC_CHIP
@@ -2578,8 +2591,8 @@ static const bb_route_response_t s_diag_benchmark_responses[] = {
       "\"backend\":{\"type\":\"string\",\"enum\":[\"sw\",\"ahb\",\"dport\"]},"
       "\"canary\":{\"type\":\"object\","
       "\"properties\":{"
-      "\"text_overlap_ok\":{\"type\":\"boolean\"},"
-      "\"h_write_ok\":{\"type\":\"boolean\"}}},"
+      "\"text_overlap\":{\"type\":\"string\",\"enum\":[\"safe\",\"unsafe\",\"unknown\"]},"
+      "\"h_write\":{\"type\":\"string\",\"enum\":[\"safe\",\"unsafe\",\"unknown\"]}}},"
       "\"asic_active\":{\"type\":\"boolean\","
       "\"description\":\"present only on ASIC boards; ASIC keeps hashing during bench\"}}}",
       "benchmark result" },

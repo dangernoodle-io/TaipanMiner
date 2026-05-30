@@ -133,15 +133,15 @@ static char *build_and_serialize(const diag_bench_snapshot_t *s)
 void test_diag_bench_json_shape_sw_backend(void)
 {
     diag_bench_snapshot_t s = {
-        .iters           = 10000,
-        .duration_us     = 8275,
-        .us_per_op       = 0.8275,
-        .khs             = 1208.2,
-        .backend         = "sw",
-        .text_overlap_ok = true,
-        .h_write_ok      = true,
-        .asic_active     = false,
-        .has_asic_active = false,
+        .iters              = 10000,
+        .duration_us        = 8275,
+        .us_per_op          = 0.8275,
+        .khs                = 1208.2,
+        .backend            = "sw",
+        .text_overlap_state = SHA_OVERLAP_SAFE,
+        .h_write_state      = SHA_OVERLAP_SAFE,
+        .asic_active        = false,
+        .has_asic_active    = false,
     };
 
     char *json = build_and_serialize(&s);
@@ -154,8 +154,8 @@ void test_diag_bench_json_shape_sw_backend(void)
     TEST_ASSERT_NOT_NULL(strstr(json, "\"khs\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"backend\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"canary\""));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"text_overlap_ok\""));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"h_write_ok\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"text_overlap\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"h_write\""));
 
     /* Backend name is "sw" */
     TEST_ASSERT_NOT_NULL(strstr(json, "\"sw\""));
@@ -163,9 +163,9 @@ void test_diag_bench_json_shape_sw_backend(void)
     /* asic_active must NOT be present when has_asic_active is false */
     TEST_ASSERT_NULL(strstr(json, "\"asic_active\""));
 
-    /* canary values: true */
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"text_overlap_ok\":true"));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"h_write_ok\":true"));
+    /* canary values: "safe" (strings, not booleans) */
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"text_overlap\":\"safe\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"h_write\":\"safe\""));
 
     bb_json_free_str(json);
 }
@@ -174,21 +174,21 @@ void test_diag_bench_json_shape_sw_backend(void)
 void test_diag_bench_json_shape_ahb_backend(void)
 {
     diag_bench_snapshot_t s = {
-        .iters           = 5000,
-        .duration_us     = 20000,
-        .us_per_op       = 4.0,
-        .khs             = 250.0,
-        .backend         = "ahb",
-        .text_overlap_ok = true,
-        .h_write_ok      = false,
-        .asic_active     = false,
-        .has_asic_active = false,
+        .iters              = 5000,
+        .duration_us        = 20000,
+        .us_per_op          = 4.0,
+        .khs                = 250.0,
+        .backend            = "ahb",
+        .text_overlap_state = SHA_OVERLAP_SAFE,
+        .h_write_state      = SHA_OVERLAP_UNSAFE,
+        .asic_active        = false,
+        .has_asic_active    = false,
     };
 
     char *json = build_and_serialize(&s);
     TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"ahb\""));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"h_write_ok\":false"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"h_write\":\"unsafe\""));
     bb_json_free_str(json);
 }
 
@@ -196,15 +196,15 @@ void test_diag_bench_json_shape_ahb_backend(void)
 void test_diag_bench_json_shape_dport_backend(void)
 {
     diag_bench_snapshot_t s = {
-        .iters           = 1000,
-        .duration_us     = 15000,
-        .us_per_op       = 15.0,
-        .khs             = 66.7,
-        .backend         = "dport",
-        .text_overlap_ok = false,
-        .h_write_ok      = false,
-        .asic_active     = false,
-        .has_asic_active = false,
+        .iters              = 1000,
+        .duration_us        = 15000,
+        .us_per_op          = 15.0,
+        .khs                = 66.7,
+        .backend            = "dport",
+        .text_overlap_state = SHA_OVERLAP_UNSAFE,
+        .h_write_state      = SHA_OVERLAP_UNSAFE,
+        .asic_active        = false,
+        .has_asic_active    = false,
     };
 
     char *json = build_and_serialize(&s);
@@ -217,19 +217,64 @@ void test_diag_bench_json_shape_dport_backend(void)
 void test_diag_bench_json_asic_active_present_when_flagged(void)
 {
     diag_bench_snapshot_t s = {
-        .iters           = 10000,
-        .duration_us     = 1000,
-        .us_per_op       = 0.1,
-        .khs             = 10000.0,
-        .backend         = "ahb",
-        .text_overlap_ok = true,
-        .h_write_ok      = true,
-        .asic_active     = true,
-        .has_asic_active = true,
+        .iters              = 10000,
+        .duration_us        = 1000,
+        .us_per_op          = 0.1,
+        .khs                = 10000.0,
+        .backend            = "ahb",
+        .text_overlap_state = SHA_OVERLAP_SAFE,
+        .h_write_state      = SHA_OVERLAP_SAFE,
+        .asic_active        = true,
+        .has_asic_active    = true,
     };
 
     char *json = build_and_serialize(&s);
     TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"asic_active\":true"));
+    bb_json_free_str(json);
+}
+
+/* Tristate canary: UNKNOWN (probe didn't run on D0/ASIC boards) */
+void test_diag_bench_json_canary_unknown(void)
+{
+    diag_bench_snapshot_t s = {
+        .iters              = 10000,
+        .duration_us        = 1000,
+        .us_per_op          = 0.1,
+        .khs                = 10000.0,
+        .backend            = "ahb",
+        .text_overlap_state = SHA_OVERLAP_UNKNOWN,
+        .h_write_state      = SHA_OVERLAP_UNKNOWN,
+        .asic_active        = false,
+        .has_asic_active    = false,
+    };
+
+    char *json = build_and_serialize(&s);
+    TEST_ASSERT_NOT_NULL(json);
+    /* Both canaries emit "unknown" string, not conflated with false/unsafe */
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"text_overlap\":\"unknown\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"h_write\":\"unknown\""));
+    bb_json_free_str(json);
+}
+
+/* Tristate canary: mixed state (text_overlap=UNSAFE, h_write=UNKNOWN) */
+void test_diag_bench_json_canary_mixed(void)
+{
+    diag_bench_snapshot_t s = {
+        .iters              = 10000,
+        .duration_us        = 1000,
+        .us_per_op          = 0.1,
+        .khs                = 10000.0,
+        .backend            = "ahb",
+        .text_overlap_state = SHA_OVERLAP_UNSAFE,
+        .h_write_state      = SHA_OVERLAP_UNKNOWN,
+        .asic_active        = false,
+        .has_asic_active    = false,
+    };
+
+    char *json = build_and_serialize(&s);
+    TEST_ASSERT_NOT_NULL(json);
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"text_overlap\":\"unsafe\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"h_write\":\"unknown\""));
     bb_json_free_str(json);
 }

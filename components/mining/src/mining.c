@@ -1018,7 +1018,7 @@ void mining_task(void *arg)
                 .nonce_start = 0,
                 .nonce_end = 0xFFFFFFFFU,
 #if CONFIG_FREERTOS_UNICORE
-                .yield_mask = 0x3FFF,   // single-core: yield ~16x more often so networking stays responsive
+                .yield_mask = (uint32_t)CONFIG_MINING_UNICORE_YIELD_MASK,
 #else
                 .yield_mask = 0x3FFFF,
 #endif

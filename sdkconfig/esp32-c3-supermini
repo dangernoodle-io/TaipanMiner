@@ -20,3 +20,8 @@ CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 # Hot-loop pinning not beneficial on single-core; stack placement is faster here.
 # See mining Kconfig.
 CONFIG_MINING_PIN_HOTLOOP_DATA=n
+
+# TA-401: yield every 8K nonces. The C3 hashrate is mask-insensitive in the
+# 0x1FFF-0xFFFF range (~312 kH/s settled either way); 0x1FFF chosen for parity
+# with the S2 (which strongly prefers it) and marginally tighter HTTP latency.
+CONFIG_MINING_UNICORE_YIELD_MASK=0x1FFF

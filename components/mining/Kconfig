@@ -1,5 +1,16 @@
 menu "Mining"
 
+config MINING_UNICORE_YIELD_MASK
+    hex "Mining unicore yield mask (nonces between yields = mask + 1)"
+    default 0x3FFF
+    depends on FREERTOS_UNICORE
+    help
+      Bit mask AND'd against the nonce counter to trigger a vTaskDelay yield
+      in the mining hot loop. Default 0x3FFF yields every 16K nonces. Lower
+      = more frequent yields (better network/UI responsiveness, lower
+      throughput). Higher = fewer yields (higher throughput, less responsive).
+      Empirically tuned via the TA-401 sweep.
+
 config MINING_PIN_HOTLOOP_DATA
     bool "Pin mining hot-loop data to cache-aligned static storage"
     default y

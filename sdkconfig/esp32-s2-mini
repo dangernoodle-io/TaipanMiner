@@ -83,3 +83,8 @@ CONFIG_LWIP_TCP_WND_DEFAULT=2880
 # disable it on the S2 — modem-sleep caused idle disconnects under the
 # single-core scheduler where the WiFi task gets starved.
 CONFIG_BB_WIFI_PS_NONE=y
+
+# TA-401: yield every 8K nonces — the S2 knee. Hashrate plateaus here (~247 kH/s);
+# sparser masks add <1% throughput but explode HTTP latency (0xFFFF: p90 1507ms
+# vs 66ms here). Tuned via the TA-401 sweep.
+CONFIG_MINING_UNICORE_YIELD_MASK=0x1FFF

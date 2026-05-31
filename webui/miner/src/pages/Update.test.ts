@@ -132,7 +132,7 @@ describe('Update', () => {
   it('renders Install button when update is available', () => {
     otaCheck.set({
       checking: false,
-      result: { update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' },
+      result: { outcome: 'available', update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' },
       msg: 'Update available', kind: 'avail'
     })
     const { container } = render(Update)
@@ -142,7 +142,7 @@ describe('Update', () => {
   it('does NOT render Install button when no update available', () => {
     otaCheck.set({
       checking: false,
-      result: { update_available: false, latest_version: 'v1.0.0', current_version: 'v1.0.0' },
+      result: { outcome: 'up_to_date', update_available: false, latest_version: 'v1.0.0', current_version: 'v1.0.0' },
       msg: 'Up to date', kind: 'ok'
     })
     const { container } = render(Update)
@@ -251,7 +251,7 @@ describe('Update', () => {
   it('renders up-to-date message in status', () => {
     otaCheck.set({
       checking: false,
-      result: { update_available: false, latest_version: 'v1.0.0', current_version: 'v1.0.0' },
+      result: { outcome: 'up_to_date', update_available: false, latest_version: 'v1.0.0', current_version: 'v1.0.0' },
       msg: 'Firmware is up to date (v1.0.0)',
       kind: 'ok'
     })
@@ -271,7 +271,7 @@ describe('Update', () => {
   it('Install button calls os.requestInstall', async () => {
     otaCheck.set({
       checking: false,
-      result: { update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' },
+      result: { outcome: 'available', update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' },
       msg: 'Update available', kind: 'avail'
     })
     const { container } = render(Update)
@@ -355,7 +355,7 @@ describe('Update', () => {
     mockOs._installConfirmOpen = true
     otaCheck.set({
       checking: false,
-      result: { update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' },
+      result: { outcome: 'available', update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' },
       msg: '', kind: 'avail'
     })
     const { container } = render(Update)
@@ -367,7 +367,7 @@ describe('Update', () => {
   it('otaCheck.msg with kind avail renders with avail styling', () => {
     otaCheck.set({
       checking: false,
-      result: { update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' },
+      result: { outcome: 'available', update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' },
       msg: 'Update available: v2.0.0',
       kind: 'avail'
     })

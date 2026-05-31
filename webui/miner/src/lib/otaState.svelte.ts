@@ -11,24 +11,50 @@ export function createOtaState() {
 
   async function handleCheck() {
     otaCheck.set({ checking: true, result: null, msg: 'Checking for updates…', kind: '' })
+    // 15s is only a backstop for a genuinely stuck device (ts never advances).
+    // A completed check with any terminal outcome resolves immediately.
     const deadline = Date.now() + 15000
     try {
       const since = await kickOtaCheck()
       while (Date.now() < deadline) {
         const res = await fetchOtaCheck(since)
         if (res !== 'pending') {
-          if (res.update_available) {
-            otaCheck.set({
-              checking: false, result: res,
-              msg: `Update available: ${res.latest_version} (current ${res.current_version})`,
-              kind: 'avail'
-            })
-          } else {
-            otaCheck.set({
-              checking: false, result: res,
-              msg: `Firmware is up to date (${res.current_version})`,
-              kind: 'ok'
-            })
+          switch (res.outcome) {
+            case 'available':
+              otaCheck.set({
+                checking: false, result: res,
+                msg: `Update available: ${res.latest_version} (current ${res.current_version})`,
+                kind: 'avail'
+              })
+              break
+            case 'up_to_date':
+              otaCheck.set({
+                checking: false, result: res,
+                msg: `Firmware is up to date (${res.current_version})`,
+                kind: 'ok'
+              })
+              break
+            case 'no_asset':
+              otaCheck.set({
+                checking: false, result: res,
+                msg: 'No firmware published for this board.',
+                kind: 'err'
+              })
+              break
+            case 'check_failed':
+              otaCheck.set({
+                checking: false, result: res,
+                msg: 'Update check failed.',
+                kind: 'err'
+              })
+              break
+            default:
+              // unknown but ts advanced — treat as check_failed
+              otaCheck.set({
+                checking: false, result: res,
+                msg: 'Update check failed.',
+                kind: 'err'
+              })
           }
           return
         }

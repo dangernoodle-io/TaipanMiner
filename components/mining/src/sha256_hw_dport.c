@@ -396,7 +396,7 @@ void sha256_hw_dport_microbench(void)
  */
 #define DPORT_BENCH_BUCKET_SIZE          200
 #define DPORT_BENCH_MAX_BUCKETS          128
-#define DPORT_BENCH_SETTLE_THRESHOLD_PCT   5
+#define DPORT_BENCH_SETTLE_THRESHOLD_PCT   2
 #define DPORT_BENCH_MIN_SETTLED_BUCKETS    3
 
 void sha256_hw_dport_bench_pass2(uint32_t iterations, sha_bench_result_t *out)
@@ -458,12 +458,26 @@ void sha256_hw_dport_bench_pass2(uint32_t iterations, sha_bench_result_t *out)
     double us_per_op;
 
     if (settled) {
-        for (uint32_t b = (uint32_t)settled_first; b < num_buckets; b++) {
-            settled_us    += bucket_us[b];
-            settled_iters += bucket_size;
+        /* Change 2: min-of-tail estimator — min bucket is closest to true steady-state. */
+        int64_t min_bucket_us = bucket_us[settled_first];
+        for (uint32_t b = (uint32_t)settled_first + 1; b < num_buckets; b++) {
+            if (bucket_us[b] < min_bucket_us) min_bucket_us = bucket_us[b];
         }
         /* DPORT: 3 SHA ops per nonce (block1 + block2 + double-hash). */
-        us_per_op = (settled_iters > 0) ? (double)settled_us / settled_iters / 3.0 : 0.0;
+        us_per_op     = (double)min_bucket_us / bucket_size / 3.0;
+        settled_us    = min_bucket_us;
+        settled_iters = bucket_size;
+
+        /* Change 3: log both mean and min for ramp-profile investigation. */
+        {
+            int64_t mean_us   = 0;
+            uint32_t mean_cnt = num_buckets - (uint32_t)settled_first;
+            for (uint32_t b = (uint32_t)settled_first; b < num_buckets; b++) mean_us += bucket_us[b];
+            mean_us /= (int64_t)mean_cnt;
+            bb_log_i(TAG, "bench settled at iter %u: mean_bucket=%"PRId64" us, min_bucket=%"PRId64" us, ratio=%.2f",
+                     (uint32_t)settled_first * bucket_size, mean_us, min_bucket_us,
+                     (double)mean_us / (double)min_bucket_us);
+        }
     } else {
         /* Fallback: full-window average (transparently flagged). */
         us_per_op = (iterations > 0) ? (double)total_us / iterations / 3.0 : 0.0;

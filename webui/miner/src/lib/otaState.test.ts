@@ -66,6 +66,7 @@ describe('createOtaState — initial state', () => {
 describe('handleCheck — happy path', () => {
   it('sets otaCheck to checking=true then resolves with up-to-date result', async () => {
     vi.mocked(api.fetchOtaCheck).mockResolvedValue({
+      outcome: 'up_to_date',
       update_available: false,
       latest_version: 'v1.2.3',
       current_version: 'v1.2.3',
@@ -85,6 +86,7 @@ describe('handleCheck — happy path', () => {
 
   it('sets otaCheck to avail when update is available', async () => {
     vi.mocked(api.fetchOtaCheck).mockResolvedValue({
+      outcome: 'available',
       update_available: true,
       latest_version: 'v2.0.0',
       current_version: 'v1.0.0',
@@ -101,7 +103,7 @@ describe('handleCheck — happy path', () => {
   it('retries when fetchOtaCheck returns pending', async () => {
     vi.mocked(api.fetchOtaCheck)
       .mockResolvedValueOnce('pending')
-      .mockResolvedValue({ update_available: false, latest_version: 'v1.0.0', current_version: 'v1.0.0' })
+      .mockResolvedValue({ outcome: 'up_to_date', update_available: false, latest_version: 'v1.0.0', current_version: 'v1.0.0' })
     const os = createOtaState()
     const promise = os.handleCheck()
     await vi.advanceTimersByTimeAsync(2001)
@@ -136,6 +138,79 @@ describe('handleCheck — happy path', () => {
     expect(s.msg).toBe('Failed to check: network unreachable.')
     expect(s.checking).toBe(false)
   })
+
+  it('no_asset → "No firmware published for this board." immediately (no timeout)', async () => {
+    vi.mocked(api.fetchOtaCheck).mockResolvedValue({
+      outcome: 'no_asset',
+      update_available: false,
+      latest_version: 'v2.0.0',
+      current_version: 'v1.0.0',
+    })
+    const os = createOtaState()
+    const promise = os.handleCheck()
+    await vi.runAllTimersAsync()
+    await promise
+    const s = get(otaCheck)
+    expect(s.checking).toBe(false)
+    expect(s.kind).toBe('err')
+    expect(s.msg).toBe('No firmware published for this board.')
+    // Must have resolved on first poll — not spun to 15s timeout
+    expect(api.fetchOtaCheck).toHaveBeenCalledTimes(1)
+  })
+
+  it('check_failed → "Update check failed." immediately (not "timeout")', async () => {
+    vi.mocked(api.fetchOtaCheck).mockResolvedValue({
+      outcome: 'check_failed',
+      update_available: false,
+      latest_version: '',
+      current_version: 'v1.0.0',
+    })
+    const os = createOtaState()
+    const promise = os.handleCheck()
+    await vi.runAllTimersAsync()
+    await promise
+    const s = get(otaCheck)
+    expect(s.checking).toBe(false)
+    expect(s.kind).toBe('err')
+    expect(s.msg).toBe('Update check failed.')
+    expect(api.fetchOtaCheck).toHaveBeenCalledTimes(1)
+  })
+
+  it('regression: no_asset with last_check_ok=false resolves promptly, does not spin to 15s timeout', async () => {
+    // Simulates the C3/S2 case: check completed, ts advanced, but no asset for board.
+    // fetchOtaCheck should return the result (not 'pending') and handleCheck resolves immediately.
+    vi.mocked(api.fetchOtaCheck).mockResolvedValue({
+      outcome: 'no_asset',
+      update_available: false,
+      latest_version: 'v2.0.0',
+      current_version: 'v1.0.0',
+    })
+    const os = createOtaState()
+    const promise = os.handleCheck()
+    // Advance only 1ms — well before the 15s deadline
+    await vi.advanceTimersByTimeAsync(1)
+    await vi.runAllTimersAsync()
+    await promise
+    const s = get(otaCheck)
+    // Must resolve without hitting the 15s timeout branch
+    expect(s.msg).not.toBe('Failed to check for updates (timeout).')
+    expect(s.msg).toBe('No firmware published for this board.')
+    expect(s.checking).toBe(false)
+  })
+
+  it('unknown outcome with ts not advanced stays pending (polls)', async () => {
+    vi.mocked(api.fetchOtaCheck)
+      .mockResolvedValueOnce('pending')
+      .mockResolvedValue({ outcome: 'up_to_date', update_available: false, latest_version: 'v1.0.0', current_version: 'v1.0.0' })
+    const os = createOtaState()
+    const promise = os.handleCheck()
+    // After first pending response it should retry
+    await vi.advanceTimersByTimeAsync(2001)
+    await vi.runAllTimersAsync()
+    await promise
+    expect(api.fetchOtaCheck).toHaveBeenCalledTimes(2)
+    expect(get(otaCheck).kind).toBe('ok')
+  })
 })
 
 describe('requestInstall', () => {
@@ -164,7 +239,7 @@ describe('requestUpload', () => {
 
 describe('handleInstall — happy path', () => {
   it('does nothing when otaCheck.result.update_available is false', async () => {
-    otaCheck.set({ checking: false, result: { update_available: false, latest_version: 'v1', current_version: 'v1' }, msg: '', kind: 'ok' })
+    otaCheck.set({ checking: false, result: { outcome: 'up_to_date', update_available: false, latest_version: 'v1', current_version: 'v1' }, msg: '', kind: 'ok' })
     const os = createOtaState()
     await os.handleInstall()
     expect(api.triggerOtaUpdate).not.toHaveBeenCalled()
@@ -177,7 +252,7 @@ describe('handleInstall — happy path', () => {
   })
 
   it('runs full install flow to completion and calls startRebootRecovery', async () => {
-    otaCheck.set({ checking: false, result: { update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' }, msg: '', kind: 'avail' })
+    otaCheck.set({ checking: false, result: { outcome: 'available', update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' }, msg: '', kind: 'avail' })
     vi.mocked(api.triggerOtaUpdate).mockResolvedValue(undefined)
     vi.mocked(api.fetchOtaStatus)
       .mockResolvedValueOnce({ state: 'idle', in_progress: false, progress_pct: 0 })
@@ -204,7 +279,7 @@ describe('handleInstall — happy path', () => {
   })
 
   it('updates progress during install', async () => {
-    otaCheck.set({ checking: false, result: { update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' }, msg: '', kind: 'avail' })
+    otaCheck.set({ checking: false, result: { outcome: 'available', update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' }, msg: '', kind: 'avail' })
     vi.mocked(api.triggerOtaUpdate).mockResolvedValue(undefined)
     const statuses = [
       { state: 'downloading', in_progress: true, progress_pct: 30 },
@@ -230,7 +305,7 @@ describe('handleInstall — happy path', () => {
   })
 
   it('sets err state when status returns error', async () => {
-    otaCheck.set({ checking: false, result: { update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' }, msg: '', kind: 'avail' })
+    otaCheck.set({ checking: false, result: { outcome: 'available', update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' }, msg: '', kind: 'avail' })
     vi.mocked(api.triggerOtaUpdate).mockResolvedValue(undefined)
     vi.mocked(api.fetchOtaStatus).mockResolvedValue({ state: 'error', in_progress: false, progress_pct: 37 })
 
@@ -246,7 +321,7 @@ describe('handleInstall — happy path', () => {
   })
 
   it('sets err state when polling times out at 600s', async () => {
-    otaCheck.set({ checking: false, result: { update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' }, msg: '', kind: 'avail' })
+    otaCheck.set({ checking: false, result: { outcome: 'available', update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' }, msg: '', kind: 'avail' })
     vi.mocked(api.triggerOtaUpdate).mockResolvedValue(undefined)
     vi.mocked(api.fetchOtaStatus).mockResolvedValue({ state: 'downloading', in_progress: true, progress_pct: 50 })
 
@@ -264,7 +339,7 @@ describe('handleInstall — happy path', () => {
   })
 
   it('sets err state when triggerOtaUpdate throws', async () => {
-    otaCheck.set({ checking: false, result: { update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' }, msg: '', kind: 'avail' })
+    otaCheck.set({ checking: false, result: { outcome: 'available', update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' }, msg: '', kind: 'avail' })
     vi.mocked(api.triggerOtaUpdate).mockRejectedValue(new Error('ota update failed: 503'))
 
     const os = createOtaState()

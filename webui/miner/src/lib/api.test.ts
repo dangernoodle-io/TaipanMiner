@@ -400,20 +400,66 @@ describe('setLogLevel', () => {
 // ---------------------------------------------------------------------------
 
 describe('fetchOtaCheck', () => {
-  it('returns "pending" when last_check_ts has not advanced past since', async () => {
+  it('returns "pending" when last_check_ts has not advanced and no outcome field (legacy firmware)', async () => {
+    // no outcome field + ts not advanced → still pending
     setFetch(200, { current: 'v1', latest: '', available: false, last_check_ok: true, enabled: true, last_check_ts: 100, download_url: '' })
     expect(await fetchOtaCheck(100)).toBe('pending')
   })
 
-  it('returns "pending" when last_check_ok is false', async () => {
-    setFetch(200, { current: 'v1', latest: '', available: false, last_check_ok: false, enabled: true, last_check_ts: 200, download_url: '' })
+  it('returns "pending" when outcome is unknown and ts has not advanced', async () => {
+    setFetch(200, { current: 'v1', latest: '', available: false, last_check_ok: false, enabled: true, last_check_ts: 100, download_url: '', outcome: 'unknown' })
     expect(await fetchOtaCheck(100)).toBe('pending')
   })
 
-  it('returns parsed result once status advances', async () => {
-    setFetch(200, { current: 'v1.1.0', latest: 'v1.2.0', available: true, last_check_ok: true, enabled: true, last_check_ts: 200, download_url: 'http://x' })
+  it('returns parsed result once ts advances (outcome: available)', async () => {
+    setFetch(200, { current: 'v1.1.0', latest: 'v1.2.0', available: true, last_check_ok: true, enabled: true, last_check_ts: 200, download_url: 'http://x', outcome: 'available' })
     const result = await fetchOtaCheck(100)
-    expect(result).toMatchObject({ update_available: true, latest_version: 'v1.2.0', current_version: 'v1.1.0' })
+    expect(result).toMatchObject({ outcome: 'available', update_available: true, latest_version: 'v1.2.0', current_version: 'v1.1.0' })
+  })
+
+  it('returns result for no_asset outcome even with last_check_ok=false (ts advanced)', async () => {
+    setFetch(200, { current: 'v1.0.0', latest: 'v2.0.0', available: false, last_check_ok: false, enabled: true, last_check_ts: 200, download_url: '', outcome: 'no_asset' })
+    const result = await fetchOtaCheck(100)
+    expect(result).not.toBe('pending')
+    expect(result).toMatchObject({ outcome: 'no_asset', update_available: false, current_version: 'v1.0.0' })
+  })
+
+  it('returns result for check_failed outcome (ts advanced)', async () => {
+    setFetch(200, { current: 'v1.0.0', latest: '', available: false, last_check_ok: false, enabled: true, last_check_ts: 200, download_url: '', outcome: 'check_failed' })
+    const result = await fetchOtaCheck(100)
+    expect(result).not.toBe('pending')
+    expect(result).toMatchObject({ outcome: 'check_failed' })
+  })
+
+  it('returns result for up_to_date outcome (ts advanced)', async () => {
+    setFetch(200, { current: 'v1.2.3', latest: 'v1.2.3', available: false, last_check_ok: true, enabled: true, last_check_ts: 200, download_url: '', outcome: 'up_to_date' })
+    const result = await fetchOtaCheck(100)
+    expect(result).not.toBe('pending')
+    expect(result).toMatchObject({ outcome: 'up_to_date', update_available: false, current_version: 'v1.2.3' })
+  })
+
+  it('legacy firmware: ts advanced + last_check_ok=true + available=true → outcome available', async () => {
+    // No outcome field; ts advanced past since; last_check_ok=true, available=true → derive 'available'
+    setFetch(200, { current: 'v1.0.0', latest: 'v2.0.0', available: true, last_check_ok: true, enabled: true, last_check_ts: 200, download_url: 'http://x' })
+    const result = await fetchOtaCheck(100)
+    expect(result).not.toBe('pending')
+    expect(result).toMatchObject({ outcome: 'available', update_available: true, latest_version: 'v2.0.0', current_version: 'v1.0.0' })
+  })
+
+  it('legacy firmware: ts advanced + last_check_ok=true + available=false → outcome up_to_date', async () => {
+    // No outcome field; ts advanced; last_check_ok=true, available=false → derive 'up_to_date'
+    setFetch(200, { current: 'v1.2.3', latest: 'v1.2.3', available: false, last_check_ok: true, enabled: true, last_check_ts: 200, download_url: '' })
+    const result = await fetchOtaCheck(100)
+    expect(result).not.toBe('pending')
+    expect(result).toMatchObject({ outcome: 'up_to_date', update_available: false, current_version: 'v1.2.3' })
+  })
+
+  it('legacy firmware: ts advanced + last_check_ok=false → outcome check_failed', async () => {
+    // No outcome field; ts advanced; last_check_ok=false → derive 'check_failed'
+    setFetch(200, { current: 'v1.0.0', latest: '', available: false, last_check_ok: false, enabled: true, last_check_ts: 200, download_url: '' })
+    const result = await fetchOtaCheck(100)
+    expect(result).not.toBe('pending')
+    expect(result).toMatchObject({ outcome: 'check_failed', update_available: false })
   })
 
   it('throws on status fetch failure', async () => {

@@ -467,7 +467,10 @@ export async function setLogLevel(tag: string, level: LogLevel): Promise<void> {
 }
 
 // OTA check — returns 202 while in progress; result on 200.
+export type OtaOutcome = 'up_to_date' | 'available' | 'no_asset' | 'check_failed' | 'unknown'
+
 export interface OtaCheckResult {
+  outcome: OtaOutcome
   update_available: boolean
   latest_version: string
   current_version: string
@@ -486,7 +489,8 @@ interface UpdateStatus {
   available: boolean
   last_check_ok: boolean
   enabled: boolean
-  last_check_ts: number
+  last_check_ts?: number
+  outcome?: OtaOutcome
 }
 
 // Kick a fresh manifest fetch on the device. Returns the last_check_ts
@@ -504,13 +508,23 @@ export async function kickOtaCheck(): Promise<number> {
 }
 
 // Poll /api/update/status; returns the parsed result once last_check_ts
-// advances past `since`, otherwise 'pending'.
+// advances past `since` OR outcome is a terminal non-unknown value, otherwise 'pending'.
 export async function fetchOtaCheck(since = 0): Promise<OtaCheckResult | 'pending'> {
   const status = await fetch(`${baseUrl}/api/update/status`)
   if (!status.ok) throw new Error(`ota status failed: ${status.status}`)
   const s: UpdateStatus = await status.json()
-  if (!s.last_check_ok || s.last_check_ts <= since) return 'pending'
+  const tsAdvanced = (s.last_check_ts ?? 0) > since
+  // Explicit outcome field from breadboard v0.42.0+
+  if (s.outcome) {
+    if (s.outcome === 'unknown') return 'pending'
+    // Any other terminal outcome resolves immediately (ts may or may not have advanced)
+  } else {
+    // Legacy firmware: no outcome field. Pending until ts advances.
+    if (!tsAdvanced) return 'pending'
+  }
+  const outcome: OtaOutcome = s.outcome ?? (s.last_check_ok ? (s.available ? 'available' : 'up_to_date') : 'check_failed')
   return {
+    outcome,
     update_available: s.available,
     latest_version: s.latest,
     current_version: s.current,

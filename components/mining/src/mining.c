@@ -276,7 +276,7 @@ double mining_get_pool_effective_hashrate(void)
     int64_t start = mining_stats.session.start_us;
     xSemaphoreGive(mining_stats.mutex);
     if (sum <= 0.0 || start <= 0) return 0.0;
-    int64_t now = esp_timer_get_time();
+    int64_t now = (int64_t)bb_timer_now_us();
     double uptime_s = (double)(now - start) / 1e6;
     return mining_compute_pool_effective_hps(sum, uptime_s);
 }
@@ -309,7 +309,7 @@ double mining_get_pool_effective_1h(void)
 void mining_stats_init(void)
 {
     mining_stats.mutex = xSemaphoreCreateMutex();
-    mining_stats.session.start_us = esp_timer_get_time();
+    mining_stats.session.start_us = (int64_t)bb_timer_now_us();
     mining_stats.session.accepted_diff_sum = 0.0;
 #ifndef ASIC_CHIP
     mining_stats.hashrate_1m  = -1.0f;

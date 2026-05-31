@@ -29,7 +29,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_log.h"
-#include "esp_timer.h"
+#include "bb_timer.h"
 #include "bb_json.h"
 
 static const char *TAG = "stratum";
@@ -221,7 +221,7 @@ static int stratum_request(const char *method, const char *params_json)
     }
     // Record send time for RTT measurement (TA-118)
     int slot = inflight_slot(id);
-    s_inflight_send_us[slot] = esp_timer_get_time();
+    s_inflight_send_us[slot] = (int64_t)bb_timer_now_us();
     return id;
 }
 
@@ -312,7 +312,7 @@ static int stratum_connect(const char *host, uint16_t port)
     // Gate: skip DNS lookup if WiFi station has no IP yet
     if (!bb_wifi_has_ip()) {
         static int64_t s_last_no_ip_log_us = 0;
-        int64_t now_us = esp_timer_get_time();
+        int64_t now_us = (int64_t)bb_timer_now_us();
         if (now_us - s_last_no_ip_log_us > 10000000) {  // 10s rate limit
             bb_log_w(TAG, "no IP yet, deferring DNS lookup");
             s_last_no_ip_log_us = now_us;
@@ -494,7 +494,7 @@ static int submit_share(mining_result_t *result)
     }
 
     bb_log_i(TAG, "submit: %s", params);
-    s_last_submit_us = esp_timer_get_time();
+    s_last_submit_us = (int64_t)bb_timer_now_us();
     int rc = stratum_request("mining.submit", params);
     if (rc >= 0) {
         s_last_share_tick = xTaskGetTickCount();
@@ -543,7 +543,7 @@ static void process_message(const char *line)
             int slot = inflight_slot(id);
             int64_t send_us = s_inflight_send_us[slot];
             if (send_us > 0) {
-                int64_t rtt_us = esp_timer_get_time() - send_us;
+                int64_t rtt_us = (int64_t)bb_timer_now_us() - send_us;
                 if (rtt_us >= 0 && rtt_us < 30 * 1000 * 1000) {  // sanity: 0–30s
                     double rtt_ms = (double)rtt_us / 1000.0;
                     if (!s_pool_rtt_initialized) {
@@ -633,10 +633,10 @@ static void process_message(const char *line)
                          mining_stats.session.accepted_diff_sum + share_diff);
                 if (s_last_submit_us) {
                     bb_log_i(DIAG, "share ack: %lldms",
-                             (esp_timer_get_time() - s_last_submit_us) / 1000);
+                             ((int64_t)bb_timer_now_us() - s_last_submit_us) / 1000);
                 }
                 ota_validator_on_share_accepted();
-                int64_t now_us = esp_timer_get_time();
+                int64_t now_us = (int64_t)bb_timer_now_us();
                 if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                     mining_stats.hw_shares++;
                     mining_stats.session.shares++;
@@ -764,7 +764,7 @@ void stratum_task(void *arg)
             if (sub_id >= 0) {
                 s_state.extranonce_subscribe_id = sub_id;
                 s_extranonce_sub_status = STRATUM_EXNX_SUB_PENDING;
-                s_extranonce_sub_sent_us = esp_timer_get_time();
+                s_extranonce_sub_sent_us = (int64_t)bb_timer_now_us();
             } else {
                 bb_log_w(TAG, "extranonce.subscribe send failed, session continues");
                 s_extranonce_sub_status = STRATUM_EXNX_SUB_REJECTED;
@@ -882,7 +882,7 @@ void stratum_task(void *arg)
              * sitting on PENDING forever for non-supporting pools. */
             if (s_extranonce_sub_status == STRATUM_EXNX_SUB_PENDING &&
                 s_extranonce_sub_sent_us != 0 &&
-                (esp_timer_get_time() - s_extranonce_sub_sent_us) > STRATUM_EXNX_SUB_TIMEOUT_US) {
+                ((int64_t)bb_timer_now_us() - s_extranonce_sub_sent_us) > STRATUM_EXNX_SUB_TIMEOUT_US) {
                 bb_log_w(TAG, "extranonce.subscribe: no response in %lld ms, marking rejected",
                          (long long)(STRATUM_EXNX_SUB_TIMEOUT_US / 1000));
                 s_extranonce_sub_status = STRATUM_EXNX_SUB_REJECTED;

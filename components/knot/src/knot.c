@@ -3,7 +3,7 @@
 #include "bb_log.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
-#include <esp_timer.h>
+#include "bb_timer.h"
 #include <string.h>
 
 #define KNOT_PEER_COUNT 32
@@ -33,7 +33,7 @@ static void on_peer_discovered(const bb_mdns_peer_t *peer, void *ctx) {
     strncpy(new_peer.hostname,      peer->hostname,      sizeof(new_peer.hostname) - 1);
     strncpy(new_peer.ip4,           peer->ip4,           sizeof(new_peer.ip4) - 1);
     new_peer.port = peer->port;
-    new_peer.last_seen_us = esp_timer_get_time();
+    new_peer.last_seen_us = (int64_t)bb_timer_now_us();
 
     // Apply TXT records (worker, board, version, state) using helper
     knot_table_apply_txt(&new_peer, peer->txt, peer->txt_count);
@@ -147,7 +147,7 @@ void knot_set_self(const char *instance_name,
     if (board)   strncpy(self.board,   board,   sizeof(self.board) - 1);
     if (version) strncpy(self.version, version, sizeof(self.version) - 1);
     if (state)   strncpy(self.state,   state,   sizeof(self.state) - 1);
-    self.last_seen_us = esp_timer_get_time();
+    self.last_seen_us = (int64_t)bb_timer_now_us();
 
     if (xSemaphoreTake(g_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
         int slot = knot_table_upsert(g_peer_table, KNOT_PEER_COUNT, &self);

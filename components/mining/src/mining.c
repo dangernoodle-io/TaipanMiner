@@ -156,7 +156,6 @@ sha_overlap_state_t mining_get_sha_hwrite_state(void) {
 
 #ifdef ESP_PLATFORM
 #include "esp_log.h"
-#include "esp_timer.h"
 #include "bb_timer.h"
 #include "esp_task_wdt.h"
 #include "esp_cpu.h"
@@ -624,7 +623,7 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
     backend->prepare_job(backend, work, block2);
 
 #ifdef ESP_PLATFORM
-    int64_t start_us = esp_timer_get_time();
+    int64_t start_us = (int64_t)bb_timer_now_us();
     uint32_t hashes = 0;
 #if MINING_HOTLOOP_DIAG
     /* Diag: per-nonce kernel cycle accumulator (TA-395 ceiling investigation). */
@@ -790,12 +789,12 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
         if (((nonce + 1) & params->yield_mask) == 0) {
             // Tier 1: lightweight new-work check (every 256K nonces)
             sha256_hw_release();
-            int64_t tier1_start_us = esp_timer_get_time();  // Diag: dwell timer starts here
+            int64_t tier1_start_us = (int64_t)bb_timer_now_us();  // Diag: dwell timer starts here
             mining_work_t new_work;
             if (xQueuePeek(work_queue, &new_work, 0) == pdTRUE &&
                 new_work.work_seq != work->work_seq) {
                 // Diag: time the swap path (acquire + prepare_job)
-                int64_t swap_start_us = esp_timer_get_time();
+                int64_t swap_start_us = (int64_t)bb_timer_now_us();
                 memcpy(work, &new_work, sizeof(*work));
                 {
                     int64_t job_elapsed_us = swap_start_us - start_us;
@@ -808,7 +807,7 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                 build_block2(block2, work->header);
                 sha256_hw_acquire();
                 backend->prepare_job(backend, work, block2);
-                start_us = esp_timer_get_time();
+                start_us = (int64_t)bb_timer_now_us();
                 int64_t swap_dur_us = start_us - swap_start_us;
                 if (swap_dur_us > 50000) {
                     bb_log_w(DIAG, "job_swap: %lldms (acquire + prepare_job)", swap_dur_us / 1000);
@@ -828,7 +827,7 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
             if (mining_pause_check()) {
                 sha256_hw_acquire();
                 backend->prepare_job(backend, work, block2);
-                start_us = esp_timer_get_time();
+                start_us = (int64_t)bb_timer_now_us();
                 hashes = 0;
                 nonce = params->nonce_start - 1;
                 continue;
@@ -848,7 +847,7 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
             // release → pause_check → acquire). Captures real internal stalls; immune to job-swap
             // and pause-resume paths that continue before reaching this point.
             {
-                int64_t tier1_dwell_us = esp_timer_get_time() - tier1_start_us;
+                int64_t tier1_dwell_us = (int64_t)bb_timer_now_us() - tier1_start_us;
                 if (tier1_dwell_us > 50000) {  // 50ms threshold
                     bb_log_w(DIAG, "tier1_dwell: %lldms (acq/rel + peek + pause)", tier1_dwell_us / 1000);
                 }
@@ -856,7 +855,7 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
 
             // Tier 2: full yield (every 1M nonces)
             if (((nonce + 1) & params->log_mask) == 0) {
-                int64_t elapsed_us = esp_timer_get_time() - start_us;
+                int64_t elapsed_us = (int64_t)bb_timer_now_us() - start_us;
                 if (elapsed_us > 0) {
                     double hashrate = (double)hashes / ((double)elapsed_us / 1000000.0);
                     uint32_t shares = 0;
@@ -864,7 +863,7 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                     uint32_t rejected = 0;
                     if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
                         mining_stats.hw_hashrate = hashrate;
-                        mining_stats_update_ema(&mining_stats.hw_ema, hashrate, esp_timer_get_time());
+                        mining_stats_update_ema(&mining_stats.hw_ema, hashrate, (int64_t)bb_timer_now_us());
                         mining_stats.session.hashes += hashes;
                         shares = mining_stats.hw_shares;
                         accepted = mining_stats.session.shares;

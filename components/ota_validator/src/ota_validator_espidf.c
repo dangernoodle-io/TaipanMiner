@@ -1,65 +1,38 @@
 #include "ota_validator_io.h"
-#include "esp_timer.h"
+#include "bb_timer.h"
 #include "bb_ota_validator.h"
-#include <stdlib.h>
 
 // ---------------------------------------------------------------------------
-// Timer wrappers
+// Timer wrappers — one-shot timer via bb_timer (esp_timer leak removed).
+// bb_timer_oneshot stores the cb+arg internally, so the ota_timer_cb_t is
+// passed straight through. The prior esp_timer path needed a trampoline +
+// a heap timer_ctx_t it could never free (esp_timer has no get-arg API), so
+// it deliberately leaked one allocation per timer; that's gone now.
 // ---------------------------------------------------------------------------
-
-typedef struct {
-    ota_timer_cb_t cb;
-    void          *user;
-} timer_ctx_t;
-
-static void trampoline_cb(void *arg)
-{
-    timer_ctx_t *ctx = (timer_ctx_t *)arg;
-    ctx->cb(ctx->user);
-}
 
 static bool espidf_timer_create(ota_timer_cb_t cb, void *user, void **out_handle)
 {
-    timer_ctx_t *ctx = malloc(sizeof(timer_ctx_t));
-    if (!ctx) return false;
-    ctx->cb   = cb;
-    ctx->user = user;
-
-    esp_timer_handle_t h = NULL;
-    const esp_timer_create_args_t args = {
-        .callback        = trampoline_cb,
-        .arg             = ctx,
-        .name            = "ota_validator",
-        .dispatch_method = ESP_TIMER_TASK,
-    };
-    if (esp_timer_create(&args, &h) != ESP_OK) {
-        free(ctx);
+    bb_oneshot_timer_t t = NULL;
+    if (bb_timer_oneshot_create(cb, user, "ota_validator", &t) != BB_OK) {
         return false;
     }
-    *out_handle = (void *)h;
+    *out_handle = (void *)t;
     return true;
 }
 
 static bool espidf_timer_start_once(void *handle, uint64_t timeout_us)
 {
-    return esp_timer_start_once((esp_timer_handle_t)handle, timeout_us) == ESP_OK;
+    return bb_timer_oneshot_start((bb_oneshot_timer_t)handle, timeout_us) == BB_OK;
 }
 
 static void espidf_timer_stop(void *handle)
 {
-    esp_timer_stop((esp_timer_handle_t)handle);
+    bb_timer_oneshot_stop((bb_oneshot_timer_t)handle);
 }
 
 static void espidf_timer_delete_(void *handle)
 {
-    // Retrieve and free ctx stored as arg
-    esp_timer_handle_t h = (esp_timer_handle_t)handle;
-    // ctx was allocated in espidf_timer_create; retrieve via get_period hack not available.
-    // Instead we rely on the fact that stop is always called before delete_ in ota_validator.c,
-    // so the callback will not fire again.  Free ctx by querying the timer info is not a public
-    // API, so we accept a small leak of timer_ctx_t (one allocation per timer lifetime; the
-    // validator only ever creates one timer per firmware run).
-    esp_timer_delete(h);
+    bb_timer_oneshot_delete((bb_oneshot_timer_t)handle);
 }
 
 // ---------------------------------------------------------------------------

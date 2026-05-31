@@ -26,8 +26,8 @@
 
 #ifdef ESP_PLATFORM
 #include "freertos/semphr.h"
-#include "esp_timer.h"
 #endif
+#include "bb_timer.h"
 
 /* block.found event topic handle; set by mining_pool_stats_set_block_topic(). */
 static bb_event_topic_t s_block_topic = NULL;
@@ -314,7 +314,7 @@ static void s_load_slot(int idx, mining_pool_stat_t *sl)
 static int64_t s_now_us(void)
 {
 #ifdef ESP_PLATFORM
-    return (int64_t)esp_timer_get_time();
+    return (int64_t)bb_timer_now_us();
 #else
     return s_host_clock++;
 #endif

@@ -31,7 +31,7 @@
 #include "bb_event.h"
 #include "bb_byte_order.h"
 #include "esp_check.h"
-#include "esp_timer.h"
+#include "bb_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -64,7 +64,7 @@ static const char   *s_pid_input_src = "";   // "die" or "vr" (for telemetry)
 
 static unsigned long s_pid_now_ms(void)
 {
-    return (unsigned long)(esp_timer_get_time() / 1000ULL);
+    return (unsigned long)(bb_timer_now_us() / 1000ULL);
 }
 
 // --- I2C bus handle (initialized in asic_init, shared with display) ---
@@ -496,7 +496,7 @@ void asic_mining_task(void *arg)
                     continue;
                 }
 
-                uint64_t now_us = esp_timer_get_time();
+                uint64_t now_us = bb_timer_now_us();
                 static const uint64_t HASH_CNT_LSB = 1ULL << 32;
 
                 if (reg_addr == ASIC_REG_TOTAL_COUNT) {
@@ -507,7 +507,7 @@ void asic_mining_task(void *arg)
                             float ghs = (float)delta * (float)HASH_CNT_LSB / seconds / 1e9f;
                             asic_drop_detect_step_t step = asic_drop_detect_evaluate(
                                 ghs, ASIC_CHIP_GHS_SANITY_MAX,
-                                (uint64_t)esp_timer_get_time(),
+                                bb_timer_now_us(),
                                 s_chip_warn[chip_idx].total_last_warn_us,
                                 WARN_COOLDOWN_US);
                             if (step.accept) {
@@ -545,7 +545,7 @@ void asic_mining_task(void *arg)
                             float ghs = (float)delta * (float)HASH_CNT_LSB / seconds / 1e9f;
                             asic_drop_detect_step_t step = asic_drop_detect_evaluate(
                                 ghs, ASIC_CHIP_GHS_SANITY_MAX,
-                                (uint64_t)esp_timer_get_time(),
+                                bb_timer_now_us(),
                                 s_chip_warn[chip_idx].error_last_warn_us,
                                 WARN_COOLDOWN_US);
                             if (step.accept) {
@@ -584,7 +584,7 @@ void asic_mining_task(void *arg)
                             float ghs = (float)delta * (float)HASH_CNT_LSB / seconds / 1e9f;
                             asic_drop_detect_step_t step = asic_drop_detect_evaluate(
                                 ghs, ASIC_DOMAIN_GHS_SANITY_MAX,
-                                (uint64_t)esp_timer_get_time(),
+                                bb_timer_now_us(),
                                 s_chip_warn[chip_idx].domain_last_warn_us[d],
                                 WARN_COOLDOWN_US);
                             if (step.accept) {

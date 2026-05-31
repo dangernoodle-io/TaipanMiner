@@ -318,9 +318,11 @@ void test_diag_bench_json_canary_mixed(void)
 /* ============================================================================
  * TA-395: khs / sha_ops_per_sec relationship invariant
  *
- * Synthetic bench result: duration_us=3000, iters=1000, us_per_op=1.0
- *   khs MUST be iters * 1000 / duration_us = 1000 * 1000 / 3000 = 333.33...
- *   sha_ops_per_sec MUST be 1e6 / us_per_op = 1e6 / 1.0 = 1000000.0
+ * Synthetic bench result (min-of-tail semantics): duration_us=3000, iters=1000,
+ * us_per_op=1.0. With min-of-tail, settled_total_us = one min bucket time,
+ * settled_iters = bucket_size.
+ *   khs = settled_iters * 1000 / settled_total_us = 200 * 1000 / 600 = 333.33...
+ *   sha_ops_per_sec = 1e6 / us_per_op = 1e6 / 1.0 = 1000000.0
  *
  * Cross-check: sha_ops_per_sec / khs ~= 3 (Bitcoin double-SHA = 3 SHA ops/nonce)
  * This invariant catches regression back to the old khs = 1/us_per_op formula.
@@ -332,7 +334,8 @@ void test_diag_bench_json_khs_invariant(void)
         .duration_us        = 3000,
         .us_per_op          = 1.0,
         /* khs and sha_ops_per_sec are computed by the handler, not the snapshot.
-         * Populate them with the correct values to test build_diag_bench_json passthrough. */
+         * Populate them with the correct values to test build_diag_bench_json passthrough.
+         * Min-of-tail: settled_total_us = single min bucket time; settled_iters = bucket_size. */
         .khs                = 333.333333,   /* settled_iters * 1000 / settled_total_us */
         .sha_ops_per_sec   = 1000000.0,    /* 1e6 / us_per_op (ops/s) */
         .backend            = "dport",
@@ -342,8 +345,8 @@ void test_diag_bench_json_khs_invariant(void)
         .has_asic_active    = false,
         .settled            = true,
         .settled_after_iters = 200,
-        .settled_iters      = 800,
-        .settled_total_us   = 2400,  /* 800 * 1000 / 333.333 = 2400 us */
+        .settled_iters      = 200,          /* bucket_size (min-of-tail: one bucket) */
+        .settled_total_us   = 600,          /* min_bucket_us: 200 * 1000 / 333.333 = 600 us */
     };
 
     bb_json_t root = bb_json_obj_new();
@@ -379,9 +382,10 @@ void test_diag_bench_json_khs_invariant(void)
  * outer double-SHA digest). sha256_hw_bench_pass2 divides by 2 so us_per_op
  * is per-SHA-block-op, matching DPORT semantics.
  *
- * Synthetic AHB-shaped snapshot: duration_us=2000, iters=1000, us_per_op=1.0
- *   (represents elapsed_us / iters / 2 = 2000 / 1000 / 2 = 1.0 us/SHA-op)
- *   khs = iters * 1000 / duration_us = 1000 * 1000 / 2000 = 500.0
+ * Synthetic AHB-shaped snapshot (min-of-tail semantics): duration_us=2000, iters=1000.
+ * With min-of-tail: settled_total_us = min_bucket_us (one bucket), settled_iters = bucket_size.
+ *   us_per_op = min_bucket_us / bucket_size / 2 = 400 / 200 / 2 = 1.0 us/SHA-op
+ *   khs = settled_iters * 1000 / settled_total_us = 200 * 1000 / 400 = 500.0
  *   sha_ops_per_sec = 1e6 / us_per_op = 1e6 / 1.0 = 1000000.0
  *
  * Cross-check: sha_ops_per_sec / (khs * 1000) ~= 2 for AHB (2 SHA ops/nonce).
@@ -391,7 +395,7 @@ void test_diag_bench_json_khs_invariant_ahb(void)
     diag_bench_snapshot_t s = {
         .iters              = 1000,
         .duration_us        = 2000,
-        .us_per_op          = 1.0,   /* settled_us / settled_iters / 2 */
+        .us_per_op          = 1.0,   /* min_bucket_us / bucket_size / 2 */
         .khs                = 500.0, /* settled_iters * 1000 / settled_total_us */
         .sha_ops_per_sec   = 1000000.0, /* 1e6 / us_per_op */
         .backend            = "ahb",
@@ -401,8 +405,8 @@ void test_diag_bench_json_khs_invariant_ahb(void)
         .has_asic_active    = false,
         .settled            = true,
         .settled_after_iters = 200,
-        .settled_iters      = 800,
-        .settled_total_us   = 1600,  /* 800 * 1000 / 500.0 = 1600 us */
+        .settled_iters      = 200,          /* bucket_size (min-of-tail: one bucket) */
+        .settled_total_us   = 400,          /* min_bucket_us: 200 * 1000 / 500.0 = 400 us */
     };
 
     bb_json_t root = bb_json_obj_new();

@@ -22,7 +22,6 @@
 #endif
 #include "led.h"
 #include "esp_ota_ops.h"
-#include "esp_timer.h"
 #include "bb_timer.h"
 #include "partition_fixup.h"
 #include "bb_log.h"
@@ -154,7 +153,7 @@ static void display_status_task(void *arg)
 #endif
                 status.shares = mining_stats.session.shares;
                 status.rejected = mining_stats.session.rejected;
-                status.uptime_us = esp_timer_get_time() - mining_stats.session.start_us;
+                status.uptime_us = (int64_t)bb_timer_now_us() - mining_stats.session.start_us;
                 xSemaphoreGive(mining_stats.mutex);
             }
 

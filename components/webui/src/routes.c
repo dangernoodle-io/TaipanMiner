@@ -4,7 +4,7 @@
 #include "bb_json.h"
 #include "esp_ota_ops.h"
 #include "esp_app_format.h"
-#include "esp_timer.h"
+#include "bb_timer.h"
 #include "esp_log.h"
 #include "esp_chip_info.h"
 #include "esp_mac.h"
@@ -289,7 +289,7 @@ static bb_err_t stats_handler(bb_http_request_t *req)
     double pool_eff_hr = mining_get_pool_effective_hashrate();
     s.pool_effective_hashrate = (pool_eff_hr > 0.0) ? pool_eff_hr : -1.0;
 
-    s.now_us = esp_timer_get_time();
+    s.now_us = (int64_t)bb_timer_now_us();
 
 #ifdef ASIC_CHIP
     /* Per-chip telemetry (TA-192 phase 2) — collected after mutex released */
@@ -311,7 +311,7 @@ static bb_err_t stats_handler(bb_http_request_t *req)
         }
     }
     /* Re-read now_us after chip telemetry fetch for accurate last_drop_ago_s */
-    s.now_us = (int64_t)(uint64_t)esp_timer_get_time();
+    s.now_us = (int64_t)bb_timer_now_us();
 #endif
 
     int64_t uptime_s = (s.session_start_us > 0)
@@ -1417,7 +1417,7 @@ static bb_err_t knot_handler(bb_http_request_t *req)
         return err;
     }
 
-    int64_t now_us = esp_timer_get_time();
+    int64_t now_us = (int64_t)bb_timer_now_us();
     knot_emit_ctx_t ctx = {
         .stream = &stream,
         .now_us = now_us,
@@ -1461,7 +1461,7 @@ static void taipan_info_extender(bb_json_t root)
 
     time_t now = time(NULL);
     if (now > 1700000000) {
-        int64_t uptime_s = esp_timer_get_time() / 1000000LL;
+        int64_t uptime_s = (int64_t)bb_timer_now_us() / 1000000LL;
         bb_json_obj_set_number(root, "boot_time", (double)(now - uptime_s));
     }
 
@@ -2187,7 +2187,7 @@ static bb_err_t diag_asic_handler(bb_http_request_t *req)
 #ifdef ASIC_CHIP
     asic_drop_event_t drops[ASIC_DROP_LOG_CAP];
     size_t n = asic_task_get_drop_log(drops, ASIC_DROP_LOG_CAP);
-    s.now_us  = (uint64_t)esp_timer_get_time();
+    s.now_us  = bb_timer_now_us();
     s.n_drops = n < ROUTES_JSON_DROP_LOG_CAP ? n : ROUTES_JSON_DROP_LOG_CAP;
     for (size_t i = 0; i < s.n_drops; i++) {
         s.drops[i].ts_us      = drops[i].ts_us;

@@ -23,6 +23,7 @@
 #include "led.h"
 #include "esp_ota_ops.h"
 #include "esp_timer.h"
+#include "bb_timer.h"
 #include "partition_fixup.h"
 #include "bb_log.h"
 #include "bb_ota_pull.h"
@@ -56,7 +57,7 @@ TaskHandle_t asic_task_handle = NULL;
 TaskHandle_t mining_hw_task_handle = NULL;
 #endif
 
-static esp_timer_handle_t s_stats_timer = NULL;
+static bb_periodic_timer_t s_stats_timer = NULL;
 static TaskHandle_t s_stats_save_task = NULL;
 
 static void stats_save_task(void *arg)
@@ -92,12 +93,8 @@ static void start_mining(void)
     xTaskCreate(stats_save_task, "nvs_save", 4096, NULL, 1, &s_stats_save_task);
 
     // Start periodic stats save timer (10 minutes)
-    const esp_timer_create_args_t timer_args = {
-        .callback = stats_save_timer_cb,
-        .name = "stats_save",
-    };
-    BB_ERROR_CHECK(esp_timer_create(&timer_args, &s_stats_timer));
-    BB_ERROR_CHECK(esp_timer_start_periodic(s_stats_timer, 10ULL * 60 * 1000000));
+    BB_ERROR_CHECK(bb_timer_periodic_create(stats_save_timer_cb, NULL, "stats_save", &s_stats_timer));
+    BB_ERROR_CHECK(bb_timer_periodic_start(s_stats_timer, 10ULL * 60 * 1000000));
 
     // Register WiFi kick callback for zombie-state recovery
     stratum_set_wifi_kick_cb(bb_wifi_force_reassociate);

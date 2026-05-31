@@ -224,8 +224,6 @@ extern QueueHandle_t result_queue;
 
 #include "freertos/task.h"
 #include "freertos/semphr.h"
-#include "driver/temperature_sensor.h"
-
 // Mining task handles
 #ifdef ASIC_CHIP
 extern TaskHandle_t asic_task_handle;
@@ -288,10 +286,14 @@ extern mining_stats_t mining_stats;
 // Initialize mining stats mutex. Call once from main before starting tasks.
 void mining_stats_init(void);
 
-temperature_sensor_handle_t mining_stats_temp_handle(void);
 #endif
 
 #ifdef ESP_PLATFORM
+// Sample the SoC die temperature into mining_stats.temp_c. Best-effort:
+// no-op on parts without a sensor (classic ESP32) and when the stats mutex
+// is busy. Single read path shared by the dongle loop and the ASIC task.
+void mining_stats_sample_die_temp(void);
+
 // Mining task — runs on Core 1, priority 20
 void mining_task(void *arg);
 #endif

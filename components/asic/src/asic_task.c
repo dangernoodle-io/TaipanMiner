@@ -39,7 +39,6 @@
 #include "driver/uart.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
-#include "driver/temperature_sensor.h"
 #include "esp_task_wdt.h"
 
 #include <string.h>
@@ -951,17 +950,7 @@ void asic_mining_task(void *arg)
                 xSemaphoreGive(mining_stats.mutex);
             }
 
-            // Read ESP die temp
-            {
-                float esp_temp = 0;
-                temperature_sensor_handle_t th = mining_stats_temp_handle();
-                if (th && temperature_sensor_get_celsius(th, &esp_temp) == ESP_OK) {
-                    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
-                        mining_stats.temp_c = esp_temp;
-                        xSemaphoreGive(mining_stats.mutex);
-                    }
-                }
-            }
+            mining_stats_sample_die_temp();  // ESP die temp into mining_stats.temp_c
 
             bb_log_i(TAG, "%.1f GH/s (reported %.1f) | hw_err: %.2f%% | temp: %.1f C | shares: %" PRIu32 " | nonce verify pass/fail: %" PRIu32 "/%" PRIu32,
                      hashrate / 1e9, total_ghs_sum, asic_hw_error_pct,

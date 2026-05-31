@@ -170,7 +170,6 @@ sha_overlap_state_t mining_get_sha_hwrite_state(void) {
 #endif
 #include "bb_nv.h"
 #include "bb_system.h"
-#include "driver/temperature_sensor.h"
 
 static const char *TAG = "mining";
 
@@ -178,8 +177,6 @@ QueueHandle_t work_queue = NULL;
 QueueHandle_t result_queue = NULL;
 
 mining_stats_t mining_stats = {0};
-
-static temperature_sensor_handle_t s_temp_handle = NULL;
 
 #ifndef ASIC_CHIP
 /* Non-ASIC rolling 1m/10m/1h hashrate sampler. ASIC builds feed their own
@@ -270,11 +267,6 @@ void mining_run_self_tests(void)
  * (per-pool stats migration). Replaced by mining_pool_stats_init /
  * mining_pool_stats_save in components/mining/src/mining_pool_stats.c. */
 
-temperature_sensor_handle_t mining_stats_temp_handle(void)
-{
-    return s_temp_handle;
-}
-
 // TA-344: live accessor — reads shared stats under mutex, then calls pure helper.
 double mining_get_pool_effective_hashrate(void)
 {
@@ -361,11 +353,6 @@ void mining_stats_init(void)
 
     /* mining_stats_load_lifetime() replaced by mining_pool_stats_init() in main.c (step 2) */
 
-#if CONFIG_IDF_TARGET_ESP32S3
-    temperature_sensor_config_t cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80);
-    BB_ERROR_CHECK(temperature_sensor_install(&cfg, &s_temp_handle));
-    BB_ERROR_CHECK(temperature_sensor_enable(s_temp_handle));
-#endif
 }
 #endif
 
@@ -378,6 +365,21 @@ void build_block2(uint8_t block2[64], const uint8_t header[80])
     block2[62] = 0x02;
     block2[63] = 0x80;
 }
+
+#ifdef ESP_PLATFORM
+// Single die-temp read path. bb_system_read_temp_celsius returns
+// BB_ERR_UNSUPPORTED on parts without the sensor (classic ESP32), so this is a
+// silent no-op there. Non-blocking mutex take — a dropped sample is harmless.
+void mining_stats_sample_die_temp(void)
+{
+    float t;
+    if (bb_system_read_temp_celsius(&t) != BB_OK) return;
+    if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
+        mining_stats.temp_c = t;
+        xSemaphoreGive(mining_stats.mutex);
+    }
+}
+#endif
 
 // Pack target bytes [28-31] into a single word for early reject comparison
 uint32_t pack_target_word0(const uint8_t target[32])
@@ -915,15 +917,7 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
 #endif
                 }
 
-                {
-                    float temp = 0;
-                    if (s_temp_handle && temperature_sensor_get_celsius(s_temp_handle, &temp) == ESP_OK) {
-                        if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
-                            mining_stats.temp_c = temp;
-                            xSemaphoreGive(mining_stats.mutex);
-                        }
-                    }
-                }
+                mining_stats_sample_die_temp();
 
                 // Record hashes accumulated since last Tier-2 yield.
                 {

@@ -3,9 +3,10 @@
  * ─── Primitive index ─────────────────────────────────────────────────────────
  *
  *  .conn-dot              8px connection-state circle
- *    .conn-dot.connected    green + pulse animation
+ *    .conn-dot.connected    green
  *    .conn-dot.disconnected red
  *    .conn-dot.unknown      muted gray
+ *  .pulse                 opt-in breathing animation (add to any dot/badge)
  *
  *  .spinner               spin animation; size via --spinner-size (default 28px)
  *    .spinner.lg            42px preset (e.g. RebootOverlay)
@@ -205,7 +206,6 @@
 
 .conn-dot.connected {
   background: var(--success);
-  animation: conn-dot-pulse 2s ease-in-out infinite;
 }
 
 .conn-dot.disconnected {
@@ -216,7 +216,12 @@
   background: var(--muted);
 }
 
-@keyframes conn-dot-pulse {
+/* Opt-in pulse — add `pulse` to any dot/badge to make it breathe. */
+.pulse {
+  animation: dot-pulse 2s ease-in-out infinite;
+}
+
+@keyframes dot-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }

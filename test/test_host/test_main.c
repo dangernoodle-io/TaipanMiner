@@ -217,6 +217,13 @@ void test_mining_get_expected_ghs_asic_freq_negative(void);
 void test_mining_get_expected_ghs_non_asic_with_microbench(void);
 void test_mining_get_expected_ghs_non_asic_no_microbench(void);
 #endif
+// efficiency J/TH helper tests
+void test_mining_efficiency_jth_known_case(void);
+void test_mining_efficiency_jth_zero_hashrate(void);
+void test_mining_efficiency_jth_negative_hashrate(void);
+void test_mining_efficiency_jth_zero_power(void);
+void test_mining_efficiency_jth_negative_power(void);
+void test_mining_efficiency_jth_inverse_hashrate_scaling(void);
 // TA-344: pool-effective hashrate tests
 void test_mining_compute_pool_effective_hps_empty(void);
 void test_mining_compute_pool_effective_hps_uptime_too_short(void);
@@ -954,6 +961,13 @@ int main(void) {
     RUN_TEST(test_mining_get_expected_ghs_non_asic_with_microbench);
 #endif
 
+    // efficiency J/TH helper tests
+    RUN_TEST(test_mining_efficiency_jth_known_case);
+    RUN_TEST(test_mining_efficiency_jth_zero_hashrate);
+    RUN_TEST(test_mining_efficiency_jth_negative_hashrate);
+    RUN_TEST(test_mining_efficiency_jth_zero_power);
+    RUN_TEST(test_mining_efficiency_jth_negative_power);
+    RUN_TEST(test_mining_efficiency_jth_inverse_hashrate_scaling);
     // TA-344: pool-effective hashrate tests
     RUN_TEST(test_mining_compute_pool_effective_hps_empty);
     RUN_TEST(test_mining_compute_pool_effective_hps_uptime_too_short);

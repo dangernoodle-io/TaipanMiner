@@ -71,6 +71,13 @@ void mining_stats_update_ema(hashrate_ema_t *ema, double sample, int64_t now_us)
     ema->last_us = now_us;
 }
 
+// J/TH efficiency helper — pure math, host-testable.
+// mW/(GH/s) == J/TH: milli cancels 1e-3, giga->tera cancels 1e-3, net 1x.
+double mining_efficiency_jth(double power_mw, double hashrate_ghs)
+{
+    return (hashrate_ghs > 0.0 && power_mw > 0.0) ? (power_mw / hashrate_ghs) : -1.0;
+}
+
 // TA-344: pure math, no FreeRTOS — usable in host tests directly.
 double mining_compute_pool_effective_hps(double accepted_diff_sum, double uptime_s)
 {

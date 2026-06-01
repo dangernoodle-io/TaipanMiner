@@ -15,6 +15,7 @@ import {
   switchPool,
   deletePoolSlot,
   postReboot,
+  resetStats,
   ping,
   fetchLogLevels,
   setLogLevel,
@@ -374,6 +375,20 @@ describe('postReboot', () => {
   it('throws on non-OK response', async () => {
     setFetch(503)
     await expect(postReboot()).rejects.toThrow('reboot failed')
+  })
+})
+
+describe('resetStats', () => {
+  it('POSTs /api/stats/reset and resolves on success', async () => {
+    const spy = setFetch(200)
+    await resetStats()
+    expect(spy.mock.calls[0][0]).toBe('/api/stats/reset')
+    expect(spy.mock.calls[0][1].method).toBe('POST')
+  })
+
+  it('throws on non-OK response', async () => {
+    setFetch(500)
+    await expect(resetStats()).rejects.toThrow('reset stats failed: 500')
   })
 })
 

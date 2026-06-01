@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { stats, info, health } from '../lib/stores'
+  import { stats, info, health, pool } from '../lib/stores'
   import Donut from '../components/Donut.svelte'
+  import ConfirmDialog from '../components/ConfirmDialog.svelte'
   import { fmtBytes, fmtUnixTs, fmtBuildTime, fmtDuration, rssiBars } from '../lib/fmt'
+  import { resetStats, fetchStats, fetchPool } from '../lib/api'
 
   /* Layered data sources:
    *   $health — polled every 5s, drives the visual row (live liveness signals)
@@ -41,6 +43,28 @@
   $: expectedCores = (asicSpec && smallCoresPerChip != null) ? asicSpec.expected_chips * smallCoresPerChip : null
   $: chipsBad = (asicSpec && detectedChips != null && detectedChips < asicSpec.expected_chips)
   $: hasAsic = asicSpec != null
+
+  let showResetDialog = false
+  let resetting = false
+  let resetErr = ''
+
+  async function doResetStats() {
+    resetting = true
+    resetErr = ''
+    try {
+      await resetStats()
+      const [newStats, newPool] = await Promise.all([
+        fetchStats().catch(() => null),
+        fetchPool().catch(() => null),
+      ])
+      if (newStats !== null) stats.set(newStats)
+      if (newPool !== null) pool.set(newPool)
+    } catch (e) {
+      resetErr = e instanceof Error ? e.message : 'reset failed'
+    } finally {
+      resetting = false
+    }
+  }
 </script>
 
 <div class="visual-row">
@@ -143,7 +167,26 @@
       <div><dt>Last boot</dt><dd>{fmtUnixTs($info?.boot_time)}</dd></div>
     </dl>
   </section>
+
+  <section class="card">
+    <h3>Actions</h3>
+    <div class="action-row">
+      <button class="btn danger sm" onclick={() => { showResetDialog = true }} disabled={resetting}>
+        {resetting ? 'Resetting…' : 'Reset stats'}
+      </button>
+    </div>
+    {#if resetErr}<div class="action-err">{resetErr}</div>{/if}
+  </section>
 </div>
+
+<ConfirmDialog
+  bind:open={showResetDialog}
+  title="Reset stats?"
+  message="This will clear all session and lifetime mining statistics. This action cannot be undone."
+  confirmLabel="Reset"
+  danger
+  onconfirm={doResetStats}
+/>
 
 <style>
   .visual-row {
@@ -272,4 +315,16 @@
   .dim { color: var(--muted); }
   dd.bad { color: var(--warning); }
   .bars { color: var(--accent); margin-left: 3px; }
+
+  .action-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .action-err {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--danger);
+  }
 </style>

@@ -36,6 +36,7 @@
 #include "bb_board.h"
 #include "knot.h"
 #include "routes_json.h"
+#include "mining_pool_stats.h"
 #include "sha256.h"
 #if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32C3
 #include "sha256_hw_ahb.h"
@@ -77,8 +78,6 @@ extern const uint8_t vendor_js_gz[];
 extern const size_t vendor_js_gz_len;
 extern const uint8_t index2_js_gz[];
 extern const size_t index2_js_gz_len;
-extern const uint8_t index3_js_gz[];
-extern const size_t index3_js_gz_len;
 extern const uint8_t pool_js_gz[];
 extern const size_t pool_js_gz_len;
 extern const uint8_t update_js_gz[];
@@ -440,6 +439,20 @@ static bb_err_t stats_handler(bb_http_request_t *req)
 #endif
 
     return bb_http_resp_json_obj_end(&obj);
+}
+
+// ----------------------------------------------------------------------------
+// /api/stats/reset — POST
+// Zero all persisted lifetime + per-pool + session mining stats.
+// Intended for recovery from a corrupt best_diff or phantom block.
+// No request body. Returns 204 on success.
+// ----------------------------------------------------------------------------
+static bb_err_t stats_reset_handler(bb_http_request_t *req)
+{
+    set_common_headers(req);
+    mining_stats_session_reset();
+    mining_pool_stats_reset();
+    return bb_http_resp_no_content(req);
 }
 
 // ----------------------------------------------------------------------------
@@ -2003,6 +2016,24 @@ static const bb_route_t s_stats_route = {
 };
 
 // ---------------------------------------------------------------------------
+// /api/stats/reset — POST
+// ---------------------------------------------------------------------------
+static const bb_route_response_t s_stats_reset_responses[] = {
+    { 204, NULL, NULL, "Stats reset" },
+    { 0 },
+};
+
+static const bb_route_t s_stats_reset_route = {
+    .method       = BB_HTTP_POST,
+    .path         = "/api/stats/reset",
+    .tag          = "mining",
+    .summary      = "Reset all mining statistics",
+    .operation_id = "postStatsReset",
+    .responses    = s_stats_reset_responses,
+    .handler      = stats_reset_handler,
+};
+
+// ---------------------------------------------------------------------------
 // /api/pool — GET (TA-281, TA-286; closes TA-201)
 // ---------------------------------------------------------------------------
 
@@ -2663,7 +2694,6 @@ static bb_http_asset_t s_mining_assets[] = {
     { "/assets/runtime.js",      "application/javascript", "gzip", NULL, 0 },
     { "/assets/vendor.js",       "application/javascript", "gzip", NULL, 0 },
     { "/assets/index2.js",       "application/javascript", "gzip", NULL, 0 },
-    { "/assets/index3.js",       "application/javascript", "gzip", NULL, 0 },
     { "/assets/Pool.js",         "application/javascript", "gzip", NULL, 0 },
     { "/assets/Update.js",       "application/javascript", "gzip", NULL, 0 },
     { "/assets/Diagnostics.js",  "application/javascript", "gzip", NULL, 0 },
@@ -2690,24 +2720,22 @@ static void init_mining_assets(void)
         s_mining_assets[4].len  = vendor_js_gz_len;
         s_mining_assets[5].data  = index2_js_gz;
         s_mining_assets[5].len  = index2_js_gz_len;
-        s_mining_assets[6].data  = index3_js_gz;
-        s_mining_assets[6].len  = index3_js_gz_len;
-        s_mining_assets[7].data  = pool_js_gz;
-        s_mining_assets[7].len  = pool_js_gz_len;
-        s_mining_assets[8].data  = update_js_gz;
-        s_mining_assets[8].len  = update_js_gz_len;
-        s_mining_assets[9].data  = diagnostics_js_gz;
-        s_mining_assets[9].len  = diagnostics_js_gz_len;
-        s_mining_assets[10].data = settings_js_gz;
-        s_mining_assets[10].len = settings_js_gz_len;
-        s_mining_assets[11].data = history_js_gz;
-        s_mining_assets[11].len = history_js_gz_len;
-        s_mining_assets[12].data = knot_js_gz;
-        s_mining_assets[12].len = knot_js_gz_len;
-        s_mining_assets[13].data = logo_svg_gz;
-        s_mining_assets[13].len = logo_svg_gz_len;
-        s_mining_assets[14].data = favicon_svg_gz;
-        s_mining_assets[14].len = favicon_svg_gz_len;
+        s_mining_assets[6].data  = pool_js_gz;
+        s_mining_assets[6].len  = pool_js_gz_len;
+        s_mining_assets[7].data  = update_js_gz;
+        s_mining_assets[7].len  = update_js_gz_len;
+        s_mining_assets[8].data  = diagnostics_js_gz;
+        s_mining_assets[8].len  = diagnostics_js_gz_len;
+        s_mining_assets[9].data = settings_js_gz;
+        s_mining_assets[9].len = settings_js_gz_len;
+        s_mining_assets[10].data = history_js_gz;
+        s_mining_assets[10].len = history_js_gz_len;
+        s_mining_assets[11].data = knot_js_gz;
+        s_mining_assets[11].len = knot_js_gz_len;
+        s_mining_assets[12].data = logo_svg_gz;
+        s_mining_assets[12].len = logo_svg_gz_len;
+        s_mining_assets[13].data = favicon_svg_gz;
+        s_mining_assets[13].len = favicon_svg_gz_len;
         initialized = true;
     }
 }
@@ -2716,6 +2744,7 @@ static void init_mining_assets(void)
 // webui_reserve_mining_routes in sync with the actual registrations.
 static const bb_route_t * const s_mining_routes[] = {
     &s_stats_route,
+    &s_stats_reset_route,
     &s_pool_route,
     &s_pool_put_route,
     &s_pool_switch_route,

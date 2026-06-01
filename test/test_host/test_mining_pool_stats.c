@@ -795,3 +795,40 @@ void test_pool_stats_init_zerohash_lifetime_boundary(void)
     mining_pool_stats_init();
     TEST_ASSERT_EQUAL_UINT32(0u, mining_pool_stats_lifetime_blocks());
 }
+
+/* -------------------------------------------------------------------------
+ * mining_pool_stats_reset: zeroes all in-RAM slots + lifetime counters and
+ * persists via save. Seed slot 0 with non-zero best_diff and blocks_found,
+ * inject a lifetime_blocks value, then reset and assert everything is zero.
+ * ---------------------------------------------------------------------- */
+void test_pool_stats_reset_zeroes_all_state(void)
+{
+    ps_setUp();
+
+    /* Seed slot 0 with non-zero data. */
+    mining_pool_stat_t *sl = mining_pool_stats_find_or_alloc("pool.example.com", 3333);
+    TEST_ASSERT_NOT_NULL(sl);
+    sl->best_diff    = 65536.0;
+    sl->blocks_found = 3;
+    sl->shares       = 100;
+
+    /* Inject a non-zero lifetime_blocks (simulates a persisted block). */
+    mining_pool_stats_set_lifetime_blocks_for_test(5u);
+    TEST_ASSERT_EQUAL_UINT32(5u, mining_pool_stats_lifetime_blocks());
+
+    /* Reset. */
+    mining_pool_stats_reset();
+
+    /* All slots must be zeroed: best_diff==0, blocks_found==0, last_seen_us==0. */
+    for (int i = 0; i < MINING_POOL_STATS_MAX; i++) {
+        const mining_pool_stat_t *s = mining_pool_stats_slot(i);
+        TEST_ASSERT_NOT_NULL(s);
+        TEST_ASSERT_EQUAL_DOUBLE(0.0, s->best_diff);
+        TEST_ASSERT_EQUAL_UINT32(0u, s->blocks_found);
+        TEST_ASSERT_EQUAL_INT64(0, s->last_seen_us);
+    }
+
+    /* Lifetime counters must be zeroed. */
+    TEST_ASSERT_EQUAL_UINT32(0u, mining_pool_stats_lifetime_blocks());
+    TEST_ASSERT_EQUAL_INT64(0, mining_pool_stats_lifetime_last_block_ts());
+}

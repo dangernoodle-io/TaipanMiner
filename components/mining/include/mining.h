@@ -286,6 +286,11 @@ extern mining_stats_t mining_stats;
 // Initialize mining stats mutex. Call once from main before starting tasks.
 void mining_stats_init(void);
 
+// Reset the in-RAM session stats to their boot-time defaults.
+// Takes the mining_stats mutex internally.
+// Intended for use with mining_pool_stats_reset() from POST /api/stats/reset.
+void mining_stats_session_reset(void);
+
 #endif
 
 #ifdef ESP_PLATFORM

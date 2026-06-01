@@ -228,6 +228,8 @@ void test_mining_get_pool_effective_rolling_host_stubs(void);
 // TA-396: byte-order regression tests
 void test_pack_target_word0_exact_byte_order(void);
 void test_sw_hash_nonce_rejects_over_target(void);
+void test_share_reverify_block1_nonce(void);
+void test_share_reverify_version_rolling(void);
 
 // Forward declarations from test_mining_hotloop_sync.c
 void test_mining_hotloop_finds_known_share(void);
@@ -410,6 +412,8 @@ void test_pool_stats_init_zerohash_lifetime_blocks_reset(void);
 void test_pool_stats_init_zerohash_best_diff_reset(void);
 void test_pool_stats_init_zerohash_slot_blocks_found_reset(void);
 void test_pool_stats_init_zerohash_lifetime_boundary(void);
+// stats reset route
+void test_pool_stats_reset_zeroes_all_state(void);
 
 #ifdef ASIC_CHIP
 // Forward declarations from test_asic_share_validator.c (TA-274 / Track-3)
@@ -961,6 +965,8 @@ int main(void) {
     // TA-396: byte-order regression tests
     RUN_TEST(test_pack_target_word0_exact_byte_order);
     RUN_TEST(test_sw_hash_nonce_rejects_over_target);
+    RUN_TEST(test_share_reverify_block1_nonce);
+    RUN_TEST(test_share_reverify_version_rolling);
     RUN_TEST(test_mining_hotloop_finds_known_share);
     RUN_TEST(test_mining_hotloop_rejects_non_matching_nonce);
 
@@ -1016,6 +1022,8 @@ int main(void) {
     RUN_TEST(test_pool_stats_init_zerohash_best_diff_reset);
     RUN_TEST(test_pool_stats_init_zerohash_slot_blocks_found_reset);
     RUN_TEST(test_pool_stats_init_zerohash_lifetime_boundary);
+    // stats reset
+    RUN_TEST(test_pool_stats_reset_zeroes_all_state);
 
     // Stratum utils tests
     RUN_TEST(test_format_submit_no_version);

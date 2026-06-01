@@ -66,40 +66,9 @@ static void schedule_deferred_restart(void)
     xTaskCreate(deferred_restart_task, "deferred_restart", 2048, NULL, 5, NULL);
 }
 
-extern const uint8_t index_html_gz[];
-extern const size_t index_html_gz_len;
-extern const uint8_t index_js_gz[];
-extern const size_t index_js_gz_len;
-extern const uint8_t index_css_gz[];
-extern const size_t index_css_gz_len;
-extern const uint8_t runtime_js_gz[];
-extern const size_t runtime_js_gz_len;
-extern const uint8_t vendor_js_gz[];
-extern const size_t vendor_js_gz_len;
-extern const uint8_t index2_js_gz[];
-extern const size_t index2_js_gz_len;
-extern const uint8_t pool_js_gz[];
-extern const size_t pool_js_gz_len;
-extern const uint8_t update_js_gz[];
-extern const size_t update_js_gz_len;
-extern const uint8_t diagnostics_js_gz[];
-extern const size_t diagnostics_js_gz_len;
-extern const uint8_t settings_js_gz[];
-extern const size_t settings_js_gz_len;
-extern const uint8_t history_js_gz[];
-extern const size_t history_js_gz_len;
-extern const uint8_t knot_js_gz[];
-extern const size_t knot_js_gz_len;
-extern const uint8_t prov_index_html_gz[];
-extern const size_t prov_index_html_gz_len;
-extern const uint8_t prov_index_js_gz[];
-extern const size_t prov_index_js_gz_len;
-extern const uint8_t prov_index_css_gz[];
-extern const size_t prov_index_css_gz_len;
-extern const uint8_t logo_svg_gz[];
-extern const size_t logo_svg_gz_len;
-extern const uint8_t favicon_svg_gz[];
-extern const size_t favicon_svg_gz_len;
+extern const bb_http_asset_t *webui_miner_assets_get(size_t *n);
+extern const size_t webui_miner_assets_count;
+extern const bb_http_asset_t *webui_prov_site_get(size_t *n);
 
 static void set_common_headers(bb_http_request_t *req)
 {
@@ -2316,86 +2285,13 @@ void webui_install_prov_save_cb(void)
     bb_prov_set_save_callback(taipan_prov_save_cb);
 }
 
-static bb_http_asset_t s_prov_assets[] = {
-    { "/",                  "text/html",              "gzip", NULL, 0 },
-    { "/assets/index.js",   "application/javascript", "gzip", NULL, 0 },
-    { "/assets/index.css",  "text/css",               "gzip", NULL, 0 },
-    { "/logo.svg",          "image/svg+xml",          "gzip", NULL, 0 },
-    { "/favicon.svg",       "image/svg+xml",          "gzip", NULL, 0 },
-};
-
+// Thin wrapper — preserves the public webui_prov_assets(size_t *n) API used by
+// main.c while delegating to the generated accessor from bb_embed_site.
+// TABLE is named webui_prov_site (not webui_prov_assets) to avoid a symbol
+// collision between the generated bb_http_asset_t[] array and this function.
 const bb_http_asset_t *webui_prov_assets(size_t *n)
 {
-    // Initialize asset data on first call
-    static bool initialized = false;
-    if (!initialized) {
-        s_prov_assets[0].data = prov_index_html_gz;
-        s_prov_assets[0].len = prov_index_html_gz_len;
-        s_prov_assets[1].data = prov_index_js_gz;
-        s_prov_assets[1].len = prov_index_js_gz_len;
-        s_prov_assets[2].data = prov_index_css_gz;
-        s_prov_assets[2].len = prov_index_css_gz_len;
-        s_prov_assets[3].data = logo_svg_gz;
-        s_prov_assets[3].len = logo_svg_gz_len;
-        s_prov_assets[4].data = favicon_svg_gz;
-        s_prov_assets[4].len = favicon_svg_gz_len;
-        initialized = true;
-    }
-    *n = sizeof(s_prov_assets) / sizeof(s_prov_assets[0]);
-    return s_prov_assets;
-}
-
-static bb_http_asset_t s_mining_assets[] = {
-    { "/",                       "text/html",              "gzip", NULL, 0 },
-    { "/assets/index.js",        "application/javascript", "gzip", NULL, 0 },
-    { "/assets/index.css",       "text/css",               "gzip", NULL, 0 },
-    { "/assets/runtime.js",      "application/javascript", "gzip", NULL, 0 },
-    { "/assets/vendor.js",       "application/javascript", "gzip", NULL, 0 },
-    { "/assets/index2.js",       "application/javascript", "gzip", NULL, 0 },
-    { "/assets/Pool.js",         "application/javascript", "gzip", NULL, 0 },
-    { "/assets/Update.js",       "application/javascript", "gzip", NULL, 0 },
-    { "/assets/Diagnostics.js",  "application/javascript", "gzip", NULL, 0 },
-    { "/assets/Settings.js",     "application/javascript", "gzip", NULL, 0 },
-    { "/assets/History.js",      "application/javascript", "gzip", NULL, 0 },
-    { "/assets/Knot.js",         "application/javascript", "gzip", NULL, 0 },
-    { "/logo.svg",               "image/svg+xml",          "gzip", NULL, 0 },
-    { "/favicon.svg",            "image/svg+xml",          "gzip", NULL, 0 },
-};
-
-static void init_mining_assets(void)
-{
-    static bool initialized = false;
-    if (!initialized) {
-        s_mining_assets[0].data  = index_html_gz;
-        s_mining_assets[0].len  = index_html_gz_len;
-        s_mining_assets[1].data  = index_js_gz;
-        s_mining_assets[1].len  = index_js_gz_len;
-        s_mining_assets[2].data  = index_css_gz;
-        s_mining_assets[2].len  = index_css_gz_len;
-        s_mining_assets[3].data  = runtime_js_gz;
-        s_mining_assets[3].len  = runtime_js_gz_len;
-        s_mining_assets[4].data  = vendor_js_gz;
-        s_mining_assets[4].len  = vendor_js_gz_len;
-        s_mining_assets[5].data  = index2_js_gz;
-        s_mining_assets[5].len  = index2_js_gz_len;
-        s_mining_assets[6].data  = pool_js_gz;
-        s_mining_assets[6].len  = pool_js_gz_len;
-        s_mining_assets[7].data  = update_js_gz;
-        s_mining_assets[7].len  = update_js_gz_len;
-        s_mining_assets[8].data  = diagnostics_js_gz;
-        s_mining_assets[8].len  = diagnostics_js_gz_len;
-        s_mining_assets[9].data = settings_js_gz;
-        s_mining_assets[9].len = settings_js_gz_len;
-        s_mining_assets[10].data = history_js_gz;
-        s_mining_assets[10].len = history_js_gz_len;
-        s_mining_assets[11].data = knot_js_gz;
-        s_mining_assets[11].len = knot_js_gz_len;
-        s_mining_assets[12].data = logo_svg_gz;
-        s_mining_assets[12].len = logo_svg_gz_len;
-        s_mining_assets[13].data = favicon_svg_gz;
-        s_mining_assets[13].len = favicon_svg_gz_len;
-        initialized = true;
-    }
+    return webui_prov_site_get(n);
 }
 
 // Mining-mode dynamic route table. sizeof-derived count keeps
@@ -2425,7 +2321,7 @@ void webui_reserve_mining_routes(void)
 {
     size_t n = sizeof(s_mining_routes) / sizeof(s_mining_routes[0]);
 #if CONFIG_WEBUI_MINING_UI
-    n += sizeof(s_mining_assets) / sizeof(s_mining_assets[0]);
+    n += webui_miner_assets_count;
 #endif
     bb_http_reserve_routes((int)n);
 }
@@ -2438,9 +2334,11 @@ bb_err_t webui_register_mining_routes(bb_http_handle_t server)
     // boards: serving the bundle needs more contiguous heap than these no-PSRAM
     // parts have, and it can't load there anyway. The /api/* routes below stay
     // registered, so the dashboard data (and hashrate) remain available headless.
-    init_mining_assets();
-    rc = bb_http_register_assets(server, s_mining_assets,
-                                 sizeof(s_mining_assets) / sizeof(s_mining_assets[0]));
+    {
+        size_t _n;
+        const bb_http_asset_t *_a = webui_miner_assets_get(&_n);
+        rc = bb_http_register_assets(server, _a, _n);
+    }
     if (rc != BB_OK) return rc;
 #endif
 

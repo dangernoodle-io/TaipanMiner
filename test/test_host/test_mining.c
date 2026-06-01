@@ -614,6 +614,48 @@ void test_share_reverify_version_rolling(void)
     TEST_ASSERT_FALSE(share_reverify(&work, 0x00002000, winning_nonce, real_hash));
 }
 
+// --- mining_efficiency_jth tests ---
+
+// Known case: bitaxe-601 live sample (pcore_mw=17273, hashrate=1071 GH/s → ~16.13 J/TH).
+// With the old vcore×icore derivation (dropping BOARD_POWER_OFFSET_MW=5000 mW),
+// expected would have read ~11.46 J/TH — ~30% too optimistic.
+void test_mining_efficiency_jth_known_case(void)
+{
+    double result = mining_efficiency_jth(17273.0, 1071.0);
+    TEST_ASSERT_DOUBLE_WITHIN(0.01, 17273.0 / 1071.0, result);
+}
+
+void test_mining_efficiency_jth_zero_hashrate(void)
+{
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, -1.0, mining_efficiency_jth(17273.0, 0.0));
+}
+
+void test_mining_efficiency_jth_negative_hashrate(void)
+{
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, -1.0, mining_efficiency_jth(17273.0, -1.0));
+}
+
+void test_mining_efficiency_jth_zero_power(void)
+{
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, -1.0, mining_efficiency_jth(0.0, 1071.0));
+}
+
+void test_mining_efficiency_jth_negative_power(void)
+{
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, -1.0, mining_efficiency_jth(-1.0, 1071.0));
+}
+
+// Offset-consistency: actual and expected now share the pcore_mw basis (canonical
+// value including BOARD_POWER_OFFSET_MW). Two calls with the same power_mw and
+// different hashrates must scale inversely (J/TH ∝ 1/GH/s).
+void test_mining_efficiency_jth_inverse_hashrate_scaling(void)
+{
+    double e1 = mining_efficiency_jth(17273.0, 1000.0);
+    double e2 = mining_efficiency_jth(17273.0, 2000.0);
+    // doubling GH/s halves J/TH
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, e1 / 2.0, e2);
+}
+
 // Test: sw_hash_nonce early-reject observable directly (not through mine_nonce_range).
 //
 // Calibrated vectors (verified empirically by running the binary):

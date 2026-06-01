@@ -217,6 +217,13 @@ double mining_get_pool_effective_1m(void);
 double mining_get_pool_effective_10m(void);
 double mining_get_pool_effective_1h(void);
 
+// J/TH efficiency helper — single source of truth for all efficiency computations.
+// Inputs: core+board power in mW (the canonical mining_stats.pcore_mw, which already
+// includes BOARD_POWER_OFFSET_MW) and hashrate in GH/s.
+// Returns -1.0 when hashrate <= 0 or power <= 0 (caller emits null).
+// Note: mW/(GH/s) == J/TH numerically (the milli- and giga->tera factors cancel).
+double mining_efficiency_jth(double power_mw, double hashrate_ghs);
+
 #ifdef ESP_PLATFORM
 // Queues (created by main, used by stratum + mining tasks)
 extern QueueHandle_t work_queue;

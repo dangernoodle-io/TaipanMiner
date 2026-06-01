@@ -1184,23 +1184,21 @@ static bb_err_t power_handler(bb_http_request_t *req)
         float ghs_10m = mining_stats.asic_total_ghs_10m;
         float ghs_1h = mining_stats.asic_total_ghs_1h;
 
-        if (pcore_1m > 0 && ghs_1m > 0) {
-            s.efficiency_jth_1m = (double)pcore_1m / (double)ghs_1m;
-        }
-        if (pcore_10m > 0 && ghs_10m > 0) {
-            s.efficiency_jth_10m = (double)pcore_10m / (double)ghs_10m;
-        }
-        if (pcore_1h > 0 && ghs_1h > 0) {
-            s.efficiency_jth_1h = (double)pcore_1h / (double)ghs_1h;
+        {
+            double e;
+            e = mining_efficiency_jth((double)pcore_1m, (double)ghs_1m);
+            if (e >= 0.0) s.efficiency_jth_1m = e;
+            e = mining_efficiency_jth((double)pcore_10m, (double)ghs_10m);
+            if (e >= 0.0) s.efficiency_jth_10m = e;
+            e = mining_efficiency_jth((double)pcore_1h, (double)ghs_1h);
+            if (e >= 0.0) s.efficiency_jth_1h = e;
         }
 
         float asic_freq = mining_stats.asic_freq_configured_mhz;
-        if (s.vcore_mv > 0 && s.icore_ma > 0 && asic_freq > 0) {
-            double expected_w = (double)s.vcore_mv / 1000.0 * (double)s.icore_ma / 1000.0;
+        if (s.pcore_mw > 0 && asic_freq > 0) {
             double expected_ghs = 0.0;
             if (mining_get_expected_ghs(asic_freq, &expected_ghs) && expected_ghs > 0) {
-                double expected_th = expected_ghs / 1000.0;
-                s.expected_efficiency_jth = expected_w / expected_th;
+                s.expected_efficiency_jth = mining_efficiency_jth((double)s.pcore_mw, expected_ghs);
             }
         }
 
@@ -1217,11 +1215,11 @@ static bb_err_t power_handler(bb_http_request_t *req)
     else                  bb_http_resp_json_obj_set_null(&obj, "icore_ma");
     if (s.pcore_mw >= 0)  bb_http_resp_json_obj_set_int(&obj, "pcore_mw", (int64_t)s.pcore_mw);
     else                  bb_http_resp_json_obj_set_null(&obj, "pcore_mw");
-    if (s.pcore_mw > 0 && s.asic_hashrate > 0) {
-        bb_http_resp_json_obj_set_num(&obj, "efficiency_jth",
-                                     (s.pcore_mw / 1000.0) / (s.asic_hashrate / 1e12));
-    } else {
-        bb_http_resp_json_obj_set_null(&obj, "efficiency_jth");
+    {
+        // asic_hashrate is H/s; divide by 1e9 to get GH/s for mining_efficiency_jth
+        double eff = mining_efficiency_jth((double)s.pcore_mw, s.asic_hashrate / 1e9);
+        if (eff >= 0.0) bb_http_resp_json_obj_set_num(&obj, "efficiency_jth", eff);
+        else            bb_http_resp_json_obj_set_null(&obj, "efficiency_jth");
     }
     if (s.efficiency_jth_1m >= 0.0)          bb_http_resp_json_obj_set_num(&obj, "efficiency_jth_1m", s.efficiency_jth_1m);
     else                                      bb_http_resp_json_obj_set_null(&obj, "efficiency_jth_1m");

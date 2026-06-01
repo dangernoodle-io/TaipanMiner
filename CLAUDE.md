@@ -147,9 +147,9 @@ TaipanMiner consumes shared infrastructure components from the breadboard librar
 
 **Mining-mode SPA**: Svelte + TypeScript + Vite SPA in `webui/`. Hash-based routing. Tabs: Dashboard, Diagnostics, History, Pool, Settings, System, Update.
 
-**Build**: `cd webui && npm ci && npm run build` generates `webui/dist/index.html` + `assets/index.js` + `assets/index.css` + `favicon.svg` + `logo.svg` (stable filenames — no content hashes, as firmware version is the cache-buster).
+**Build**: `cd webui && npm ci && npm run build` generates `webui/miner/dist/` and `webui/prov/dist/` trees. Vite code-splitting may emit auto-numbered shared chunks (index2.js, index3.js…) — the count drifts with the module graph.
 
-**Embed**: `components/webui/CMakeLists.txt` references `webui/dist/*` via `bb_embed_assets`. Firmware build assumes `webui/dist/` exists — run `make webui` before `make build-<env>` if stale.
+**Embed**: `components/webui/CMakeLists.txt` uses `bb_embed_site` (breadboard v0.44.0+) to walk each `dist/` directory at CMake configure time and generate a `bb_http_asset_t[]` table + lazy accessor. Never hand-edit chunk names or asset lists — they are auto-generated. Run `make webui` before `make build-<env>` if stale. Accessors: `webui_miner_assets_get(size_t *n)` / `webui_prov_site_get(size_t *n)` (generated; prov TABLE is `webui_prov_site` not `webui_prov_assets` to avoid symbol collision with the public function); public `webui_prov_assets(size_t *n)` in `routes.c` is a thin wrapper for `main.c`.
 
 **Provisioning-mode**: `prov_form.html` + `prov_save.html` in `components/webui/` (hand-authored, unchanged).
 

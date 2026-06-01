@@ -174,9 +174,11 @@ TaipanMiner consumes shared infrastructure components from the breadboard librar
 
 **To add a web asset to the SPA**: edit the Svelte source. Assets bundled by Vite are included automatically in `dist/`. Only provisioning-mode static files need manual `bb_embed_assets` entries.
 
-**API routes**: unchanged. `/api/stats` (polled every 5s), `/api/info` (device details), `/api/version`, `/api/ota/check`, `/api/ota/push`, `/api/ota/update`, `/api/power` (bitaxe-only — 404 on tdongle), `/api/fan` (bitaxe-only — 404 on tdongle; `duty_pct` reflects actual curve-controlled setting, null until first 5s telemetry tick), `/api/logs/status`, `/api/logs`.
+**API routes**: `/api/stats` (polled every 5s), `/api/info` (device details), update/OTA via `/api/update/{check,status,apply,push,progress,mark}` (push = HTTP-upload OTA; apply = pull-OTA trigger; check/status = manifest poll), `/api/power` (bitaxe-only — 404 on tdongle), `/api/fan` (bitaxe-only — 404 on tdongle; `duty_pct` reflects actual curve-controlled setting, null until first 5s telemetry tick), `/api/logs/status`, `/api/logs`.
 
 **OTA check** suspends mining task to free heap for TLS handshake (~29 KB stack).
+
+**JSON emit — one tested path, no DOM mirror**: GET handlers in `components/webui/src/routes.c` **gather** ESP data into a snapshot struct (under the `mining_stats` mutex), then **delegate** serialization to a host-testable `emit_<x>_json(stream, snapshot)` streaming function in `components/webui/src/routes_json.c`. The handler calls the *same* function the host tests exercise (via the `bb_http_host_capture_*` harness in breadboard), so **runtime == tested**. Derived values (efficiency, etc.) live in pure host-tested helpers (e.g. `mining_efficiency_jth` in `components/mining`) — never recomputed in the handler. Do **not** reintroduce a parallel `build_*_json` DOM builder: that test-only mirror is exactly how the expected-efficiency bug shipped (tests validated a copy the device never ran). `routes_json.c` is the host-test seam (`build_src_filter`) — keep `emit_*` free of ESP-IDF. (`power`/`fan` migrated; `stats`/`pool`/`settings`/`diag`/`knot` follow.)
 
 ## Web flasher
 

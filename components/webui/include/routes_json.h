@@ -18,6 +18,12 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+/* Forward declaration for the streaming JSON object type used by emit_* fns.
+ * Including bb_http.h here would cause a bb_json_t typedef conflict when
+ * both bb_json.h and bb_http.h are in the same translation unit under -std=c99.
+ * Callers that need the full type must include bb_http.h themselves. */
+typedef struct bb_http_json_obj_stream_s bb_http_json_obj_stream_t;
+
 /* Pull in ASIC_CHIP definition when building on target.
  * On host (native env) ASIC_BM13xx is never defined, so ASIC_CHIP
  * stays undefined and all ASIC-gated blocks are excluded. */
@@ -39,6 +45,10 @@ typedef enum {
     SHA_OVERLAP_SAFE,
     SHA_OVERLAP_UNSAFE
 } sha_overlap_state_t;
+
+/* Forward declaration for emit_power_json — avoids pulling in all of mining.h
+ * on host (which would conflict with the sha_overlap_state_t stub above). */
+double mining_efficiency_jth(double power_mw, double hashrate_ghs);
 #endif
 
 #ifdef __cplusplus
@@ -301,7 +311,9 @@ typedef struct {
     double expected_efficiency_jth; /* < 0 → null */
 } power_snapshot_t;
 
-void build_power_json(const power_snapshot_t *s, bb_json_t root);
+/* Emit /api/power fields into an already-opened streaming JSON object.
+ * Caller does obj_begin / obj_end; this function emits fields only. */
+void emit_power_json(bb_http_json_obj_stream_t *obj, const power_snapshot_t *snap);
 
 /* ============================================================================
  * /api/fan  (ASIC_CHIP only)
@@ -323,7 +335,9 @@ typedef struct {
     const char *pid_input_src;  /* "die" or "vr" or empty; never null */
 } fan_snapshot_t;
 
-void build_fan_json(const fan_snapshot_t *s, bb_json_t root);
+/* Emit /api/fan fields into an already-opened streaming JSON object.
+ * Caller does obj_begin / obj_end; this function emits fields only. */
+void emit_fan_json(bb_http_json_obj_stream_t *obj, const fan_snapshot_t *snap);
 #endif /* ASIC_CHIP */
 
 /* ============================================================================

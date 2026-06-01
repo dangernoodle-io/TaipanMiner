@@ -7,6 +7,7 @@
 
 #include "routes_json.h"
 #include "bb_json.h"
+#include "bb_http.h"
 #include "bb_core.h"
 #include "work.h"       /* bytes_to_hex */
 #include <stdio.h>
@@ -386,99 +387,68 @@ void build_settings_json(const settings_snapshot_t *s, bb_json_t root)
  * ========================================================================= */
 
 #ifdef ASIC_CHIP
-void build_power_json(const power_snapshot_t *s, bb_json_t root)
+void emit_power_json(bb_http_json_obj_stream_t *obj, const power_snapshot_t *snap)
 {
-    if (s->vcore_mv >= 0) {
-        bb_json_obj_set_number(root, "vcore_mv", s->vcore_mv);
-    } else {
-        bb_json_obj_set_null(root, "vcore_mv");
+    if (snap->vcore_mv >= 0)  bb_http_resp_json_obj_set_int(obj, "vcore_mv", (int64_t)snap->vcore_mv);
+    else                      bb_http_resp_json_obj_set_null(obj, "vcore_mv");
+    if (snap->icore_ma >= 0)  bb_http_resp_json_obj_set_int(obj, "icore_ma", (int64_t)snap->icore_ma);
+    else                      bb_http_resp_json_obj_set_null(obj, "icore_ma");
+    if (snap->pcore_mw >= 0)  bb_http_resp_json_obj_set_int(obj, "pcore_mw", (int64_t)snap->pcore_mw);
+    else                      bb_http_resp_json_obj_set_null(obj, "pcore_mw");
+    {
+        /* asic_hashrate is H/s; divide by 1e9 to get GH/s for mining_efficiency_jth */
+        double eff = mining_efficiency_jth((double)snap->pcore_mw, snap->asic_hashrate / 1e9);
+        if (eff >= 0.0) bb_http_resp_json_obj_set_num(obj, "efficiency_jth", eff);
+        else            bb_http_resp_json_obj_set_null(obj, "efficiency_jth");
     }
-    if (s->icore_ma >= 0) {
-        bb_json_obj_set_number(root, "icore_ma", s->icore_ma);
+    if (snap->efficiency_jth_1m >= 0.0)         bb_http_resp_json_obj_set_num(obj, "efficiency_jth_1m", snap->efficiency_jth_1m);
+    else                                         bb_http_resp_json_obj_set_null(obj, "efficiency_jth_1m");
+    if (snap->efficiency_jth_10m >= 0.0)        bb_http_resp_json_obj_set_num(obj, "efficiency_jth_10m", snap->efficiency_jth_10m);
+    else                                         bb_http_resp_json_obj_set_null(obj, "efficiency_jth_10m");
+    if (snap->efficiency_jth_1h >= 0.0)         bb_http_resp_json_obj_set_num(obj, "efficiency_jth_1h", snap->efficiency_jth_1h);
+    else                                         bb_http_resp_json_obj_set_null(obj, "efficiency_jth_1h");
+    if (snap->expected_efficiency_jth >= 0.0)   bb_http_resp_json_obj_set_num(obj, "expected_efficiency_jth", snap->expected_efficiency_jth);
+    else                                         bb_http_resp_json_obj_set_null(obj, "expected_efficiency_jth");
+    if (snap->vin_mv >= 0) {
+        bb_http_resp_json_obj_set_int(obj, "vin_mv", (int64_t)snap->vin_mv);
+        bool vin_low = (snap->vin_mv < (snap->nominal_vin_mv + 500) * 87 / 100);
+        bb_http_resp_json_obj_set_bool(obj, "vin_low", vin_low);
     } else {
-        bb_json_obj_set_null(root, "icore_ma");
+        bb_http_resp_json_obj_set_null(obj, "vin_mv");
+        bb_http_resp_json_obj_set_null(obj, "vin_low");
     }
-    if (s->pcore_mw >= 0) {
-        bb_json_obj_set_number(root, "pcore_mw", s->pcore_mw);
-    } else {
-        bb_json_obj_set_null(root, "pcore_mw");
-    }
-    if (s->pcore_mw > 0 && s->asic_hashrate > 0) {
-        bb_json_obj_set_number(root, "efficiency_jth",
-                               (s->pcore_mw / 1000.0) / (s->asic_hashrate / 1e12));
-    } else {
-        bb_json_obj_set_null(root, "efficiency_jth");
-    }
-    EMIT_NULLABLE(efficiency_jth_1m, "efficiency_jth_1m");
-    EMIT_NULLABLE(efficiency_jth_10m, "efficiency_jth_10m");
-    EMIT_NULLABLE(efficiency_jth_1h, "efficiency_jth_1h");
-    EMIT_NULLABLE(expected_efficiency_jth, "expected_efficiency_jth");
-    if (s->vin_mv >= 0) {
-        bb_json_obj_set_number(root, "vin_mv", s->vin_mv);
-    } else {
-        bb_json_obj_set_null(root, "vin_mv");
-    }
-    if (s->vin_mv >= 0) {
-        bool vin_low = (s->vin_mv < (s->nominal_vin_mv + 500) * 87 / 100);
-        bb_json_obj_set_bool(root, "vin_low", vin_low);
-    } else {
-        bb_json_obj_set_null(root, "vin_low");
-    }
-    if (s->board_temp_c >= 0.0f) {
-        bb_json_obj_set_number(root, "board_temp_c", (double)s->board_temp_c);
-    } else {
-        bb_json_obj_set_null(root, "board_temp_c");
-    }
-    if (s->vr_temp_c >= 0.0f) {
-        bb_json_obj_set_number(root, "vr_temp_c", (double)s->vr_temp_c);
-    } else {
-        bb_json_obj_set_null(root, "vr_temp_c");
-    }
+    if (snap->board_temp_c >= 0.0f) bb_http_resp_json_obj_set_num(obj, "board_temp_c", (double)snap->board_temp_c);
+    else                            bb_http_resp_json_obj_set_null(obj, "board_temp_c");
+    if (snap->vr_temp_c >= 0.0f)   bb_http_resp_json_obj_set_num(obj, "vr_temp_c", (double)snap->vr_temp_c);
+    else                            bb_http_resp_json_obj_set_null(obj, "vr_temp_c");
 }
 
 /* ============================================================================
  * /api/fan  (ASIC_CHIP only)
  * ========================================================================= */
 
-void build_fan_json(const fan_snapshot_t *s, bb_json_t root)
+void emit_fan_json(bb_http_json_obj_stream_t *obj, const fan_snapshot_t *snap)
 {
-    if (s->fan_rpm >= 0) {
-        bb_json_obj_set_number(root, "rpm", s->fan_rpm);
-    } else {
-        bb_json_obj_set_null(root, "rpm");
-    }
-    if (s->fan_duty_pct >= 0) {
-        bb_json_obj_set_number(root, "duty_pct", s->fan_duty_pct);
-    } else {
-        bb_json_obj_set_null(root, "duty_pct");
-    }
-    /* TA-315/TA-352: autofan config */
-    bb_json_obj_set_bool(root, "autofan", s->autofan);
-    if (s->die_target_c >= 0) {
-        bb_json_obj_set_number(root, "die_target_c", s->die_target_c);
-    } else {
-        bb_json_obj_set_null(root, "die_target_c");
-    }
-    if (s->vr_target_c >= 0) {
-        bb_json_obj_set_number(root, "vr_target_c", s->vr_target_c);
-    } else {
-        bb_json_obj_set_null(root, "vr_target_c");
-    }
-    if (s->manual_pct >= 0) {
-        bb_json_obj_set_number(root, "manual_pct", s->manual_pct);
-    } else {
-        bb_json_obj_set_null(root, "manual_pct");
-    }
-    if (s->min_pct >= 0) {
-        bb_json_obj_set_number(root, "min_pct", s->min_pct);
-    } else {
-        bb_json_obj_set_null(root, "min_pct");
-    }
-    /* TA-141: thermal aggregation telemetry */
-    EMIT_NULLABLE(die_ema_c, "die_ema_c");
-    EMIT_NULLABLE(vr_ema_c, "vr_ema_c");
-    EMIT_NULLABLE(pid_input_c, "pid_input_c");
-    bb_json_obj_set_string(root, "pid_input_src", s->pid_input_src);
+    if (snap->fan_rpm >= 0)      bb_http_resp_json_obj_set_int(obj, "rpm",       (int64_t)snap->fan_rpm);
+    else                         bb_http_resp_json_obj_set_null(obj, "rpm");
+    if (snap->fan_duty_pct >= 0) bb_http_resp_json_obj_set_int(obj, "duty_pct",  (int64_t)snap->fan_duty_pct);
+    else                         bb_http_resp_json_obj_set_null(obj, "duty_pct");
+    bb_http_resp_json_obj_set_bool(obj, "autofan", snap->autofan);
+    if (snap->die_target_c >= 0) bb_http_resp_json_obj_set_int(obj, "die_target_c", (int64_t)snap->die_target_c);
+    else                         bb_http_resp_json_obj_set_null(obj, "die_target_c");
+    if (snap->vr_target_c >= 0)  bb_http_resp_json_obj_set_int(obj, "vr_target_c",  (int64_t)snap->vr_target_c);
+    else                         bb_http_resp_json_obj_set_null(obj, "vr_target_c");
+    if (snap->manual_pct >= 0)   bb_http_resp_json_obj_set_int(obj, "manual_pct",   (int64_t)snap->manual_pct);
+    else                         bb_http_resp_json_obj_set_null(obj, "manual_pct");
+    if (snap->min_pct >= 0)      bb_http_resp_json_obj_set_int(obj, "min_pct",       (int64_t)snap->min_pct);
+    else                         bb_http_resp_json_obj_set_null(obj, "min_pct");
+    if (snap->die_ema_c >= 0.0f) bb_http_resp_json_obj_set_num(obj, "die_ema_c", (double)snap->die_ema_c);
+    else                         bb_http_resp_json_obj_set_null(obj, "die_ema_c");
+    if (snap->vr_ema_c >= 0.0f)  bb_http_resp_json_obj_set_num(obj, "vr_ema_c",  (double)snap->vr_ema_c);
+    else                         bb_http_resp_json_obj_set_null(obj, "vr_ema_c");
+    if (snap->pid_input_c >= 0.0f) bb_http_resp_json_obj_set_num(obj, "pid_input_c", (double)snap->pid_input_c);
+    else                           bb_http_resp_json_obj_set_null(obj, "pid_input_c");
+    bb_http_resp_json_obj_set_str(obj, "pid_input_src", snap->pid_input_src);
 }
 #endif /* ASIC_CHIP */
 

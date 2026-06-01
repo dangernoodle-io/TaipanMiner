@@ -1,21 +1,27 @@
 /*
- * test_routes_json_asic.c — golden tests for ASIC-gated JSON builders (TA-292).
+ * test_routes_json_asic.c — golden tests for ASIC-gated JSON emitters (TA-292).
  *
- * build_power_json, build_fan_json, and the ASIC-gated branches of
+ * emit_power_json, emit_fan_json, and the ASIC-gated branches of
  * build_stats_json are only compiled when ASIC_CHIP is defined.  The native
  * env now defines ASIC_CHIP (see [env:native] build_flags in platformio.ini),
- * so all three builders are reachable on the host.
+ * so all emitters are reachable on the host.
+ *
+ * Power/fan tests use the bb_http capture harness: emit_* functions write into
+ * a streaming JSON object, and the captured body is verified with strstr.
+ * This validates the same code path that runs in the production handler.
  */
 #ifdef ASIC_CHIP
 #include "unity.h"
 #include "routes_json.h"
 #include "bb_json.h"
+#include "bb_http.h"
+#include "bb_http_host.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
 
 /* ============================================================================
- * Helpers
+ * Helpers — DOM builder (still used by build_stats_json tests)
  * ========================================================================= */
 
 static char *serialize_and_free(bb_json_t root)
@@ -26,7 +32,57 @@ static char *serialize_and_free(bb_json_t root)
 }
 
 /* ============================================================================
- * /api/power — build_power_json
+ * Helpers — streaming capture (used by emit_power_json / emit_fan_json tests)
+ * ========================================================================= */
+
+/* Portable strdup — POSIX strdup is not declared under -std=c99 (glibc hides it
+ * without _POSIX_C_SOURCE), and an implicit decl truncates the 64-bit pointer
+ * return on LP64. */
+static char *dupstr(const char *s)
+{
+    if (!s) return NULL;
+    size_t n = strlen(s) + 1;
+    char *p = malloc(n);
+    if (p) memcpy(p, s, n);
+    return p;
+}
+
+/* Capture emit_power_json output into a heap string.
+ * Caller must free() the returned pointer. */
+static char *capture_power(const power_snapshot_t *snap)
+{
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    emit_power_json(&obj, snap);
+    bb_http_resp_json_obj_end(&obj);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+    char *copy = dupstr(cap.body);
+    bb_http_host_capture_free(&cap);
+    return copy;
+}
+
+/* Capture emit_fan_json output into a heap string.
+ * Caller must free() the returned pointer. */
+static char *capture_fan(const fan_snapshot_t *snap)
+{
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    emit_fan_json(&obj, snap);
+    bb_http_resp_json_obj_end(&obj);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+    char *copy = dupstr(cap.body);
+    bb_http_host_capture_free(&cap);
+    return copy;
+}
+
+/* ============================================================================
+ * /api/power — emit_power_json
  * ========================================================================= */
 
 void test_power_all_sensors_populated(void)
@@ -42,11 +98,10 @@ void test_power_all_sensors_populated(void)
     s.vr_temp_c     = 60.0f;
     s.nominal_vin_mv = 5000;
     /* vin_low: vin_mv=5000, threshold=(5000+500)*87/100=4785 → 5000>=4785 → false
-     * efficiency_jth: (18000/1000.0) / (485e9/1e12) = 18.0 / 0.485 ≈ 37.11340... */
+     * efficiency_jth: mining_efficiency_jth(18000.0, 485e9/1e9) = 18000/485 ≈ 37.1134 */
 
-    bb_json_t root = bb_json_obj_new();
-    build_power_json(&s, root);
-    char *json = serialize_and_free(root);
+    char *json = capture_power(&s);
+    TEST_ASSERT_NOT_NULL(json);
 
     /* Verify key fields are present and vcore/icore/pcore/vin are numbers, not null */
     TEST_ASSERT_NOT_NULL(strstr(json, "\"vcore_mv\":1200"));
@@ -60,7 +115,7 @@ void test_power_all_sensors_populated(void)
     TEST_ASSERT_NULL(strstr(json, "\"efficiency_jth\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"efficiency_jth\":"));
 
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_power_all_sensors_null(void)
@@ -80,9 +135,8 @@ void test_power_all_sensors_null(void)
     s.efficiency_jth_1h = -1.0;
     s.expected_efficiency_jth = -1.0;
 
-    bb_json_t root = bb_json_obj_new();
-    build_power_json(&s, root);
-    char *json = serialize_and_free(root);
+    char *json = capture_power(&s);
+    TEST_ASSERT_NOT_NULL(json);
 
     TEST_ASSERT_EQUAL_STRING(
         "{\"vcore_mv\":null,\"icore_ma\":null,\"pcore_mw\":null,"
@@ -90,7 +144,7 @@ void test_power_all_sensors_null(void)
         "\"efficiency_jth_1h\":null,\"expected_efficiency_jth\":null,\"vin_mv\":null,\"vin_low\":null,"
         "\"board_temp_c\":null,\"vr_temp_c\":null}",
         json);
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_power_efficiency_null_when_hashrate_zero(void)
@@ -106,12 +160,10 @@ void test_power_efficiency_null_when_hashrate_zero(void)
     s.vr_temp_c     = 60.0f;
     s.nominal_vin_mv = 5000;
 
-    bb_json_t root = bb_json_obj_new();
-    build_power_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_power(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"efficiency_jth\":null"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_power_efficiency_null_when_pcore_zero(void)
@@ -127,12 +179,10 @@ void test_power_efficiency_null_when_pcore_zero(void)
     s.vr_temp_c     = 60.0f;
     s.nominal_vin_mv = 5000;
 
-    bb_json_t root = bb_json_obj_new();
-    build_power_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_power(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"efficiency_jth\":null"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_power_vin_low_true(void)
@@ -148,12 +198,10 @@ void test_power_vin_low_true(void)
     s.vr_temp_c     = -1.0f;
     s.nominal_vin_mv = 5000;
 
-    bb_json_t root = bb_json_obj_new();
-    build_power_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_power(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"vin_low\":true"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_power_vin_low_false_above_threshold(void)
@@ -169,12 +217,10 @@ void test_power_vin_low_false_above_threshold(void)
     s.vr_temp_c     = -1.0f;
     s.nominal_vin_mv = 5000;
 
-    bb_json_t root = bb_json_obj_new();
-    build_power_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_power(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"vin_low\":false"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_power_vin_low_false_at_threshold(void)
@@ -190,12 +236,10 @@ void test_power_vin_low_false_at_threshold(void)
     s.vr_temp_c     = -1.0f;
     s.nominal_vin_mv = 5000;
 
-    bb_json_t root = bb_json_obj_new();
-    build_power_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_power(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"vin_low\":false"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_power_vcore_null_others_populated(void)
@@ -211,14 +255,12 @@ void test_power_vcore_null_others_populated(void)
     s.vr_temp_c     = 60.0f;
     s.nominal_vin_mv = 5000;
 
-    bb_json_t root = bb_json_obj_new();
-    build_power_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_power(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"vcore_mv\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"icore_ma\":15000"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"pcore_mw\":18000"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_power_icore_null(void)
@@ -234,13 +276,11 @@ void test_power_icore_null(void)
     s.vr_temp_c     = 60.0f;
     s.nominal_vin_mv = 5000;
 
-    bb_json_t root = bb_json_obj_new();
-    build_power_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_power(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"icore_ma\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"vcore_mv\":1200"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_power_board_temp_null(void)
@@ -256,13 +296,11 @@ void test_power_board_temp_null(void)
     s.vr_temp_c     = 60.0f;
     s.nominal_vin_mv = 5000;
 
-    bb_json_t root = bb_json_obj_new();
-    build_power_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_power(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"board_temp_c\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"vr_temp_c\":60"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_power_vr_temp_null(void)
@@ -278,13 +316,11 @@ void test_power_vr_temp_null(void)
     s.vr_temp_c     = -1.0f;
     s.nominal_vin_mv = 5000;
 
-    bb_json_t root = bb_json_obj_new();
-    build_power_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_power(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"vr_temp_c\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"board_temp_c\":55"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_power_rolling_efficiency_populated(void)
@@ -299,20 +335,18 @@ void test_power_rolling_efficiency_populated(void)
     s.board_temp_c  = 55.0f;
     s.vr_temp_c     = 60.0f;
     s.nominal_vin_mv = 5000;
-    s.efficiency_jth_1m = 18.5;      /* mW per GH/s */
+    s.efficiency_jth_1m = 18.5;
     s.efficiency_jth_10m = 18.4;
     s.efficiency_jth_1h = 18.2;
     s.expected_efficiency_jth = 16.8;
 
-    bb_json_t root = bb_json_obj_new();
-    build_power_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_power(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"efficiency_jth_1m\":18.5"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"efficiency_jth_10m\":18.4"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"efficiency_jth_1h\":18.2"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"expected_efficiency_jth\":16.8"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_power_rolling_efficiency_null_sentinels(void)
@@ -327,24 +361,22 @@ void test_power_rolling_efficiency_null_sentinels(void)
     s.board_temp_c  = 55.0f;
     s.vr_temp_c     = 60.0f;
     s.nominal_vin_mv = 5000;
-    s.efficiency_jth_1m = -1.0;      /* sentinel */
+    s.efficiency_jth_1m = -1.0;
     s.efficiency_jth_10m = -1.0;
     s.efficiency_jth_1h = -1.0;
     s.expected_efficiency_jth = -1.0;
 
-    bb_json_t root = bb_json_obj_new();
-    build_power_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_power(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"efficiency_jth_1m\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"efficiency_jth_10m\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"efficiency_jth_1h\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"expected_efficiency_jth\":null"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 /* ============================================================================
- * /api/fan — build_fan_json
+ * /api/fan — emit_fan_json
  * ========================================================================= */
 
 // TA-315: fan snapshot now includes autofan config fields.
@@ -356,10 +388,8 @@ void test_fan_both_populated(void)
                          .autofan = true, .die_target_c = 60, .vr_target_c = 75,
                          .manual_pct = 100, .min_pct = 25 };
 
-    bb_json_t root = bb_json_obj_new();
-    build_fan_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_fan(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"rpm\":2400"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"duty_pct\":75"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"autofan\":true"));
@@ -367,7 +397,7 @@ void test_fan_both_populated(void)
     TEST_ASSERT_NOT_NULL(strstr(json, "\"vr_target_c\":75"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"manual_pct\":100"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"min_pct\":25"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_fan_rpm_null(void)
@@ -376,14 +406,12 @@ void test_fan_rpm_null(void)
                          .autofan = false, .die_target_c = 60, .vr_target_c = 75,
                          .manual_pct = 100, .min_pct = 25 };
 
-    bb_json_t root = bb_json_obj_new();
-    build_fan_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_fan(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"rpm\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"duty_pct\":75"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"autofan\":false"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_fan_duty_null(void)
@@ -392,13 +420,11 @@ void test_fan_duty_null(void)
                          .autofan = true, .die_target_c = 60, .vr_target_c = 75,
                          .manual_pct = 100, .min_pct = 25 };
 
-    bb_json_t root = bb_json_obj_new();
-    build_fan_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_fan(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"rpm\":2400"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"duty_pct\":null"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_fan_both_null(void)
@@ -407,14 +433,12 @@ void test_fan_both_null(void)
                          .autofan = false, .die_target_c = 60, .vr_target_c = 75,
                          .manual_pct = 100, .min_pct = 25 };
 
-    bb_json_t root = bb_json_obj_new();
-    build_fan_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_fan(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"rpm\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"duty_pct\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"autofan\":false"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_fan_targets_null(void)
@@ -427,13 +451,27 @@ void test_fan_targets_null(void)
                          .die_ema_c = -1.0f, .vr_ema_c = -1.0f,
                          .pid_input_c = -1.0f, .pid_input_src = "die" };
 
-    bb_json_t root = bb_json_obj_new();
-    build_fan_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_fan(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"die_target_c\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"vr_target_c\":null"));
-    bb_json_free_str(json);
+    free(json);
+}
+
+void test_fan_pct_sentinels_null(void)
+{
+    /* manual_pct/min_pct are int-typed; <0 → emit null. */
+    fan_snapshot_t s = { .fan_rpm = 2400, .fan_duty_pct = 75,
+                         .autofan = true, .die_target_c = 60, .vr_target_c = 75,
+                         .manual_pct = -1, .min_pct = -1,
+                         .die_ema_c = 50.0f, .vr_ema_c = 55.0f,
+                         .pid_input_c = 50.0f, .pid_input_src = "die" };
+
+    char *json = capture_fan(&s);
+    TEST_ASSERT_NOT_NULL(json);
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"manual_pct\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"min_pct\":null"));
+    free(json);
 }
 
 void test_fan_thermal_sentinels_null(void)
@@ -445,16 +483,14 @@ void test_fan_thermal_sentinels_null(void)
                          .die_ema_c = -1.0f, .vr_ema_c = -1.0f,
                          .pid_input_c = -1.0f, .pid_input_src = "die" };
 
-    bb_json_t root = bb_json_obj_new();
-    build_fan_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_fan(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"die_ema_c\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"vr_ema_c\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"pid_input_c\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"pid_input_src\":\"die\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"rpm\":2400"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 /* ============================================================================

@@ -159,6 +159,36 @@ void test_knot_table_apply_txt(void) {
     TEST_ASSERT_EQUAL_STRING("mining", peer.state);
 }
 
+void test_knot_table_apply_txt_ui_zero(void) {
+    knot_peer_t peer = {0};
+    strncpy(peer.instance_name, "miner1", sizeof(peer.instance_name) - 1);
+    bb_mdns_txt_t txt[] = {
+        { .key = "ui", .value = "0" },
+    };
+    knot_table_apply_txt(&peer, txt, 1);
+    TEST_ASSERT_FALSE(peer.ui);
+}
+
+void test_knot_table_apply_txt_ui_one(void) {
+    knot_peer_t peer = {0};
+    strncpy(peer.instance_name, "miner1", sizeof(peer.instance_name) - 1);
+    bb_mdns_txt_t txt[] = {
+        { .key = "ui", .value = "1" },
+    };
+    knot_table_apply_txt(&peer, txt, 1);
+    TEST_ASSERT_TRUE(peer.ui);
+}
+
+void test_knot_table_apply_txt_ui_absent_defaults_true(void) {
+    knot_peer_t peer = {0};
+    strncpy(peer.instance_name, "miner1", sizeof(peer.instance_name) - 1);
+    bb_mdns_txt_t txt[] = {
+        { .key = "worker", .value = "example.com/worker" },
+    };
+    knot_table_apply_txt(&peer, txt, 1);
+    TEST_ASSERT_TRUE(peer.ui);
+}
+
 void test_knot_table_null_guards(void) {
     knot_peer_t table[2] = {0};
     knot_peer_t peer = make_peer("miner1", "miner1.local", "192.168.1.1");

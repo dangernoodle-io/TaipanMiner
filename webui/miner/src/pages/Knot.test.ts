@@ -15,7 +15,7 @@ const mockFetchKnot = fetchKnot as ReturnType<typeof vi.fn>
 const basePeer = {
   instance: 'peer1', hostname: 'dongle1', ip: '192.168.1.100',
   worker: 'worker1', board: 'tdongle-s3', version: 'v1.0.0',
-  state: 'mining', seen_ago_s: 5
+  state: 'mining', seen_ago_s: 5, ui: true
 }
 
 describe('Knot', () => {
@@ -261,6 +261,28 @@ describe('Knot', () => {
       const legend = container.querySelector('.legend')
       expect(legend?.textContent).toContain('Status')
     })
+  })
+
+  it('peer with ui:false renders .nolink span, no <a> for that name', async () => {
+    mockFetchKnot.mockResolvedValueOnce([{ ...basePeer, ui: false, hostname: 'noui-miner' }])
+    const { container } = render(Knot)
+    await vi.waitFor(() => expect(container.querySelector('.name.nolink')).toBeTruthy())
+    // .nolink span must be present
+    const nolink = container.querySelector('.name.nolink')
+    expect(nolink?.tagName.toLowerCase()).toBe('span')
+    expect(nolink?.textContent).toContain('noui-miner')
+    // no <a> element should carry the hostname text
+    const links = container.querySelectorAll('a.name')
+    expect(links.length).toBe(0)
+  })
+
+  it('peer with ui:true renders <a> link for name', async () => {
+    mockFetchKnot.mockResolvedValueOnce([{ ...basePeer, ui: true, hostname: 'ui-miner' }])
+    const { container } = render(Knot)
+    await vi.waitFor(() => expect(container.querySelector('a.name')).toBeTruthy())
+    const link = container.querySelector('a.name')
+    expect(link?.textContent).toContain('ui-miner')
+    expect(container.querySelector('.name.nolink')).toBeNull()
   })
 
   it('filters out the current host', async () => {

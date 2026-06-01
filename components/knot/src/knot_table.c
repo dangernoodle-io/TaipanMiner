@@ -117,6 +117,10 @@ void knot_table_apply_txt(knot_peer_t *peer, const bb_mdns_txt_t *txt, size_t tx
         return;
     }
 
+    /* Back-compat default: older firmware omits the "ui" key entirely.
+     * Set ui=true before the loop so an absent key leaves it enabled. */
+    peer->ui = true;
+
     for (size_t i = 0; i < txt_count; i++) {
         if (!txt[i].key || !txt[i].value) {
             continue;
@@ -134,6 +138,8 @@ void knot_table_apply_txt(knot_peer_t *peer, const bb_mdns_txt_t *txt, size_t tx
         } else if (strcmp(txt[i].key, "state") == 0) {
             strncpy(peer->state, txt[i].value, sizeof(peer->state) - 1);
             peer->state[sizeof(peer->state) - 1] = '\0';
+        } else if (strcmp(txt[i].key, "ui") == 0) {
+            peer->ui = (strcmp(txt[i].value, "0") != 0);
         }
     }
 }

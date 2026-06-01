@@ -207,6 +207,7 @@ export interface KnotPeer {
   version: string
   state: string
   seen_ago_s: number
+  ui: boolean
 }
 
 // In dev, Vite proxies /api/* to VITE_MINER_URL (configured in vite.config.ts).

@@ -147,6 +147,11 @@ void knot_set_self(const char *instance_name,
     if (board)   strncpy(self.board,   board,   sizeof(self.board) - 1);
     if (version) strncpy(self.version, version, sizeof(self.version) - 1);
     if (state)   strncpy(self.state,   state,   sizeof(self.state) - 1);
+#if CONFIG_WEBUI_MINING_UI
+    self.ui = true;
+#else
+    self.ui = false;
+#endif
     self.last_seen_us = (int64_t)bb_timer_now_us();
 
     if (xSemaphoreTake(g_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {

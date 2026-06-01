@@ -17,6 +17,7 @@ typedef struct {
     char     board[24];
     char     version[24];
     char     state[16];
+    bool     ui;
     int64_t  last_seen_us;
 } knot_peer_t;
 

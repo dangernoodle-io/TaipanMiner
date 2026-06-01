@@ -3,6 +3,7 @@
   import Hero from '../components/Hero.svelte'
   import ChipsCard from '../components/ChipsCard.svelte'
   import StatTile from '../components/StatTile.svelte'
+  import EfficiencyTile from '../components/EfficiencyTile.svelte'
   import PoolStrip from '../components/PoolStrip.svelte'
 
   function openFanEdit() { fanEditOpen.set(true) }
@@ -12,13 +13,12 @@
     ? $stats.asic_total_ghs / chips.length / 4
     : undefined
   $: pcoreW = $power?.pcore_mw != null ? $power.pcore_mw / 1000 : null
-  $: expectedGhs = $stats?.expected_ghs ?? null
 </script>
 
 <div class="sticky-pool"><PoolStrip /></div>
 
 <div class="grid">
-  <section class="card full">
+  <section class="card full hero-card">
     <Hero />
   </section>
 
@@ -29,53 +29,61 @@
   {/if}
 
   {#if $hasAsic}
-    <section class="card">
-      <h3>Heat</h3>
-      <div class="tile-grid">
-        <StatTile label="ASIC"  value={$stats?.asic_temp_c ?? null}     unit="°C" warn={70} danger={80} />
-        <StatTile label="Board" value={$power?.board_temp_c ?? null}    unit="°C" warn={60} danger={75} />
-        <StatTile label="VR"    value={$power?.vr_temp_c ?? null}       unit="°C" warn={90} danger={105} />
-      </div>
-    </section>
-
-    <section class="card clickable" onclick={openFanEdit} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') openFanEdit() }} role="button" tabindex="0" title="Edit fan settings">
-      <h3>
-        Fan
-        {#if $fan?.autofan && $fan?.pid_input_src}
-          <span class="mode-badge" data-mode="auto" title="Autofan PID input source">PID: {$fan.pid_input_src === 'die' ? 'ASIC' : $fan.pid_input_src.toUpperCase()}</span>
-        {/if}
-        <span class="edit-hint">edit</span>
-      </h3>
-      <div class="tile-grid">
-        <StatTile label="Fan Speed" value={$fan?.duty_pct ?? null} unit="%"   />
-        <StatTile label="RPM"       value={$fan?.rpm ?? null}      unit="rpm" />
-      </div>
-      {#if $fan?.duty_pct != null}
-        <div class="duty-bar"><div class="duty-fill" style="width: {$fan.duty_pct}%"></div></div>
-      {/if}
-    </section>
-
-    <section class="card">
-      <h3>Power</h3>
-      <div class="tile-grid">
-        <StatTile label="Power Draw"    value={pcoreW}                                                           unit="W"    warn={25} danger={35} />
-        <StatTile label="Efficiency"    value={$power?.efficiency_jth ?? null}                                   unit="J/TH" />
-        <StatTile label="ASIC Voltage"  value={$power?.vcore_mv != null ? $power.vcore_mv / 1000 : null}         unit="V"    />
-        <StatTile label="ASIC Current"  value={$power?.icore_ma != null ? $power.icore_ma / 1000 : null}         unit="A"    />
-        <StatTile label="Input Voltage" value={$power?.vin_mv != null ? $power.vin_mv / 1000 : null}             unit="V"    flag={$power?.vin_low ? 'warn' : null} />
-      </div>
-    </section>
-
-    <section class="card">
+    <section class="card full">
       <h3>Performance</h3>
-      <div class="tile-grid">
-        <StatTile label="Freq cfg"  value={$stats?.asic_freq_configured_mhz ?? null} unit="MHz" />
-        <StatTile label="Freq eff"  value={$stats?.asic_freq_effective_mhz ?? null}  unit="MHz" />
-        <StatTile label="Expected"  value={expectedGhs}                              unit="GH/s"/>
-        <StatTile label="Cores"     value={$stats?.asic_small_cores ?? null}         />
-        <StatTile label="Chips"     value={$stats?.asic_count ?? null}               />
+      <div class="tile-grid wide">
+        <StatTile label="Input Voltage" value={$power?.vin_mv != null ? $power.vin_mv / 1000 : null}             unit="V"    decimals={2} flag={$power?.vin_low ? 'warn' : null} />
+        <StatTile label="Power Draw"    value={pcoreW}                                                           unit="W"    warn={25} danger={35} />
+        <StatTile label="ASIC Voltage"  value={$power?.vcore_mv != null ? $power.vcore_mv / 1000 : null}         unit="V"    decimals={2} />
+        <StatTile label="ASIC Current"  value={$power?.icore_ma != null ? $power.icore_ma / 1000 : null}         unit="A"    />
+        <EfficiencyTile
+          now={$power?.efficiency_jth ?? null}
+          m1={$power?.efficiency_jth_1m ?? null}
+          m10={$power?.efficiency_jth_10m ?? null}
+          h1={$power?.efficiency_jth_1h ?? null}
+          expected={$power?.expected_efficiency_jth ?? null}
+        />
       </div>
     </section>
+
+    <div class="full split-row">
+      <section class="card">
+        <h3>Tuning</h3>
+        <div class="tile-grid tuning-grid">
+          <StatTile label="Freq Configured"  value={$stats?.asic_freq_configured_mhz ?? null}                 unit="MHz" />
+          <StatTile label="Freq Effective"   value={$stats?.asic_freq_effective_mhz ?? null}                  unit="MHz" />
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>Cooling</h3>
+        <div class="tile-grid">
+          <StatTile label="Board"     value={$power?.board_temp_c ?? null} unit="°C"  warn={60} danger={75} />
+          <StatTile label="ASIC"      value={$stats?.asic_temp_c ?? null}  unit="°C"  warn={70} danger={80} />
+          <StatTile label="VR"        value={$power?.vr_temp_c ?? null}    unit="°C"  warn={90} danger={105} />
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>
+          Fan
+          {#if $fan?.autofan && $fan?.pid_input_src}
+            <span class="mode-badge" data-mode="auto" title="Autofan PID input source">PID: {$fan.pid_input_src === 'die' ? 'ASIC' : $fan.pid_input_src.toUpperCase()}</span>
+          {/if}
+          <button class="header-edit" on:click={openFanEdit} title="Edit fan settings">edit</button>
+        </h3>
+        <div class="tile-grid">
+          <StatTile label="Fan Speed" value={$fan?.duty_pct ?? null}       unit="%"   progress={$fan?.duty_pct ?? null} />
+          <StatTile label="RPM"       value={$fan?.rpm ?? null}            unit="rpm" />
+          <StatTile label="Target"
+                    value={$fan?.autofan
+                            ? ($fan?.pid_input_src === 'vr' ? $fan?.vr_target_c : $fan?.die_target_c) ?? null
+                            : 'manual'}
+                    unit={$fan?.autofan ? '°C' : ''} />
+        </div>
+      </section>
+    </div>
+
   {/if}
 
 </div>
@@ -95,7 +103,19 @@
     margin-bottom: 0;
   }
 
-  .card.full { padding: 0; }
+  .card.hero-card { padding: 0; }
+
+  .split-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 14px;
+  }
+  @media (max-width: 1100px) {
+    .split-row { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 720px) {
+    .split-row { grid-template-columns: 1fr; }
+  }
 
   /* card h3 typography lives in ui-kit utilities.css; only the bottom gap
      before .tile-grid is page-specific. */
@@ -108,40 +128,37 @@
     gap: 14px 18px;
   }
 
+  .tile-grid.wide {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    align-items: start;
+    padding-top: 22px;
+  }
+
+  .tile-grid.tuning-grid {
+    grid-template-columns: repeat(2, minmax(100px, 160px));
+    justify-content: center;
+  }
+
   @media (max-width: 720px) {
     .tile-grid {
       grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
     }
   }
 
-  .duty-bar {
-    height: 3px;
-    background: var(--border);
-    border-radius: 2px;
-    overflow: hidden;
-    margin-top: 12px;
-  }
-
-  .duty-fill {
-    height: 100%;
-    background: var(--accent);
-    transition: width 0.5s ease;
-  }
-
-  .clickable { cursor: pointer; transition: border-color 0.15s ease; }
-  .clickable:hover { border-color: var(--accent); }
-  .clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-  .edit-hint {
+  .header-edit {
     float: right;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: var(--muted);
-    opacity: 0;
-    transition: opacity 0.15s ease;
+    padding: 2px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s ease;
   }
-  .clickable:hover .edit-hint, .clickable:focus-visible .edit-hint { opacity: 1; }
+  .header-edit:hover { color: var(--accent); border-color: var(--accent); }
 
   /* mode-badge styles live in ui-kit/utilities.css; only positioning here. */
   h3 :global(.mode-badge) {

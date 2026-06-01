@@ -110,7 +110,7 @@ describe('App', () => {
   })
 
   it('shows vin_low warning', () => {
-    power.set({ vcore_mv: 1100, icore_ma: 5000, pcore_mw: 25000, efficiency_jth: null, vin_mv: 11000, vin_low: true, board_temp_c: 45, vr_temp_c: 60 })
+    power.set({ vcore_mv: 1100, icore_ma: 5000, pcore_mw: 25000, efficiency_jth: null, efficiency_jth_1m: null, efficiency_jth_10m: null, efficiency_jth_1h: null, expected_efficiency_jth: null, vin_mv: 11000, vin_low: true, board_temp_c: 45, vr_temp_c: 60 })
     const result = render(App)
     expect(result.component).toBeDefined()
   })

@@ -149,6 +149,10 @@ export interface Power {
   icore_ma: number | null
   pcore_mw: number | null
   efficiency_jth: number | null
+  efficiency_jth_1m: number | null
+  efficiency_jth_10m: number | null
+  efficiency_jth_1h: number | null
+  expected_efficiency_jth: number | null
   vin_mv: number | null
   vin_low: boolean | null
   board_temp_c: number | null

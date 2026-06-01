@@ -8,6 +8,7 @@ vi.mock('../lib/api', () => ({
 
 import Knot from './Knot.svelte'
 import { fetchKnot } from '../lib/api'
+import { info } from '../lib/stores'
 
 const mockFetchKnot = fetchKnot as ReturnType<typeof vi.fn>
 
@@ -20,15 +21,17 @@ const basePeer = {
 describe('Knot', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    info.set(null)  // no "current host" by default — nothing filtered
+    // Per-peer stat fetches go to peer IPs directly — stub global fetch so the
+    // tests stay offline/deterministic (peers render as "unreachable").
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('no network'))))
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('renders without crashing', () => {
-    mockFetchKnot.mockResolvedValueOnce([])
-    const result = render(Knot)
-    expect(result.component).toBeDefined()
-  })
-
-  it('renders without crashing on mount', async () => {
     mockFetchKnot.mockResolvedValueOnce([])
     const result = render(Knot)
     expect(result.component).toBeDefined()
@@ -48,8 +51,8 @@ describe('Knot', () => {
     mockFetchKnot.mockResolvedValueOnce(peers)
     const { container } = render(Knot)
     await vi.waitFor(() => {
-      const rows = container.querySelectorAll('tbody tr')
-      expect(rows.length).toBe(2)
+      const cards = container.querySelectorAll('.card')
+      expect(cards.length).toBe(2)
     })
   })
 
@@ -65,11 +68,17 @@ describe('Knot', () => {
     await vi.waitFor(() => expect(container.querySelector('.error')).toBeTruthy())
   })
 
-  it('renders peer table with data', async () => {
+  it('renders peer cards with data', async () => {
     mockFetchKnot.mockResolvedValueOnce([{ ...basePeer }])
     const { container } = render(Knot)
-    await vi.waitFor(() => expect(mockFetchKnot).toHaveBeenCalled())
-    await vi.waitFor(() => expect(container.querySelector('table')).toBeTruthy())
+    await vi.waitFor(() => expect(container.querySelector('.cards')).toBeTruthy())
+    expect(container.querySelector('.card')).toBeTruthy()
+  })
+
+  it('shows the peer IP on the card', async () => {
+    mockFetchKnot.mockResolvedValueOnce([{ ...basePeer, ip: '10.0.0.42' }])
+    const { container } = render(Knot)
+    await vi.waitFor(() => expect(container.textContent).toContain('10.0.0.42'))
   })
 
   it('shows updated timestamp after load', async () => {
@@ -115,6 +124,12 @@ describe('Knot', () => {
     await vi.waitFor(() => expect(container.querySelector('.state-neutral')).toBeTruthy())
   })
 
+  it('shows unknown status dot when state empty', async () => {
+    mockFetchKnot.mockResolvedValueOnce([{ ...basePeer, state: '' }])
+    const { container } = render(Knot)
+    await vi.waitFor(() => expect(container.querySelector('.state-unknown')).toBeTruthy())
+  })
+
   it('appends .local to hostname without it', async () => {
     mockFetchKnot.mockResolvedValueOnce([{ ...basePeer, hostname: 'dongle1' }])
     const { container } = render(Knot)
@@ -133,64 +148,43 @@ describe('Knot', () => {
     await vi.waitFor(() => expect(container.textContent).toContain('dongle1'))
   })
 
-  it('classifies tdongle-s3 board', async () => {
+  it('renders a board dot tagged with the board name', async () => {
     mockFetchKnot.mockResolvedValueOnce([{ ...basePeer, board: 'tdongle-s3' }])
     const { container } = render(Knot)
-    await vi.waitFor(() => expect(container.querySelector('.board-tdongle-s3')).toBeTruthy())
+    await vi.waitFor(() => expect(container.querySelector('.board-dot[title="tdongle-s3"]')).toBeTruthy())
   })
 
-  it('classifies bitaxe-601 board', async () => {
-    mockFetchKnot.mockResolvedValueOnce([{ ...basePeer, board: 'bitaxe-601' }])
-    const { container } = render(Knot)
-    await vi.waitFor(() => expect(container.querySelector('.board-bitaxe-601')).toBeTruthy())
-  })
-
-  it('classifies bitaxe-403 board', async () => {
-    mockFetchKnot.mockResolvedValueOnce([{ ...basePeer, board: 'bitaxe-403' }])
-    const { container } = render(Knot)
-    await vi.waitFor(() => expect(container.querySelector('.board-bitaxe-403')).toBeTruthy())
-  })
-
-  it('classifies bitaxe-650 board', async () => {
-    mockFetchKnot.mockResolvedValueOnce([{ ...basePeer, board: 'bitaxe-650' }])
-    const { container } = render(Knot)
-    await vi.waitFor(() => expect(container.querySelector('.board-bitaxe-650')).toBeTruthy())
-  })
-
-  it('classifies unknown board as other', async () => {
-    mockFetchKnot.mockResolvedValueOnce([{ ...basePeer, board: 'unknown' }])
-    const { container } = render(Knot)
-    await vi.waitFor(() => expect(container.querySelector('.board-other')).toBeTruthy())
-  })
-
-  it('builds board legend from peers', async () => {
+  it('gives different boards different dot colors', async () => {
     mockFetchKnot.mockResolvedValueOnce([
-      { ...basePeer, board: 'tdongle-s3' },
-      { ...basePeer, instance: 'p2', board: 'bitaxe-601' }
-    ])
-    const { container } = render(Knot)
-    await vi.waitFor(() => expect(container.querySelector('.legend')).toBeTruthy())
-  })
-
-  it('builds status legend from peers', async () => {
-    mockFetchKnot.mockResolvedValueOnce([
-      { ...basePeer, state: 'mining' },
-      { ...basePeer, instance: 'p2', state: 'idle' }
+      { ...basePeer, instance: 'a', hostname: 'a', board: 'tdongle-s3' },
+      { ...basePeer, instance: 'b', hostname: 'b', board: 'bitaxe-650' }
     ])
     const { container } = render(Knot)
     await vi.waitFor(() => {
-      const legend = container.querySelector('.legend')
-      expect(legend?.textContent).toContain('Status')
+      const a = container.querySelector('.board-dot[title="tdongle-s3"]')?.getAttribute('style')
+      const b = container.querySelector('.board-dot[title="bitaxe-650"]')?.getAttribute('style')
+      expect(a).toBeTruthy()
+      expect(b).toBeTruthy()
+      expect(a).not.toBe(b)
     })
   })
 
-  it('shows unknown status when state empty', async () => {
-    mockFetchKnot.mockResolvedValueOnce([{ ...basePeer, state: '' }])
+  it('auto-colors a board not in the curated map', async () => {
+    mockFetchKnot.mockResolvedValueOnce([{ ...basePeer, board: 'future-board-9000' }])
     const { container } = render(Knot)
     await vi.waitFor(() => {
-      const legend = container.querySelector('.legend')
-      expect(legend?.textContent).toContain('unknown')
+      const style = container.querySelector('.board-dot[title="future-board-9000"]')?.getAttribute('style') ?? ''
+      // A color is applied (hsl normalizes to rgb in the DOM) and it's not the
+      // empty-board gray fallback — i.e. the name-hashed path produced a color.
+      expect(style).toMatch(/background:\s*rgb/)
+      expect(style).not.toContain('136, 136, 136')
     })
+  })
+
+  it('handles empty board gracefully', async () => {
+    mockFetchKnot.mockResolvedValueOnce([{ ...basePeer, board: '' }])
+    const { container } = render(Knot)
+    await vi.waitFor(() => expect(container.querySelector('.board-dot')).toBeTruthy())
   })
 
   it('handles empty hostname in link', async () => {
@@ -202,26 +196,7 @@ describe('Knot', () => {
     })
   })
 
-  it('handles empty board gracefully', async () => {
-    mockFetchKnot.mockResolvedValueOnce([{ ...basePeer, board: '' }])
-    const { container } = render(Knot)
-    await vi.waitFor(() => expect(container.querySelector('.board-other')).toBeTruthy())
-  })
-
-  it('no legend when no peers', async () => {
-    mockFetchKnot.mockResolvedValueOnce([])
-    const { container } = render(Knot)
-    await vi.waitFor(() => expect(mockFetchKnot).toHaveBeenCalled())
-    expect(container.querySelector('.legend')).toBeFalsy()
-  })
-
-  it('shows legend when state defaults to unknown', async () => {
-    mockFetchKnot.mockResolvedValueOnce([{ ...basePeer, board: '', state: '' }])
-    const { container } = render(Knot)
-    await vi.waitFor(() => expect(container.querySelector('.legend')).toBeTruthy())
-  })
-
-  it('multiple peers render in table', async () => {
+  it('multiple peers render as cards', async () => {
     const peers = [
       { ...basePeer, instance: 'p1', hostname: 'dongle1' },
       { ...basePeer, instance: 'p2', hostname: 'bitaxe1' },
@@ -229,25 +204,22 @@ describe('Knot', () => {
     ]
     mockFetchKnot.mockResolvedValueOnce(peers)
     const { container } = render(Knot)
-    await vi.waitFor(() => expect(mockFetchKnot).toHaveBeenCalled())
     await vi.waitFor(() => {
-      const rows = container.querySelectorAll('tbody tr')
-      expect(rows.length).toBe(3)
+      const cards = container.querySelectorAll('.card')
+      expect(cards.length).toBe(3)
     })
   })
 
   it('displays peer versions', async () => {
     mockFetchKnot.mockResolvedValueOnce([{ ...basePeer, version: 'v2.5.1' }])
     const { container } = render(Knot)
-    await vi.waitFor(() => expect(mockFetchKnot).toHaveBeenCalled())
     await vi.waitFor(() => expect(container.textContent).toContain('v2.5.1'))
   })
 
   it('renders with null state defaults to unknown', async () => {
     mockFetchKnot.mockResolvedValueOnce([{ ...basePeer, state: null as any }])
     const { container } = render(Knot)
-    await vi.waitFor(() => expect(mockFetchKnot).toHaveBeenCalled())
-    await vi.waitFor(() => expect(container.querySelector('table')).toBeTruthy())
+    await vi.waitFor(() => expect(container.querySelector('.state-unknown')).toBeTruthy())
   })
 
   it('renders header with title', async () => {
@@ -261,7 +233,40 @@ describe('Knot', () => {
     mockFetchKnot.mockResolvedValueOnce([])
     const { container } = render(Knot)
     await vi.waitFor(() => expect(mockFetchKnot).toHaveBeenCalled())
-    const btn = container.querySelector('button')
-    expect(btn).toBeTruthy()
+    expect(container.querySelector('button')).toBeTruthy()
+  })
+
+  it('builds board legend from peers', async () => {
+    mockFetchKnot.mockResolvedValueOnce([
+      { ...basePeer, board: 'tdongle-s3' },
+      { ...basePeer, instance: 'p2', hostname: 'bitaxe1', board: 'bitaxe-601' }
+    ])
+    const { container } = render(Knot)
+    await vi.waitFor(() => expect(container.querySelector('.legend')).toBeTruthy())
+  })
+
+  it('shows status row in legend', async () => {
+    mockFetchKnot.mockResolvedValueOnce([{ ...basePeer, state: 'mining' }])
+    const { container } = render(Knot)
+    await vi.waitFor(() => {
+      const legend = container.querySelector('.legend')
+      expect(legend?.textContent).toContain('Status')
+    })
+  })
+
+  it('filters out the current host', async () => {
+    info.set({ hostname: 'dongle1' } as any)
+    mockFetchKnot.mockResolvedValueOnce([
+      { ...basePeer, instance: 'self', hostname: 'dongle1' },
+      { ...basePeer, instance: 'other', hostname: 'dongle2' }
+    ])
+    const { container } = render(Knot)
+    await vi.waitFor(() => expect(mockFetchKnot).toHaveBeenCalled())
+    await vi.waitFor(() => {
+      const cards = container.querySelectorAll('.card')
+      expect(cards.length).toBe(1)
+    })
+    expect(container.textContent).toContain('dongle2')
+    expect(container.textContent).not.toContain('dongle1')
   })
 })

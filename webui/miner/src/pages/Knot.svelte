@@ -3,7 +3,7 @@
   import { route } from '../lib/router'
   import { info } from '../lib/stores'
   import { fetchKnot, type KnotPeer } from '../lib/api'
-  import { fmtRelative } from '../lib/fmt'
+  import { fmtRelative, fmtHashGhs } from '../lib/fmt'
 
   let peers: KnotPeer[] = []
   let loading = true
@@ -11,19 +11,65 @@
   let lastFetch = 0
   let now = Date.now()
   let nowTimer: ReturnType<typeof setInterval> | null = null
-  let pollTimer: ReturnType<typeof setInterval> | null = null
-  const POLL_INTERVAL_MS = 30000
+  let knotTimer: ReturnType<typeof setInterval> | null = null
+  let statsTimer: ReturnType<typeof setInterval> | null = null
+  const KNOT_INTERVAL_MS = 60000   // mDNS peer list — membership changes rarely
+  const STATS_INTERVAL_MS = 8000   // per-peer live stats — refreshed independently
+
+  // Per-peer live stats, fetched directly from each peer's own API (the local
+  // device must not fan out N blocking requests). Keyed by peer.instance.
+  type PeerStat = {
+    loading: boolean
+    reachable: boolean
+    ghs: number | null
+    shares: number | null
+  }
+  let peerStats: Record<string, PeerStat> = {}
 
   $: lastFetchAgoS = lastFetch > 0 ? Math.floor((now - lastFetch) / 1000) : null
-  /* Poll runs every 30s; >75s without a successful refresh means polling
-   * stalled (network drop, tab throttled, fetch erroring). Flag the indicator. */
-  $: stale = lastFetchAgoS != null && lastFetchAgoS > 75
+  /* The peer list refreshes every 60s; >150s without a successful refresh means
+   * polling stalled (network drop, tab throttled, fetch erroring). Flag it. */
+  $: stale = lastFetchAgoS != null && lastFetchAgoS > 150
+
+  // Other miners only — never list the device that's serving this page.
+  $: displayPeers = peers.filter((p) => p.hostname !== $info?.hostname)
+  $: legendBoards = Array.from(new Set(displayPeers.map((p) => p.board).filter(Boolean))).sort()
+  $: legendStatuses = Array.from(new Set(displayPeers.map((p) => p.state || 'unknown'))).sort()
+
+  async function fetchPeerStats(peer: KnotPeer) {
+    // Only show the loading placeholder on the first fetch. On later polls keep
+    // the last values on screen and swap them in when the new data lands —
+    // otherwise every 30s mDNS refresh flashes the whole list to "…".
+    if (!peerStats[peer.instance]) {
+      peerStats = { ...peerStats, [peer.instance]: { loading: true, reachable: false, ghs: null, shares: null } }
+    }
+    let ghs: number | null = null, shares: number | null = null
+    let reachable = false
+    try {
+      const res = await fetch(`http://${peer.ip}/api/stats`, { signal: AbortSignal.timeout(4000) })
+      if (res.ok) {
+        reachable = true
+        const s = await res.json()
+        ghs = s.asic_total_ghs ?? (s.hashrate ? s.hashrate / 1e9 : null)
+        shares = s.session_shares ?? null
+      }
+    } catch {
+      /* unreachable / timed out — leave reachable=false */
+    }
+    peerStats = { ...peerStats, [peer.instance]: { loading: false, reachable, ghs, shares } }
+  }
+
+  // Fan out live-stat fetches across the current peer set (browser-side).
+  function refreshStats() {
+    peers.forEach(fetchPeerStats)
+  }
 
   async function load() {
     try {
       peers = (await fetchKnot()).sort((a, b) => a.hostname.localeCompare(b.hostname))
       loadErr = ''
       lastFetch = Date.now()
+      refreshStats()  // pull stats for the (possibly changed) peer set immediately
     } catch (e) {
       loadErr = (e as Error).message
     } finally {
@@ -46,16 +92,20 @@
     load()
     document.addEventListener('visibilitychange', handleVisibilityChange)
     nowTimer = setInterval(() => { now = Date.now() }, 1000)
-    pollTimer = setInterval(() => {
-      /* Skip while hidden — visibilitychange handler fires a refresh on return. */
+    /* Skip while hidden — visibilitychange handler fires a refresh on return. */
+    knotTimer = setInterval(() => {
       if (document.visibilityState === 'visible' && $route === 'knot') load()
-    }, POLL_INTERVAL_MS)
+    }, KNOT_INTERVAL_MS)
+    statsTimer = setInterval(() => {
+      if (document.visibilityState === 'visible' && $route === 'knot') refreshStats()
+    }, STATS_INTERVAL_MS)
   })
 
   onDestroy(() => {
     document.removeEventListener('visibilitychange', handleVisibilityChange)
     if (nowTimer !== null) clearInterval(nowTimer)
-    if (pollTimer !== null) clearInterval(pollTimer)
+    if (knotTimer !== null) clearInterval(knotTimer)
+    if (statsTimer !== null) clearInterval(statsTimer)
   })
 
   function getStateBadgeClass(state: string): string {
@@ -69,10 +119,6 @@
     }
   }
 
-  function isCurrentDevice(hostname: string): boolean {
-    return hostname === $info?.hostname
-  }
-
   /* IDF's mDNS hostname is bare (e.g. "tdongles3-3"); the browser needs
    * the .local suffix to resolve. Append if it isn't already there. */
   function fqdn(hostname: string): string {
@@ -80,35 +126,20 @@
     return hostname.endsWith('.local') ? hostname : `${hostname}.local`
   }
 
-  /* Display the bare hostname (no .local) so the column is less noisy.
-   * The href still uses fqdn() so navigation works. */
+  /* Display the bare hostname (no .local) so it's less noisy. */
   function displayHost(hostname: string): string {
     if (!hostname) return ''
-    return hostname.endsWith('.local')
-      ? hostname.slice(0, -'.local'.length)
-      : hostname
+    return hostname.endsWith('.local') ? hostname.slice(0, -'.local'.length) : hostname
   }
 
-  /* Board → short class name for the colored dot. Unknown boards fall
-   * through to a neutral class. Add new boards here as they ship. */
-  function boardClass(board: string): string {
-    switch (board) {
-      case 'tdongle-s3':  return 'board-tdongle-s3'
-      case 'bitaxe-601':  return 'board-bitaxe-601'
-      case 'bitaxe-403':  return 'board-bitaxe-403'
-      case 'bitaxe-650':  return 'board-bitaxe-650'
-      default:            return 'board-other'
-    }
+  /* Board → dot color, derived entirely from the name so any board (current or
+   * future) gets a stable, distinct color with no code change. */
+  function boardColor(board: string): string {
+    if (!board) return '#888888'
+    let h = 0
+    for (let i = 0; i < board.length; i++) h = (h * 31 + board.charCodeAt(i)) >>> 0
+    return `hsl(${h % 360}, 60%, 58%)`
   }
-
-  /* Distinct boards present in the current peer set, for the legend. */
-  $: legendBoards = Array.from(new Set(peers.map(p => p.board).filter(Boolean))).sort()
-
-  /* Distinct statuses present in the peer set, for the status legend. Empty
-   * states surface as "unknown" so the user knows they're not reporting yet. */
-  $: legendStatuses = Array.from(
-    new Set(peers.map(p => p.state || 'unknown'))
-  ).sort()
 </script>
 
 <div class="knot-container">
@@ -130,42 +161,54 @@
     <div class="error">{loadErr}</div>
   {/if}
 
-  {#if peers.length === 0 && !loading}
+  {#if displayPeers.length === 0 && !loading}
     <div class="empty-state">
-      No miners discovered yet — table fills as devices announce.
+      No other miners discovered yet — rows fill in as devices announce.
     </div>
   {/if}
 
-  {#if peers.length > 0}
-    <div class="table-wrapper">
-      <table>
-        <thead>
-          <tr>
-            <th>Hostname</th>
-            <th>Version</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each peers as peer (peer.instance)}
-            <tr class:current-device={isCurrentDevice(peer.hostname)}>
-              <td>
-                <span class={`board-dot ${boardClass(peer.board)}`} title={peer.board}></span>
-                <a href={`http://${fqdn(peer.hostname)}`} target="_blank" rel="noopener">
-                  {displayHost(peer.hostname)}
-                </a>
-              </td>
-              <td>{peer.version}</td>
-              <td>
-                <span
-                  class={`status-dot ${getStateBadgeClass(peer.state || 'unknown')}`}
-                  title={peer.state || 'unknown'}
-                ></span>
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+  {#if displayPeers.length > 0}
+    <div class="cards">
+      {#each displayPeers as peer (peer.instance)}
+        {@const st = peerStats[peer.instance]}
+        <div class="card">
+          <div class="identity">
+            <div class="name-row">
+              <span class="board-dot" style={`background: ${boardColor(peer.board)}`} title={peer.board}></span>
+              <a class="name" href={`http://${fqdn(peer.hostname)}`} target="_blank" rel="noopener">
+                {displayHost(peer.hostname)}
+              </a>
+              <span class="ip">{peer.ip}</span>
+              <span
+                class={`status-dot ${getStateBadgeClass(peer.state || 'unknown')}`}
+                class:pulse={peer.state === 'mining'}
+                title={peer.state || 'unknown'}
+              ></span>
+            </div>
+            <div class="sub">
+              <span class="board">{peer.board || '—'}</span>
+              <span class="ver" title="firmware">{peer.version || '—'}</span>
+            </div>
+          </div>
+
+          <div class="stats">
+            {#if !st || st.loading}
+              <span class="muted">…</span>
+            {:else if st.reachable}
+              <div class="stat">
+                <span class="sv">{st.shares != null ? st.shares : '—'}</span>
+                <span class="sl">shares</span>
+              </div>
+              <div class="stat">
+                <span class="sv hashrate">{st.ghs != null ? fmtHashGhs(st.ghs) : '—'}</span>
+                <span class="sl">hashrate</span>
+              </div>
+            {:else}
+              <span class="muted unreachable">unreachable</span>
+            {/if}
+          </div>
+        </div>
+      {/each}
     </div>
 
     {#if legendBoards.length > 0 || legendStatuses.length > 0}
@@ -175,7 +218,7 @@
             <span class="legend-label">Boards</span>
             {#each legendBoards as b}
               <span class="legend-item">
-                <span class={`board-dot ${boardClass(b)}`} title={b}></span>
+                <span class="board-dot" style={`background: ${boardColor(b)}`} title={b}></span>
                 {b}
               </span>
             {/each}
@@ -227,11 +270,9 @@
     font-size: 11px;
     color: var(--label);
   }
-
   .updated.stale {
     color: var(--warning, #f39c12);
   }
-
 
   .error {
     padding: 12px;
@@ -248,87 +289,134 @@
     font-size: 14px;
   }
 
-  .table-wrapper {
-    overflow-x: auto;
+  /* One full-width row per miner. */
+  .cards {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
 
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-  }
-
-  thead {
+  .card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 16px;
     background: var(--surface);
-    border-bottom: 1px solid var(--border);
+    border: 1px solid var(--border);
+    border-radius: 8px;
   }
 
-  th {
-    text-align: left;
-    padding: 12px;
-    font-weight: 500;
-    color: var(--label);
+  .identity {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    width: 260px;
+    flex-shrink: 0;
   }
-
-  td {
-    padding: 12px;
-    border-bottom: 1px solid var(--border);
-    color: var(--text);
+  .name-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
   }
-
-  tbody tr {
-    transition: background 0.15s;
+  /* Board dot leads the hostname, so keep it centered on the name; the mining
+   * dot trails the IP and baselines with the text like everything else. */
+  .name-row .board-dot {
+    align-self: center;
   }
-
-  tbody tr:hover {
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  tbody tr.current-device td {
-    background: rgba(0, 200, 100, 0.08);
-  }
-  tbody tr.current-device td:first-child {
-    box-shadow: inset 3px 0 0 var(--accent);
-  }
-
-  .badge {
-    display: inline-block;
-    padding: 4px 8px;
-    border-radius: 3px;
-    font-size: 11px;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .state-mining       { background: rgba(0, 200, 100, 0.2); color: #00c864; }
-  .state-ota          { background: rgba(255, 200, 0, 0.2);  color: #ffc800; }
-  .state-provisioning { background: rgba(0, 150, 255, 0.2);  color: #0096ff; }
-  .state-idle         { background: rgba(150, 150, 150, 0.2); color: #aaaaaa; }
-  .state-neutral      { background: rgba(100, 100, 100, 0.2); color: #999999; }
-  .state-unknown      { background: rgba(180, 120, 60, 0.18); color: #d8965a; }
-
-  /* Solid-fill dot in the table cell — paint the dot with the status color
-   * (`color`) rather than its translucent background. */
-  .status-dot {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: currentColor;
-    vertical-align: middle;
-  }
-
-
-  a {
+  .name-row .name {
+    font-size: 15px;
+    font-weight: 600;
     color: var(--accent);
     text-decoration: none;
-    transition: opacity 0.2s;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .name-row .name:hover { opacity: 0.8; }
+
+  /* IP beside the hostname — keep the small muted look it had in the sub line. */
+  .name-row .ip {
+    font-size: 11px;
+    color: var(--label);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
 
-  a:hover {
-    opacity: 0.8;
+  .sub {
+    display: flex;
+    gap: 10px;
+    font-size: 11px;
+    color: var(--label);
+    overflow: hidden;
   }
+  .sub .ver {
+    font-variant-numeric: tabular-nums;
+  }
+  .sub .ver {
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .stats {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+  .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    width: 96px;
+    text-align: right;
+  }
+  .stat .sv {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+    white-space: nowrap;
+  }
+  /* match the Hero hashrate color */
+  .stat .sv.hashrate {
+    color: var(--accent);
+  }
+  .stat .sl {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--label);
+  }
+  .stats .muted { font-size: 12px; color: var(--muted); }
+  .stats .unreachable { font-style: italic; }
+
+  .board-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #888;
+    flex-shrink: 0;
+  }
+
+  .status-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+  }
+  .state-mining       { color: #00c864; }
+  .state-ota          { color: #ffc800; }
+  .state-provisioning { color: #0096ff; }
+  .state-idle         { color: #aaaaaa; }
+  .state-neutral      { color: #999999; }
+  .state-unknown      { color: #d8965a; }
 
   .legend {
     display: flex;
@@ -341,7 +429,6 @@
     font-size: 12px;
     color: var(--label);
   }
-
   .legend-row {
     display: flex;
     flex-wrap: wrap;
@@ -349,7 +436,6 @@
     justify-content: center;
     gap: 12px;
   }
-
   .legend-label {
     font-size: 10px;
     text-transform: uppercase;
@@ -359,32 +445,15 @@
     min-width: 50px;
     text-align: right;
   }
-
   .legend-item {
     display: inline-flex;
     align-items: center;
     gap: 6px;
   }
 
-  .board-dot {
-    display: inline-block;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: #888;
-    vertical-align: middle;
-    margin-right: 6px;
-    flex-shrink: 0;
+  @media (max-width: 560px) {
+    .identity { width: auto; flex: 1; }
+    .stats { gap: 14px; }
+    .stat { width: 60px; }
   }
-
-  .legend-item .board-dot {
-    margin-right: 0;
-  }
-
-  /* Per-board colors. Pick distinct hues for each board family. */
-  .board-tdongle-s3 { background: #3b82f6; }  /* blue */
-  .board-bitaxe-601 { background: #10b981; }  /* green */
-  .board-bitaxe-403 { background: #f59e0b; }  /* amber */
-  .board-bitaxe-650 { background: #a855f7; }  /* purple */
-  .board-other      { background: #888888; }  /* neutral fallback */
 </style>

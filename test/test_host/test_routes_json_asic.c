@@ -2,34 +2,22 @@
  * test_routes_json_asic.c — golden tests for ASIC-gated JSON emitters (TA-292).
  *
  * emit_power_json, emit_fan_json, and the ASIC-gated branches of
- * build_stats_json are only compiled when ASIC_CHIP is defined.  The native
+ * emit_stats_json are only compiled when ASIC_CHIP is defined.  The native
  * env now defines ASIC_CHIP (see [env:native] build_flags in platformio.ini),
  * so all emitters are reachable on the host.
  *
- * Power/fan tests use the bb_http capture harness: emit_* functions write into
- * a streaming JSON object, and the captured body is verified with strstr.
+ * All tests use the bb_http capture harness: emit_* functions write into a
+ * streaming JSON object, and the captured body is verified with strstr.
  * This validates the same code path that runs in the production handler.
  */
 #ifdef ASIC_CHIP
 #include "unity.h"
 #include "routes_json.h"
-#include "bb_json.h"
 #include "bb_http.h"
 #include "bb_http_host.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
-
-/* ============================================================================
- * Helpers — DOM builder (still used by build_stats_json tests)
- * ========================================================================= */
-
-static char *serialize_and_free(bb_json_t root)
-{
-    char *s = bb_json_serialize(root);
-    bb_json_free(root);
-    return s;
-}
 
 /* ============================================================================
  * Helpers — streaming capture (used by emit_power_json / emit_fan_json tests)
@@ -493,8 +481,25 @@ void test_fan_thermal_sentinels_null(void)
     free(json);
 }
 
+/* Capture emit_stats_json output into a heap string.
+ * Caller must free() the returned pointer. */
+static char *capture_stats(const stats_snapshot_t *snap)
+{
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    emit_stats_json(&obj, snap);
+    bb_http_resp_json_obj_end(&obj);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+    char *copy = dupstr(cap.body);
+    bb_http_host_capture_free(&cap);
+    return copy;
+}
+
 /* ============================================================================
- * /api/stats — ASIC-gated branches of build_stats_json
+ * /api/stats — ASIC-gated branches of emit_stats_json
  * ========================================================================= */
 
 /*
@@ -541,9 +546,8 @@ void test_stats_asic_total_valid_true(void)
     s.asic_count          = 1;
     s.n_chips             = 0;
 
-    bb_json_t root = bb_json_obj_new();
-    build_stats_json(&s, root);
-    char *json = serialize_and_free(root);
+    char *json = capture_stats(&s);
+    TEST_ASSERT_NOT_NULL(json);
 
     /* asic_total_valid=true → numeric values for all asic_total/hw_error fields */
     TEST_ASSERT_NOT_NULL(strstr(json, "\"asic_total_ghs\":485"));
@@ -554,7 +558,7 @@ void test_stats_asic_total_valid_true(void)
     /* nulls must NOT appear for these fields */
     TEST_ASSERT_NULL(strstr(json, "\"asic_total_ghs\":null"));
 
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_stats_asic_total_valid_false(void)
@@ -569,9 +573,8 @@ void test_stats_asic_total_valid_false(void)
     s.asic_count       = 1;
     s.n_chips          = 0;
 
-    bb_json_t root = bb_json_obj_new();
-    build_stats_json(&s, root);
-    char *json = serialize_and_free(root);
+    char *json = capture_stats(&s);
+    TEST_ASSERT_NOT_NULL(json);
 
     TEST_ASSERT_NOT_NULL(strstr(json, "\"asic_total_ghs\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"asic_hw_error_pct\":null"));
@@ -579,7 +582,7 @@ void test_stats_asic_total_valid_false(void)
     TEST_ASSERT_NOT_NULL(strstr(json, "\"asic_total_ghs_10m\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"asic_total_ghs_1h\":null"));
 
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_stats_expected_ghs_populated(void)
@@ -595,12 +598,10 @@ void test_stats_expected_ghs_populated(void)
     s.n_chips          = 0;
     s.expected_ghs     = 1000.0;  /* precomputed by routes.c:mining_get_expected_ghs() */
 
-    bb_json_t root = bb_json_obj_new();
-    build_stats_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_stats(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"expected_ghs\":1000"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_stats_expected_ghs_null_when_unavailable(void)
@@ -616,12 +617,10 @@ void test_stats_expected_ghs_null_when_unavailable(void)
     s.n_chips          = 0;
     s.expected_ghs     = -1.0;  /* unavailable sentinel from routes.c */
 
-    bb_json_t root = bb_json_obj_new();
-    build_stats_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_stats(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"expected_ghs\":null"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_stats_freq_cfg_negative_emits_null(void)
@@ -634,13 +633,11 @@ void test_stats_freq_cfg_negative_emits_null(void)
     s.asic_total_valid = false;
     s.n_chips          = 0;
 
-    bb_json_t root = bb_json_obj_new();
-    build_stats_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_stats(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"asic_freq_configured_mhz\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"asic_freq_effective_mhz\":null"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_stats_chip_array_two_chips(void)
@@ -697,9 +694,8 @@ void test_stats_chip_array_two_chips(void)
     s.chips[1].domain_drops[2] = 1;
     s.chips[1].domain_drops[3] = 0;
 
-    bb_json_t root = bb_json_obj_new();
-    build_stats_json(&s, root);
-    char *json = serialize_and_free(root);
+    char *json = capture_stats(&s);
+    TEST_ASSERT_NOT_NULL(json);
 
     /* chip 0: last_drop_us=0 → null */
     TEST_ASSERT_NOT_NULL(strstr(json, "\"last_drop_ago_s\":null"));
@@ -709,7 +705,7 @@ void test_stats_chip_array_two_chips(void)
     TEST_ASSERT_NOT_NULL(strstr(json, "\"idx\":0"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"idx\":1"));
 
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_stats_chip_array_empty(void)
@@ -724,12 +720,10 @@ void test_stats_chip_array_empty(void)
     s.asic_count       = 1;
     s.n_chips          = 0;
 
-    bb_json_t root = bb_json_obj_new();
-    build_stats_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_stats(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"asic_chips\":[]"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_stats_last_drop_null_when_zero(void)
@@ -746,12 +740,10 @@ void test_stats_last_drop_null_when_zero(void)
     s.chips[0].total_ghs   = 485.0f;
     s.chips[0].last_drop_us = 0;
 
-    bb_json_t root = bb_json_obj_new();
-    build_stats_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_stats(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"last_drop_ago_s\":null"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_stats_last_drop_nonzero_computes_age(void)
@@ -768,11 +760,63 @@ void test_stats_last_drop_nonzero_computes_age(void)
     s.chips[0].total_ghs    = 485.0f;
     s.chips[0].last_drop_us = 31000000ULL;  /* now_us - 30s */
 
-    bb_json_t root = bb_json_obj_new();
-    build_stats_json(&s, root);
-    char *json = serialize_and_free(root);
-
+    char *json = capture_stats(&s);
+    TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"last_drop_ago_s\":30"));
-    bb_json_free_str(json);
+    free(json);
+}
+
+void test_stats_asic_rolling_windows_null_when_invalid(void)
+{
+    /* asic_total_valid=true but rolling windows set to negative sentinels → null */
+    stats_snapshot_t s;
+    make_stats_base(&s);
+    s.asic_freq_cfg          = 525.0f;
+    s.asic_freq_eff          = 520.0f;
+    s.asic_total_ghs         = 485.0f;
+    s.asic_hw_error_pct      = 0.1f;
+    s.asic_total_ghs_1m      = -1.0f;
+    s.asic_total_ghs_10m     = -1.0f;
+    s.asic_total_ghs_1h      = -1.0f;
+    s.asic_hw_error_pct_1m   = -1.0f;
+    s.asic_hw_error_pct_10m  = -1.0f;
+    s.asic_hw_error_pct_1h   = -1.0f;
+    s.asic_total_valid       = true;
+    s.asic_small_cores       = 2040;
+    s.asic_count             = 1;
+    s.n_chips                = 0;
+
+    char *json = capture_stats(&s);
+    TEST_ASSERT_NOT_NULL(json);
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"asic_total_ghs_1m\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"asic_total_ghs_10m\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"asic_total_ghs_1h\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"asic_hw_error_pct_1m\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"asic_hw_error_pct_10m\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"asic_hw_error_pct_1h\":null"));
+    /* asic_total_ghs and asic_hw_error_pct must NOT be null */
+    TEST_ASSERT_NULL(strstr(json, "\"asic_total_ghs\":null"));
+    TEST_ASSERT_NULL(strstr(json, "\"asic_hw_error_pct\":null"));
+    free(json);
+}
+
+void test_stats_now_us_less_than_last_drop_emits_null(void)
+{
+    /* now_us < last_drop_us (future timestamp) → last_drop_ago_s = null */
+    stats_snapshot_t s;
+    make_stats_base(&s);
+    s.asic_freq_cfg    = 525.0f;
+    s.asic_freq_eff    = 520.0f;
+    s.asic_total_valid = false;
+    s.asic_small_cores = 2040;
+    s.asic_count       = 1;
+    s.n_chips          = 1;
+    s.chips[0].total_ghs    = 485.0f;
+    s.chips[0].last_drop_us = 99999999ULL;  /* future: now_us=61000000 < this */
+
+    char *json = capture_stats(&s);
+    TEST_ASSERT_NOT_NULL(json);
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"last_drop_ago_s\":null"));
+    free(json);
 }
 #endif /* ASIC_CHIP */

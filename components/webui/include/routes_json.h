@@ -129,7 +129,9 @@ typedef struct {
 #endif
 } stats_snapshot_t;
 
-void build_stats_json(const stats_snapshot_t *s, bb_json_t root);
+/* Emit /api/stats fields into an already-opened streaming JSON object.
+ * Caller does obj_begin / obj_end; this function emits fields only. */
+void emit_stats_json(bb_http_json_obj_stream_t *obj, const stats_snapshot_t *snap);
 
 /* ============================================================================
  * /api/pool
@@ -289,7 +291,9 @@ typedef struct {
     bool     provisioned;
 } settings_snapshot_t;
 
-void build_settings_json(const settings_snapshot_t *s, bb_json_t root);
+/* Emit /api/settings fields into an already-opened streaming JSON object.
+ * Caller does obj_begin / obj_end; this function emits fields only. */
+void emit_settings_json(bb_http_json_obj_stream_t *obj, const settings_snapshot_t *snap);
 
 /* ============================================================================
  * /api/power  (ASIC_CHIP only)

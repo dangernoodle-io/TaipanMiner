@@ -313,131 +313,10 @@ static bb_err_t stats_handler(bb_http_request_t *req)
     s.now_us = (int64_t)bb_timer_now_us();
 #endif
 
-    int64_t uptime_s = (s.session_start_us > 0)
-                       ? (s.now_us - s.session_start_us) / 1000000
-                       : 0;
-    int64_t last_share_ago_s = (s.last_share_us > 0)
-                               ? (s.now_us - s.last_share_us) / 1000000
-                               : -1;
-
     bb_http_json_obj_stream_t obj;
     bb_err_t rc = bb_http_resp_json_obj_begin(req, &obj);
     if (rc != BB_OK) return rc;
-
-    bb_http_resp_json_obj_set_num(&obj, "hashrate",        s.hw_rate);
-    bb_http_resp_json_obj_set_num(&obj, "hashrate_avg",    s.hw_ema);
-    bb_http_resp_json_obj_set_num(&obj, "temp_c",          (double)s.temp_c);
-    bb_http_resp_json_obj_set_int(&obj, "shares",          (int64_t)s.hw_shares);
-    bb_http_resp_json_obj_set_int(&obj, "session_shares",  (int64_t)s.session_shares);
-    bb_http_resp_json_obj_set_int(&obj, "session_rejected",(int64_t)s.session_rejected);
-    bb_http_resp_json_obj_set_int(&obj, "session_blocks_found", (int64_t)s.session_blocks_found);
-    bb_http_resp_json_obj_set_int(&obj, "session_best_diff_ts", s.session_best_diff_ts);
-    bb_http_resp_json_obj_set_int(&obj, "session_last_block_ts", s.session_last_block_ts);
-
-    bb_http_resp_json_obj_set_obj_begin(&obj, "rejected");
-    bb_http_resp_json_obj_set_int(&obj, "total",           (int64_t)s.session_rejected);
-    bb_http_resp_json_obj_set_int(&obj, "job_not_found",   (int64_t)s.session_rejected_job_not_found);
-    bb_http_resp_json_obj_set_int(&obj, "low_difficulty",  (int64_t)s.session_rejected_low_difficulty);
-    bb_http_resp_json_obj_set_int(&obj, "duplicate",       (int64_t)s.session_rejected_duplicate);
-    bb_http_resp_json_obj_set_int(&obj, "stale_prevhash",  (int64_t)s.session_rejected_stale_prevhash);
-    bb_http_resp_json_obj_set_int(&obj, "other",           (int64_t)s.session_rejected_other);
-    bb_http_resp_json_obj_set_int(&obj, "other_last_code", (int64_t)s.session_rejected_other_last_code);
-    bb_http_resp_json_obj_set_obj_end(&obj);
-
-    bb_http_resp_json_obj_set_int(&obj, "last_share_ago_s", last_share_ago_s);
-    bb_http_resp_json_obj_set_num(&obj, "best_diff",        s.best_diff);
-    bb_http_resp_json_obj_set_int(&obj, "uptime_s",         uptime_s);
-
-    if (s.expected_ghs >= 0.0) {
-        bb_http_resp_json_obj_set_num(&obj, "expected_ghs", s.expected_ghs);
-    } else {
-        bb_http_resp_json_obj_set_null(&obj, "expected_ghs");
-    }
-
-#ifndef ASIC_CHIP
-    if (s.hashrate_1m >= 0.0)             bb_http_resp_json_obj_set_num(&obj, "hashrate_1m",             s.hashrate_1m);
-    else                                  bb_http_resp_json_obj_set_null(&obj, "hashrate_1m");
-    if (s.hashrate_10m >= 0.0)            bb_http_resp_json_obj_set_num(&obj, "hashrate_10m",            s.hashrate_10m);
-    else                                  bb_http_resp_json_obj_set_null(&obj, "hashrate_10m");
-    if (s.hashrate_1h >= 0.0)             bb_http_resp_json_obj_set_num(&obj, "hashrate_1h",             s.hashrate_1h);
-    else                                  bb_http_resp_json_obj_set_null(&obj, "hashrate_1h");
-    if (s.pool_effective_hashrate >= 0.0) bb_http_resp_json_obj_set_num(&obj, "pool_effective_hashrate", s.pool_effective_hashrate);
-    else                                  bb_http_resp_json_obj_set_null(&obj, "pool_effective_hashrate");
-    if (s.hw_error_pct_1m >= 0.0)         bb_http_resp_json_obj_set_num(&obj, "hw_error_pct_1m",         s.hw_error_pct_1m);
-    else                                  bb_http_resp_json_obj_set_null(&obj, "hw_error_pct_1m");
-    if (s.hw_error_pct_10m >= 0.0)        bb_http_resp_json_obj_set_num(&obj, "hw_error_pct_10m",        s.hw_error_pct_10m);
-    else                                  bb_http_resp_json_obj_set_null(&obj, "hw_error_pct_10m");
-    if (s.hw_error_pct_1h >= 0.0)         bb_http_resp_json_obj_set_num(&obj, "hw_error_pct_1h",         s.hw_error_pct_1h);
-    else                                  bb_http_resp_json_obj_set_null(&obj, "hw_error_pct_1h");
-#endif
-
-#ifdef ASIC_CHIP
-    bb_http_resp_json_obj_set_num(&obj, "asic_hashrate",     s.asic_rate);
-    bb_http_resp_json_obj_set_num(&obj, "asic_hashrate_avg", s.asic_ema);
-    bb_http_resp_json_obj_set_int(&obj, "asic_shares",       (int64_t)s.asic_shares);
-    bb_http_resp_json_obj_set_num(&obj, "asic_temp_c",       (double)s.asic_temp_c);
-    if (s.asic_freq_cfg >= 0.0f) bb_http_resp_json_obj_set_num(&obj, "asic_freq_configured_mhz", (double)s.asic_freq_cfg);
-    else                         bb_http_resp_json_obj_set_null(&obj, "asic_freq_configured_mhz");
-    if (s.asic_freq_eff >= 0.0f) bb_http_resp_json_obj_set_num(&obj, "asic_freq_effective_mhz", (double)s.asic_freq_eff);
-    else                         bb_http_resp_json_obj_set_null(&obj, "asic_freq_effective_mhz");
-    bb_http_resp_json_obj_set_int(&obj, "asic_small_cores", (int64_t)s.asic_small_cores);
-    bb_http_resp_json_obj_set_int(&obj, "asic_count",       (int64_t)s.asic_count);
-    if (s.asic_total_valid) {
-        bb_http_resp_json_obj_set_num(&obj, "asic_total_ghs",    (double)s.asic_total_ghs);
-        bb_http_resp_json_obj_set_num(&obj, "asic_hw_error_pct", (double)s.asic_hw_error_pct);
-        if (s.asic_total_ghs_1m >= 0.0f)   bb_http_resp_json_obj_set_num(&obj, "asic_total_ghs_1m",   (double)s.asic_total_ghs_1m);
-        else                                bb_http_resp_json_obj_set_null(&obj, "asic_total_ghs_1m");
-        if (s.asic_total_ghs_10m >= 0.0f)  bb_http_resp_json_obj_set_num(&obj, "asic_total_ghs_10m",  (double)s.asic_total_ghs_10m);
-        else                               bb_http_resp_json_obj_set_null(&obj, "asic_total_ghs_10m");
-        if (s.asic_total_ghs_1h >= 0.0f)   bb_http_resp_json_obj_set_num(&obj, "asic_total_ghs_1h",   (double)s.asic_total_ghs_1h);
-        else                               bb_http_resp_json_obj_set_null(&obj, "asic_total_ghs_1h");
-        if (s.asic_hw_error_pct_1m >= 0.0f)  bb_http_resp_json_obj_set_num(&obj, "asic_hw_error_pct_1m",  (double)s.asic_hw_error_pct_1m);
-        else                                  bb_http_resp_json_obj_set_null(&obj, "asic_hw_error_pct_1m");
-        if (s.asic_hw_error_pct_10m >= 0.0f) bb_http_resp_json_obj_set_num(&obj, "asic_hw_error_pct_10m", (double)s.asic_hw_error_pct_10m);
-        else                                  bb_http_resp_json_obj_set_null(&obj, "asic_hw_error_pct_10m");
-        if (s.asic_hw_error_pct_1h >= 0.0f)  bb_http_resp_json_obj_set_num(&obj, "asic_hw_error_pct_1h",  (double)s.asic_hw_error_pct_1h);
-        else                                  bb_http_resp_json_obj_set_null(&obj, "asic_hw_error_pct_1h");
-    } else {
-        bb_http_resp_json_obj_set_null(&obj, "asic_total_ghs");
-        bb_http_resp_json_obj_set_null(&obj, "asic_hw_error_pct");
-        bb_http_resp_json_obj_set_null(&obj, "asic_total_ghs_1m");
-        bb_http_resp_json_obj_set_null(&obj, "asic_total_ghs_10m");
-        bb_http_resp_json_obj_set_null(&obj, "asic_total_ghs_1h");
-        bb_http_resp_json_obj_set_null(&obj, "asic_hw_error_pct_1m");
-        bb_http_resp_json_obj_set_null(&obj, "asic_hw_error_pct_10m");
-        bb_http_resp_json_obj_set_null(&obj, "asic_hw_error_pct_1h");
-    }
-    if (s.pool_effective_hashrate >= 0.0) bb_http_resp_json_obj_set_num(&obj, "pool_effective_hashrate", s.pool_effective_hashrate);
-    else                                  bb_http_resp_json_obj_set_null(&obj, "pool_effective_hashrate");
-
-    bb_http_resp_json_obj_set_arr_begin(&obj, "asic_chips");
-    for (int c = 0; c < s.n_chips; c++) {
-        bb_http_resp_json_obj_set_obj_begin(&obj, NULL);
-        bb_http_resp_json_obj_set_int(&obj, "idx",         (int64_t)c);
-        bb_http_resp_json_obj_set_num(&obj, "total_ghs",   (double)s.chips[c].total_ghs);
-        bb_http_resp_json_obj_set_num(&obj, "error_ghs",   (double)s.chips[c].error_ghs);
-        bb_http_resp_json_obj_set_num(&obj, "hw_err_pct",  (double)s.chips[c].hw_err_pct);
-        bb_http_resp_json_obj_set_int(&obj, "total_raw",   (int64_t)s.chips[c].total_raw);
-        bb_http_resp_json_obj_set_int(&obj, "error_raw",   (int64_t)s.chips[c].error_raw);
-        bb_http_resp_json_obj_set_num(&obj, "total_drops", (double)s.chips[c].total_drops);
-        bb_http_resp_json_obj_set_num(&obj, "error_drops", (double)s.chips[c].error_drops);
-        if (s.chips[c].last_drop_us == 0 || s.now_us < (int64_t)s.chips[c].last_drop_us) {
-            bb_http_resp_json_obj_set_null(&obj, "last_drop_ago_s");
-        } else {
-            uint64_t ago_us = (uint64_t)s.now_us - s.chips[c].last_drop_us;
-            bb_http_resp_json_obj_set_num(&obj, "last_drop_ago_s", (double)(ago_us / 1000000ULL));
-        }
-        bb_http_resp_json_obj_set_arr_begin(&obj, "domain_ghs");
-        for (int d = 0; d < 4; d++) bb_http_resp_json_obj_set_num(&obj, NULL, (double)s.chips[c].domain_ghs[d]);
-        bb_http_resp_json_obj_set_arr_end(&obj);
-        bb_http_resp_json_obj_set_arr_begin(&obj, "domain_drops");
-        for (int d = 0; d < 4; d++) bb_http_resp_json_obj_set_num(&obj, NULL, (double)s.chips[c].domain_drops[d]);
-        bb_http_resp_json_obj_set_arr_end(&obj);
-        bb_http_resp_json_obj_set_obj_end(&obj);
-    }
-    bb_http_resp_json_obj_set_arr_end(&obj);
-#endif
-
+    emit_stats_json(&obj, &s);
     return bb_http_resp_json_obj_end(&obj);
 }
 
@@ -1469,12 +1348,7 @@ static bb_err_t settings_get_handler(bb_http_request_t *req)
     bb_http_json_obj_stream_t obj;
     bb_err_t rc = bb_http_resp_json_obj_begin(req, &obj);
     if (rc != BB_OK) return rc;
-    bb_http_resp_json_obj_set_str(&obj, "hostname",       s.hostname);
-    bb_http_resp_json_obj_set_bool(&obj, "display_en",    s.display_en);
-    bb_http_resp_json_obj_set_bool(&obj, "ota_skip_check", s.ota_skip_check);
-    bb_http_resp_json_obj_set_bool(&obj, "mdns_en",       s.mdns_en);
-    bb_http_resp_json_obj_set_bool(&obj, "knot_en",       s.knot_en);
-    bb_http_resp_json_obj_set_bool(&obj, "provisioned",   s.provisioned);
+    emit_settings_json(&obj, &s);
     return bb_http_resp_json_obj_end(&obj);
 }
 

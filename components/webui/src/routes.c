@@ -983,8 +983,7 @@ static bb_err_t pool_put_handler(bb_http_request_t *req)
         stratum_request_reconnect();
     }
 
-    bb_http_resp_set_status(req, 204);
-    return bb_http_resp_send_chunk(req, NULL, 0);
+    return bb_http_resp_no_content(req);
 }
 
 // ---------------------------------------------------------------------------
@@ -1059,8 +1058,7 @@ static bb_err_t pool_switch_handler(bb_http_request_t *req)
     }
 
     // 204 No Content on success
-    bb_http_resp_set_status(req, 204);
-    return bb_http_resp_send_chunk(req, NULL, 0);
+    return bb_http_resp_no_content(req);
 }
 
 // ---------------------------------------------------------------------------
@@ -1075,8 +1073,7 @@ static bb_err_t pool_delete_fallback_handler(bb_http_request_t *req)
 
     if (!config_pool_configured(POOL_FALLBACK)) {
         // Idempotent: already absent → 204.
-        bb_http_resp_set_status(req, 204);
-        return bb_http_resp_send_chunk(req, NULL, 0);
+        return bb_http_resp_no_content(req);
     }
 
     pool_cfg_t primary = {0};
@@ -1100,8 +1097,7 @@ static bb_err_t pool_delete_fallback_handler(bb_http_request_t *req)
         stratum_request_switch_pool(POOL_PRIMARY);
     }
 
-    bb_http_resp_set_status(req, 204);
-    return bb_http_resp_send_chunk(req, NULL, 0);
+    return bb_http_resp_no_content(req);
 }
 
 static bb_err_t pool_delete_primary_handler(bb_http_request_t *req)
@@ -1136,8 +1132,7 @@ static bb_err_t pool_delete_primary_handler(bb_http_request_t *req)
     // Force a reconnect onto the new primary regardless of which slot was active.
     stratum_request_switch_pool(POOL_PRIMARY);
 
-    bb_http_resp_set_status(req, 204);
-    return bb_http_resp_send_chunk(req, NULL, 0);
+    return bb_http_resp_no_content(req);
 }
 
 #ifdef ASIC_CHIP
@@ -1386,8 +1381,7 @@ static bb_err_t fan_post_handler(bb_http_request_t *req)
         config_set_min_fan_pct((uint16_t)pct);
     }
 
-    bb_http_resp_set_status(req, 204);
-    return bb_http_resp_send_chunk(req, NULL, 0);
+    return bb_http_resp_no_content(req);
 }
 #endif // ASIC_BM1370 || ASIC_BM1368
 

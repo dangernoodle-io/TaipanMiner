@@ -77,6 +77,19 @@ describe('Knot', () => {
     expect(container.querySelector('.error')).toBeFalsy()
   })
 
+  it('renders live shares + hashrate when a peer-stats fetch succeeds', async () => {
+    // Exercises the reachable branch of fetchPeerStats (res.ok → parse stats).
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ asic_total_ghs: 0.5, session_shares: 99 })
+    })))
+    mockFetchKnot.mockResolvedValueOnce([{ ...basePeer }])
+    const { container } = render(Knot)
+    await vi.waitFor(() => expect(container.querySelector('.sv.hashrate')).toBeTruthy())
+    expect(container.textContent).toContain('99')          // session_shares
+    expect(container.querySelector('.unreachable')).toBeFalsy()
+  })
+
   it('renders peer cards with data', async () => {
     mockFetchKnot.mockResolvedValueOnce([{ ...basePeer }])
     const { container } = render(Knot)

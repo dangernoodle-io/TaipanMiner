@@ -83,10 +83,6 @@ static uint8_t s_next_job_id;
 static uint32_t s_current_work_seq;
 static double s_current_asic_diff = 0;
 
-// Fixed ASIC ticket mask difficulty — ASIC produces zero nonces above ~512.
-// Local SHA256d checks each nonce against pool target before submission.
-#define ASIC_TICKET_DIFF 256.0
-
 // --- Nonce dedup (ASIC loops nonce space quickly, reports same results) ---
 static asic_nonce_dedup_t s_dedup;
 

@@ -29,19 +29,19 @@
   $: rssi = $health?.network?.rssi ?? null
   $: stratumFails = $health?.network?.stratum_fail_count ?? 0
 
-  // ASIC topology: model + expected chip count derive from the board.
-  // (Replace with backend fields once /api/stats exposes asic_chip_model + asic_expected_count.)
-  const BOARD_ASIC: Record<string, { model: string; expected_chips: number }> = {
-    'bitaxe-601': { model: 'BM1370',   expected_chips: 1 },
-    'bitaxe-650': { model: 'BM1370 ×2', expected_chips: 2 },
-    'bitaxe-403': { model: 'BM1368',   expected_chips: 1 },
+  // ASIC topology: model derives from the board; expected chip count comes from $stats.asic_count.
+  const BOARD_ASIC: Record<string, { model: string }> = {
+    'bitaxe-601': { model: 'BM1370'    },
+    'bitaxe-650': { model: 'BM1370 ×2' },
+    'bitaxe-403': { model: 'BM1368'    },
   }
   $: asicSpec = $info?.board ? BOARD_ASIC[$info.board] : undefined
   $: detectedChips = $stats?.asic_chips?.length ?? null
+  $: expectedChips = $stats?.asic_count ?? null
   $: smallCoresPerChip = $stats?.asic_small_cores ?? null  // BOARD_SMALL_CORES (per-chip)
   $: detectedCores = (detectedChips != null && smallCoresPerChip != null) ? detectedChips * smallCoresPerChip : null
-  $: expectedCores = (asicSpec && smallCoresPerChip != null) ? asicSpec.expected_chips * smallCoresPerChip : null
-  $: chipsBad = (asicSpec && detectedChips != null && detectedChips < asicSpec.expected_chips)
+  $: expectedCores = (expectedChips != null && smallCoresPerChip != null) ? expectedChips * smallCoresPerChip : null
+  $: chipsBad = (expectedChips != null && detectedChips != null && detectedChips < expectedChips)
   $: hasAsic = asicSpec != null
 
   let showResetDialog = false
@@ -146,7 +146,7 @@
         <div>
           <dt>Chips</dt>
           <dd class:bad={chipsBad}>
-            {detectedChips ?? '—'}<span class="dim"> / {asicSpec?.expected_chips}</span>
+            {detectedChips ?? '—'}<span class="dim"> / {expectedChips ?? '—'}</span>
           </dd>
         </div>
         <div>

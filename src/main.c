@@ -619,6 +619,13 @@ void app_main(void)
         // Tdongle (no ASIC): Core 1 runs idle task; pinning there hits an esp-idf
         // DVFS race (esp_cpu_unstall during flash-op stall) — let scheduler pick.
         bb_ota_pull_set_task_core(tskNO_AFFINITY);
+        // Like the update-check worker above: the mining_hw task runs at prio 20.
+        // The pull-download worker defaults to prio 3, so on single-core boards
+        // (S2/C3) it can never preempt mining to call the pause hook — the
+        // download then starves the idle task and trips the WDT (the extended OTA
+        // WDT only delays it). Raise above mining so the worker pauses mining,
+        // gets the core to itself, and the download-loop yield can feed idle.
+        bb_ota_pull_set_task_priority(21);
 #endif
 
         // Initialize registry: walks PRE_HTTP tier (CORS, OpenAPI meta, route-reserve),

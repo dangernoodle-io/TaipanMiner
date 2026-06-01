@@ -25,3 +25,23 @@ CONFIG_MINING_PIN_HOTLOOP_DATA=n
 # 0x1FFF-0xFFFF range (~312 kH/s settled either way); 0x1FFF chosen for parity
 # with the S2 (which strongly prefers it) and marginally tighter HTTP latency.
 CONFIG_MINING_UNICORE_YIELD_MASK=0x1FFF
+
+# OTA TLS on this single-core no-PSRAM part: the hardware AES driver (esp-aes)
+# allocates a DMA working buffer per TLS record and fails ("esp-aes: Failed to
+# allocate memory") under heap fragmentation, truncating the update-check/ota-pull
+# HTTPS read. Use mbedTLS software AES (no DMA alloc) so the TLS read is reliable;
+# slower AES is irrelevant for an occasional mining-paused OTA. HW SHA+MPI stay on
+# for handshake speed. Stratum is plain TCP, so nothing else pays the SW-AES cost.
+CONFIG_MBEDTLS_HARDWARE_AES=n
+
+# Free DRAM for the TLS pull-OTA path. The manifest *fetch* otherwise bottoms the
+# heap to ~80 bytes; moving WiFi IRAM code to flash (~15KB, cached-flash so
+# negligible cost) plus shrinking the lazy log-stream ring fixes the check. The
+# sustained pull *download* is kept heap-healthy by pausing mining for its
+# duration (the OTA-pull worker runs above the miner — see main.c), which lets the
+# TCP consumer drain WiFi RX so the buffer pool never balloons (min-heap stays
+# ~90KB during a full download). No WiFi/lwIP buffer caps needed — they only
+# throttled throughput. WiFi buffers untouched: the served mining UI is unaffected.
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+CONFIG_BB_LOG_STREAM_BUF_BYTES=2048

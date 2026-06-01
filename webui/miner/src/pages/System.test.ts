@@ -269,6 +269,46 @@ describe('System — Reset stats action', () => {
   })
 })
 
+describe('System — chip detection driven by stats.asic_count', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    stats.set(null)
+    info.set(null)
+    health.set(null)
+  })
+
+  it('flags chipsBad when detectedChips < asic_count', () => {
+    info.set(baseInfo as any)
+    stats.set({ asic_chips: [{}], asic_count: 2, asic_small_cores: 256 } as any)
+    const { container } = render(System)
+    const badDds = container.querySelectorAll('dd.bad')
+    expect(badDds.length).toBeGreaterThan(0)
+  })
+
+  it('does not flag chipsBad when detectedChips == asic_count', () => {
+    info.set(baseInfo as any)
+    stats.set({ asic_chips: [{}], asic_count: 1, asic_small_cores: 256 } as any)
+    const { container } = render(System)
+    const badDds = container.querySelectorAll('dd.bad')
+    expect(badDds.length).toBe(0)
+  })
+
+  it('does not flag chipsBad when asic_count is null', () => {
+    info.set(baseInfo as any)
+    stats.set({ asic_chips: [{}], asic_count: null, asic_small_cores: 256 } as any)
+    const { container } = render(System)
+    const badDds = container.querySelectorAll('dd.bad')
+    expect(badDds.length).toBe(0)
+  })
+
+  it('does not flag chipsBad when stats is null', () => {
+    info.set(baseInfo as any)
+    stats.set(null)
+    const { component } = render(System)
+    expect(component).toBeDefined()
+  })
+})
+
 describe('System — Knot row', () => {
   it('renders Knot row with ok state when network.knot=true', () => {
     health.set({

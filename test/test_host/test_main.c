@@ -647,6 +647,8 @@ void test_stats_chip_array_two_chips(void);
 void test_stats_chip_array_empty(void);
 void test_stats_last_drop_null_when_zero(void);
 void test_stats_last_drop_nonzero_computes_age(void);
+void test_stats_asic_rolling_windows_null_when_invalid(void);
+void test_stats_now_us_less_than_last_drop_emits_null(void);
 #endif /* ASIC_CHIP */
 
 #ifdef ASIC_CHIP
@@ -655,6 +657,11 @@ void test_stats_happy_path(void);
 void test_stats_zeroed(void);
 void test_stats_no_share_yet(void);
 #endif /* ASIC_CHIP */
+#ifndef ASIC_CHIP
+// Forward declarations from test_routes_json.c — non-ASIC stats emit
+void test_stats_non_asic_happy_path(void);
+void test_stats_non_asic_all_windows_null(void);
+#endif /* !ASIC_CHIP */
 void test_pool_disconnected(void);
 void test_pool_connected_with_notify(void);
 void test_pool_version_mask_zero(void);
@@ -671,6 +678,7 @@ void test_knot_peer_single_peer(void);
 void test_knot_peer_matches_array_builder(void);
 void test_settings_happy_path(void);
 void test_settings_empty_optional_fields(void);
+void test_settings_all_bools_true(void);
 
 // TA-315: PID autofan controller
 void test_pid_high_temp_drives_output_near_max(void);
@@ -1377,6 +1385,10 @@ int main(void) {
     RUN_TEST(test_stats_zeroed);
     RUN_TEST(test_stats_no_share_yet);
 #endif /* ASIC_CHIP */
+#ifndef ASIC_CHIP
+    RUN_TEST(test_stats_non_asic_happy_path);
+    RUN_TEST(test_stats_non_asic_all_windows_null);
+#endif /* !ASIC_CHIP */
     RUN_TEST(test_pool_disconnected);
     RUN_TEST(test_pool_connected_with_notify);
     RUN_TEST(test_pool_version_mask_zero);
@@ -1419,6 +1431,7 @@ int main(void) {
     RUN_TEST(test_knot_peer_matches_array_builder);
     RUN_TEST(test_settings_happy_path);
     RUN_TEST(test_settings_empty_optional_fields);
+    RUN_TEST(test_settings_all_bools_true);
 
 #ifdef ASIC_CHIP
     // TA-292: ASIC-gated JSON builder tests
@@ -1451,6 +1464,8 @@ int main(void) {
     RUN_TEST(test_stats_chip_array_empty);
     RUN_TEST(test_stats_last_drop_null_when_zero);
     RUN_TEST(test_stats_last_drop_nonzero_computes_age);
+    RUN_TEST(test_stats_asic_rolling_windows_null_when_invalid);
+    RUN_TEST(test_stats_now_us_less_than_last_drop_emits_null);
 #endif /* ASIC_CHIP */
 
     // TA-315: PID autofan controller tests

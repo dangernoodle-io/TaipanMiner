@@ -4,17 +4,23 @@
  * Each builder is tested with a realistic populated snapshot (happy path) and
  * at least one edge-case snapshot. JSON ordering is insertion-order (cJSON),
  * so literal string comparison is valid.
+ *
+ * stats/settings tests use the bb_http capture harness: emit_* functions write
+ * into a streaming JSON object, and the captured body is verified directly.
+ * This validates the same code path that runs in the production handler.
  */
 #include "unity.h"
 #include "routes_json.h"
 #include "bb_json.h"
+#include "bb_http.h"
+#include "bb_http_host.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
 
 /* ============================================================================
- * Helpers
+ * Helpers — DOM builder (still used by pool/diag/knot tests)
  * ========================================================================= */
 
 static char *serialize_and_free(bb_json_t root)
@@ -25,7 +31,57 @@ static char *serialize_and_free(bb_json_t root)
 }
 
 /* ============================================================================
- * /api/stats — ASIC path only (JSON layout differs without ASIC_CHIP)
+ * Helpers — streaming capture (used by emit_stats_json / emit_settings_json)
+ * ========================================================================= */
+
+/* Portable strdup — POSIX strdup is not declared under -std=c99 (glibc hides it
+ * without _POSIX_C_SOURCE), and an implicit decl truncates the 64-bit pointer
+ * return on LP64. */
+static char *dupstr(const char *s)
+{
+    if (!s) return NULL;
+    size_t n = strlen(s) + 1;
+    char *p = malloc(n);
+    if (p) memcpy(p, s, n);
+    return p;
+}
+
+/* Capture emit_stats_json output into a heap string.
+ * Caller must free() the returned pointer. */
+static char *capture_stats(const stats_snapshot_t *snap)
+{
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    emit_stats_json(&obj, snap);
+    bb_http_resp_json_obj_end(&obj);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+    char *copy = dupstr(cap.body);
+    bb_http_host_capture_free(&cap);
+    return copy;
+}
+
+/* Capture emit_settings_json output into a heap string.
+ * Caller must free() the returned pointer. */
+static char *capture_settings(const settings_snapshot_t *snap)
+{
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    emit_settings_json(&obj, snap);
+    bb_http_resp_json_obj_end(&obj);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+    char *copy = dupstr(cap.body);
+    bb_http_host_capture_free(&cap);
+    return copy;
+}
+
+/* ============================================================================
+ * /api/stats — both ASIC and non-ASIC paths tested via capture harness
  * ========================================================================= */
 
 #ifdef ASIC_CHIP
@@ -50,9 +106,8 @@ void test_stats_happy_path(void)
     s.expected_ghs     = -1.0;         /* unavailable */
     s.now_us           = 15000000LL;   /* "now" */
 
-    bb_json_t root = bb_json_obj_new();
-    build_stats_json(&s, root);
-    char *json = serialize_and_free(root);
+    char *json = capture_stats(&s);
+    TEST_ASSERT_NOT_NULL(json);
 
     /* uptime_s = (15000000 - 5000000) / 1000000 = 10
      * last_share_ago_s = (15000000 - 10000000) / 1000000 = 5
@@ -74,7 +129,7 @@ void test_stats_happy_path(void)
         "\"asic_hw_error_pct_1m\":null,\"asic_hw_error_pct_10m\":null,\"asic_hw_error_pct_1h\":null,"
         "\"pool_effective_hashrate\":0,\"asic_chips\":[]}",
         json);
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_stats_zeroed(void)
@@ -84,9 +139,8 @@ void test_stats_zeroed(void)
     s.session_rejected_other_last_code = -1;
     s.expected_ghs = -1.0;
 
-    bb_json_t root = bb_json_obj_new();
-    build_stats_json(&s, root);
-    char *json = serialize_and_free(root);
+    char *json = capture_stats(&s);
+    TEST_ASSERT_NOT_NULL(json);
 
     TEST_ASSERT_EQUAL_STRING(
         "{\"hashrate\":0,\"hashrate_avg\":0,\"temp_c\":0,"
@@ -104,7 +158,7 @@ void test_stats_zeroed(void)
         "\"asic_hw_error_pct_1m\":null,\"asic_hw_error_pct_10m\":null,\"asic_hw_error_pct_1h\":null,"
         "\"pool_effective_hashrate\":0,\"asic_chips\":[]}",
         json);
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_stats_no_share_yet(void)
@@ -118,9 +172,8 @@ void test_stats_no_share_yet(void)
     s.now_us           = 61000000LL;  /* 60 s uptime */
     s.pool_effective_hashrate = -1.0; /* no shares yet → null */
 
-    bb_json_t root = bb_json_obj_new();
-    build_stats_json(&s, root);
-    char *json = serialize_and_free(root);
+    char *json = capture_stats(&s);
+    TEST_ASSERT_NOT_NULL(json);
 
     /* uptime_s = 60, last_share_ago_s = -1
      * ASIC fields all zero (zero-init snapshot) */
@@ -140,9 +193,77 @@ void test_stats_no_share_yet(void)
         "\"asic_hw_error_pct_1m\":null,\"asic_hw_error_pct_10m\":null,\"asic_hw_error_pct_1h\":null,"
         "\"pool_effective_hashrate\":null,\"asic_chips\":[]}";
     TEST_ASSERT_EQUAL_STRING(expected, json);
-    bb_json_free_str(json);
+    free(json);
 }
 #endif /* ASIC_CHIP */
+
+#ifndef ASIC_CHIP
+void test_stats_non_asic_happy_path(void)
+{
+    /* Non-ASIC path: hashrate_1m/10m/1h + pool_effective_hashrate + hw_error_pct fields */
+    stats_snapshot_t s = {0};
+    s.hw_rate    = 223000.0;
+    s.hw_ema     = 215000.0;
+    s.temp_c     = 42.5f;
+    s.hw_shares  = 7;
+    s.session_shares  = 5;
+    s.session_rejected = 0;
+    s.session_rejected_other_last_code = -1;
+    s.last_share_us    = 10000000LL;
+    s.session_start_us = 5000000LL;
+    s.best_diff        = 131072.0;
+    s.expected_ghs     = 500.0;
+    s.now_us           = 15000000LL;
+    s.hashrate_1m             = 220000.0;
+    s.hashrate_10m            = 218000.0;
+    s.hashrate_1h             = 215000.0;
+    s.pool_effective_hashrate = 210000.0;
+    s.hw_error_pct_1m         = 0.1;
+    s.hw_error_pct_10m        = 0.2;
+    s.hw_error_pct_1h         = 0.15;
+
+    char *json = capture_stats(&s);
+    TEST_ASSERT_NOT_NULL(json);
+
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"hashrate_1m\":220000"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"hashrate_10m\":218000"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"hashrate_1h\":215000"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"pool_effective_hashrate\":210000"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"hw_error_pct_1m\":0.1"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"hw_error_pct_10m\":0.2"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"hw_error_pct_1h\":0.15"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"expected_ghs\":500"));
+    free(json);
+}
+
+void test_stats_non_asic_all_windows_null(void)
+{
+    /* Non-ASIC: all rolling windows set to sentinel (-1) → emit null */
+    stats_snapshot_t s = {0};
+    s.session_rejected_other_last_code = -1;
+    s.expected_ghs            = -1.0;
+    s.hashrate_1m             = -1.0;
+    s.hashrate_10m            = -1.0;
+    s.hashrate_1h             = -1.0;
+    s.pool_effective_hashrate = -1.0;
+    s.hw_error_pct_1m         = -1.0;
+    s.hw_error_pct_10m        = -1.0;
+    s.hw_error_pct_1h         = -1.0;
+
+    char *json = capture_stats(&s);
+    TEST_ASSERT_NOT_NULL(json);
+
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"hashrate_1m\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"hashrate_10m\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"hashrate_1h\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"pool_effective_hashrate\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"hw_error_pct_1m\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"hw_error_pct_10m\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"hw_error_pct_1h\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"expected_ghs\":null"));
+    free(json);
+}
+#endif /* !ASIC_CHIP */
 
 /* ============================================================================
  * /api/pool
@@ -719,16 +840,15 @@ void test_settings_happy_path(void)
     s.knot_en        = false;
     s.provisioned    = true;
 
-    bb_json_t root = bb_json_obj_new();
-    build_settings_json(&s, root);
-    char *json = serialize_and_free(root);
+    char *json = capture_settings(&s);
+    TEST_ASSERT_NOT_NULL(json);
 
     TEST_ASSERT_EQUAL_STRING(
         "{\"hostname\":\"acme-miner\","
         "\"display_en\":true,\"ota_skip_check\":false,"
         "\"mdns_en\":false,\"knot_en\":false,\"provisioned\":true}",
         json);
-    bb_json_free_str(json);
+    free(json);
 }
 
 void test_settings_empty_optional_fields(void)
@@ -742,16 +862,37 @@ void test_settings_empty_optional_fields(void)
     s.knot_en        = false;
     s.provisioned    = false;
 
-    bb_json_t root = bb_json_obj_new();
-    build_settings_json(&s, root);
-    char *json = serialize_and_free(root);
+    char *json = capture_settings(&s);
+    TEST_ASSERT_NOT_NULL(json);
 
     TEST_ASSERT_EQUAL_STRING(
         "{\"hostname\":\"\","
         "\"display_en\":false,\"ota_skip_check\":true,"
         "\"mdns_en\":false,\"knot_en\":false,\"provisioned\":false}",
         json);
-    bb_json_free_str(json);
+    free(json);
+}
+
+void test_settings_all_bools_true(void)
+{
+    /* All boolean flags set to true — covers all bool branches */
+    settings_snapshot_t s = {0};
+    strncpy(s.hostname, "taipan-test", sizeof(s.hostname) - 1);
+    s.display_en     = true;
+    s.ota_skip_check = true;
+    s.mdns_en        = true;
+    s.knot_en        = true;
+    s.provisioned    = true;
+
+    char *json = capture_settings(&s);
+    TEST_ASSERT_NOT_NULL(json);
+
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"display_en\":true"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"ota_skip_check\":true"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"mdns_en\":true"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"knot_en\":true"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"provisioned\":true"));
+    free(json);
 }
 
 /* /api/power and /api/fan ASIC tests are in test_routes_json_asic.c */

@@ -27,121 +27,127 @@
  * /api/stats
  * ========================================================================= */
 
-void build_stats_json(const stats_snapshot_t *s, bb_json_t root)
+void emit_stats_json(bb_http_json_obj_stream_t *obj, const stats_snapshot_t *snap)
 {
-    int64_t uptime_s = (s->session_start_us > 0)
-                       ? (s->now_us - s->session_start_us) / 1000000
+    int64_t uptime_s = (snap->session_start_us > 0)
+                       ? (snap->now_us - snap->session_start_us) / 1000000
                        : 0;
-    int64_t last_share_ago_s = (s->last_share_us > 0)
-                               ? (s->now_us - s->last_share_us) / 1000000
+    int64_t last_share_ago_s = (snap->last_share_us > 0)
+                               ? (snap->now_us - snap->last_share_us) / 1000000
                                : -1;
 
-    bb_json_obj_set_number(root, "hashrate",        s->hw_rate);
-    bb_json_obj_set_number(root, "hashrate_avg",    s->hw_ema);
-    bb_json_obj_set_number(root, "temp_c",          (double)s->temp_c);
-    bb_json_obj_set_number(root, "shares",          s->hw_shares);
-    bb_json_obj_set_number(root, "session_shares",  s->session_shares);
-    bb_json_obj_set_number(root, "session_rejected", s->session_rejected);
-    bb_json_obj_set_number(root, "session_blocks_found", (double)s->session_blocks_found);
-    bb_json_obj_set_number(root, "session_best_diff_ts", (double)s->session_best_diff_ts);
-    bb_json_obj_set_number(root, "session_last_block_ts", (double)s->session_last_block_ts);
+    bb_http_resp_json_obj_set_num(obj, "hashrate",        snap->hw_rate);
+    bb_http_resp_json_obj_set_num(obj, "hashrate_avg",    snap->hw_ema);
+    bb_http_resp_json_obj_set_num(obj, "temp_c",          (double)snap->temp_c);
+    bb_http_resp_json_obj_set_int(obj, "shares",          (int64_t)snap->hw_shares);
+    bb_http_resp_json_obj_set_int(obj, "session_shares",  (int64_t)snap->session_shares);
+    bb_http_resp_json_obj_set_int(obj, "session_rejected",(int64_t)snap->session_rejected);
+    bb_http_resp_json_obj_set_int(obj, "session_blocks_found", (int64_t)snap->session_blocks_found);
+    bb_http_resp_json_obj_set_int(obj, "session_best_diff_ts", snap->session_best_diff_ts);
+    bb_http_resp_json_obj_set_int(obj, "session_last_block_ts", snap->session_last_block_ts);
 
-    bb_json_t rejected = bb_json_obj_new();
-    bb_json_obj_set_number(rejected, "total",           (double)s->session_rejected);
-    bb_json_obj_set_number(rejected, "job_not_found",   (double)s->session_rejected_job_not_found);
-    bb_json_obj_set_number(rejected, "low_difficulty",  (double)s->session_rejected_low_difficulty);
-    bb_json_obj_set_number(rejected, "duplicate",       (double)s->session_rejected_duplicate);
-    bb_json_obj_set_number(rejected, "stale_prevhash",  (double)s->session_rejected_stale_prevhash);
-    bb_json_obj_set_number(rejected, "other",           (double)s->session_rejected_other);
-    bb_json_obj_set_number(rejected, "other_last_code", (double)s->session_rejected_other_last_code);
-    bb_json_obj_set_obj(root, "rejected", rejected);
+    bb_http_resp_json_obj_set_obj_begin(obj, "rejected");
+    bb_http_resp_json_obj_set_int(obj, "total",           (int64_t)snap->session_rejected);
+    bb_http_resp_json_obj_set_int(obj, "job_not_found",   (int64_t)snap->session_rejected_job_not_found);
+    bb_http_resp_json_obj_set_int(obj, "low_difficulty",  (int64_t)snap->session_rejected_low_difficulty);
+    bb_http_resp_json_obj_set_int(obj, "duplicate",       (int64_t)snap->session_rejected_duplicate);
+    bb_http_resp_json_obj_set_int(obj, "stale_prevhash",  (int64_t)snap->session_rejected_stale_prevhash);
+    bb_http_resp_json_obj_set_int(obj, "other",           (int64_t)snap->session_rejected_other);
+    bb_http_resp_json_obj_set_int(obj, "other_last_code", (int64_t)snap->session_rejected_other_last_code);
+    bb_http_resp_json_obj_set_obj_end(obj);
 
-    bb_json_obj_set_number(root, "last_share_ago_s",  (double)last_share_ago_s);
+    bb_http_resp_json_obj_set_int(obj, "last_share_ago_s", last_share_ago_s);
+    bb_http_resp_json_obj_set_num(obj, "best_diff",        snap->best_diff);
+    bb_http_resp_json_obj_set_int(obj, "uptime_s",         uptime_s);
 
-    bb_json_obj_set_number(root, "best_diff",         s->best_diff);
-    bb_json_obj_set_number(root, "uptime_s",          (double)uptime_s);
-
-    if (s->expected_ghs >= 0.0) {
-        bb_json_obj_set_number(root, "expected_ghs", s->expected_ghs);
+    if (snap->expected_ghs >= 0.0) {
+        bb_http_resp_json_obj_set_num(obj, "expected_ghs", snap->expected_ghs);
     } else {
-        bb_json_obj_set_null(root, "expected_ghs");
+        bb_http_resp_json_obj_set_null(obj, "expected_ghs");
     }
 
 #ifndef ASIC_CHIP
-    EMIT_NULLABLE(hashrate_1m,              "hashrate_1m");
-    EMIT_NULLABLE(hashrate_10m,             "hashrate_10m");
-    EMIT_NULLABLE(hashrate_1h,              "hashrate_1h");
-    EMIT_NULLABLE(pool_effective_hashrate,  "pool_effective_hashrate");
-    EMIT_NULLABLE(hw_error_pct_1m,  "hw_error_pct_1m");
-    EMIT_NULLABLE(hw_error_pct_10m, "hw_error_pct_10m");
-    EMIT_NULLABLE(hw_error_pct_1h,  "hw_error_pct_1h");
+    if (snap->hashrate_1m >= 0.0)             bb_http_resp_json_obj_set_num(obj, "hashrate_1m",             snap->hashrate_1m);
+    else                                      bb_http_resp_json_obj_set_null(obj, "hashrate_1m");
+    if (snap->hashrate_10m >= 0.0)            bb_http_resp_json_obj_set_num(obj, "hashrate_10m",            snap->hashrate_10m);
+    else                                      bb_http_resp_json_obj_set_null(obj, "hashrate_10m");
+    if (snap->hashrate_1h >= 0.0)             bb_http_resp_json_obj_set_num(obj, "hashrate_1h",             snap->hashrate_1h);
+    else                                      bb_http_resp_json_obj_set_null(obj, "hashrate_1h");
+    if (snap->pool_effective_hashrate >= 0.0) bb_http_resp_json_obj_set_num(obj, "pool_effective_hashrate", snap->pool_effective_hashrate);
+    else                                      bb_http_resp_json_obj_set_null(obj, "pool_effective_hashrate");
+    if (snap->hw_error_pct_1m >= 0.0)         bb_http_resp_json_obj_set_num(obj, "hw_error_pct_1m",         snap->hw_error_pct_1m);
+    else                                      bb_http_resp_json_obj_set_null(obj, "hw_error_pct_1m");
+    if (snap->hw_error_pct_10m >= 0.0)        bb_http_resp_json_obj_set_num(obj, "hw_error_pct_10m",        snap->hw_error_pct_10m);
+    else                                      bb_http_resp_json_obj_set_null(obj, "hw_error_pct_10m");
+    if (snap->hw_error_pct_1h >= 0.0)         bb_http_resp_json_obj_set_num(obj, "hw_error_pct_1h",         snap->hw_error_pct_1h);
+    else                                      bb_http_resp_json_obj_set_null(obj, "hw_error_pct_1h");
 #endif
 
 #ifdef ASIC_CHIP
-    bb_json_obj_set_number(root, "asic_hashrate",     s->asic_rate);
-    bb_json_obj_set_number(root, "asic_hashrate_avg", s->asic_ema);
-    bb_json_obj_set_number(root, "asic_shares",       s->asic_shares);
-    bb_json_obj_set_number(root, "asic_temp_c",       (double)s->asic_temp_c);
-    EMIT_NULLABLE(asic_freq_cfg, "asic_freq_configured_mhz");
-    EMIT_NULLABLE(asic_freq_eff, "asic_freq_effective_mhz");
-    bb_json_obj_set_number(root, "asic_small_cores", s->asic_small_cores);
-    bb_json_obj_set_number(root, "asic_count",       s->asic_count);
-    if (s->asic_total_valid) {
-        bb_json_obj_set_number(root, "asic_total_ghs",      (double)s->asic_total_ghs);
-        bb_json_obj_set_number(root, "asic_hw_error_pct",   (double)s->asic_hw_error_pct);
-        EMIT_NULLABLE(asic_total_ghs_1m,   "asic_total_ghs_1m");
-        EMIT_NULLABLE(asic_total_ghs_10m,  "asic_total_ghs_10m");
-        EMIT_NULLABLE(asic_total_ghs_1h,   "asic_total_ghs_1h");
-        EMIT_NULLABLE(asic_hw_error_pct_1m,  "asic_hw_error_pct_1m");
-        EMIT_NULLABLE(asic_hw_error_pct_10m, "asic_hw_error_pct_10m");
-        EMIT_NULLABLE(asic_hw_error_pct_1h,  "asic_hw_error_pct_1h");
+    bb_http_resp_json_obj_set_num(obj, "asic_hashrate",     snap->asic_rate);
+    bb_http_resp_json_obj_set_num(obj, "asic_hashrate_avg", snap->asic_ema);
+    bb_http_resp_json_obj_set_int(obj, "asic_shares",       (int64_t)snap->asic_shares);
+    bb_http_resp_json_obj_set_num(obj, "asic_temp_c",       (double)snap->asic_temp_c);
+    if (snap->asic_freq_cfg >= 0.0f) bb_http_resp_json_obj_set_num(obj, "asic_freq_configured_mhz", (double)snap->asic_freq_cfg);
+    else                             bb_http_resp_json_obj_set_null(obj, "asic_freq_configured_mhz");
+    if (snap->asic_freq_eff >= 0.0f) bb_http_resp_json_obj_set_num(obj, "asic_freq_effective_mhz", (double)snap->asic_freq_eff);
+    else                             bb_http_resp_json_obj_set_null(obj, "asic_freq_effective_mhz");
+    bb_http_resp_json_obj_set_int(obj, "asic_small_cores", (int64_t)snap->asic_small_cores);
+    bb_http_resp_json_obj_set_int(obj, "asic_count",       (int64_t)snap->asic_count);
+    if (snap->asic_total_valid) {
+        bb_http_resp_json_obj_set_num(obj, "asic_total_ghs",    (double)snap->asic_total_ghs);
+        bb_http_resp_json_obj_set_num(obj, "asic_hw_error_pct", (double)snap->asic_hw_error_pct);
+        if (snap->asic_total_ghs_1m >= 0.0f)   bb_http_resp_json_obj_set_num(obj, "asic_total_ghs_1m",   (double)snap->asic_total_ghs_1m);
+        else                                    bb_http_resp_json_obj_set_null(obj, "asic_total_ghs_1m");
+        if (snap->asic_total_ghs_10m >= 0.0f)  bb_http_resp_json_obj_set_num(obj, "asic_total_ghs_10m",  (double)snap->asic_total_ghs_10m);
+        else                                    bb_http_resp_json_obj_set_null(obj, "asic_total_ghs_10m");
+        if (snap->asic_total_ghs_1h >= 0.0f)   bb_http_resp_json_obj_set_num(obj, "asic_total_ghs_1h",   (double)snap->asic_total_ghs_1h);
+        else                                    bb_http_resp_json_obj_set_null(obj, "asic_total_ghs_1h");
+        if (snap->asic_hw_error_pct_1m >= 0.0f)  bb_http_resp_json_obj_set_num(obj, "asic_hw_error_pct_1m",  (double)snap->asic_hw_error_pct_1m);
+        else                                      bb_http_resp_json_obj_set_null(obj, "asic_hw_error_pct_1m");
+        if (snap->asic_hw_error_pct_10m >= 0.0f) bb_http_resp_json_obj_set_num(obj, "asic_hw_error_pct_10m", (double)snap->asic_hw_error_pct_10m);
+        else                                      bb_http_resp_json_obj_set_null(obj, "asic_hw_error_pct_10m");
+        if (snap->asic_hw_error_pct_1h >= 0.0f)  bb_http_resp_json_obj_set_num(obj, "asic_hw_error_pct_1h",  (double)snap->asic_hw_error_pct_1h);
+        else                                      bb_http_resp_json_obj_set_null(obj, "asic_hw_error_pct_1h");
     } else {
-        bb_json_obj_set_null(root, "asic_total_ghs");
-        bb_json_obj_set_null(root, "asic_hw_error_pct");
-        bb_json_obj_set_null(root, "asic_total_ghs_1m");
-        bb_json_obj_set_null(root, "asic_total_ghs_10m");
-        bb_json_obj_set_null(root, "asic_total_ghs_1h");
-        bb_json_obj_set_null(root, "asic_hw_error_pct_1m");
-        bb_json_obj_set_null(root, "asic_hw_error_pct_10m");
-        bb_json_obj_set_null(root, "asic_hw_error_pct_1h");
+        bb_http_resp_json_obj_set_null(obj, "asic_total_ghs");
+        bb_http_resp_json_obj_set_null(obj, "asic_hw_error_pct");
+        bb_http_resp_json_obj_set_null(obj, "asic_total_ghs_1m");
+        bb_http_resp_json_obj_set_null(obj, "asic_total_ghs_10m");
+        bb_http_resp_json_obj_set_null(obj, "asic_total_ghs_1h");
+        bb_http_resp_json_obj_set_null(obj, "asic_hw_error_pct_1m");
+        bb_http_resp_json_obj_set_null(obj, "asic_hw_error_pct_10m");
+        bb_http_resp_json_obj_set_null(obj, "asic_hw_error_pct_1h");
     }
+    if (snap->pool_effective_hashrate >= 0.0) bb_http_resp_json_obj_set_num(obj, "pool_effective_hashrate", snap->pool_effective_hashrate);
+    else                                      bb_http_resp_json_obj_set_null(obj, "pool_effective_hashrate");
 
-    EMIT_NULLABLE(pool_effective_hashrate, "pool_effective_hashrate");
-
-    bb_json_t chips_arr = bb_json_arr_new();
-    for (int c = 0; c < s->n_chips; c++) {
-        bb_json_t chip_obj = bb_json_obj_new();
-        bb_json_obj_set_number(chip_obj, "idx",         c);
-        bb_json_obj_set_number(chip_obj, "total_ghs",   (double)s->chips[c].total_ghs);
-        bb_json_obj_set_number(chip_obj, "error_ghs",   (double)s->chips[c].error_ghs);
-        bb_json_obj_set_number(chip_obj, "hw_err_pct",  (double)s->chips[c].hw_err_pct);
-        bb_json_obj_set_number(chip_obj, "total_raw",   (double)s->chips[c].total_raw);
-        bb_json_obj_set_number(chip_obj, "error_raw",   (double)s->chips[c].error_raw);
-        bb_json_obj_set_number(chip_obj, "total_drops", s->chips[c].total_drops);
-        bb_json_obj_set_number(chip_obj, "error_drops", s->chips[c].error_drops);
-
-        if (s->chips[c].last_drop_us == 0 || s->now_us < (int64_t)s->chips[c].last_drop_us) {
-            bb_json_obj_set_null(chip_obj, "last_drop_ago_s");
+    bb_http_resp_json_obj_set_arr_begin(obj, "asic_chips");
+    for (int c = 0; c < snap->n_chips; c++) {
+        bb_http_resp_json_obj_set_obj_begin(obj, NULL);
+        bb_http_resp_json_obj_set_int(obj, "idx",         (int64_t)c);
+        bb_http_resp_json_obj_set_num(obj, "total_ghs",   (double)snap->chips[c].total_ghs);
+        bb_http_resp_json_obj_set_num(obj, "error_ghs",   (double)snap->chips[c].error_ghs);
+        bb_http_resp_json_obj_set_num(obj, "hw_err_pct",  (double)snap->chips[c].hw_err_pct);
+        bb_http_resp_json_obj_set_int(obj, "total_raw",   (int64_t)snap->chips[c].total_raw);
+        bb_http_resp_json_obj_set_int(obj, "error_raw",   (int64_t)snap->chips[c].error_raw);
+        bb_http_resp_json_obj_set_num(obj, "total_drops", (double)snap->chips[c].total_drops);
+        bb_http_resp_json_obj_set_num(obj, "error_drops", (double)snap->chips[c].error_drops);
+        if (snap->chips[c].last_drop_us == 0 || snap->now_us < (int64_t)snap->chips[c].last_drop_us) {
+            bb_http_resp_json_obj_set_null(obj, "last_drop_ago_s");
         } else {
-            uint64_t ago_us = (uint64_t)s->now_us - s->chips[c].last_drop_us;
-            bb_json_obj_set_number(chip_obj, "last_drop_ago_s", (double)(ago_us / 1000000ULL));
+            uint64_t ago_us = (uint64_t)snap->now_us - snap->chips[c].last_drop_us;
+            bb_http_resp_json_obj_set_num(obj, "last_drop_ago_s", (double)(ago_us / 1000000ULL));
         }
-
-        bb_json_t domains_arr = bb_json_arr_new();
-        for (int d = 0; d < 4; d++) {
-            bb_json_arr_append_number(domains_arr, (double)s->chips[c].domain_ghs[d]);
-        }
-        bb_json_obj_set_arr(chip_obj, "domain_ghs", domains_arr);
-
-        bb_json_t domains_drops_arr = bb_json_arr_new();
-        for (int d = 0; d < 4; d++) {
-            bb_json_arr_append_number(domains_drops_arr, s->chips[c].domain_drops[d]);
-        }
-        bb_json_obj_set_arr(chip_obj, "domain_drops", domains_drops_arr);
-
-        bb_json_arr_append_obj(chips_arr, chip_obj);
+        bb_http_resp_json_obj_set_arr_begin(obj, "domain_ghs");
+        for (int d = 0; d < 4; d++) bb_http_resp_json_obj_set_num(obj, NULL, (double)snap->chips[c].domain_ghs[d]);
+        bb_http_resp_json_obj_set_arr_end(obj);
+        bb_http_resp_json_obj_set_arr_begin(obj, "domain_drops");
+        for (int d = 0; d < 4; d++) bb_http_resp_json_obj_set_num(obj, NULL, (double)snap->chips[c].domain_drops[d]);
+        bb_http_resp_json_obj_set_arr_end(obj);
+        bb_http_resp_json_obj_set_obj_end(obj);
     }
-    bb_json_obj_set_arr(root, "asic_chips", chips_arr);
+    bb_http_resp_json_obj_set_arr_end(obj);
 #endif
 }
 
@@ -372,14 +378,14 @@ void build_knot_json(const knot_peer_t *peers, size_t n_peers, int64_t now_us, b
  * /api/settings GET
  * ========================================================================= */
 
-void build_settings_json(const settings_snapshot_t *s, bb_json_t root)
+void emit_settings_json(bb_http_json_obj_stream_t *obj, const settings_snapshot_t *snap)
 {
-    bb_json_obj_set_string(root, "hostname",      s->hostname);
-    bb_json_obj_set_bool(root,   "display_en",    s->display_en);
-    bb_json_obj_set_bool(root,   "ota_skip_check", s->ota_skip_check);
-    bb_json_obj_set_bool(root,   "mdns_en",       s->mdns_en);
-    bb_json_obj_set_bool(root,   "knot_en",       s->knot_en);
-    bb_json_obj_set_bool(root,   "provisioned",   s->provisioned);
+    bb_http_resp_json_obj_set_str(obj,  "hostname",       snap->hostname);
+    bb_http_resp_json_obj_set_bool(obj, "display_en",     snap->display_en);
+    bb_http_resp_json_obj_set_bool(obj, "ota_skip_check", snap->ota_skip_check);
+    bb_http_resp_json_obj_set_bool(obj, "mdns_en",        snap->mdns_en);
+    bb_http_resp_json_obj_set_bool(obj, "knot_en",        snap->knot_en);
+    bb_http_resp_json_obj_set_bool(obj, "provisioned",    snap->provisioned);
 }
 
 /* ============================================================================

@@ -155,100 +155,96 @@ void emit_stats_json(bb_http_json_obj_stream_t *obj, const stats_snapshot_t *sna
  * /api/pool
  * ========================================================================= */
 
-void build_pool_json(const pool_snapshot_t *s, bb_json_t root)
+void emit_pool_json(bb_http_json_obj_stream_t *obj,
+                    const pool_snapshot_t *s,
+                    const pool_stat_snapshot_t *stats,
+                    size_t stats_count)
 {
-    bb_json_obj_set_string(root, "host",   s->host);
-    bb_json_obj_set_number(root, "port",   (double)s->port);
-    bb_json_obj_set_string(root, "worker", s->worker);
-    bb_json_obj_set_string(root, "wallet", s->wallet);
-    bb_json_obj_set_bool(root,   "connected", s->connected);
+    bb_http_resp_json_obj_set_str(obj, "host",   s->host);
+    bb_http_resp_json_obj_set_int(obj, "port",   (int64_t)s->port);
+    bb_http_resp_json_obj_set_str(obj, "worker", s->worker);
+    bb_http_resp_json_obj_set_str(obj, "wallet", s->wallet);
+    bb_http_resp_json_obj_set_bool(obj, "connected", s->connected);
 
     if (s->has_session_start) {
-        bb_json_obj_set_number(root, "session_start_ago_s",
-                               (double)s->session_start_ago_s);
+        bb_http_resp_json_obj_set_int(obj, "session_start_ago_s", (int64_t)s->session_start_ago_s);
     } else {
-        bb_json_obj_set_null(root, "session_start_ago_s");
+        bb_http_resp_json_obj_set_null(obj, "session_start_ago_s");
     }
 
-    bb_json_obj_set_number(root, "current_difficulty", s->current_difficulty);
+    bb_http_resp_json_obj_set_num(obj, "current_difficulty", s->current_difficulty);
 
-    EMIT_NULLABLE(pool_effective_hashrate, "pool_effective_hashrate");
+    if (s->pool_effective_hashrate >= 0.0) bb_http_resp_json_obj_set_num(obj, "pool_effective_hashrate", s->pool_effective_hashrate);
+    else                                  bb_http_resp_json_obj_set_null(obj, "pool_effective_hashrate");
+    if (s->pool_effective_hashrate_1m >= 0.0) bb_http_resp_json_obj_set_num(obj, "pool_effective_hashrate_1m", s->pool_effective_hashrate_1m);
+    else                                     bb_http_resp_json_obj_set_null(obj, "pool_effective_hashrate_1m");
+    if (s->pool_effective_hashrate_10m >= 0.0) bb_http_resp_json_obj_set_num(obj, "pool_effective_hashrate_10m", s->pool_effective_hashrate_10m);
+    else                                      bb_http_resp_json_obj_set_null(obj, "pool_effective_hashrate_10m");
+    if (s->pool_effective_hashrate_1h >= 0.0) bb_http_resp_json_obj_set_num(obj, "pool_effective_hashrate_1h", s->pool_effective_hashrate_1h);
+    else                                     bb_http_resp_json_obj_set_null(obj, "pool_effective_hashrate_1h");
 
-    /* TA-363: rolling 1m/10m/1h pool-effective windows */
-    EMIT_NULLABLE(pool_effective_hashrate_1m, "pool_effective_hashrate_1m");
-    EMIT_NULLABLE(pool_effective_hashrate_10m, "pool_effective_hashrate_10m");
-    EMIT_NULLABLE(pool_effective_hashrate_1h, "pool_effective_hashrate_1h");
-
-    if (s->latency_ms >= 0) {
-        bb_json_obj_set_number(root, "latency_ms", (double)s->latency_ms);
-    } else {
-        bb_json_obj_set_null(root, "latency_ms");
-    }
+    if (s->latency_ms >= 0) bb_http_resp_json_obj_set_int(obj, "latency_ms", (int64_t)s->latency_ms);
+    else                   bb_http_resp_json_obj_set_null(obj, "latency_ms");
 
     if (s->extranonce1_len > 0) {
         char en1_hex[2 * ROUTES_JSON_EXTRANONCE1_MAX + 1];
         bytes_to_hex(s->extranonce1, s->extranonce1_len, en1_hex);
-        bb_json_obj_set_string(root, "extranonce1", en1_hex);
-        bb_json_obj_set_number(root, "extranonce2_size", (double)s->extranonce2_size);
+        bb_http_resp_json_obj_set_str(obj, "extranonce1", en1_hex);
+        bb_http_resp_json_obj_set_int(obj, "extranonce2_size", (int64_t)s->extranonce2_size);
         if (s->version_mask != 0) {
             char vm_hex[9];
             snprintf(vm_hex, sizeof(vm_hex), "%08lx", (unsigned long)s->version_mask);
-            bb_json_obj_set_string(root, "version_mask", vm_hex);
+            bb_http_resp_json_obj_set_str(obj, "version_mask", vm_hex);
         } else {
-            bb_json_obj_set_null(root, "version_mask");
+            bb_http_resp_json_obj_set_null(obj, "version_mask");
         }
     } else {
-        bb_json_obj_set_null(root, "extranonce1");
-        bb_json_obj_set_null(root, "extranonce2_size");
-        bb_json_obj_set_null(root, "version_mask");
+        bb_http_resp_json_obj_set_null(obj, "extranonce1");
+        bb_http_resp_json_obj_set_null(obj, "extranonce2_size");
+        bb_http_resp_json_obj_set_null(obj, "version_mask");
     }
 
     if (s->has_notify) {
-        bb_json_t nobj = bb_json_obj_new();
-        bb_json_obj_set_string(nobj, "job_id", s->job_id);
+        bb_http_resp_json_obj_set_obj_begin(obj, "notify");
+        bb_http_resp_json_obj_set_str(obj, "job_id", s->job_id);
 
         char prevhash_hex[65];
         bytes_to_hex(s->prevhash, 32, prevhash_hex);
-        bb_json_obj_set_string(nobj, "prev_hash", prevhash_hex);
+        bb_http_resp_json_obj_set_str(obj, "prev_hash", prevhash_hex);
 
         char coinb1_hex[2 * ROUTES_JSON_MAX_COINB + 1];
         bytes_to_hex(s->coinb1, s->coinb1_len, coinb1_hex);
-        bb_json_obj_set_string(nobj, "coinb1", coinb1_hex);
+        bb_http_resp_json_obj_set_str(obj, "coinb1", coinb1_hex);
 
         char coinb2_hex[2 * ROUTES_JSON_MAX_COINB + 1];
         bytes_to_hex(s->coinb2, s->coinb2_len, coinb2_hex);
-        bb_json_obj_set_string(nobj, "coinb2", coinb2_hex);
+        bb_http_resp_json_obj_set_str(obj, "coinb2", coinb2_hex);
 
-        bb_json_t mb = bb_json_arr_new();
+        bb_http_resp_json_obj_set_arr_begin(obj, "merkle_branches");
         for (size_t i = 0; i < s->merkle_count; i++) {
             char br_hex[65];
             bytes_to_hex(s->merkle_branches[i], 32, br_hex);
-            bb_json_arr_append_string(mb, br_hex);
+            bb_http_resp_json_obj_set_str(obj, NULL, br_hex);
         }
-        bb_json_obj_set_arr(nobj, "merkle_branches", mb);
+        bb_http_resp_json_obj_set_arr_end(obj);
 
         char hex8[9];
         snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)s->version);
-        bb_json_obj_set_string(nobj, "version", hex8);
+        bb_http_resp_json_obj_set_str(obj, "version", hex8);
         snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)s->nbits);
-        bb_json_obj_set_string(nobj, "nbits", hex8);
+        bb_http_resp_json_obj_set_str(obj, "nbits", hex8);
         snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)s->ntime);
-        bb_json_obj_set_string(nobj, "ntime", hex8);
+        bb_http_resp_json_obj_set_str(obj, "ntime", hex8);
 
-        bb_json_obj_set_bool(nobj, "clean_jobs", s->clean_jobs);
-        bb_json_obj_set_obj(root, "notify", nobj);
+        bb_http_resp_json_obj_set_bool(obj, "clean_jobs", s->clean_jobs);
+        bb_http_resp_json_obj_set_obj_end(obj);
     } else {
-        bb_json_obj_set_null(root, "notify");
+        bb_http_resp_json_obj_set_null(obj, "notify");
     }
 
-    /* active_pool_idx — -1 if not connected */
-    if (s->active_pool_idx >= 0) {
-        bb_json_obj_set_number(root, "active_pool_idx", (double)s->active_pool_idx);
-    } else {
-        bb_json_obj_set_null(root, "active_pool_idx");
-    }
+    if (s->active_pool_idx >= 0) bb_http_resp_json_obj_set_int(obj, "active_pool_idx", (int64_t)s->active_pool_idx);
+    else                        bb_http_resp_json_obj_set_null(obj, "active_pool_idx");
 
-    /* TA-306: extranonce.subscribe status for the active session */
     {
         const char *sub_str;
         switch (s->extranonce_subscribe_status) {
@@ -257,92 +253,76 @@ void build_pool_json(const pool_snapshot_t *s, bb_json_t root)
             case 3:  sub_str = "rejected"; break;
             default: sub_str = "off";      break;
         }
-        bb_json_obj_set_string(root, "extranonce_subscribe_status", sub_str);
+        bb_http_resp_json_obj_set_str(obj, "extranonce_subscribe_status", sub_str);
     }
 
-    /* Device-lifetime block counter (survives LRU pool slot eviction).
-     * Per-pool stats array is emitted by pool_handler via
-     * emit_pool_stats_json() to keep this snapshot stack-friendly. */
-    bb_json_obj_set_number(root, "lifetime_blocks_total",
-                           (double)s->lifetime_blocks_total);
-    bb_json_obj_set_number(root, "lifetime_last_block_ts",
-                           (double)s->lifetime_last_block_ts);
+    bb_http_resp_json_obj_set_int(obj, "lifetime_blocks_total",  (int64_t)s->lifetime_blocks_total);
+    bb_http_resp_json_obj_set_int(obj, "lifetime_last_block_ts", s->lifetime_last_block_ts);
 
-    /* configured pools — expose persisted config (TA-290/TA-202) */
-    bb_json_t cfg_obj = bb_json_obj_new();
+    bb_http_resp_json_obj_set_obj_begin(obj, "configured");
     for (int i = 0; i < 2; i++) {
+        const char *cfg_key = (i == 0) ? "primary" : "fallback";
         if (s->configured[i].configured) {
-            bb_json_t pool_cfg = bb_json_obj_new();
-            bb_json_obj_set_string(pool_cfg, "host",   s->configured[i].host);
-            bb_json_obj_set_number(pool_cfg, "port",   (double)s->configured[i].port);
-            bb_json_obj_set_string(pool_cfg, "worker", s->configured[i].worker);
-            bb_json_obj_set_string(pool_cfg, "wallet", s->configured[i].wallet);
-            bb_json_obj_set_bool(pool_cfg, "extranonce_subscribe",
-                                 s->configured[i].extranonce_subscribe);
-            bb_json_obj_set_bool(pool_cfg, "decode_coinbase",
-                                 s->configured[i].decode_coinbase);
-            bb_json_obj_set_obj(cfg_obj, (i == 0) ? "primary" : "fallback", pool_cfg);
+            bb_http_resp_json_obj_set_obj_begin(obj, cfg_key);
+            bb_http_resp_json_obj_set_str(obj, "host",   s->configured[i].host);
+            bb_http_resp_json_obj_set_int(obj, "port",   (int64_t)s->configured[i].port);
+            bb_http_resp_json_obj_set_str(obj, "worker", s->configured[i].worker);
+            bb_http_resp_json_obj_set_str(obj, "wallet", s->configured[i].wallet);
+            bb_http_resp_json_obj_set_bool(obj, "extranonce_subscribe", s->configured[i].extranonce_subscribe);
+            bb_http_resp_json_obj_set_bool(obj, "decode_coinbase",      s->configured[i].decode_coinbase);
+            bb_http_resp_json_obj_set_obj_end(obj);
         } else {
-            bb_json_obj_set_null(cfg_obj, (i == 0) ? "primary" : "fallback");
+            bb_http_resp_json_obj_set_null(obj, cfg_key);
         }
     }
-    bb_json_obj_set_obj(root, "configured", cfg_obj);
-}
+    bb_http_resp_json_obj_set_obj_end(obj);
 
-void emit_pool_stats_json(bb_json_t root,
-                          const pool_stat_snapshot_t *stats,
-                          size_t count)
-{
-    bb_json_t stats_arr = bb_json_arr_new();
-    for (size_t i = 0; i < count; i++) {
-        bb_json_t stat_obj = bb_json_obj_new();
-        bb_json_obj_set_string(stat_obj, "host",          stats[i].host);
-        bb_json_obj_set_number(stat_obj, "port",          (double)stats[i].port);
-        bb_json_obj_set_number(stat_obj, "shares",        (double)stats[i].shares);
-        bb_json_obj_set_number(stat_obj, "hashes",        (double)stats[i].hashes);
-        bb_json_obj_set_number(stat_obj, "best_diff",     stats[i].best_diff);
-        bb_json_obj_set_number(stat_obj, "blocks_found",  (double)stats[i].blocks_found);
-        int64_t last_seen_s = stats[i].last_seen_us / 1000000;
-        bb_json_obj_set_number(stat_obj, "last_seen_s",   (double)last_seen_s);
-        bb_json_obj_set_number(stat_obj, "best_diff_ts",  (double)stats[i].best_diff_ts);
-        bb_json_obj_set_number(stat_obj, "last_block_ts", (double)stats[i].last_block_ts);
-        bb_json_arr_append_obj(stats_arr, stat_obj);
+    /* per-pool stats array */
+    bb_http_resp_json_obj_set_arr_begin(obj, "stats");
+    for (size_t i = 0; i < stats_count; i++) {
+        bb_http_resp_json_obj_set_obj_begin(obj, NULL);
+        bb_http_resp_json_obj_set_str(obj, "host",         stats[i].host);
+        bb_http_resp_json_obj_set_int(obj, "port",         (int64_t)stats[i].port);
+        bb_http_resp_json_obj_set_int(obj, "shares",       (int64_t)stats[i].shares);
+        bb_http_resp_json_obj_set_int(obj, "hashes",       (int64_t)stats[i].hashes);
+        bb_http_resp_json_obj_set_num(obj, "best_diff",    stats[i].best_diff);
+        bb_http_resp_json_obj_set_int(obj, "blocks_found", (int64_t)stats[i].blocks_found);
+        bb_http_resp_json_obj_set_int(obj, "last_seen_s",  (int64_t)(stats[i].last_seen_us / 1000000));
+        bb_http_resp_json_obj_set_int(obj, "best_diff_ts", stats[i].best_diff_ts);
+        bb_http_resp_json_obj_set_int(obj, "last_block_ts", stats[i].last_block_ts);
+        bb_http_resp_json_obj_set_obj_end(obj);
     }
-    bb_json_obj_set_arr(root, "stats", stats_arr);
+    bb_http_resp_json_obj_set_arr_end(obj);
 }
 
 /* ============================================================================
  * /api/diag/asic
  * ========================================================================= */
 
-void build_diag_asic_json(const diag_asic_snapshot_t *s, bb_json_t root)
+void emit_diag_asic_json(bb_http_json_obj_stream_t *obj, const diag_asic_snapshot_t *s)
 {
-    bb_json_t arr = bb_json_arr_new();
-
+    bb_http_resp_json_obj_set_arr_begin(obj, "recent_drops");
     for (size_t i = 0; i < s->n_drops; i++) {
         const routes_json_drop_event_t *d = &s->drops[i];
-        bb_json_t e = bb_json_obj_new();
-
         uint64_t age_us = (d->ts_us <= s->now_us) ? (s->now_us - d->ts_us) : 0;
-        bb_json_obj_set_number(e, "ts_ago_s",  (double)(age_us / 1000000ULL));
-        bb_json_obj_set_number(e, "chip",      (double)d->chip_idx);
-
         const char *kind_str;
         switch ((routes_json_drop_kind_t)d->kind) {
             case ROUTES_JSON_DROP_KIND_ERROR:  kind_str = "error";  break;
             case ROUTES_JSON_DROP_KIND_DOMAIN: kind_str = "domain"; break;
             default:                           kind_str = "total";  break;
         }
-        bb_json_obj_set_string(e, "kind",      kind_str);
-        bb_json_obj_set_number(e, "domain",    (double)d->domain_idx);
-        bb_json_obj_set_number(e, "addr",      (double)d->asic_addr);
-        bb_json_obj_set_number(e, "ghs",       (double)d->ghs);
-        bb_json_obj_set_number(e, "delta",     (double)d->delta);
-        bb_json_obj_set_number(e, "elapsed_s", (double)d->elapsed_s);
-        bb_json_arr_append_obj(arr, e);
+        bb_http_resp_json_obj_set_obj_begin(obj, NULL);
+        bb_http_resp_json_obj_set_num(obj, "ts_ago_s",  (double)(age_us / 1000000ULL));
+        bb_http_resp_json_obj_set_int(obj, "chip",      (int64_t)d->chip_idx);
+        bb_http_resp_json_obj_set_str(obj, "kind",      kind_str);
+        bb_http_resp_json_obj_set_int(obj, "domain",    (int64_t)d->domain_idx);
+        bb_http_resp_json_obj_set_int(obj, "addr",      (int64_t)d->asic_addr);
+        bb_http_resp_json_obj_set_num(obj, "ghs",       (double)d->ghs);
+        bb_http_resp_json_obj_set_int(obj, "delta",     (int64_t)d->delta);
+        bb_http_resp_json_obj_set_num(obj, "elapsed_s", (double)d->elapsed_s);
+        bb_http_resp_json_obj_set_obj_end(obj);
     }
-
-    bb_json_obj_set_arr(root, "recent_drops", arr);
+    bb_http_resp_json_obj_set_arr_end(obj);
 }
 
 /* ============================================================================
@@ -364,14 +344,6 @@ bb_json_t build_knot_peer_json(const knot_peer_t *peer, int64_t now_us)
     bb_json_obj_set_number(peer_obj, "seen_ago_s", (double)seen_ago_s);
 
     return peer_obj;
-}
-
-void build_knot_json(const knot_peer_t *peers, size_t n_peers, int64_t now_us, bb_json_t root)
-{
-    for (size_t i = 0; i < n_peers; i++) {
-        bb_json_t peer_obj = build_knot_peer_json(&peers[i], now_us);
-        bb_json_arr_append_obj(root, peer_obj);
-    }
 }
 
 /* ============================================================================
@@ -501,27 +473,27 @@ bb_err_t diag_bench_parse_request(const char *body, int body_len, uint32_t *out_
     return BB_OK;
 }
 
-void build_diag_bench_json(const diag_bench_snapshot_t *s, bb_json_t root)
+void emit_diag_bench_json(bb_http_json_obj_stream_t *obj, const diag_bench_snapshot_t *s)
 {
-    bb_json_obj_set_number(root, "iters",            (double)s->iters);
-    bb_json_obj_set_number(root, "duration_us",      (double)s->duration_us);
-    bb_json_obj_set_number(root, "us_per_op",        s->us_per_op);
-    bb_json_obj_set_number(root, "khs",              s->khs);
-    bb_json_obj_set_number(root, "sha_ops_per_sec", s->sha_ops_per_sec);
-    bb_json_obj_set_string(root, "backend",          s->backend ? s->backend : "sw");
+    bb_http_resp_json_obj_set_int(obj, "iters",               (int64_t)s->iters);
+    bb_http_resp_json_obj_set_int(obj, "duration_us",         s->duration_us);
+    bb_http_resp_json_obj_set_num(obj, "us_per_op",           s->us_per_op);
+    bb_http_resp_json_obj_set_num(obj, "khs",                 s->khs);
+    bb_http_resp_json_obj_set_num(obj, "sha_ops_per_sec",    s->sha_ops_per_sec);
+    bb_http_resp_json_obj_set_str(obj, "backend",             s->backend ? s->backend : "sw");
 
     /* Adaptive convergence fields */
-    bb_json_obj_set_bool(root,   "settled",             s->settled);
-    bb_json_obj_set_number(root, "settled_after_iters", (double)s->settled_after_iters);
-    bb_json_obj_set_number(root, "settled_iters",       (double)s->settled_iters);
-    bb_json_obj_set_number(root, "settled_total_us",    (double)s->settled_total_us);
+    bb_http_resp_json_obj_set_bool(obj, "settled",            s->settled);
+    bb_http_resp_json_obj_set_int(obj, "settled_after_iters", (int64_t)s->settled_after_iters);
+    bb_http_resp_json_obj_set_int(obj, "settled_iters",       (int64_t)s->settled_iters);
+    bb_http_resp_json_obj_set_int(obj, "settled_total_us",    s->settled_total_us);
 
-    bb_json_t canary = bb_json_obj_new();
-    bb_json_obj_set_string(canary, "text_overlap", s_overlap_str(s->text_overlap_state));
-    bb_json_obj_set_string(canary, "h_write",      s_overlap_str(s->h_write_state));
-    bb_json_obj_set_obj(root, "canary", canary);
+    bb_http_resp_json_obj_set_obj_begin(obj, "canary");
+    bb_http_resp_json_obj_set_str(obj, "text_overlap", s_overlap_str(s->text_overlap_state));
+    bb_http_resp_json_obj_set_str(obj, "h_write",      s_overlap_str(s->h_write_state));
+    bb_http_resp_json_obj_set_obj_end(obj);
 
     if (s->has_asic_active) {
-        bb_json_obj_set_bool(root, "asic_active", s->asic_active);
+        bb_http_resp_json_obj_set_bool(obj, "asic_active", s->asic_active);
     }
 }

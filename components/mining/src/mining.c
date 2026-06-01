@@ -350,6 +350,18 @@ void mining_stats_init(void)
     /* mining_stats_load_lifetime() replaced by mining_pool_stats_init() in main.c (step 2) */
 
 }
+
+void mining_stats_session_reset(void)
+{
+    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        memset(&mining_stats.session, 0, sizeof(mining_stats.session));
+        mining_stats.session.start_us = (int64_t)bb_timer_now_us();
+        mining_stats.session.rejected_other_last_code = -1;
+        xSemaphoreGive(mining_stats.mutex);
+    } else {
+        bb_log_w(TAG, "session_reset: mutex timeout");
+    }
+}
 #endif
 
 // Build the 64-byte block2 from header tail + SHA padding
@@ -700,6 +712,14 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                 /* Rare: candidate passed full target compare; pay the full
                  * validate cost (diff calc + low-difficulty floor check). */
                 verdict = share_validate(work, hash, &share_diff);
+                if (verdict == SHARE_VALID &&
+                    !share_reverify(work, params->ver_bits, nonce, hash)) {
+                    /* DPORT partial-corruption: HW hash passed target but the
+                     * SW recompute disagrees — drop, never count as share/
+                     * best_diff/block. Mirrors the all-zero guard above. */
+                    verdict = SHARE_BELOW_TARGET;
+                    bb_log_w(TAG, "dropped corrupt SHA read (reverify mismatch, nonce=%08" PRIx32 ")", nonce);
+                }
             }
 
             if (verdict == SHARE_BELOW_TARGET) {

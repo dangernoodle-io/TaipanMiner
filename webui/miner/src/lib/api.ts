@@ -437,6 +437,11 @@ export async function postReboot(): Promise<void> {
   if (!res.ok) throw new Error(`reboot failed: ${res.status}`)
 }
 
+export async function resetStats(): Promise<void> {
+  const res = await fetch(`${baseUrl}/api/stats/reset`, { method: 'POST' })
+  if (!res.ok) throw new Error(`reset stats failed: ${res.status}`)
+}
+
 // Lightweight liveness probe. Polls /api/health — any 200 means the device is up.
 export async function ping(timeoutMs = 2000): Promise<boolean> {
   const ctrl = new AbortController()

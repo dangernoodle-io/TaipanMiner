@@ -1,5 +1,7 @@
 #include "share_validate.h"
 #include "work.h"
+#include "sha256.h"
+#include "bb_byte_order.h"
 #include <string.h>
 
 share_verdict_t share_validate(
@@ -35,6 +37,22 @@ share_verdict_t share_validate(
     }
 
     return SHARE_VALID;
+}
+
+bool share_reverify(const mining_work_t *work, uint32_t ver_bits,
+                    uint32_t nonce, const uint8_t claimed[32])
+{
+    uint8_t hdr[80];
+    memcpy(hdr, work->header, 80);
+    uint32_t mask = work->version_mask;
+    if (mask) {
+        uint32_t rolled = (work->version & ~mask) | (ver_bits & mask);
+        bb_store_le32(hdr, rolled);   // header bytes 0..3, version LE
+    }
+    set_header_nonce(hdr, nonce);     // header bytes 76..79 LE
+    uint8_t sw[32];
+    sha256d(hdr, 80, sw);             // double-SHA256 into 32 bytes
+    return memcmp(sw, claimed, 32) == 0;
 }
 
 bool share_meets_network_target(const uint8_t hash[32], uint32_t nbits)

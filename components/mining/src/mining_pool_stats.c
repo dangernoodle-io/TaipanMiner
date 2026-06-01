@@ -439,6 +439,22 @@ void mining_pool_stats_save(void)
 #endif
 }
 
+void mining_pool_stats_reset(void)
+{
+#ifdef ESP_PLATFORM
+    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        memset(&mining_stats.pool_stats, 0, sizeof(mining_stats.pool_stats));
+        xSemaphoreGive(mining_stats.mutex);
+    } else {
+        bb_log_w(TAG, "reset: mutex timeout");
+        return;
+    }
+#else
+    memset(&s_table, 0, sizeof(s_table));
+#endif
+    mining_pool_stats_save();
+}
+
 mining_pool_stat_t *mining_pool_stats_find_or_alloc(const char *host, uint16_t port)
 {
     mining_pool_stats_t *ps = S_TABLE;

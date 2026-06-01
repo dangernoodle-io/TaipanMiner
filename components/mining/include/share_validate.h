@@ -32,3 +32,13 @@ share_verdict_t share_validate(
 // meets_target(). nbits is the raw uint32 as stored in mining_work_t.nbits
 // (matches the stratum job nbits field).
 bool share_meets_network_target(const uint8_t hash[32], uint32_t nbits);
+
+// Software re-verification of a candidate share produced by the HW-SHA path.
+// Reconstructs the 80-byte block header from work + ver_bits + nonce, runs
+// double-SHA256 in software, and compares against claimed[32].
+// Returns true iff the SW recompute matches claimed exactly.
+// Use this after share_validate() returns SHARE_VALID on the HW-SHA dongle
+// path to catch classic-ESP32 DPORT partial-corruption where a corrupt HW
+// hash passes the target compare but disagrees with a SW recompute.
+bool share_reverify(const mining_work_t *work, uint32_t ver_bits,
+                    uint32_t nonce, const uint8_t claimed[32]);

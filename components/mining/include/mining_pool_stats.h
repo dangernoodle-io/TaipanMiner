@@ -77,6 +77,15 @@ int64_t mining_pool_stats_lifetime_last_block_ts(void);
 const mining_pool_stat_t *mining_pool_stats_slot(int idx);
 
 /*
+ * Zero all in-RAM pool stats (all 8 slots + lifetime_blocks_total +
+ * lifetime_last_block_ts) and persist the zeroed state to NVS.
+ * Takes the mining_stats mutex internally on ESP_PLATFORM.
+ * Intended for the POST /api/stats/reset route (corrupt best_diff / phantom
+ * block recovery without requiring a full factory reset).
+ */
+void mining_pool_stats_reset(void);
+
+/*
  * Set the bb_event topic handle for "block.found" events.
  * Called from main.c after bb_event_topic_register.
  * Safe to call with NULL (disables event posting).

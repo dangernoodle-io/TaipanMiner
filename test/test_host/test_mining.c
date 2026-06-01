@@ -5,6 +5,8 @@
 #endif
 #include "work.h"
 #include "sha256.h"
+#include "share_validate.h"
+#include "bb_byte_order.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -541,6 +543,75 @@ void test_pack_target_word0_exact_byte_order(void)
     target[29] = 0x56;
     target[28] = 0x78;
     TEST_ASSERT_EQUAL_HEX32(0x12345678U, pack_target_word0(target));
+}
+
+// Test: share_reverify agrees with SW sha256d for block #1 winning nonce.
+//
+// Uses setup_block1_work (version_mask=0, ver_bits=0) so the no-roll path is
+// exercised. Computes the real hash via sha256d and checks:
+//   (a) genuine (work, ver_bits=0, nonce, real_hash) → true
+//   (b) real_hash with one byte flipped → false (simulates DPORT corruption)
+void test_share_reverify_block1_nonce(void)
+{
+    mining_work_t work;
+    setup_block1_work(&work);
+
+    const uint32_t winning_nonce = 0x9962e301;
+
+    // Reconstruct the real hash via SW sha256d (same path share_reverify uses).
+    uint8_t hdr[80];
+    memcpy(hdr, work.header, 80);
+    set_header_nonce(hdr, winning_nonce);
+    uint8_t real_hash[32];
+    sha256d(hdr, 80, real_hash);
+
+    // (a) Genuine hash must pass reverify.
+    TEST_ASSERT_TRUE(share_reverify(&work, 0, winning_nonce, real_hash));
+
+    // (b) Flip one byte to simulate a DPORT partial-corruption that slipped
+    //     past the target compare — reverify must reject it.
+    uint8_t corrupt_hash[32];
+    memcpy(corrupt_hash, real_hash, 32);
+    corrupt_hash[0] ^= 0xFF;
+    TEST_ASSERT_FALSE(share_reverify(&work, 0, winning_nonce, corrupt_hash));
+}
+
+// Test: share_reverify with version rolling (mask != 0) covers the roll branch.
+//
+// Uses the block #1 work but adds a version mask.  The rolled version is
+// computed identically to share_reverify's internal logic and burned into a
+// fresh header before sha256d so the expected hash matches.
+void test_share_reverify_version_rolling(void)
+{
+    mining_work_t work;
+    setup_block1_work(&work);
+
+    // Realistic BIP 320 mask; use ver_bits that differ from version in the
+    // masked bits so the roll actually changes the header bytes.
+    work.version_mask = 0x1FFFE000;
+    work.version      = 0x20000000;
+
+    const uint32_t ver_bits     = 0x00006000;   // within mask
+    const uint32_t winning_nonce = 0x9962e301;  // block #1 nonce (arbitrary, just needs a hash)
+
+    // Compute the rolled version exactly as share_reverify does.
+    uint32_t rolled = (work.version & ~work.version_mask) | (ver_bits & work.version_mask);
+
+    // Build the header with the rolled version and the nonce.
+    uint8_t hdr[80];
+    memcpy(hdr, work.header, 80);
+    bb_store_le32(hdr, rolled);
+    set_header_nonce(hdr, winning_nonce);
+
+    // Compute expected hash via sha256d.
+    uint8_t real_hash[32];
+    sha256d(hdr, 80, real_hash);
+
+    // (a) Genuine hash with correct ver_bits must pass.
+    TEST_ASSERT_TRUE(share_reverify(&work, ver_bits, winning_nonce, real_hash));
+
+    // (b) Wrong ver_bits (different rolled version) → hash mismatch → false.
+    TEST_ASSERT_FALSE(share_reverify(&work, 0x00002000, winning_nonce, real_hash));
 }
 
 // Test: sw_hash_nonce early-reject observable directly (not through mine_nonce_range).

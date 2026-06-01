@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render } from '@testing-library/svelte'
+import { render, fireEvent } from '@testing-library/svelte'
 import { stats, info, health } from '../lib/stores'
+import * as api from '../lib/api'
 
 vi.mock('../lib/api', () => ({
   fetchStats: vi.fn(),
@@ -10,7 +11,8 @@ vi.mock('../lib/api', () => ({
   fetchSettings: vi.fn(),
   fetchPool: vi.fn(),
   fetchHealth: vi.fn(),
-  ping: vi.fn()
+  ping: vi.fn(),
+  resetStats: vi.fn(),
 }))
 
 import System from './System.svelte'
@@ -224,6 +226,46 @@ describe('System', () => {
     } as any)
     const { component } = render(System)
     expect(component).toBeDefined()
+  })
+})
+
+describe('System — Reset stats action', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    stats.set(null)
+    info.set(null)
+    health.set(null)
+  })
+
+  it('renders a Reset stats button', () => {
+    const { getByText } = render(System)
+    expect(getByText('Reset stats')).toBeTruthy()
+  })
+
+  it('clicking Reset stats opens a ConfirmDialog', async () => {
+    const { getByText } = render(System)
+    await fireEvent.click(getByText('Reset stats'))
+    expect(getByText('Reset stats?')).toBeTruthy()
+  })
+
+  it('confirming the dialog calls resetStats', async () => {
+    vi.mocked(api.resetStats).mockResolvedValue(undefined)
+    vi.mocked(api.fetchStats).mockResolvedValue({ uptime_s: 0 } as any)
+    vi.mocked(api.fetchPool).mockResolvedValue({ connected: false } as any)
+    const { getByText } = render(System)
+    await fireEvent.click(getByText('Reset stats'))
+    await fireEvent.click(getByText('Reset'))
+    expect(api.resetStats).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows error message when resetStats fails', async () => {
+    vi.mocked(api.resetStats).mockRejectedValue(new Error('reset stats failed: 500'))
+    vi.mocked(api.fetchStats).mockResolvedValue({ uptime_s: 0 } as any)
+    vi.mocked(api.fetchPool).mockResolvedValue({ connected: false } as any)
+    const { getByText, findByText } = render(System)
+    await fireEvent.click(getByText('Reset stats'))
+    await fireEvent.click(getByText('Reset'))
+    expect(await findByText('reset stats failed: 500')).toBeTruthy()
   })
 })
 

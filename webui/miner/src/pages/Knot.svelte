@@ -66,7 +66,11 @@
 
   async function load() {
     try {
-      peers = (await fetchKnot()).sort((a, b) => a.hostname.localeCompare(b.hostname))
+      // Defensive: /api/knot should always be an array, but a truncated chunked
+      // response or an error object must not white-screen the page with a cryptic
+      // ".sort is not a function" — fall back to an empty peer set.
+      const data = await fetchKnot()
+      peers = (Array.isArray(data) ? data : []).sort((a, b) => a.hostname.localeCompare(b.hostname))
       loadErr = ''
       lastFetch = Date.now()
       refreshStats()  // pull stats for the (possibly changed) peer set immediately

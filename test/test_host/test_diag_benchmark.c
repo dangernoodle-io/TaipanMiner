@@ -3,7 +3,7 @@
  *
  * Tests cover:
  *  - diag_bench_parse_request: bounds validation and default handling
- *  - build_diag_bench_json: response JSON shape (exact keys)
+ *  - emit_diag_bench_json: response JSON shape (exact keys), capture-based
  *
  * The full HTTP handler (diag_benchmark_handler) lives in routes.c which is
  * ESP-only and not compiled for the native env.  The parsing and response-
@@ -13,9 +13,44 @@
 #include "unity.h"
 #include "routes_json.h"
 #include "bb_json.h"
+#include "bb_http.h"
+#include "bb_http_host.h"
 #include "bb_core.h"
 #include <string.h>
 #include <stdlib.h>
+
+/* ============================================================================
+ * Helpers
+ * ========================================================================= */
+
+/* Portable strdup — POSIX strdup is not declared under -std=c99 (glibc hides it
+ * without _POSIX_C_SOURCE), and an implicit decl truncates the 64-bit pointer
+ * return on LP64. */
+static char *dupstr(const char *s)
+{
+    if (!s) return NULL;
+    size_t n = strlen(s) + 1;
+    char *p = malloc(n);
+    if (p) memcpy(p, s, n);
+    return p;
+}
+
+/* Capture emit_diag_bench_json output into a heap string.
+ * Caller must free() the returned pointer. */
+static char *capture_bench(const diag_bench_snapshot_t *snap)
+{
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    emit_diag_bench_json(&obj, snap);
+    bb_http_resp_json_obj_end(&obj);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+    char *copy = dupstr(cap.body);
+    bb_http_host_capture_free(&cap);
+    return copy;
+}
 
 /* ============================================================================
  * diag_bench_parse_request tests
@@ -116,18 +151,8 @@ void test_diag_bench_parse_invalid_json_rejected(void)
 }
 
 /* ============================================================================
- * build_diag_bench_json response shape tests
+ * emit_diag_bench_json response shape tests (capture-based)
  * ========================================================================= */
-
-/* Helper: serialize snapshot and free root; returns heap string (caller frees) */
-static char *build_and_serialize(const diag_bench_snapshot_t *s)
-{
-    bb_json_t root = bb_json_obj_new();
-    build_diag_bench_json(s, root);
-    char *json = bb_json_serialize(root);
-    bb_json_free(root);
-    return json;
-}
 
 /* Happy path — non-ASIC "sw" backend: verify all required keys present */
 void test_diag_bench_json_shape_sw_backend(void)
@@ -149,7 +174,7 @@ void test_diag_bench_json_shape_sw_backend(void)
         .settled_total_us   = 7448,
     };
 
-    char *json = build_and_serialize(&s);
+    char *json = capture_bench(&s);
     TEST_ASSERT_NOT_NULL(json);
 
     /* Must contain all required top-level keys */
@@ -178,7 +203,7 @@ void test_diag_bench_json_shape_sw_backend(void)
     TEST_ASSERT_NOT_NULL(strstr(json, "\"text_overlap\":\"safe\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"h_write\":\"safe\""));
 
-    bb_json_free_str(json);
+    free(json);
 }
 
 /* ahb backend */
@@ -201,11 +226,11 @@ void test_diag_bench_json_shape_ahb_backend(void)
         .settled_total_us   = 18400,
     };
 
-    char *json = build_and_serialize(&s);
+    char *json = capture_bench(&s);
     TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"ahb\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"h_write\":\"unsafe\""));
-    bb_json_free_str(json);
+    free(json);
 }
 
 /* dport backend */
@@ -228,10 +253,10 @@ void test_diag_bench_json_shape_dport_backend(void)
         .settled_total_us   = 0,
     };
 
-    char *json = build_and_serialize(&s);
+    char *json = capture_bench(&s);
     TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"dport\""));
-    bb_json_free_str(json);
+    free(json);
 }
 
 /* asic_active field present when has_asic_active is true */
@@ -254,10 +279,10 @@ void test_diag_bench_json_asic_active_present_when_flagged(void)
         .settled_total_us   = 980,
     };
 
-    char *json = build_and_serialize(&s);
+    char *json = capture_bench(&s);
     TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"asic_active\":true"));
-    bb_json_free_str(json);
+    free(json);
 }
 
 /* Tristate canary: UNKNOWN (probe didn't run on D0/ASIC boards) */
@@ -280,12 +305,12 @@ void test_diag_bench_json_canary_unknown(void)
         .settled_total_us   = 980,
     };
 
-    char *json = build_and_serialize(&s);
+    char *json = capture_bench(&s);
     TEST_ASSERT_NOT_NULL(json);
     /* Both canaries emit "unknown" string, not conflated with false/unsafe */
     TEST_ASSERT_NOT_NULL(strstr(json, "\"text_overlap\":\"unknown\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"h_write\":\"unknown\""));
-    bb_json_free_str(json);
+    free(json);
 }
 
 /* Tristate canary: mixed state (text_overlap=UNSAFE, h_write=UNKNOWN) */
@@ -308,11 +333,11 @@ void test_diag_bench_json_canary_mixed(void)
         .settled_total_us   = 980,
     };
 
-    char *json = build_and_serialize(&s);
+    char *json = capture_bench(&s);
     TEST_ASSERT_NOT_NULL(json);
     TEST_ASSERT_NOT_NULL(strstr(json, "\"text_overlap\":\"unsafe\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"h_write\":\"unknown\""));
-    bb_json_free_str(json);
+    free(json);
 }
 
 /* ============================================================================
@@ -349,8 +374,12 @@ void test_diag_bench_json_khs_invariant(void)
         .settled_total_us   = 600,          /* min_bucket_us: 200 * 1000 / 333.333 = 600 us */
     };
 
-    bb_json_t root = bb_json_obj_new();
-    build_diag_bench_json(&s, root);
+    char *json = capture_bench(&s);
+    TEST_ASSERT_NOT_NULL(json);
+
+    bb_json_t root = bb_json_parse(json, 0);
+    TEST_ASSERT_NOT_NULL(root);
+    free(json);
 
     /* Verify khs is present and plausible (JSON round-trip) */
     bb_json_t j_khs = bb_json_obj_get_item(root, "khs");
@@ -364,9 +393,7 @@ void test_diag_bench_json_khs_invariant(void)
     double got_sha_kops = bb_json_item_get_double(j_sha);
     TEST_ASSERT_DOUBLE_WITHIN(0.01, 1000000.0, got_sha_kops);
 
-    /* Cross-check: sha_ops_per_sec (ops/s) / (khs * 1000) (nonces/s) ~= 3
-     * (Bitcoin double-SHA = 3 SHA ops/nonce on classic ESP32 D0).
-     * Fails if khs is incorrectly computed as 1/us_per_op instead of iters/duration_us. */
+    /* Cross-check: sha_ops_per_sec (ops/s) / (khs * 1000) (nonces/s) ~= 3 */
     double ratio = got_sha_kops / (got_khs * 1000.0);
     TEST_ASSERT_DOUBLE_WITHIN(0.01, 3.0, ratio);
 
@@ -409,8 +436,12 @@ void test_diag_bench_json_khs_invariant_ahb(void)
         .settled_total_us   = 400,          /* min_bucket_us: 200 * 1000 / 500.0 = 400 us */
     };
 
-    bb_json_t root = bb_json_obj_new();
-    build_diag_bench_json(&s, root);
+    char *json = capture_bench(&s);
+    TEST_ASSERT_NOT_NULL(json);
+
+    bb_json_t root = bb_json_parse(json, 0);
+    TEST_ASSERT_NOT_NULL(root);
+    free(json);
 
     bb_json_t j_khs = bb_json_obj_get_item(root, "khs");
     TEST_ASSERT_NOT_NULL(j_khs);
@@ -422,10 +453,7 @@ void test_diag_bench_json_khs_invariant_ahb(void)
     double got_sha_kops = bb_json_item_get_double(j_sha);
     TEST_ASSERT_DOUBLE_WITHIN(0.01, 1000000.0, got_sha_kops);
 
-    /* Cross-check: sha_ops_per_sec / (khs * 1000) ~= 2 for AHB.
-     * AHB uses midstate — only 2 SHA block ops per nonce (not 3 like DPORT).
-     * This invariant binds the live AHB bench helper after TA-401; would have
-     * caught the pre-fix ratio ≈ 1 (us_per_op was per-nonce, not per-SHA-op). */
+    /* Cross-check: sha_ops_per_sec / (khs * 1000) ~= 2 for AHB */
     double ratio = got_sha_kops / (got_khs * 1000.0);
     TEST_ASSERT_DOUBLE_WITHIN(0.01, 2.0, ratio);
 
@@ -462,7 +490,7 @@ void test_diag_bench_json_unsettled_fallback(void)
         .settled_total_us   = 0,
     };
 
-    char *json = build_and_serialize(&s);
+    char *json = capture_bench(&s);
     TEST_ASSERT_NOT_NULL(json);
 
     /* settled must be false */
@@ -490,5 +518,5 @@ void test_diag_bench_json_unsettled_fallback(void)
     TEST_ASSERT_DOUBLE_WITHIN(0.01, 2.5, bb_json_item_get_double(j_usop));
 
     bb_json_free(root);
-    bb_json_free_str(json);
+    free(json);
 }

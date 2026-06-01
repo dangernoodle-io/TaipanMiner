@@ -220,7 +220,13 @@ typedef struct {
     int                extranonce_subscribe_status;
 } pool_snapshot_t;
 
-void build_pool_json(const pool_snapshot_t *s, bb_json_t root);
+/* Emit /api/pool fields into an already-opened streaming JSON object.
+ * Emits the full pool object including configured{}, notify{}, and stats[].
+ * Caller does obj_begin / obj_end; this function emits fields only. */
+void emit_pool_json(bb_http_json_obj_stream_t *obj,
+                    const pool_snapshot_t *s,
+                    const pool_stat_snapshot_t *stats,
+                    size_t stats_count);
 
 /* ============================================================================
  * /api/diag/asic
@@ -251,14 +257,9 @@ typedef struct {
     uint64_t now_us;
 } diag_asic_snapshot_t;
 
-void build_diag_asic_json(const diag_asic_snapshot_t *s, bb_json_t root);
-
-/* Emit the "stats" array onto an already-built pool JSON object. Caller has
- * already populated the rest of the object via build_pool_json() and has
- * snapshotted the per-pool slots while holding mining_stats.mutex. */
-void emit_pool_stats_json(bb_json_t root,
-                          const pool_stat_snapshot_t *stats,
-                          size_t count);
+/* Emit /api/diag/asic fields into an already-opened streaming JSON object.
+ * Emits the recent_drops[] array. Caller does obj_begin / obj_end. */
+void emit_diag_asic_json(bb_http_json_obj_stream_t *obj, const diag_asic_snapshot_t *s);
 
 /* ============================================================================
  * /api/knot
@@ -268,12 +269,8 @@ void emit_pool_stats_json(bb_json_t root,
 
 
 /* Build a JSON object for a single peer. Returns a fresh bb_json_t object
- * that the caller must free. */
+ * that the caller must free. Used by the live knot_handler runtime path. */
 bb_json_t build_knot_peer_json(const knot_peer_t *peer, int64_t now_us);
-
-/* Writes a JSON array into root (which must be bb_json_arr_new()).
- * Walks knot_peer_t directly, mapping field names at JSON write time. */
-void build_knot_json(const knot_peer_t *peers, size_t n_peers, int64_t now_us, bb_json_t root);
 
 /* ============================================================================
  * /api/settings GET
@@ -376,8 +373,9 @@ typedef struct {
  * Returns BB_ERR_NO_SPACE when iters is out of range [ITERS_MIN, ITERS_MAX]. */
 bb_err_t diag_bench_parse_request(const char *body, int body_len, uint32_t *out_iters);
 
-/* Build the benchmark response JSON into root. */
-void build_diag_bench_json(const diag_bench_snapshot_t *s, bb_json_t root);
+/* Emit /api/diag/benchmark fields into an already-opened streaming JSON object.
+ * Caller does obj_begin / obj_end; this function emits fields only. */
+void emit_diag_bench_json(bb_http_json_obj_stream_t *obj, const diag_bench_snapshot_t *s);
 
 #ifdef __cplusplus
 }

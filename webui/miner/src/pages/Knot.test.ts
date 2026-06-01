@@ -68,6 +68,15 @@ describe('Knot', () => {
     await vi.waitFor(() => expect(container.querySelector('.error')).toBeTruthy())
   })
 
+  it('handles a non-array /api/knot response without crashing', async () => {
+    // A truncated chunked body or an error object must not throw
+    // "(intermediate value).sort is not a function" — degrade to empty.
+    mockFetchKnot.mockResolvedValueOnce({} as any)
+    const { container } = render(Knot)
+    await vi.waitFor(() => expect(container.querySelector('.empty-state')).toBeTruthy())
+    expect(container.querySelector('.error')).toBeFalsy()
+  })
+
   it('renders peer cards with data', async () => {
     mockFetchKnot.mockResolvedValueOnce([{ ...basePeer }])
     const { container } = render(Knot)

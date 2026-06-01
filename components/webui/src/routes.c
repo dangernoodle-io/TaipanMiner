@@ -1209,38 +1209,7 @@ static bb_err_t power_handler(bb_http_request_t *req)
     bb_err_t rc = bb_http_resp_json_obj_begin(req, &obj);
     if (rc != BB_OK) return rc;
 
-    if (s.vcore_mv >= 0)  bb_http_resp_json_obj_set_int(&obj, "vcore_mv", (int64_t)s.vcore_mv);
-    else                  bb_http_resp_json_obj_set_null(&obj, "vcore_mv");
-    if (s.icore_ma >= 0)  bb_http_resp_json_obj_set_int(&obj, "icore_ma", (int64_t)s.icore_ma);
-    else                  bb_http_resp_json_obj_set_null(&obj, "icore_ma");
-    if (s.pcore_mw >= 0)  bb_http_resp_json_obj_set_int(&obj, "pcore_mw", (int64_t)s.pcore_mw);
-    else                  bb_http_resp_json_obj_set_null(&obj, "pcore_mw");
-    {
-        // asic_hashrate is H/s; divide by 1e9 to get GH/s for mining_efficiency_jth
-        double eff = mining_efficiency_jth((double)s.pcore_mw, s.asic_hashrate / 1e9);
-        if (eff >= 0.0) bb_http_resp_json_obj_set_num(&obj, "efficiency_jth", eff);
-        else            bb_http_resp_json_obj_set_null(&obj, "efficiency_jth");
-    }
-    if (s.efficiency_jth_1m >= 0.0)          bb_http_resp_json_obj_set_num(&obj, "efficiency_jth_1m", s.efficiency_jth_1m);
-    else                                      bb_http_resp_json_obj_set_null(&obj, "efficiency_jth_1m");
-    if (s.efficiency_jth_10m >= 0.0)         bb_http_resp_json_obj_set_num(&obj, "efficiency_jth_10m", s.efficiency_jth_10m);
-    else                                     bb_http_resp_json_obj_set_null(&obj, "efficiency_jth_10m");
-    if (s.efficiency_jth_1h >= 0.0)          bb_http_resp_json_obj_set_num(&obj, "efficiency_jth_1h", s.efficiency_jth_1h);
-    else                                     bb_http_resp_json_obj_set_null(&obj, "efficiency_jth_1h");
-    if (s.expected_efficiency_jth >= 0.0)    bb_http_resp_json_obj_set_num(&obj, "expected_efficiency_jth", s.expected_efficiency_jth);
-    else                                     bb_http_resp_json_obj_set_null(&obj, "expected_efficiency_jth");
-    if (s.vin_mv >= 0) {
-        bb_http_resp_json_obj_set_int(&obj, "vin_mv", (int64_t)s.vin_mv);
-        bool vin_low = (s.vin_mv < (s.nominal_vin_mv + 500) * 87 / 100);
-        bb_http_resp_json_obj_set_bool(&obj, "vin_low", vin_low);
-    } else {
-        bb_http_resp_json_obj_set_null(&obj, "vin_mv");
-        bb_http_resp_json_obj_set_null(&obj, "vin_low");
-    }
-    if (s.board_temp_c >= 0.0f) bb_http_resp_json_obj_set_num(&obj, "board_temp_c", (double)s.board_temp_c);
-    else                        bb_http_resp_json_obj_set_null(&obj, "board_temp_c");
-    if (s.vr_temp_c >= 0.0f)    bb_http_resp_json_obj_set_num(&obj, "vr_temp_c", (double)s.vr_temp_c);
-    else                        bb_http_resp_json_obj_set_null(&obj, "vr_temp_c");
+    emit_power_json(&obj, &s);
 
     return bb_http_resp_json_obj_end(&obj);
 }
@@ -1276,26 +1245,7 @@ static bb_err_t fan_handler(bb_http_request_t *req)
     bb_err_t rc = bb_http_resp_json_obj_begin(req, &obj);
     if (rc != BB_OK) return rc;
 
-    if (s.fan_rpm >= 0)      bb_http_resp_json_obj_set_int(&obj, "rpm",       (int64_t)s.fan_rpm);
-    else                     bb_http_resp_json_obj_set_null(&obj, "rpm");
-    if (s.fan_duty_pct >= 0) bb_http_resp_json_obj_set_int(&obj, "duty_pct",  (int64_t)s.fan_duty_pct);
-    else                     bb_http_resp_json_obj_set_null(&obj, "duty_pct");
-    bb_http_resp_json_obj_set_bool(&obj, "autofan", s.autofan);
-    if (s.die_target_c >= 0) bb_http_resp_json_obj_set_int(&obj, "die_target_c", (int64_t)s.die_target_c);
-    else                     bb_http_resp_json_obj_set_null(&obj, "die_target_c");
-    if (s.vr_target_c >= 0)  bb_http_resp_json_obj_set_int(&obj, "vr_target_c",  (int64_t)s.vr_target_c);
-    else                     bb_http_resp_json_obj_set_null(&obj, "vr_target_c");
-    if (s.manual_pct >= 0)   bb_http_resp_json_obj_set_int(&obj, "manual_pct",   (int64_t)s.manual_pct);
-    else                     bb_http_resp_json_obj_set_null(&obj, "manual_pct");
-    if (s.min_pct >= 0)      bb_http_resp_json_obj_set_int(&obj, "min_pct",       (int64_t)s.min_pct);
-    else                     bb_http_resp_json_obj_set_null(&obj, "min_pct");
-    if (s.die_ema_c >= 0.0f) bb_http_resp_json_obj_set_num(&obj, "die_ema_c", (double)s.die_ema_c);
-    else                     bb_http_resp_json_obj_set_null(&obj, "die_ema_c");
-    if (s.vr_ema_c >= 0.0f)  bb_http_resp_json_obj_set_num(&obj, "vr_ema_c",  (double)s.vr_ema_c);
-    else                     bb_http_resp_json_obj_set_null(&obj, "vr_ema_c");
-    if (s.pid_input_c >= 0.0f) bb_http_resp_json_obj_set_num(&obj, "pid_input_c", (double)s.pid_input_c);
-    else                       bb_http_resp_json_obj_set_null(&obj, "pid_input_c");
-    bb_http_resp_json_obj_set_str(&obj, "pid_input_src", s.pid_input_src);
+    emit_fan_json(&obj, &s);
 
     return bb_http_resp_json_obj_end(&obj);
 }

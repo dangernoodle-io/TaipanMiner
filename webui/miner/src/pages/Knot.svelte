@@ -179,9 +179,15 @@
           <div class="identity">
             <div class="name-row">
               <span class="board-dot" style={`background: ${boardColor(peer.board)}`} title={peer.board}></span>
-              <a class="name" href={`http://${fqdn(peer.hostname)}`} target="_blank" rel="noopener">
-                {displayHost(peer.hostname)}
-              </a>
+              {#if peer.ui !== false}
+                <a class="name" href={`http://${fqdn(peer.hostname)}`} target="_blank" rel="noopener">
+                  {displayHost(peer.hostname)}
+                </a>
+              {:else}
+                <span class="name nolink" title="web UI not enabled on this device">
+                  {displayHost(peer.hostname)}
+                </span>
+              {/if}
               <span class="ip">{peer.ip}</span>
               <span
                 class={`status-dot ${getStateBadgeClass(peer.state || 'unknown')}`}
@@ -338,6 +344,11 @@
     white-space: nowrap;
   }
   .name-row .name:hover { opacity: 0.8; }
+  .name-row .name.nolink {
+    cursor: default;
+    color: var(--text);
+    text-decoration: none;
+  }
 
   /* IP beside the hostname — keep the small muted look it had in the sub line. */
   .name-row .ip {

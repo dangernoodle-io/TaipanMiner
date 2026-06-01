@@ -771,11 +771,11 @@ void test_knot_two_peers(void)
         "[{\"instance\":\"taipan-alpha._taipan._tcp.local\","
         "\"hostname\":\"taipan-alpha\",\"ip\":\"192.168.1.10\","
         "\"worker\":\"alpha-worker\",\"board\":\"bitaxe-601\","
-        "\"version\":\"1.2.3\",\"state\":\"mining\",\"seen_ago_s\":5},"
+        "\"version\":\"1.2.3\",\"state\":\"mining\",\"ui\":false,\"seen_ago_s\":5},"
         "{\"instance\":\"taipan-beta._taipan._tcp.local\","
         "\"hostname\":\"taipan-beta\",\"ip\":\"192.168.1.11\","
         "\"worker\":\"beta-worker\",\"board\":\"bitaxe-403\","
-        "\"version\":\"1.2.0\",\"state\":\"ota\",\"seen_ago_s\":10}]",
+        "\"version\":\"1.2.0\",\"state\":\"ota\",\"ui\":false,\"seen_ago_s\":10}]",
         json);
     free(json);
 }
@@ -803,7 +803,7 @@ void test_knot_peer_single_peer(void)
         "{\"instance\":\"test-miner._taipan._tcp.local\","
         "\"hostname\":\"test-miner\",\"ip\":\"10.0.0.1\","
         "\"worker\":\"test-worker\",\"board\":\"tdongle-s3\","
-        "\"version\":\"0.9.5\",\"state\":\"idle\",\"seen_ago_s\":15}",
+        "\"version\":\"0.9.5\",\"state\":\"idle\",\"ui\":false,\"seen_ago_s\":15}",
         json);
     bb_json_free_str(json);
 }

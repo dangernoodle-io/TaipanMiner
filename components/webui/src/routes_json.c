@@ -339,6 +339,7 @@ bb_json_t build_knot_peer_json(const knot_peer_t *peer, int64_t now_us)
     bb_json_obj_set_string(peer_obj, "board",     peer->board);
     bb_json_obj_set_string(peer_obj, "version",   peer->version);
     bb_json_obj_set_string(peer_obj, "state",     peer->state);
+    bb_json_obj_set_bool(peer_obj, "ui",          peer->ui);
 
     int64_t seen_ago_s = (now_us - peer->last_seen_us) / 1000000;
     bb_json_obj_set_number(peer_obj, "seen_ago_s", (double)seen_ago_s);

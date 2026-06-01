@@ -47,6 +47,12 @@
 #include "asic.h"
 #endif
 
+#if CONFIG_WEBUI_MINING_UI
+#define MINER_UI_TXT "1"
+#else
+#define MINER_UI_TXT "0"
+#endif
+
 static const char *TAG = "taipanminer";
 
 // Mining task handles (for suspend/resume during OTA verification)
@@ -486,6 +492,7 @@ void app_main(void)
             bb_mdns_set_txt("board", FIRMWARE_BOARD);
             bb_mdns_set_txt("version", bb_system_get_version());
             bb_mdns_set_txt("state", "provisioning");
+            bb_mdns_set_txt("ui", MINER_UI_TXT);
         }
         BB_ERROR_CHECK(bb_prov_start_ap());
         webui_install_prov_save_cb();
@@ -571,6 +578,7 @@ void app_main(void)
             bb_mdns_set_txt("board", FIRMWARE_BOARD);
             bb_mdns_set_txt("version", bb_system_get_version());
             bb_mdns_set_txt("state", "mining");
+            bb_mdns_set_txt("ui", MINER_UI_TXT);
         }
         if (knot_en) {
             BB_ERROR_CHECK(knot_init());
@@ -653,6 +661,7 @@ void app_main(void)
                 {.key = "board", .desc = "firmware board identifier", .values = "tdongle-s3|bitaxe-601|bitaxe-403|bitaxe-650"},
                 {.key = "version", .desc = "firmware semver"},
                 {.key = "state", .desc = "device lifecycle state", .values = "provisioning|mining|ota"},
+                {.key = "ui", .desc = "serves mining web UI", .values = "0|1"},
             };
             BB_ERROR_CHECK(bb_manifest_register_mdns("_taipanminer._tcp", taipan_mdns_keys, sizeof(taipan_mdns_keys) / sizeof(taipan_mdns_keys[0])));
         }

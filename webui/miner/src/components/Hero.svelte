@@ -47,7 +47,7 @@
     <div class="top">
       <div class="primary">
         <div class="hashrate">
-          <span class="conn-dot" class:connected={$connected} class:disconnected={!$connected}></span>
+          <span class="conn-dot" class:connected={$connected} class:disconnected={!$connected} class:pulse={$connected}></span>
           <div class="value">{fmtHashGhs(ghs)}</div>
         </div>
         <div class="sub-metrics">

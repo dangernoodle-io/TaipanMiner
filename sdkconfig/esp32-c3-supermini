@@ -26,13 +26,13 @@ CONFIG_MINING_PIN_HOTLOOP_DATA=n
 # with the S2 (which strongly prefers it) and marginally tighter HTTP latency.
 CONFIG_MINING_UNICORE_YIELD_MASK=0x1FFF
 
-# OTA TLS on this single-core no-PSRAM part: the hardware AES driver (esp-aes)
-# allocates a DMA working buffer per TLS record and fails ("esp-aes: Failed to
-# allocate memory") under heap fragmentation, truncating the update-check/ota-pull
-# HTTPS read. Use mbedTLS software AES (no DMA alloc) so the TLS read is reliable;
-# slower AES is irrelevant for an occasional mining-paused OTA. HW SHA+MPI stay on
-# for handshake speed. Stratum is plain TCP, so nothing else pays the SW-AES cost.
-CONFIG_MBEDTLS_HARDWARE_AES=n
+# Keep mbedTLS hardware AES ON. An earlier =n (software AES) override was added
+# when the esp-aes per-record DMA alloc failed during OTA ("esp-aes: Failed to
+# allocate memory") — but that was heap fragmentation from running the pull with
+# mining un-paused. The ota-pull worker now outranks the miner (main.c) so mining
+# pauses and the heap stays healthy (min ~90KB); the DMA alloc succeeds and HW AES
+# cuts the ~1.4MB pull from ~225s (SW AES) to ~35s.
+CONFIG_MBEDTLS_HARDWARE_AES=y
 
 # Free DRAM for the TLS pull-OTA path. The manifest *fetch* otherwise bottoms the
 # heap to ~80 bytes; moving WiFi IRAM code to flash (~15KB, cached-flash so

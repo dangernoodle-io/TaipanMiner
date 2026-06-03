@@ -651,11 +651,25 @@ void app_main(void)
         // Register "block.found" SSE topic and hand the handle to mining_pool_stats
         // so record_block() can post events. Must run after bb_registry_init() so
         // bb_event_routes is already initialized.
+        //
+        // Non-fatal: block.found is an optional live-notification feature. If
+        // bb_event isn't initialized (e.g. CONFIG_BB_EVENT_AUTOREGISTER off), the
+        // register call returns BB_ERR_INVALID_STATE — log and continue without
+        // the topic rather than BB_ERROR_CHECK→abort. A headless board must never
+        // crash-loop over an optional SSE topic (the S2 did exactly that for weeks
+        // when its generated sdkconfig had bb_event autoregister stale-off).
         {
             static bb_event_topic_t s_block_topic = NULL;
-            BB_ERROR_CHECK(bb_event_topic_register("block.found", &s_block_topic));
-            BB_ERROR_CHECK(bb_event_routes_attach_ex("block.found", false));
-            mining_pool_stats_set_block_topic(s_block_topic);
+            bb_err_t evt_err = bb_event_topic_register("block.found", &s_block_topic);
+            if (evt_err == BB_OK) {
+                evt_err = bb_event_routes_attach_ex("block.found", false);
+            }
+            if (evt_err == BB_OK) {
+                mining_pool_stats_set_block_topic(s_block_topic);
+            } else {
+                bb_log_w(TAG, "block.found SSE unavailable (err %d): continuing without "
+                              "live block events (CONFIG_BB_EVENT_AUTOREGISTER on?)", evt_err);
+            }
         }
 
         // Setters below depend on bb_update_check_init / bb_ota_pull_init having

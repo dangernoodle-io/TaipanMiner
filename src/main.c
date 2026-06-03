@@ -90,7 +90,7 @@ static void tm_ota_progress_led(bb_ota_phase_t phase, int pct)
     (void)pct;
     switch (phase) {
         case BB_OTA_PHASE_START:
-        case BB_OTA_PHASE_PROGRESS: led_set_color(0, 0, 38); break;  // blue: updating
+        case BB_OTA_PHASE_PROGRESS: led_blink(25, 500); break;       // flash 25%: updating
         case BB_OTA_PHASE_SUCCESS:  led_set_color(0, 38, 0); break;  // green: done (reboot imminent)
         case BB_OTA_PHASE_FAIL:     led_set_color(38, 0, 0); break;  // red: failed
         default: led_off(); break;

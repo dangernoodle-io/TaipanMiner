@@ -29,7 +29,9 @@ static bb_err_t led_backend_open(bb_led_handle_t *out) {
     bb_led_pwm_cfg_t cfg = {
         .gpio = PIN_STATUS_LED,
         .freq_hz = 5000,
-        .resolution_bits = 8,
+        // 13-bit duty: a dim gamma'd breathe at 8-bit only had ~1/255 steps near
+        // the floor and looked like a slow blink; 13-bit renders it smoothly.
+        .resolution_bits = 13,
         .active_low = false,
     };
     return bb_led_pwm_open(&cfg, out);
@@ -68,14 +70,14 @@ bb_err_t led_init(void) {
     bb_log_i(TAG, "status LED ready (%s)",
              (bb_led_caps(s_led) & BB_LED_CAP_RGB) ? "rgb" : "pwm");
 
-    // Power-on glow: 5 dim ~25% pulses — a headless "alive" signal that also
-    // shows the status-LED brightness without waiting for an OTA.
-    for (int i = 0; i < 5; i++) {
-        led_render(64, 64, 64);
-        vTaskDelay(pdMS_TO_TICKS(140));
-        led_render(0, 0, 0);
-        vTaskDelay(pdMS_TO_TICKS(140));
-    }
+    // Boot indicator: a steady 50% until mining starts, then it fades into the
+    // heartbeat (see led_set_mining). On the S2's single-channel PWM the 50% is
+    // duty; on RGB LEDs it's white at 50%. The animator timer keeps it lit.
+    bb_led_anim_pattern_t boot = {
+        .kind  = BB_ANIM_SOLID,
+        .solid = { .r = 255, .g = 255, .b = 255, .brightness_pct = 50 },
+    };
+    bb_led_anim_set(s_anim, &boot);
     return BB_OK;
 }
 
@@ -97,14 +99,33 @@ bb_err_t led_set_mining(bool on) {
         bb_led_anim_pause(s_anim);
         return led_render(0, 0, 0);
     }
-    // Green base on color LEDs; breathe modulates global brightness 0..5%. On a
-    // single-channel PWM LED there's no color — the breathe drives the duty.
+    // Resume in case a prior OTA status (led_set_color / led_blink) paused it.
+    bb_led_anim_resume(s_anim);
+    // Green base on color LEDs; breathe modulates brightness. On a single-channel
+    // PWM LED there's no color — the breathe drives the duty.
     if (bb_led_caps(s_led) & BB_LED_CAP_RGB) {
         bb_led_set_color(s_led, 0, 0, 255, 0);
     }
+    // Fade the boot solid 50% into a dim 1–10% breathe heartbeat (~0.8s handoff).
     bb_led_anim_pattern_t pat = {
         .kind = BB_ANIM_BREATHE,
-        .breathe = { .period_ms = 3000, .min_pct = 0, .max_pct = 5 },
+        .breathe = { .period_ms = 3000, .min_pct = 1, .max_pct = 10 },
+    };
+    return bb_led_anim_set_transition(s_anim, &pat, 800);
+}
+
+// Flash at a brightness level (OTA "updating"). Uses the animator's BLINK-with-
+// level so it keeps flashing off the bb_timer while the miner is paused. On RGB
+// LEDs the flash is blue; on the S2's single-channel PWM it's the duty.
+bb_err_t led_blink(uint8_t level_pct, uint32_t period_ms) {
+    if (!s_anim) return BB_OK;
+    bb_led_anim_resume(s_anim);
+    if (bb_led_caps(s_led) & BB_LED_CAP_RGB) {
+        bb_led_set_color(s_led, 0, 0, 0, 255);
+    }
+    bb_led_anim_pattern_t pat = {
+        .kind  = BB_ANIM_BLINK,
+        .blink = { .period_ms = period_ms, .duty_pct = 50, .level_pct = level_pct },
     };
     return bb_led_anim_set(s_anim, &pat);
 }

@@ -1,7 +1,12 @@
 .pio/
 .platformio/
-.claude/worktrees/
+.claude/
 managed_components/
+# IDF component-manager lock: re-generated per build and stamped with the
+# last-built `target:`, so it churns on every board switch. The only managed
+# dep (espressif/mdns) is pinned by its manifest range (~1.11.0 in breadboard's
+# bb_mdns), which is the real version constraint and lets patch fixes flow in.
+dependencies.lock
 sdkconfig.tdongle-s3
 sdkconfig.tdongle-s3-debug
 sdkconfig.bitaxe-601

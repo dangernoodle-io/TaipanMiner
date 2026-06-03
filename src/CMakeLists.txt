@@ -21,7 +21,7 @@ idf_component_register(
     INCLUDE_DIRS "." "ui"
     REQUIRES mining stratum bb_wifi bb_prov bb_mdns bb_http bb_nv config asic board spi_flash
              bb_display ${_display_backend}
-             led bb_log bb_ntp bb_system bb_timer bb_ota_pull bb_ota_push bb_openapi bb_manifest
+             led bb_log bb_ntp bb_system bb_timer bb_ota_pull bb_ota_push bb_ota_boot bb_openapi bb_manifest
              bb_registry webui bb_update_check
 )
 

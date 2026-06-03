@@ -78,6 +78,12 @@ CONFIG_BB_EVENT_ROUTES_AUTOREGISTER=y
 # ring (lazy-allocated, default 6KB) to free heap for stratum + httpd/SPA.
 CONFIG_BB_LOG_STREAM_BUF_BYTES=2048
 
+# Headless observability: no USB-CDC console in run mode (UART0 only, needs an
+# external adapter). Enable the bb_log UDP sink so OTA-only boot mode
+# (bb_ota_boot) can broadcast its live pull trace; bb_ota_boot enables it during
+# the pull. Listen with: nc -ul 9999.
+CONFIG_BB_LOG_UDP_SINK=y
+
 # More heap reclaim so the 8KB mining-task stack can allocate (stratum took the
 # first 8KB block; the miner needs a second). Stratum is low-bandwidth, so fewer
 # WiFi RX buffers + smaller lwIP TCP windows are fine here.

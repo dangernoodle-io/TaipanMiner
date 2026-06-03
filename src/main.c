@@ -27,6 +27,7 @@
 #include "bb_log.h"
 #include "bb_ota_pull.h"
 #include "bb_ota_push.h"
+#include "bb_ota_boot.h"
 #include "bb_update_check.h"
 #include "bb_manifest.h"
 #include "bb_registry.h"
@@ -432,6 +433,19 @@ void app_main(void)
     BB_ERROR_CHECK(config_register_manifest());
     log_reset_reason();
     BB_ERROR_CHECK(led_init());
+
+#ifdef BOARD_OTA_BOOT_MODE
+    // OTA-only boot mode (tight/serial-less boards, e.g. S2): if armed via
+    // POST /api/update/boot, pull the new firmware at FULL early-boot heap
+    // before any subsystem allocates, then reboot into it. Never returns when
+    // armed; returns immediately otherwise. WiFi STA was started by
+    // bb_registry_init_early(); bb_ota_boot waits for the link + NTP internally
+    // and broadcasts its trace over the bb_log UDP sink (headless observability).
+    bb_ota_boot_set_progress_cb(tm_ota_progress_led);
+    bb_ota_boot_run_if_pending(
+        "https://api.github.com/repos/dangernoodle-io/TaipanMiner/releases/latest",
+        "taipanminer-" FIRMWARE_BOARD);
+#endif
 
     // Boot failure counter — incremented only on WiFi timeout restart (wifi_prov.c),
     // not on every boot, so flash/power-cycle doesn't trigger AP fallback.

@@ -91,6 +91,31 @@ bb_err_t led_off(void) {
     return BB_OK;
 }
 
+#elif defined(BOARD_ESP32_S2_MINI)
+
+// Single onboard GPIO LED (PIN_STATUS_LED). No addressable LED on this board —
+// any non-zero color maps to on, so the shared bb_ota_progress_cb_t (OTA pull /
+// push / boot-mode) lights it on a board with no serial console in run mode.
+static const char *TAG = "led";
+
+bb_err_t led_init(void) {
+    gpio_reset_pin((gpio_num_t)PIN_STATUS_LED);
+    gpio_set_direction((gpio_num_t)PIN_STATUS_LED, GPIO_MODE_OUTPUT);
+    gpio_set_level((gpio_num_t)PIN_STATUS_LED, 0);
+    ESP_LOGI(TAG, "status LED on GPIO %d", PIN_STATUS_LED);
+    return BB_OK;
+}
+
+bb_err_t led_set_color(uint8_t r, uint8_t g, uint8_t b) {
+    gpio_set_level((gpio_num_t)PIN_STATUS_LED, (r | g | b) ? 1 : 0);
+    return BB_OK;
+}
+
+bb_err_t led_off(void) {
+    gpio_set_level((gpio_num_t)PIN_STATUS_LED, 0);
+    return BB_OK;
+}
+
 #else
 
 // BOARD_BITAXE_601 and unknown boards: no-op stubs

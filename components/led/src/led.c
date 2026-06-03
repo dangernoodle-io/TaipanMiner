@@ -73,6 +73,11 @@ bb_err_t led_init(void) {
     ESP_RETURN_ON_ERROR(gpio_set_level(s_clk_pin, 0), TAG, "failed to set CLK low");
     ESP_RETURN_ON_ERROR(gpio_set_level(s_din_pin, 0), TAG, "failed to set DIN low");
 
+    // Clear any latched color. The APA102 holds its last frame across a soft
+    // reboot (the LED isn't power-cycled), so e.g. a green OTA-success frame
+    // would persist into normal operation. Start dark.
+    s_write_apa102_frame(0, 0, 0);
+
     return BB_OK;
 }
 

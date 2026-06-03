@@ -25,7 +25,18 @@ coverage: test ## Coverage report (gcovr)
 build: ## Build default envs (tdongle-s3 + bitaxe-601)
 	$(PIO) run
 
-build-%: ## Build specific env (e.g. make build-tdongle-s3)
+# Force-regenerate the per-board sdkconfig from committed deltas whenever those
+# inputs change. ESP-IDF loads the existing generated sdkconfig.<board> as its
+# base and only fills in defaults for ABSENT symbols, so a drifted value — even
+# "# CONFIG_X is not set" — silently persists across every rebuild. (This stranded
+# the S2 for weeks: its generated config had bb_event autoregister stale-off.)
+# Deleting the generated file forces a clean rebuild from sdkconfig.defaults +
+# sdkconfig/<board>. mtime-gated: only deletes when an input is newer, so normal
+# incremental builds stay fast.
+sdkconfig.%: sdkconfig.defaults sdkconfig/%
+	rm -f $@
+
+build-%: sdkconfig.% ## Build specific env (e.g. make build-tdongle-s3)
 	$(PIO) run -e $*
 
 compile-db: ## Generate compile_commands.json for all boards (clangd LSP)

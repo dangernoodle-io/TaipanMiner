@@ -65,6 +65,15 @@ CONFIG_BB_OTA_PULL_AUTOREGISTER=n
 # 1024 stalled the push on the single-core S2 (task_wdt); 4096 completes.
 CONFIG_BB_OTA_PUSH_RECV_BUF_SIZE=4096
 
+# bb_event MUST auto-init: app_main registers the "block.found" SSE topic
+# (bb_event_topic_register), which needs bb_event_init to have run. These are
+# default-y in Kconfig and =y on every other board, but the S2's gitignored
+# generated sdkconfig had them stale-"not set", so bb_event never initialized and
+# block.found aborted app_main into a crash-loop. Pin them so a stale generated
+# config can't regress it. (main.c also degrades gracefully if they're ever off.)
+CONFIG_BB_EVENT_AUTOREGISTER=y
+CONFIG_BB_EVENT_ROUTES_AUTOREGISTER=y
+
 # Heap budget: S2 has no PSRAM, so runtime heap is tight. Shrink the log-stream
 # ring (lazy-allocated, default 6KB) to free heap for stratum + httpd/SPA.
 CONFIG_BB_LOG_STREAM_BUF_BYTES=2048

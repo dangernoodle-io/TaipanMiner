@@ -82,6 +82,20 @@ static void stats_save_timer_cb(void *arg)
     }
 }
 
+// LED feedback for any OTA path (pull / push / boot-mode). Wired to bb_ota_*
+// via set_progress_cb. No-op on boards whose led component stubs (S2 has no LED).
+static void tm_ota_progress_led(bb_ota_phase_t phase, int pct)
+{
+    (void)pct;
+    switch (phase) {
+        case BB_OTA_PHASE_START:
+        case BB_OTA_PHASE_PROGRESS: led_set_color(0, 0, 38); break;  // blue: updating
+        case BB_OTA_PHASE_SUCCESS:  led_set_color(0, 38, 0); break;  // green: done (reboot imminent)
+        case BB_OTA_PHASE_FAIL:     led_set_color(38, 0, 0); break;  // red: failed
+        default: led_off(); break;
+    }
+}
+
 static void start_mining(void)
 {
     // Create inter-task queues
@@ -661,6 +675,10 @@ void app_main(void)
         bb_ota_pull_set_hooks(mining_pause, mining_resume);
         bb_ota_pull_set_skip_check_cb(bb_nv_config_ota_skip_check);
         bb_ota_pull_set_http_timeout_ms(60000);
+        // LED feedback during the in-place pull + push OTA paths (shared
+        // bb_ota_progress_cb_t). No-op on boards whose led component stubs (S2).
+        bb_ota_pull_set_progress_cb(tm_ota_progress_led);
+        bb_ota_push_set_progress_cb(tm_ota_progress_led);
         // Register mDNS keys (manifest auto-registered by registry)
         {
             static const bb_manifest_mdns_t taipan_mdns_keys[] = {

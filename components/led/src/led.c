@@ -3,138 +3,110 @@
 #ifdef ESP_PLATFORM
 
 #include "board.h"
-#include "driver/gpio.h"
-#include "esp_log.h"
-#include "esp_check.h"
-#include <string.h>
+#include "bb_log.h"
+#include "bb_led.h"
+#include "bb_led_apa102.h"
+#include "bb_led_pwm.h"
+#include "bb_led_anim.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
+static const char *TAG = "led";
+static bb_led_handle_t s_led;
+static bb_led_anim_handle_t s_anim;
+
+// Board-specific status-LED backend. BB_ERR_NOT_SUPPORTED → board has no LED.
+static bb_err_t led_backend_open(bb_led_handle_t *out) {
 #if defined(BOARD_TDONGLE_S3)
-
-static const char *TAG = "led";
-
-// File-scope static variables for GPIO handles
-static gpio_num_t s_clk_pin;
-static gpio_num_t s_din_pin;
-
-// Bit-bang APA102 SPI protocol
-// MSB first, clock idle low, data sampled on rising edge
-static void s_write_bit(bool bit) {
-    // Setup data line for this bit
-    gpio_set_level(s_din_pin, bit ? 1 : 0);
-    // Rising edge samples data
-    gpio_set_level(s_clk_pin, 1);
-    gpio_set_level(s_clk_pin, 0);
-}
-
-// Write 8 bits, MSB first
-static void s_write_byte(uint8_t byte) {
-    for (int i = 7; i >= 0; i--) {
-        s_write_bit((byte >> i) & 1);
-    }
-}
-
-// Write complete APA102 frame
-static void s_write_apa102_frame(uint8_t r, uint8_t g, uint8_t b) {
-    // Start frame: 4 bytes of 0x00
-    s_write_byte(0x00);
-    s_write_byte(0x00);
-    s_write_byte(0x00);
-    s_write_byte(0x00);
-
-    // LED frame: brightness (0xE0 | 0x1F) + B + G + R
-    s_write_byte(0xFF);  // Full brightness (0xE0 | 0x1F = 0xFF)
-    s_write_byte(b);
-    s_write_byte(g);
-    s_write_byte(r);
-
-    // End frame: 4 bytes of 0xFF
-    s_write_byte(0xFF);
-    s_write_byte(0xFF);
-    s_write_byte(0xFF);
-    s_write_byte(0xFF);
-}
-
-bb_err_t led_init(void) {
-    s_clk_pin = PIN_LED_CLK;
-    s_din_pin = PIN_LED_DIN;
-
-    // Configure GPIO outputs
-    gpio_config_t cfg = {
-        .pin_bit_mask = (1ULL << s_clk_pin) | (1ULL << s_din_pin),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
+    bb_led_apa102_cfg_t cfg = {
+        .pin_clk = PIN_LED_CLK,
+        .pin_din = PIN_LED_DIN,
+        .led_count = 1,
+        .global_brightness_31 = 31,
     };
-
-    ESP_RETURN_ON_ERROR(gpio_config(&cfg), TAG, "failed to configure LED GPIO");
-
-    // Set both lines low initially
-    ESP_RETURN_ON_ERROR(gpio_set_level(s_clk_pin, 0), TAG, "failed to set CLK low");
-    ESP_RETURN_ON_ERROR(gpio_set_level(s_din_pin, 0), TAG, "failed to set DIN low");
-
-    // Clear any latched color. The APA102 holds its last frame across a soft
-    // reboot (the LED isn't power-cycled), so e.g. a green OTA-success frame
-    // would persist into normal operation. Start dark.
-    s_write_apa102_frame(0, 0, 0);
-
-    return BB_OK;
-}
-
-bb_err_t led_set_color(uint8_t r, uint8_t g, uint8_t b) {
-    s_write_apa102_frame(r, g, b);
-    return BB_OK;
-}
-
-bb_err_t led_off(void) {
-    s_write_apa102_frame(0, 0, 0);
-    return BB_OK;
-}
-
+    return bb_led_apa102_open(&cfg, out);
 #elif defined(BOARD_ESP32_S2_MINI)
-
-// Single onboard GPIO LED (PIN_STATUS_LED). No addressable LED on this board —
-// any non-zero color maps to on, so the shared bb_ota_progress_cb_t (OTA pull /
-// push / boot-mode) lights it on a board with no serial console in run mode.
-static const char *TAG = "led";
-
-bb_err_t led_init(void) {
-    gpio_reset_pin((gpio_num_t)PIN_STATUS_LED);
-    gpio_set_direction((gpio_num_t)PIN_STATUS_LED, GPIO_MODE_OUTPUT);
-    gpio_set_level((gpio_num_t)PIN_STATUS_LED, 0);
-    ESP_LOGI(TAG, "status LED on GPIO %d", PIN_STATUS_LED);
-    return BB_OK;
-}
-
-bb_err_t led_set_color(uint8_t r, uint8_t g, uint8_t b) {
-    gpio_set_level((gpio_num_t)PIN_STATUS_LED, (r | g | b) ? 1 : 0);
-    return BB_OK;
-}
-
-bb_err_t led_off(void) {
-    gpio_set_level((gpio_num_t)PIN_STATUS_LED, 0);
-    return BB_OK;
-}
-
+    bb_led_pwm_cfg_t cfg = {
+        .gpio = PIN_STATUS_LED,
+        .freq_hz = 5000,
+        .resolution_bits = 8,
+        .active_low = false,
+    };
+    return bb_led_pwm_open(&cfg, out);
 #else
+    (void)out;
+    return BB_ERR_UNSUPPORTED;  // bitaxe / wroom32: no status LED
+#endif
+}
 
-// BOARD_BITAXE_601 and unknown boards: no-op stubs
+// Render a solid color. RGB LEDs (APA102) show the color; single-channel LEDs
+// (PWM) show max(r,g,b) as brightness — so the shared bb_ota_progress_cb_t color
+// values work on both without the caller knowing the backend.
+static bb_err_t led_render(uint8_t r, uint8_t g, uint8_t b) {
+    if (!s_led) return BB_OK;
+    if (bb_led_caps(s_led) & BB_LED_CAP_RGB) {
+        bb_led_set_color(s_led, 0, r, g, b);
+    } else {
+        uint8_t mx = r > g ? r : g;
+        if (b > mx) mx = b;
+        bb_led_set_brightness(s_led, 0, (uint8_t)((mx * 100) / 255));
+    }
+    return bb_led_flush(s_led);
+}
 
 bb_err_t led_init(void) {
+    if (led_backend_open(&s_led) != BB_OK) {
+        s_led = NULL;  // LED-less board: all ops become no-ops
+        return BB_OK;
+    }
+
+    // Animator drives patterns (e.g. the mining heartbeat) off a bb_timer, so it
+    // keeps ticking even while the single-core miner saturates the CPU.
+    bb_led_anim_cfg_t acfg = { .led = s_led, .tick_period_ms = 0, .auto_start_timer = true };
+    bb_led_anim_attach(&acfg, &s_anim);
+
+    bb_log_i(TAG, "status LED ready (%s)",
+             (bb_led_caps(s_led) & BB_LED_CAP_RGB) ? "rgb" : "pwm");
+
+    // Power-on glow: 5 dim ~25% pulses — a headless "alive" signal that also
+    // shows the status-LED brightness without waiting for an OTA.
+    for (int i = 0; i < 5; i++) {
+        led_render(64, 64, 64);
+        vTaskDelay(pdMS_TO_TICKS(140));
+        led_render(0, 0, 0);
+        vTaskDelay(pdMS_TO_TICKS(140));
+    }
     return BB_OK;
 }
 
+// OTA / status color (shared progress callback). Overrides any running animation
+// (e.g. the mining heartbeat) until led_set_mining()/led_off() is called again.
 bb_err_t led_set_color(uint8_t r, uint8_t g, uint8_t b) {
-    (void)r;
-    (void)g;
-    (void)b;
-    return BB_OK;
+    if (s_anim) bb_led_anim_pause(s_anim);
+    return led_render(r, g, b);
 }
 
 bb_err_t led_off(void) {
-    return BB_OK;
+    if (s_anim) bb_led_anim_pause(s_anim);
+    return led_render(0, 0, 0);
 }
 
-#endif
+bb_err_t led_set_mining(bool on) {
+    if (!s_anim) return BB_OK;
+    if (!on) {
+        bb_led_anim_pause(s_anim);
+        return led_render(0, 0, 0);
+    }
+    // Green base on color LEDs; breathe modulates global brightness 0..5%. On a
+    // single-channel PWM LED there's no color — the breathe drives the duty.
+    if (bb_led_caps(s_led) & BB_LED_CAP_RGB) {
+        bb_led_set_color(s_led, 0, 0, 255, 0);
+    }
+    bb_led_anim_pattern_t pat = {
+        .kind = BB_ANIM_BREATHE,
+        .breathe = { .period_ms = 3000, .min_pct = 0, .max_pct = 5 },
+    };
+    return bb_led_anim_set(s_anim, &pat);
+}
 
-#endif
+#endif /* ESP_PLATFORM */

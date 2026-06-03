@@ -436,7 +436,7 @@ void app_main(void)
 
 #ifdef BOARD_OTA_BOOT_MODE
     // OTA-only boot mode (tight/serial-less boards, e.g. S2): if armed via
-    // POST /api/update/boot, pull the new firmware at FULL early-boot heap
+    // POST /api/update/apply, pull the new firmware at FULL early-boot heap
     // before any subsystem allocates, then reboot into it. Never returns when
     // armed; returns immediately otherwise. WiFi STA was started by
     // bb_registry_init_early(); bb_ota_boot waits for the link + NTP internally

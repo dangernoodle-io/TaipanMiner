@@ -385,6 +385,7 @@ export interface Settings {
   ota_skip_check?: boolean
   mdns_en?: boolean
   knot_en?: boolean
+  led_heartbeat_en?: boolean
 }
 
 export const fetchStats = () => getJson<Stats>('/api/stats')

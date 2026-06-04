@@ -860,7 +860,7 @@ void test_settings_happy_path(void)
     TEST_ASSERT_EQUAL_STRING(
         "{\"hostname\":\"acme-miner\","
         "\"display_en\":true,\"ota_skip_check\":false,"
-        "\"mdns_en\":false,\"knot_en\":false,\"provisioned\":true}",
+        "\"mdns_en\":false,\"knot_en\":false,\"led_heartbeat_en\":false,\"provisioned\":true}",
         json);
     free(json);
 }
@@ -882,7 +882,7 @@ void test_settings_empty_optional_fields(void)
     TEST_ASSERT_EQUAL_STRING(
         "{\"hostname\":\"\","
         "\"display_en\":false,\"ota_skip_check\":true,"
-        "\"mdns_en\":false,\"knot_en\":false,\"provisioned\":false}",
+        "\"mdns_en\":false,\"knot_en\":false,\"led_heartbeat_en\":false,\"provisioned\":false}",
         json);
     free(json);
 }
@@ -896,6 +896,7 @@ void test_settings_all_bools_true(void)
     s.ota_skip_check = true;
     s.mdns_en        = true;
     s.knot_en        = true;
+    s.led_heartbeat_en = true;
     s.provisioned    = true;
 
     char *json = capture_settings(&s);
@@ -905,6 +906,7 @@ void test_settings_all_bools_true(void)
     TEST_ASSERT_NOT_NULL(strstr(json, "\"ota_skip_check\":true"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"mdns_en\":true"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"knot_en\":true"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"led_heartbeat_en\":true"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"provisioned\":true"));
     free(json);
 }

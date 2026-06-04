@@ -71,3 +71,7 @@ bb_err_t config_set_min_fan_pct(uint16_t val);
 /* Knot service enable/disable */
 bool config_knot_enabled(void);
 bb_err_t config_set_knot_enabled(bool enabled);
+
+/* Mining-heartbeat status LED (the dim breathe while hashing). Default on. */
+bool config_led_heartbeat_enabled(void);
+bb_err_t config_set_led_heartbeat_enabled(bool enabled);

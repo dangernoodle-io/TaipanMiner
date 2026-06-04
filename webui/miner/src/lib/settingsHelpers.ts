@@ -6,6 +6,7 @@ export type SettingsForm = {
   ota_skip_check: boolean
   mdns_en: boolean
   knot_en: boolean
+  led_heartbeat_en: boolean
 }
 
 /** Build a SettingsForm from a raw Settings response. */
@@ -15,5 +16,6 @@ export function formFromSettings(s: Settings): SettingsForm {
     ota_skip_check: !!s.ota_skip_check,
     mdns_en: !!s.mdns_en,
     knot_en: !!s.knot_en,
+    led_heartbeat_en: s.led_heartbeat_en ?? true,
   }
 }

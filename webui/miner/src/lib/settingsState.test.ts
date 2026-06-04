@@ -170,6 +170,26 @@ describe('saveDisplay — happy path', () => {
   })
 })
 
+describe('saveHeartbeat', () => {
+  it('calls patchSettings with led_heartbeat_en and updates heartbeatOn on success', async () => {
+    vi.mocked(api.patchSettings).mockResolvedValue({ status: 'ok', reboot_required: false })
+    const ss = createSettingsState()
+    await ss.saveHeartbeat(false)
+    expect(api.patchSettings).toHaveBeenCalledWith({ led_heartbeat_en: false })
+    expect(ss.heartbeatOn).toBe(false)
+    expect(ss.heartbeatKind).toBe('ok')
+  })
+
+  it('reverts heartbeatOn and sets err on failure', async () => {
+    vi.mocked(api.patchSettings).mockRejectedValue(new Error('patch failed'))
+    const ss = createSettingsState()
+    await ss.saveHeartbeat(false)   // no saved → reverts to !next = true
+    expect(ss.heartbeatOn).toBe(true)
+    expect(ss.heartbeatKind).toBe('err')
+    expect(ss.heartbeatMsg).toBe('patch failed')
+  })
+})
+
 describe('saveDisplay — error path', () => {
   it('sets displayKind=err on failure', async () => {
     vi.mocked(api.patchSettings).mockRejectedValue(new Error('patch failed'))

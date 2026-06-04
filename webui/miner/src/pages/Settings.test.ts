@@ -11,27 +11,33 @@ const { mockSs } = vi.hoisted(() => ({
     otaSkip: false,
     mdnsOn: false,
     knotOn: false,
+    heartbeatOn: true,
     savingDisplay: false,
     savingOtaSkip: false,
     savingMdns: false,
     savingKnot: false,
+    savingHeartbeat: false,
     displayMsg: '',
     otaMsg: '',
     mdnsMsg: '',
     knotMsg: '',
+    heartbeatMsg: '',
     displayKind: '' as '' | 'ok' | 'err',
     otaKind: '' as '' | 'ok' | 'err',
     mdnsKind: '' as '' | 'ok' | 'err',
     knotKind: '' as '' | 'ok' | 'err',
+    heartbeatKind: '' as '' | 'ok' | 'err',
     loadSettings: vi.fn(),
     saveDisplay: vi.fn(),
     saveOtaSkip: vi.fn(),
     saveMdns: vi.fn(),
     saveKnot: vi.fn(),
+    saveHeartbeat: vi.fn(),
     onDisplayChange: vi.fn(),
     onOtaChange: vi.fn(),
     onMdnsChange: vi.fn(),
     onKnotChange: vi.fn(),
+    onHeartbeatChange: vi.fn(),
   }
 }))
 
@@ -71,18 +77,22 @@ beforeEach(() => {
   mockSs.otaSkip = false
   mockSs.mdnsOn = false
   mockSs.knotOn = false
+  mockSs.heartbeatOn = true
   mockSs.savingDisplay = false
   mockSs.savingOtaSkip = false
   mockSs.savingMdns = false
   mockSs.savingKnot = false
+  mockSs.savingHeartbeat = false
   mockSs.displayMsg = ''
   mockSs.otaMsg = ''
   mockSs.mdnsMsg = ''
   mockSs.knotMsg = ''
+  mockSs.heartbeatMsg = ''
   mockSs.displayKind = ''
   mockSs.otaKind = ''
   mockSs.mdnsKind = ''
   mockSs.knotKind = ''
+  mockSs.heartbeatKind = ''
 })
 
 describe('Settings — loading state', () => {

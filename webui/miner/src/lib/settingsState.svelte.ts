@@ -10,18 +10,22 @@ export function createSettingsState() {
   let otaSkip = $state(false)
   let mdnsOn = $state(false)
   let knotOn = $state(false)
+  let heartbeatOn = $state(true)
   let savingDisplay = $state(false)
   let savingOtaSkip = $state(false)
   let savingMdns = $state(false)
   let savingKnot = $state(false)
+  let savingHeartbeat = $state(false)
   let displayMsg = $state('')
   let otaMsg = $state('')
   let mdnsMsg = $state('')
   let knotMsg = $state('')
+  let heartbeatMsg = $state('')
   let displayKind = $state<'' | 'ok' | 'err'>('')
   let otaKind = $state<'' | 'ok' | 'err'>('')
   let mdnsKind = $state<'' | 'ok' | 'err'>('')
   let knotKind = $state<'' | 'ok' | 'err'>('')
+  let heartbeatKind = $state<'' | 'ok' | 'err'>('')
 
   async function loadSettings() {
     loading = true
@@ -34,6 +38,7 @@ export function createSettingsState() {
       otaSkip = form.ota_skip_check
       mdnsOn = form.mdns_en
       knotOn = form.knot_en
+      heartbeatOn = form.led_heartbeat_en
     } catch (e) {
       loadErr = (e as Error).message
     } finally {
@@ -117,6 +122,24 @@ export function createSettingsState() {
     }
   }
 
+  async function saveHeartbeat(next: boolean) {
+    savingHeartbeat = true
+    heartbeatMsg = ''
+    heartbeatKind = ''
+    try {
+      const res = await patchSettings({ led_heartbeat_en: next })
+      heartbeatOn = next
+      heartbeatKind = 'ok'
+      heartbeatMsg = res.reboot_required ? 'Saved — reboot to apply' : 'Saved'
+    } catch (e) {
+      heartbeatOn = saved?.led_heartbeat_en ?? !next
+      heartbeatKind = 'err'
+      heartbeatMsg = (e as Error).message
+    } finally {
+      savingHeartbeat = false
+    }
+  }
+
   function onDisplayChange(e: Event) {
     saveDisplay((e.currentTarget as HTMLInputElement).checked)
   }
@@ -134,6 +157,10 @@ export function createSettingsState() {
     saveKnot((e.currentTarget as HTMLInputElement).checked)
   }
 
+  function onHeartbeatChange(e: Event) {
+    saveHeartbeat((e.currentTarget as HTMLInputElement).checked)
+  }
+
   return {
     get loading() { return loading },
     get loadErr() { return loadErr },
@@ -141,26 +168,32 @@ export function createSettingsState() {
     get otaSkip() { return otaSkip },
     get mdnsOn() { return mdnsOn },
     get knotOn() { return knotOn },
+    get heartbeatOn() { return heartbeatOn },
     get savingDisplay() { return savingDisplay },
     get savingOtaSkip() { return savingOtaSkip },
     get savingMdns() { return savingMdns },
     get savingKnot() { return savingKnot },
+    get savingHeartbeat() { return savingHeartbeat },
     get displayMsg() { return displayMsg },
     get otaMsg() { return otaMsg },
     get mdnsMsg() { return mdnsMsg },
     get knotMsg() { return knotMsg },
+    get heartbeatMsg() { return heartbeatMsg },
     get displayKind() { return displayKind },
     get otaKind() { return otaKind },
     get mdnsKind() { return mdnsKind },
     get knotKind() { return knotKind },
+    get heartbeatKind() { return heartbeatKind },
     loadSettings,
     saveDisplay,
     saveOtaSkip,
     saveMdns,
     saveKnot,
+    saveHeartbeat,
     onDisplayChange,
     onOtaChange,
     onMdnsChange,
     onKnotChange,
+    onHeartbeatChange,
   }
 }

@@ -745,9 +745,14 @@ bench_quiet_skip_net:;
     start_mining();
 
     // Status LED: slow dim breathe while mining (headless "alive + hashing"
-    // signal). No-op on boards without a status LED; overridden by the OTA
-    // progress callback during an update.
-    led_set_mining(true);
+    // signal). Gated by the led_heartbeat_en NVS setting (default on); when off
+    // the LED stays dark while mining. No-op on boards without a status LED;
+    // overridden by the OTA progress callback during an update.
+    if (config_led_heartbeat_enabled()) {
+        led_set_mining(true);
+    } else {
+        led_off();
+    }
 
 #if defined(BOARD_HAS_DISPLAY) && !defined(TM_BENCH_QUIET)
     // Start display status task on Core 0

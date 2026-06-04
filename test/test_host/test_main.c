@@ -716,6 +716,8 @@ void test_set_knot_enabled_round_trip(void);
 void test_knot_enabled_default_true(void);
 void test_set_knot_enabled_to_true(void);
 void test_set_knot_enabled_to_false(void);
+void test_led_heartbeat_enabled_default_true(void);
+void test_set_led_heartbeat_enabled_round_trip(void);
 
 // TA-141: autofan thermal aggregation
 void test_autofan_die_greater_than_vr(void);
@@ -1505,6 +1507,8 @@ int main(void) {
     RUN_TEST(test_knot_enabled_default_true);
     RUN_TEST(test_set_knot_enabled_to_true);
     RUN_TEST(test_set_knot_enabled_to_false);
+    RUN_TEST(test_led_heartbeat_enabled_default_true);
+    RUN_TEST(test_set_led_heartbeat_enabled_round_trip);
 
     // TA-141: autofan thermal aggregation tests
     RUN_TEST(test_autofan_die_greater_than_vr);

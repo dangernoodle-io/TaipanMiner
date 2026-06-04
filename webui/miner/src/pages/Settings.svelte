@@ -121,6 +121,13 @@
           {#if ss.knotMsg}<span class="status" data-kind={ss.knotKind}>{ss.knotMsg}</span>{/if}
         </div>
       </div>
+      <div class="row">
+        <span class="k">Mining heartbeat LED</span>
+        <div class="v">
+          <Toggle checked={ss.heartbeatOn} disabled={ss.savingHeartbeat} onchange={ss.onHeartbeatChange} />
+          {#if ss.heartbeatMsg}<span class="status" data-kind={ss.heartbeatKind}>{ss.heartbeatMsg}</span>{/if}
+        </div>
+      </div>
     </div>
 
     <!-- Network / WiFi (hostname lives here) -->

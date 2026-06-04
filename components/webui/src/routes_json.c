@@ -358,6 +358,7 @@ void emit_settings_json(bb_http_json_obj_stream_t *obj, const settings_snapshot_
     bb_http_resp_json_obj_set_bool(obj, "ota_skip_check", snap->ota_skip_check);
     bb_http_resp_json_obj_set_bool(obj, "mdns_en",        snap->mdns_en);
     bb_http_resp_json_obj_set_bool(obj, "knot_en",        snap->knot_en);
+    bb_http_resp_json_obj_set_bool(obj, "led_heartbeat_en", snap->led_heartbeat_en);
     bb_http_resp_json_obj_set_bool(obj, "provisioned",    snap->provisioned);
 }
 

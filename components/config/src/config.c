@@ -17,6 +17,8 @@ static struct {
     uint16_t min_fan_pct;
     /* Knot service enable/disable */
     bool     knot_enabled;
+    /* Mining-heartbeat status LED enable/disable */
+    bool     led_heartbeat_enabled;
 } s_config;
 
 static const char *TAG = "config";
@@ -163,6 +165,14 @@ bb_err_t config_init(void)
         }
     }
 
+    /* Mining-heartbeat status LED enable/disable (default on). The 4th arg is
+     * the fallback, so v is 1 on a missing/error key — no else branch needed. */
+    {
+        uint8_t v = 1;
+        bb_nv_get_u8(NV_NS, "led_hb_en", &v, 1);
+        s_config.led_heartbeat_enabled = (v != 0);
+    }
+
     bb_log_i(TAG, "pool config loaded (pool=%s:%u worker=%s.%s)",
              s_config.pools[0].host, s_config.pools[0].port,
              s_config.pools[0].wallet, s_config.pools[0].worker);
@@ -185,6 +195,8 @@ bb_err_t config_init(void)
     s_config.min_fan_pct     = 25;
     /* Knot service default for host */
     s_config.knot_enabled = true;
+    /* Mining-heartbeat LED default for host */
+    s_config.led_heartbeat_enabled = true;
     return 0;
 #endif
 }
@@ -442,6 +454,21 @@ bb_err_t config_set_knot_enabled(bool enabled)
     if (err != BB_OK) return err;
 #endif
     s_config.knot_enabled = enabled;
+    return BB_OK;
+}
+
+bool config_led_heartbeat_enabled(void)
+{
+    return s_config.led_heartbeat_enabled;
+}
+
+bb_err_t config_set_led_heartbeat_enabled(bool enabled)
+{
+#ifdef ESP_PLATFORM
+    bb_err_t err = bb_nv_set_u8(NV_NS, "led_hb_en", enabled ? 1 : 0);
+    if (err != BB_OK) return err;
+#endif
+    s_config.led_heartbeat_enabled = enabled;
     return BB_OK;
 }
 

@@ -17,6 +17,7 @@
 #include "bb_nv.h"
 #include "bb_diag.h"
 #include "config.h"
+#include "led.h"
 #include "bb_wifi.h"
 #include "bb_prov.h"
 #include "bb_mdns.h"
@@ -1180,6 +1181,7 @@ static bb_err_t settings_get_handler(bb_http_request_t *req)
     s.ota_skip_check = bb_nv_config_ota_skip_check();
     s.mdns_en        = bb_nv_config_mdns_enabled();
     s.knot_en        = config_knot_enabled();
+    s.led_heartbeat_en = config_led_heartbeat_enabled();
     s.provisioned    = bb_nv_config_is_provisioned();
 
     bb_http_json_obj_stream_t obj;
@@ -1596,6 +1598,21 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
         #undef KNOT_REARM_LIVE
     }
 
+    // Handle led_heartbeat_en (live apply, no reboot): persist + reflect on the
+    // LED immediately. The settings page is only served while mining, so toggling
+    // it on resumes the breathe and off darkens the LED. No-op on LED-less boards.
+    if (bb_json_obj_get_item(root, "led_heartbeat_en") != NULL) {
+        bool hb_val = config_led_heartbeat_enabled();
+        bb_json_obj_get_bool(root, "led_heartbeat_en", &hb_val);
+        bb_err_t err = config_set_led_heartbeat_enabled(hb_val);
+        if (err != BB_OK) {
+            bb_json_free(root);
+            bb_http_resp_set_status(req, 500); { bb_http_json_obj_stream_t _e; bb_http_resp_json_obj_begin(req, &_e); bb_http_resp_json_obj_set_str(&_e, "error", "Failed to save led_heartbeat_en"); bb_http_resp_json_obj_end(&_e); }
+            return err;
+        }
+        if (hb_val) led_set_mining(true); else led_off();
+    }
+
     bb_json_free(root);
 
     // Response
@@ -1972,12 +1989,14 @@ static const bb_route_response_t s_settings_get_responses[] = {
       "\"ota_skip_check\":{\"type\":\"boolean\"},"
       "\"mdns_en\":{\"type\":\"boolean\"},"
       "\"knot_en\":{\"type\":\"boolean\"},"
+      "\"led_heartbeat_en\":{\"type\":\"boolean\","
+      "\"description\":\"mining-heartbeat status LED (the dim breathe while hashing); default on\"},"
       "\"provisioned\":{\"type\":\"boolean\","
       "\"description\":\"read-only mirror of the bb_cfg NVS 'provisioned' u8 key; "
       "true after first successful provisioning, false on factory/post-reset. "
       "Settable only via direct NVS write (e.g. taipan-cli flash pre-seed), not HTTP.\"}},"
       "\"required\":[\"hostname\",\"display_en\",\"ota_skip_check\",\"mdns_en\","
-      "\"knot_en\",\"provisioned\"]}",
+      "\"knot_en\",\"led_heartbeat_en\",\"provisioned\"]}",
       "current persisted settings" },
     { 0 },
 };
@@ -2046,7 +2065,8 @@ static const bb_route_t s_settings_patch_route = {
         "\"display_en\":{\"type\":\"boolean\"},"
         "\"ota_skip_check\":{\"type\":\"boolean\"},"
         "\"mdns_en\":{\"type\":\"boolean\"},"
-        "\"knot_en\":{\"type\":\"boolean\"}}}",
+        "\"knot_en\":{\"type\":\"boolean\"},"
+        "\"led_heartbeat_en\":{\"type\":\"boolean\"}}}",
     .responses            = s_settings_write_responses,
     .handler              = settings_patch_handler,
 };

@@ -38,3 +38,23 @@ void test_set_knot_enabled_to_false(void)
     TEST_ASSERT_EQUAL(0, config_set_knot_enabled(false));
     TEST_ASSERT_FALSE(config_knot_enabled());
 }
+
+// Config mining-heartbeat LED enable — getter round-trip + default
+
+void test_led_heartbeat_enabled_default_true(void)
+{
+    TEST_ASSERT_EQUAL(0, bb_nv_config_init());
+    TEST_ASSERT_EQUAL(0, config_init());
+    // Default is on when nothing persisted
+    TEST_ASSERT_TRUE(config_led_heartbeat_enabled());
+}
+
+void test_set_led_heartbeat_enabled_round_trip(void)
+{
+    bb_nv_config_init();
+    config_init();
+    TEST_ASSERT_EQUAL(0, config_set_led_heartbeat_enabled(false));
+    TEST_ASSERT_FALSE(config_led_heartbeat_enabled());
+    TEST_ASSERT_EQUAL(0, config_set_led_heartbeat_enabled(true));
+    TEST_ASSERT_TRUE(config_led_heartbeat_enabled());
+}

@@ -10,6 +10,11 @@ export default defineConfig({
   // Reference: sveltejs/svelte#11394, vitest-dev/vitest#8633
   plugins: [svelte({ hot: false }), svelteTesting()],
   test: {
+    // Run test files sequentially so that real-timer async work from one file
+    // (e.g. pending microtasks after vi.useRealTimers() calls) cannot bleed
+    // into V8 coverage collection for the next file, which caused nondeterministic
+    // covered-line counts across runs.
+    fileParallelism: false,
     environment: 'jsdom',
     // jsdom defaults to an "opaque origin" (about:blank), which disables
     // localStorage. Setting a real URL gives the document a proper origin

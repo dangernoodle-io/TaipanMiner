@@ -742,66 +742,74 @@ describe('doClearPanic()', () => {
 
 describe('withRetry helper (via loadHeap/loadTasks)', () => {
   it('retries once on failure then succeeds', async () => {
-    vi.useRealTimers() // need real setTimeout for the 400ms backoff
+    // Fake timers are already active (from beforeEach); advance past the 400ms
+    // backoff so withRetry fires the retry without a real wall-clock delay.
     const heapData = { internal: { free: 1, allocated: 1, largest_free_block: 1, minimum_ever_free: 1 }, dma: { free: 1, allocated: 1, largest_free_block: 1, minimum_ever_free: 1 }, default: { free: 1, allocated: 1, largest_free_block: 1, minimum_ever_free: 1 } }
     vi.mocked(api.fetchDiagHeap)
       .mockRejectedValueOnce(new Error('502'))
       .mockResolvedValueOnce(heapData as any)
     const ds = createDiagnosticsState()
-    await ds.loadHeap()
+    const promise = ds.loadHeap()
+    await vi.advanceTimersByTimeAsync(400)
+    await promise
     expect(api.fetchDiagHeap).toHaveBeenCalledTimes(2)
     expect(ds.heap).toEqual(heapData)
     expect(ds.heapErr).toBe('')
   })
 
   it('surfaces the error after both attempts fail', async () => {
-    vi.useRealTimers()
     vi.mocked(api.fetchDiagHeap)
       .mockRejectedValueOnce(new Error('first'))
       .mockRejectedValueOnce(new Error('second'))
     const ds = createDiagnosticsState()
-    await ds.loadHeap()
+    const promise = ds.loadHeap()
+    await vi.advanceTimersByTimeAsync(400)
+    await promise
     expect(api.fetchDiagHeap).toHaveBeenCalledTimes(2)
     expect(ds.heapErr).toBe('second')
   })
 
   it('runHeapCheck falls back to bad on persistent failure', async () => {
-    vi.useRealTimers()
     vi.mocked(api.checkDiagHeap)
       .mockRejectedValueOnce(new Error('x'))
       .mockRejectedValueOnce(new Error('x'))
     const ds = createDiagnosticsState()
-    await ds.runHeapCheck()
+    const promise = ds.runHeapCheck()
+    await vi.advanceTimersByTimeAsync(400)
+    await promise
     expect(ds.heapCheckResult).toBe('bad')
   })
 
   it('loadTasks sets tasksErr on persistent failure', async () => {
-    vi.useRealTimers()
     vi.mocked(api.fetchDiagTasks)
       .mockRejectedValueOnce(new Error('x'))
       .mockRejectedValueOnce(new Error('boom-tasks'))
     const ds = createDiagnosticsState()
-    await ds.loadTasks()
+    const promise = ds.loadTasks()
+    await vi.advanceTimersByTimeAsync(400)
+    await promise
     expect(ds.tasksErr).toBe('boom-tasks')
   })
 
   it('loadPanic sets panic to null on persistent failure', async () => {
-    vi.useRealTimers()
     vi.mocked(api.fetchDiagPanic)
       .mockRejectedValueOnce(new Error('x'))
       .mockRejectedValueOnce(new Error('x'))
     const ds = createDiagnosticsState()
-    await ds.loadPanic()
+    const promise = ds.loadPanic()
+    await vi.advanceTimersByTimeAsync(400)
+    await promise
     expect(ds.panic).toBeNull()
   })
 
   it('loadAbnormalResets sets abnormalResets to null on persistent failure', async () => {
-    vi.useRealTimers()
     vi.mocked(api.fetchInfo)
       .mockRejectedValueOnce(new Error('x'))
       .mockRejectedValueOnce(new Error('x'))
     const ds = createDiagnosticsState()
-    await ds.loadAbnormalResets()
+    const promise = ds.loadAbnormalResets()
+    await vi.advanceTimersByTimeAsync(400)
+    await promise
     expect(ds.abnormalResets).toBeNull()
   })
 })

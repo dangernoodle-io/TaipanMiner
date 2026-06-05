@@ -25,7 +25,7 @@ static bb_err_t led_backend_open(bb_led_handle_t *out) {
         .global_brightness_31 = 31,
     };
     return bb_led_apa102_open(&cfg, out);
-#elif defined(BOARD_ESP32_S2_MINI)
+#elif defined(BOARD_ESP32_S2_MINI) || defined(BOARD_ESP32_WROOM32)
     bb_led_pwm_cfg_t cfg = {
         .gpio = PIN_STATUS_LED,
         .freq_hz = 5000,
@@ -35,9 +35,17 @@ static bb_err_t led_backend_open(bb_led_handle_t *out) {
         .active_low = false,
     };
     return bb_led_pwm_open(&cfg, out);
+#elif defined(BOARD_ESP32_C3_SUPERMINI)
+    bb_led_pwm_cfg_t cfg = {
+        .gpio = PIN_STATUS_LED,
+        .freq_hz = 5000,
+        .resolution_bits = 13,
+        .active_low = true,   // C3 SuperMini onboard LED (GPIO8) is active-low
+    };
+    return bb_led_pwm_open(&cfg, out);
 #else
     (void)out;
-    return BB_ERR_UNSUPPORTED;  // bitaxe / wroom32: no status LED
+    return BB_ERR_UNSUPPORTED;  // bitaxe: no status LED
 #endif
 }
 
@@ -77,6 +85,11 @@ bb_err_t led_init(void) {
         .kind  = BB_ANIM_SOLID,
         .solid = { .r = 255, .g = 255, .b = 255, .brightness_pct = 50 },
     };
+    // APA102 white reads bright at 50%; keep the boot indicator dim on the RGB LED.
+    // The S2's single-channel PWM keeps 50% duty (its boot indicator reads fine).
+    if (bb_led_caps(s_led) & BB_LED_CAP_RGB) {
+        boot.solid.brightness_pct = 3;
+    }
     bb_led_anim_set(s_anim, &boot);
     return BB_OK;
 }
@@ -106,11 +119,19 @@ bb_err_t led_set_mining(bool on) {
     if (bb_led_caps(s_led) & BB_LED_CAP_RGB) {
         bb_led_set_color(s_led, 0, 0, 255, 0);
     }
-    // Fade the boot solid 50% into a dim 1–10% breathe heartbeat (~0.8s handoff).
+    // Fade the boot solid 50% into the mining-heartbeat breathe (~0.8s handoff).
     bb_led_anim_pattern_t pat = {
         .kind = BB_ANIM_BREATHE,
         .breathe = { .period_ms = 3000, .min_pct = 1, .max_pct = 10 },
     };
+    if (bb_led_caps(s_led) & BB_LED_CAP_RGB) {
+        // Tune the RGB heartbeat for the APA102: a dim, slow green breath. The
+        // driver's combined 5-bit-global + 8-bit-color path keeps these low levels
+        // smooth. The S2's 13-bit PWM keeps the 1–10% / 3 s sweep set above.
+        pat.breathe.min_pct   = 1;
+        pat.breathe.max_pct   = 5;
+        pat.breathe.period_ms = 5000;
+    }
     return bb_led_anim_set_transition(s_anim, &pat, 800);
 }
 
@@ -122,6 +143,8 @@ bb_err_t led_blink(uint8_t level_pct, uint32_t period_ms) {
     bb_led_anim_resume(s_anim);
     if (bb_led_caps(s_led) & BB_LED_CAP_RGB) {
         bb_led_set_color(s_led, 0, 0, 0, 255);
+        // APA102 blue reads bright; drop the flash level hard on the RGB LED.
+        level_pct = (uint8_t)(level_pct / 7);
     }
     bb_led_anim_pattern_t pat = {
         .kind  = BB_ANIM_BLINK,

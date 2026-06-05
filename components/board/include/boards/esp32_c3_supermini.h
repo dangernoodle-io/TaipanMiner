@@ -8,6 +8,10 @@
 // BOOT button (GPIO9 on C3 SuperMini)
 #define PIN_BOOT_BTN  9
 
+// Onboard status LED — active-LOW LED on GPIO8 on the C3 SuperMini. Single-channel,
+// driven via bb_led_pwm (same boot-solid → breathe heartbeat path as the S2/wroom32).
+#define PIN_STATUS_LED 8
+
 // No display — -1 pins satisfy bb_display_st77xx and bb_display_ssd1306
 // compile requirements; both backends' probe/init will return early.
 #define PIN_LCD_CLK    -1

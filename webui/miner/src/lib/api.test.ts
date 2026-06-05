@@ -804,6 +804,6 @@ describe('clearDiagPanic (alias → clearDiagBoot)', () => {
 
 describe('coredumpUrl', () => {
   it('exports const pointing to coredump endpoint', () => {
-    expect(coredumpUrl).toContain('/api/diag/panic/coredump')
+    expect(coredumpUrl).toContain('/api/diag/coredump')
   })
 })

@@ -377,7 +377,7 @@ export async function clearDiagBoot(): Promise<void> {
 export const clearAbnormalResets = clearDiagBoot
 export const clearDiagPanic      = clearDiagBoot
 
-export const coredumpUrl = `${baseUrl}/api/diag/panic/coredump`
+export const coredumpUrl = `${baseUrl}/api/diag/coredump`
 
 export interface Settings {
   hostname: string

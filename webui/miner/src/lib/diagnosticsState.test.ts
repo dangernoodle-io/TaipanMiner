@@ -12,7 +12,7 @@ vi.mock('./api', () => ({
   clearAbnormalResets: vi.fn().mockResolvedValue(undefined),
   clearDiagPanic: vi.fn().mockResolvedValue(undefined),
   fetchInfo: vi.fn().mockResolvedValue({ abnormal_reset_count: 0 }),
-  coredumpUrl: '/api/diag/panic/coredump',
+  coredumpUrl: '/api/diag/coredump',
 }))
 
 vi.mock('./stores', async () => ({

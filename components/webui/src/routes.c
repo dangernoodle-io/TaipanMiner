@@ -2341,7 +2341,7 @@ void webui_reserve_mining_routes(void)
 {
     size_t n = sizeof(s_mining_routes) / sizeof(s_mining_routes[0]);
 #if CONFIG_WEBUI_MINING_UI
-    n += webui_miner_assets_count;
+    n += 1;  // assets now use a single "/*" wildcard handler instead of N per-asset handlers
 #endif
     bb_http_reserve_routes((int)n);
 }
@@ -2349,11 +2349,19 @@ void webui_reserve_mining_routes(void)
 bb_err_t webui_register_mining_routes(bb_http_handle_t server)
 {
     bb_err_t rc;
+
+    // Register dynamic /api/* handlers first so they win first-match over the
+    // "/*" asset wildcard registered below.
+    rc = bb_http_register_route_table(server, s_mining_routes,
+                                      sizeof(s_mining_routes) / sizeof(s_mining_routes[0]));
+    if (rc != BB_OK) return rc;
+
 #if CONFIG_WEBUI_MINING_UI
-    // Static SPA assets (index.html/js/css/svg). Skipped on single-core (S2/C3)
-    // boards: serving the bundle needs more contiguous heap than these no-PSRAM
-    // parts have, and it can't load there anyway. The /api/* routes below stay
-    // registered, so the dashboard data (and hashrate) remain available headless.
+    // Static SPA assets (index.html/js/css/svg) — registered LAST via a single
+    // "/*" wildcard handler so specific /api/* routes above win first-match.
+    // Skipped on single-core (S2/C3) boards: serving the bundle needs more
+    // contiguous heap than these no-PSRAM parts have, and it can't load there
+    // anyway.  The /api/* routes above stay registered for headless access.
     {
         size_t _n;
         const bb_http_asset_t *_a = webui_miner_assets_get(&_n);
@@ -2361,11 +2369,6 @@ bb_err_t webui_register_mining_routes(bb_http_handle_t server)
     }
     if (rc != BB_OK) return rc;
 #endif
-
-    // Register dynamic handlers with OpenAPI descriptors
-    rc = bb_http_register_route_table(server, s_mining_routes,
-                                      sizeof(s_mining_routes) / sizeof(s_mining_routes[0]));
-    if (rc != BB_OK) return rc;
 
     bb_log_i(TAG, "mining routes registered");
     return BB_OK;

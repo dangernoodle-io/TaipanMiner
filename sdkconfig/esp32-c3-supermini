@@ -52,5 +52,3 @@ CONFIG_BB_LOG_STREAM_BUF_BYTES=2048
 # needs the event replay headroom (the S2 disables the UI via CONFIG_WEBUI_MINING_UI=n).
 # mDNS batch size: bss batch arrays, 16→4 recovers ~12 KB; replayed next refresh.
 CONFIG_BB_MDNS_BATCH_MAX=4
-# mDNS task stack: measured HWM 1844 on S2, 2560 leaves 716 B headroom.
-CONFIG_MDNS_TASK_STACK_SIZE=2560

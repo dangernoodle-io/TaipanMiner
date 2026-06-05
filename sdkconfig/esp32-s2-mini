@@ -111,8 +111,6 @@ CONFIG_BB_WIFI_PS_NONE=y
 CONFIG_MINING_UNICORE_YIELD_MASK=0x1FFF
 
 # S2 heap reclaim — HWM-measured, safe to trim on the heap-critical S2:
-# mDNS task stack: default 4096, measured HWM 1844; 2560 leaves 716B headroom.
-CONFIG_MDNS_TASK_STACK_SIZE=2560
 # bb_event_routes replay ring: default 16, sized for rare block.found events; 4 is sufficient.
 CONFIG_BB_EVENT_ROUTES_RING_CAPACITY=4
 # bb_event dispatcher queue depth: default 16; 8 is sufficient for low-rate mining events.

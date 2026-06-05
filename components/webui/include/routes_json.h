@@ -229,9 +229,10 @@ void emit_pool_json(bb_http_json_obj_stream_t *obj,
                     size_t stats_count);
 
 /* ============================================================================
- * /api/diag/asic
+ * /api/diag/asic  (ASIC_CHIP only)
  * ========================================================================= */
 
+#ifdef ASIC_CHIP
 typedef enum {
     ROUTES_JSON_DROP_KIND_TOTAL  = 0,
     ROUTES_JSON_DROP_KIND_ERROR  = 1,
@@ -260,6 +261,7 @@ typedef struct {
 /* Emit /api/diag/asic fields into an already-opened streaming JSON object.
  * Emits the recent_drops[] array. Caller does obj_begin / obj_end. */
 void emit_diag_asic_json(bb_http_json_obj_stream_t *obj, const diag_asic_snapshot_t *s);
+#endif /* ASIC_CHIP */
 
 /* ============================================================================
  * /api/knot

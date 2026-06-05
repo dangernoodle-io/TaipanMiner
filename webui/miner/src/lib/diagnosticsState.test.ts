@@ -15,9 +15,13 @@ vi.mock('./api', () => ({
   coredumpUrl: '/api/diag/coredump',
 }))
 
-vi.mock('./stores', async () => ({
-  startRebootRecovery: vi.fn(),
-}))
+vi.mock('./stores', async () => {
+  const { writable } = await import('svelte/store')
+  return {
+    startRebootRecovery: vi.fn(),
+    hasAsic: writable(true),
+  }
+})
 
 vi.mock('./sse', () => {
   let _lastInstance: any = null
@@ -40,7 +44,7 @@ vi.mock('./sse', () => {
 })
 
 import * as api from './api'
-import { startRebootRecovery } from './stores'
+import { startRebootRecovery, hasAsic } from './stores'
 import { createDiagnosticsState } from './diagnosticsState.svelte'
 import { SseClient } from './sse'
 
@@ -56,6 +60,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   ;(SseClient as any).reset()
   vi.useFakeTimers()
+  // Reset hasAsic to true by default; individual tests override as needed
+  hasAsic.set(true)
   // Minimal document visibility API shim
   Object.defineProperty(document, 'visibilityState', {
     configurable: true,
@@ -823,5 +829,41 @@ describe('init() calls new loaders', () => {
     expect(api.fetchDiagTasks).toHaveBeenCalled()
     expect(api.fetchDiagPanic).toHaveBeenCalled()
     expect(api.fetchInfo).toHaveBeenCalled()
+  })
+})
+
+describe('hasAsic=false — ASIC diag gating', () => {
+  it('loadDiagAsic skips fetch when hasAsic is false', async () => {
+    hasAsic.set(false)
+    const ds = createDiagnosticsState()
+    await ds.loadDiagAsic()
+    expect(api.fetchDiagAsic).not.toHaveBeenCalled()
+    expect(ds.recentDrops).toEqual([])
+  })
+
+  it('init does not call fetchDiagAsic when hasAsic is false', async () => {
+    hasAsic.set(false)
+    const ds = createDiagnosticsState()
+    await ds.init()
+    expect(api.fetchDiagAsic).not.toHaveBeenCalled()
+  })
+
+  it('init does not set up diagInterval when hasAsic is false', async () => {
+    hasAsic.set(false)
+    const ds = createDiagnosticsState()
+    await ds.init()
+    vi.advanceTimersByTime(30000)
+    // fetchDiagAsic still not called — no interval was set up
+    expect(api.fetchDiagAsic).not.toHaveBeenCalled()
+  })
+
+  it('loadDiagAsic fetches when hasAsic is true', async () => {
+    hasAsic.set(true)
+    const drops = [{ ts_ago_s: 5, chip: 0, kind: 'total', domain: 0, addr: 0, ghs: 100, delta: -10, elapsed_s: 1 }]
+    vi.mocked(api.fetchDiagAsic).mockResolvedValueOnce({ recent_drops: drops } as any)
+    const ds = createDiagnosticsState()
+    await ds.loadDiagAsic()
+    expect(api.fetchDiagAsic).toHaveBeenCalledTimes(1)
+    expect(ds.recentDrops).toEqual(drops)
   })
 })

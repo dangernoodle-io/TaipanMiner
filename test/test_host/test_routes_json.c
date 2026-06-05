@@ -50,6 +50,7 @@ static char *capture_pool(const pool_snapshot_t *snap,
     return copy;
 }
 
+#ifdef ASIC_CHIP
 /* Capture emit_diag_asic_json output into a heap string.
  * Caller must free() the returned pointer. */
 static char *capture_diag_asic(const diag_asic_snapshot_t *snap)
@@ -66,6 +67,7 @@ static char *capture_diag_asic(const diag_asic_snapshot_t *snap)
     bb_http_host_capture_free(&cap);
     return copy;
 }
+#endif /* ASIC_CHIP */
 
 /* Capture emit_stats_json output into a heap string.
  * Caller must free() the returned pointer. */
@@ -621,9 +623,10 @@ void test_emit_pool_stats_two_entries(void)
 }
 
 /* ============================================================================
- * /api/diag/asic — capture-based tests (emit_diag_asic_json)
+ * /api/diag/asic — capture-based tests (emit_diag_asic_json, ASIC_CHIP only)
  * ========================================================================= */
 
+#ifdef ASIC_CHIP
 void test_diag_asic_empty(void)
 {
     diag_asic_snapshot_t s = {0};
@@ -706,6 +709,7 @@ void test_diag_asic_future_ts_clamps_to_zero(void)
         json);
     free(json);
 }
+#endif /* ASIC_CHIP */
 
 /* ============================================================================
  * /api/knot — capture-based tests using RUNTIME array path

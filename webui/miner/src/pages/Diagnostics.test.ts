@@ -129,6 +129,15 @@ vi.mock('../lib/api', () => ({
   postReboot: vi.fn(), setLogLevel: vi.fn(), fetchLogLevels: vi.fn(), fetchDiagAsic: vi.fn(),
 }))
 
+// Provide hasAsic as true by default so the Telemetry drops section renders
+vi.mock('../lib/stores', async () => {
+  const { writable } = await import('svelte/store')
+  return {
+    hasAsic: writable(true),
+    fanEditOpen: writable(false),
+  }
+})
+
 import Diagnostics from './Diagnostics.svelte'
 
 beforeEach(() => {

@@ -45,3 +45,12 @@ CONFIG_MBEDTLS_HARDWARE_AES=y
 CONFIG_ESP_WIFI_IRAM_OPT=n
 CONFIG_ESP_WIFI_RX_IRAM_OPT=n
 CONFIG_BB_LOG_STREAM_BUF_BYTES=2048
+
+# C3 heap reclaim — pure-margin conservative trims mirroring S2 experience
+# (HWM-measured safe on the S2; the C3 is next-tightest no-PSRAM board).
+# Skip bb_event ring/queue trims: the C3 serves the mining UI dashboard, which
+# needs the event replay headroom (the S2 disables the UI via CONFIG_WEBUI_MINING_UI=n).
+# mDNS batch size: bss batch arrays, 16→4 recovers ~12 KB; replayed next refresh.
+CONFIG_BB_MDNS_BATCH_MAX=4
+# mDNS task stack: measured HWM 1844 on S2, 2560 leaves 716 B headroom.
+CONFIG_MDNS_TASK_STACK_SIZE=2560

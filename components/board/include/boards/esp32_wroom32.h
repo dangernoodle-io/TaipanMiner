@@ -7,6 +7,10 @@
 // BOOT button
 #define PIN_BOOT_BTN  0
 
+// Onboard status LED — active-high LED on GPIO2 on the DevKit. Single-channel,
+// driven via bb_led_pwm (same boot-solid → breathe heartbeat path as the S2).
+#define PIN_STATUS_LED 2
+
 // No display — -1 pins satisfy bb_display_st77xx and bb_display_ssd1306
 // compile requirements; both backends' probe/init will return early.
 #define PIN_LCD_CLK    -1

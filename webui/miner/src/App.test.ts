@@ -8,7 +8,7 @@ vi.mock('./lib/api', () => ({
   fetchSettings: vi.fn(), fetchPool: vi.fn(), fetchHealth: vi.fn(), ping: vi.fn(),
   fetchDiagHeap: vi.fn(), checkDiagHeap: vi.fn(), fetchDiagTasks: vi.fn(),
   fetchDiagPanic: vi.fn(), clearAbnormalResets: vi.fn(), clearDiagPanic: vi.fn(),
-  coredumpUrl: '/api/diag/panic/coredump'
+  coredumpUrl: '/api/diag/coredump'
 }))
 
 import App from './App.svelte'

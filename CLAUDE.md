@@ -84,7 +84,7 @@ Both `esp32-s2-mini` and `esp32-c3-supermini` are single-core; the miner task ru
 TaipanMiner consumes shared infrastructure components from the breadboard library:
 
 - **Pattern**: `EXTRA_COMPONENT_DIRS += $(BREADBOARD_COMPONENTS_DIR)` in CMakeLists.txt includes breadboard components in the build.
-- **Namespace isolation**: BB-owned keys (`wifi_ssid`, `wifi_pass`, `hostname`, `mdns_en`, `update_check_en`, `display_en`) live in BB's default `"bb_cfg"` namespace. TM-owned keys stay in `"taipanminer"`. On first boot after upgrade, `migrate_legacy_bb_keys()` in `app_main` (runs **before** `bb_registry_init_early()`) migrates legacy `"taipanminer"/<bb_key>` entries to `"bb_cfg"` using direct ESP-IDF NVS API — must run before `bb_nv_config_init` (EARLY tier) so `bb_wifi_autoinit` sees migrated wifi creds. Legacy `taipanminer/<bb_key>` entries are deleted after successful migration.
+- **Namespace isolation**: BB-owned keys (`wifi_ssid`, `wifi_pass`, `hostname`, `mdns_en`, `update_check_en`, `display_en`) live in BB's default `"bb_cfg"` namespace. TM-owned keys stay in `"taipanminer"`.
 - **Components consumed**:
   - `log_stream` — logging middleware
   - `nv_config` — NVS configuration layer (TaipanMiner wraps via `config`)

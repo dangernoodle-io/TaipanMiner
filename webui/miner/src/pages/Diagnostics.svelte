@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
   import { createDiagnosticsState } from '../lib/diagnosticsState.svelte'
+  import { hasAsic } from '../lib/stores'
 
   const ds = createDiagnosticsState()
 
@@ -228,6 +229,7 @@
     </div>
   </details>
 
+  {#if $hasAsic}
   <details class="section disclosure">
     <summary>
       <h2>Telemetry drops</h2>
@@ -260,6 +262,7 @@
       {/if}
     </div>
   </details>
+  {/if}
 
 </div>
 

@@ -1888,12 +1888,12 @@ static const bb_route_t s_pool_delete_primary_route = {
     .handler      = pool_delete_primary_handler,
 };
 
+#ifdef ASIC_CHIP
 // ---------------------------------------------------------------------------
 // /api/diag/asic — GET (TA-282, TA-287)
-// Recent telemetry-drop log. On ASIC boards, calls asic_task_get_drop_log()
-// and serialises up to ASIC_DROP_LOG_CAP entries as recent_drops[].
-// On tdongle (no ASIC), returns { "recent_drops": [] } — keeps the webui
-// path uniform with no special-casing.
+// Recent telemetry-drop log. Calls asic_task_get_drop_log() and serialises
+// up to ASIC_DROP_LOG_CAP entries as recent_drops[].
+// ASIC boards only — absent on CPU-SHA boards (S2/C3/wroom32/tdongle).
 // ---------------------------------------------------------------------------
 static bb_err_t diag_asic_handler(bb_http_request_t *req)
 {
@@ -1901,7 +1901,6 @@ static bb_err_t diag_asic_handler(bb_http_request_t *req)
 
     diag_asic_snapshot_t s = {0};
 
-#ifdef ASIC_CHIP
     asic_drop_event_t drops[ASIC_DROP_LOG_CAP];
     size_t n = asic_task_get_drop_log(drops, ASIC_DROP_LOG_CAP);
     s.now_us  = bb_timer_now_us();
@@ -1916,7 +1915,6 @@ static bb_err_t diag_asic_handler(bb_http_request_t *req)
         s.drops[i].delta      = drops[i].delta;
         s.drops[i].elapsed_s  = drops[i].elapsed_s;
     }
-#endif /* ASIC_CHIP */
 
     bb_http_json_obj_stream_t obj;
     bb_err_t rc = bb_http_resp_json_obj_begin(req, &obj);
@@ -1957,6 +1955,7 @@ static const bb_route_t s_diag_asic_route = {
     .responses    = s_diag_asic_responses,
     .handler      = diag_asic_handler,
 };
+#endif /* ASIC_CHIP */
 
 // ---------------------------------------------------------------------------
 // /api/knot — GET
@@ -2342,8 +2341,10 @@ static const bb_route_t * const s_mining_routes[] = {
     &s_pool_switch_route,
     &s_pool_delete_primary_route,
     &s_pool_delete_fallback_route,
-    &s_diag_asic_route,
     &s_diag_benchmark_route,
+#ifdef ASIC_CHIP
+    &s_diag_asic_route,
+#endif
 #if CONFIG_KNOT_ENABLED
     &s_knot_route,
 #endif

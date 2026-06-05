@@ -672,9 +672,11 @@ void test_pool_latency_positive(void);
 void test_pool_latency_negative(void);
 void test_emit_pool_stats_empty(void);
 void test_emit_pool_stats_two_entries(void);
+#ifdef ASIC_CHIP
 void test_diag_asic_empty(void);
 void test_diag_asic_three_events(void);
 void test_diag_asic_future_ts_clamps_to_zero(void);
+#endif
 void test_knot_empty(void);
 void test_knot_two_peers(void);
 void test_knot_peer_single_peer(void);
@@ -1408,9 +1410,11 @@ int main(void) {
     RUN_TEST(test_pool_subscribe_status_pending);
     RUN_TEST(test_pool_subscribe_status_active);
     RUN_TEST(test_pool_subscribe_status_rejected);
+#ifdef ASIC_CHIP
     RUN_TEST(test_diag_asic_empty);
     RUN_TEST(test_diag_asic_three_events);
     RUN_TEST(test_diag_asic_future_ts_clamps_to_zero);
+#endif
 
     // TA-33: /api/diag/benchmark parse + JSON shape tests
     RUN_TEST(test_diag_bench_parse_null_body_defaults);

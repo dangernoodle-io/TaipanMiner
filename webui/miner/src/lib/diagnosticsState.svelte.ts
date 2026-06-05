@@ -4,7 +4,8 @@ import {
   fetchInfo, coredumpUrl,
   type LogLevel, type RecentDrop, type DiagHeap, type DiagTask, type DiagPanic,
 } from './api'
-import { startRebootRecovery } from './stores'
+import { startRebootRecovery, hasAsic } from './stores'
+import { get } from 'svelte/store'
 import { SseClient, type SseStatus } from './sse'
 import { filterLines, retryInSeconds, findLevelForTag, type TagLevel } from './diagnosticsHelpers'
 
@@ -74,6 +75,7 @@ export function createDiagnosticsState() {
   }
 
   async function loadDiagAsic() {
+    if (!get(hasAsic)) return
     try {
       const data = await withRetry(fetchDiagAsic)
       recentDrops = data.recent_drops
@@ -310,7 +312,7 @@ export function createDiagnosticsState() {
     await loadPanic()
     await loadAbnormalResets()
 
-    diagInterval = setInterval(loadDiagAsic, 10000)
+    if (get(hasAsic)) diagInterval = setInterval(loadDiagAsic, 10000)
     tickTimer = setInterval(() => { tickNow = Date.now() }, 1000)
     document.addEventListener('visibilitychange', onVisibilityChange)
   }

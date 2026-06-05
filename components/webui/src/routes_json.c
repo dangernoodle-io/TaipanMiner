@@ -296,9 +296,10 @@ void emit_pool_json(bb_http_json_obj_stream_t *obj,
 }
 
 /* ============================================================================
- * /api/diag/asic
+ * /api/diag/asic  (ASIC_CHIP only)
  * ========================================================================= */
 
+#ifdef ASIC_CHIP
 void emit_diag_asic_json(bb_http_json_obj_stream_t *obj, const diag_asic_snapshot_t *s)
 {
     bb_http_resp_json_obj_set_arr_begin(obj, "recent_drops");
@@ -324,6 +325,7 @@ void emit_diag_asic_json(bb_http_json_obj_stream_t *obj, const diag_asic_snapsho
     }
     bb_http_resp_json_obj_set_arr_end(obj);
 }
+#endif /* ASIC_CHIP */
 
 /* ============================================================================
  * /api/knot

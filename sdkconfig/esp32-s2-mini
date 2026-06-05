@@ -59,13 +59,13 @@ CONFIG_WEBUI_MINING_UI=n
 # ota_pull (HTTPS download) is likewise infeasible (12KB task + TLS). Reclaiming
 # that ~8KB gives an OTA-pushed image room to survive its mark-valid window.
 # ota_push (plain HTTP, mining paused) stays enabled — the working OTA path here.
-CONFIG_BB_UPDATE_CHECK_AUTOREGISTER=n
 CONFIG_BB_OTA_PULL_AUTOREGISTER=n
 # OTA strategy = boot-mode (breadboard v0.47.0+, B1-244). bb_ota_boot owns
 # POST /api/update/apply on the S2 (full-heap pull on next boot). Required: the
 # BB_OTA_STRATEGY choice defaults to PULL, which would leave BB_OTA_BOOT_AUTOREGISTER
 # off and the S2 with no onboard OTA trigger. Selecting BOOT flips boot autoregister
-# on and pull autoregister off (the explicit =n above is now redundant but harmless).
+# on and pull autoregister off. BB_UPDATE_CHECK_AUTOREGISTER defaults off on
+# boot-mode boards since breadboard v0.50.0 (#342); no explicit override needed.
 CONFIG_BB_OTA_STRATEGY_BOOT=y
 # OTA push receive buffer: v0.41.2 makes this a Kconfig (default 1024).
 # 1024 stalled the push on the single-core S2 (task_wdt); 4096 completes.

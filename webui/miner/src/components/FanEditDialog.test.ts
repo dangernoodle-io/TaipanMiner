@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/svelte'
 import { fan, fanEditOpen } from '../lib/stores'
 
@@ -42,9 +42,14 @@ const fakeFan = {
 
 describe('FanEditDialog', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
     vi.clearAllMocks()
     fanEditOpen.set(false)
     fan.set(null)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('does not render when fanEditOpen=false', () => {
@@ -157,8 +162,9 @@ describe('FanEditDialog', () => {
     render(FanEditDialog)
     const saveBtn = screen.getByRole('button', { name: 'Save' })
     await fireEvent.submit(saveBtn.closest('form')!)
-    // Wait for save to complete
-    await new Promise(r => setTimeout(r, 50))
+    // Flush microtasks so patchFan/fetchFan promises resolve, then advance
+    // past the component's 400ms close timer so no real timer lingers.
+    await vi.runAllTimersAsync()
     expect(vi.mocked(patchFan)).toHaveBeenCalled()
   })
 
@@ -170,7 +176,7 @@ describe('FanEditDialog', () => {
     render(FanEditDialog)
     const form = document.querySelector('form')!
     await fireEvent.submit(form)
-    await new Promise(r => setTimeout(r, 50))
+    await vi.runAllTimersAsync()
     expect(document.querySelector('.msg.err')).not.toBeNull()
   })
 
@@ -185,7 +191,8 @@ describe('FanEditDialog', () => {
     render(FanEditDialog)
     const form = document.querySelector('form')!
     fireEvent.submit(form) // do NOT await — leave it in-flight
-    await new Promise(r => setTimeout(r, 10))
+    // Flush microtasks so Svelte processes the submit before we click backdrop
+    await vi.runAllTimersAsync()
     const backdrop = document.querySelector('.modal-backdrop')!
     await fireEvent.click(backdrop)
     // Dialog still open because saving=true blocks close()

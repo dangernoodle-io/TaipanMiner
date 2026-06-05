@@ -1,0 +1,16 @@
+menu "Knot peer discovery"
+
+config KNOT_ENABLED
+    bool "Enable knot peer-discovery table"
+    default WEBUI_MINING_UI
+    help
+      Compile in the knot component: mDNS browse, peer table (g_peer_table[32]),
+      and the /api/knot route. Enabled by default when the mining web UI is on
+      (WEBUI_MINING_UI=y) and disabled on headless boards where the dashboard is
+      not served. The ~8.3 KB .bss peer table and associated code are removed from
+      the binary when this is off.
+
+      Knot is informational-only (feeds /api/knot for the dashboard dashboard) and
+      has no impact on mining, stratum, WiFi, or OTA.
+
+endmenu

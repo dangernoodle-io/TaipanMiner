@@ -33,7 +33,9 @@
 #include "bb_registry.h"
 #include "bb_event.h"
 #include "bb_event_routes.h"
+#if CONFIG_KNOT_ENABLED
 #include "knot.h"
+#endif
 #include "ota_validator_io.h"
 #include "bb_ota_validator.h"
 #include "boot_fallback_decision.h"
@@ -429,7 +431,9 @@ void app_main(void)
             bb_mdns_set_hostname(hn);
         }
         bool mdns_en = bb_nv_config_mdns_enabled();
+#if CONFIG_KNOT_ENABLED
         bool knot_en = config_knot_enabled() && mdns_en;  // dependency
+#endif
         if (mdns_en) {
             bb_mdns_init();
             bb_mdns_set_txt("worker", config_worker_name());
@@ -438,6 +442,7 @@ void app_main(void)
             bb_mdns_set_txt("state", "mining");
             bb_mdns_set_txt("ui", MINER_UI_TXT);
         }
+#if CONFIG_KNOT_ENABLED
         if (knot_en) {
             BB_ERROR_CHECK(knot_init());
             {
@@ -459,6 +464,7 @@ void app_main(void)
                               "mining");
             }
         }
+#endif
         // task_core / task_priority MUST be set BEFORE bb_registry_init — they're
         // sampled at xTaskCreatePinnedToCore time inside the registry walk.
         // Pin the upd_check worker to Core 1. Core 0 already carries httpd + lwip +

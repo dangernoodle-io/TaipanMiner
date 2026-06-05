@@ -35,7 +35,9 @@
 #include "bb_ota_validator.h"
 #include "bb_log.h"
 #include "bb_board.h"
+#if CONFIG_KNOT_ENABLED
 #include "knot.h"
+#endif
 #include "routes_json.h"
 #include "mining_pool_stats.h"
 #include "sha256.h"
@@ -1063,6 +1065,7 @@ static bb_err_t fan_post_handler(bb_http_request_t *req)
 }
 #endif // ASIC_BM1370 || ASIC_BM1368
 
+#if CONFIG_KNOT_ENABLED
 /* Context for knot_walk callback */
 typedef struct {
     bb_http_json_stream_t *stream;
@@ -1098,6 +1101,7 @@ static bb_err_t knot_handler(bb_http_request_t *req)
     knot_walk(knot_emit_peer_cb, &ctx);
     return bb_http_resp_json_arr_end(&stream);
 }
+#endif // CONFIG_KNOT_ENABLED
 
 static void taipan_info_extender(bb_json_t root)
 {
@@ -1157,7 +1161,9 @@ static void taipan_health_extender(bb_json_t root)
         bb_json_obj_set_bool(network, "stratum", stratum_is_connected());
         bb_json_obj_set_number(network, "stratum_fail_count",
                                stratum_get_connect_fail_count());
+#if CONFIG_KNOT_ENABLED
         bb_json_obj_set_bool(network, "knot", knot_is_running());
+#endif
     }
 }
 
@@ -1180,7 +1186,9 @@ static bb_err_t settings_get_handler(bb_http_request_t *req)
     s.display_en     = bb_nv_config_display_enabled();
     s.ota_skip_check = bb_nv_config_ota_skip_check();
     s.mdns_en        = bb_nv_config_mdns_enabled();
+#if CONFIG_KNOT_ENABLED
     s.knot_en        = config_knot_enabled();
+#endif
     s.led_heartbeat_en = config_led_heartbeat_enabled();
     s.provisioned    = bb_nv_config_is_provisioned();
 
@@ -1472,14 +1480,17 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
     // Handle mdns_en and knot_en separately (live apply, no reboot needed)
     {
         bool has_mdns = bb_json_obj_get_item(root, "mdns_en") != NULL;
-        bool has_knot = bb_json_obj_get_item(root, "knot_en") != NULL;
 
         bool mdns_val = bb_nv_config_mdns_enabled();
-        bool knot_val = config_knot_enabled();
 
         if (has_mdns) {
             bb_json_obj_get_bool(root, "mdns_en", &mdns_val);
         }
+
+#if CONFIG_KNOT_ENABLED
+        bool has_knot = bb_json_obj_get_item(root, "knot_en") != NULL;
+        bool knot_val = config_knot_enabled();
+
         if (has_knot) {
             bb_json_obj_get_bool(root, "knot_en", &knot_val);
         }
@@ -1513,6 +1524,7 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
                           FIRMWARE_BOARD, bb_system_get_version(),         \
                           "mining");                                       \
         } while (0)
+#endif // CONFIG_KNOT_ENABLED
 
         // Handle mdns_en transition: when mdns goes off, knot must go off too
         if (has_mdns) {
@@ -1520,7 +1532,9 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
             if (!mdns_val && current_mdns) {
                 // Stopping mDNS: tear down knot first (it depends on
                 // mdns browse) then stop mdns itself, then persist.
+#if CONFIG_KNOT_ENABLED
                 knot_deinit();
+#endif
                 bb_mdns_deinit();
                 bb_err_t err = bb_nv_config_set_mdns_enabled(false);
                 if (err != BB_OK) {
@@ -1543,6 +1557,7 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
             }
         }
 
+#if CONFIG_KNOT_ENABLED
         // Handle knot_en transition: only if mdns is on. Use the
         // RUNTIME state (knot_is_running) rather than persisted config
         // because knot can be torn down by an mdns_en=false transition
@@ -1594,6 +1609,7 @@ static bb_err_t settings_patch_handler(bb_http_request_t *req)
                 knot_deinit();
             }
         }
+#endif // CONFIG_KNOT_ENABLED
 
         #undef KNOT_REARM_LIVE
     }
@@ -1946,6 +1962,7 @@ static const bb_route_t s_diag_asic_route = {
 // /api/knot — GET
 // ---------------------------------------------------------------------------
 
+#if CONFIG_KNOT_ENABLED
 static const bb_route_response_t s_knot_responses[] = {
     { 200, "application/json",
       "{\"type\":\"array\","
@@ -1975,6 +1992,7 @@ static const bb_route_t s_knot_route = {
     .responses    = s_knot_responses,
     .handler      = knot_handler,
 };
+#endif // CONFIG_KNOT_ENABLED
 
 // ---------------------------------------------------------------------------
 // /api/settings — GET, POST, PATCH
@@ -2326,7 +2344,9 @@ static const bb_route_t * const s_mining_routes[] = {
     &s_pool_delete_fallback_route,
     &s_diag_asic_route,
     &s_diag_benchmark_route,
+#if CONFIG_KNOT_ENABLED
     &s_knot_route,
+#endif
     &s_settings_get_route,
     &s_settings_post_route,
 #ifdef ASIC_CHIP

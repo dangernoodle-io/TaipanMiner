@@ -112,7 +112,13 @@ static void start_mining(void)
     mining_pause_init(&g_mining_pause_sync_ops_default);
 
     // Create task for NVS stats save (low priority, blocks on notification)
-    xTaskCreate(stats_save_task, "nvs_save", 4096, NULL, 1, &s_stats_save_task);
+    // HWM measured at 1784; trim to 2048 on heap-tight single-core boards.
+#if CONFIG_FREERTOS_UNICORE
+    const uint32_t nvs_save_stack = 2048;
+#else
+    const uint32_t nvs_save_stack = 4096;
+#endif
+    xTaskCreate(stats_save_task, "nvs_save", nvs_save_stack, NULL, 1, &s_stats_save_task);
 
     // Start periodic stats save timer (10 minutes)
     BB_ERROR_CHECK(bb_timer_periodic_create(stats_save_timer_cb, NULL, "stats_save", &s_stats_timer));

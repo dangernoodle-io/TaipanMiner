@@ -274,6 +274,20 @@ void app_main(void)
     // bb_registry_init_early(); bb_ota_boot waits for the link + NTP internally
     // and broadcasts its trace over the bb_log UDP sink (headless observability).
     bb_ota_boot_set_progress_cb(tm_ota_progress_led);
+    // Advertise the same mDNS identity the device uses in normal mining mode so
+    // the fleet-update UI can find it during the boot-OTA download window.
+    // config_init() has already run; config_hostname() is available here.
+    {
+        char hn[64];
+        const char *hostname = config_hostname();
+        if (hostname && hostname[0]) {
+            strncpy(hn, hostname, sizeof(hn) - 1);
+            hn[sizeof(hn) - 1] = '\0';
+        } else {
+            bb_mdns_build_hostname(config_worker_name(), NULL, hn, sizeof(hn));
+        }
+        bb_ota_boot_set_mdns_service(hn, "_taipanminer", "_tcp", 80);
+    }
     bb_ota_boot_run_if_pending(
         "https://api.github.com/repos/dangernoodle-io/TaipanMiner/releases/latest",
         "taipanminer-" FIRMWARE_BOARD);

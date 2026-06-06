@@ -69,8 +69,25 @@ beforeEach(() => {
   })
 })
 
-afterEach(() => {
+afterEach(async () => {
+  // Deterministically drain pending backoff timers + their chained microtasks
+  // BEFORE clearing. withRetry() awaits `setTimeout(r, 400)` on failure; the old
+  // clearAllTimers() killed that timer mid-flight, so the retry/catch lines were
+  // covered only when timing happened to reach them first — the root of the ±2
+  // line-hit jitter that flapped the Coveralls gate. A bounded advance (500ms >
+  // the single 400ms backoff) resolves those chains identically every run;
+  // recurring intervals are cleared immediately after, so this can't loop.
+  await vi.advanceTimersByTimeAsync(500)
+  // Clear pending timers (diagInterval, tickTimer) before restoring real timers
+  // so they don't fire during V8 coverage collection for adjacent test files.
+  vi.clearAllTimers()
   vi.useRealTimers()
+  // Drain the microtask queue so any fire-and-forget async operations started
+  // in this test (e.g. doReboot() called without await in requestReboot tests)
+  // resolve within this test's V8 coverage window rather than bleeding into
+  // the next test's window and producing nondeterministic line-hit counts.
+  await flushMicrotasks()
+  await flushMicrotasks()
 })
 
 describe('createDiagnosticsState — initial state', () => {
@@ -297,7 +314,7 @@ describe('requestReboot()', () => {
     expect(ds.showRebootDialog).toBe(true)
   })
 
-  it('does not open dialog and sets rebooting when skip key is set', () => {
+  it('does not open dialog and sets rebooting when skip key is set', async () => {
     localStorage.setItem('taipanminer.skipRebootConfirm', '1')
     const ds = createDiagnosticsState()
     // requestReboot skips dialog and fires doReboot() (async, not awaited)
@@ -307,16 +324,21 @@ describe('requestReboot()', () => {
     expect(ds.showRebootDialog).toBe(false)
     // rebooting goes true synchronously before the await postReboot()
     expect(ds.rebooting).toBe(true)
+    // Drain the doReboot() microtask chain so it resolves within this test's
+    // V8 coverage window rather than bleeding into the next test.
+    await flushMicrotasks()
+    await flushMicrotasks()
   })
 })
 
 describe('clear()', () => {
-  it('empties lines', () => {
+  it('empties lines', async () => {
     const ds = createDiagnosticsState()
     ds.init()
     // Simulate some messages via the SSE onMessage callback
     lastSseInstance().callbacks.onMessage('line1')
     lastSseInstance().callbacks.onMessage('line2')
+    await flushMicrotasks()
     expect(ds.lines).toHaveLength(2)
     ds.clear()
     expect(ds.lines).toEqual([])
@@ -329,6 +351,10 @@ describe('SSE callbacks', () => {
     await ds.init()
     lastSseInstance().callbacks.onMessage('hello')
     lastSseInstance().callbacks.onMessage('world')
+    // Flush the queueMicrotask scheduled by onMessage (autoscroll path) so
+    // the microtask runs deterministically inside this test, not during V8
+    // coverage collection for a subsequent test.
+    await flushMicrotasks()
     expect(ds.lines).toEqual(['hello', 'world'])
   })
 
@@ -339,6 +365,7 @@ describe('SSE callbacks', () => {
     for (let i = 0; i < 501; i++) {
       lastSseInstance().callbacks.onMessage(`line${i}`)
     }
+    await flushMicrotasks()
     expect(ds.lines).toHaveLength(500)
     expect(ds.lines[0]).toBe('line1') // first line dropped
     expect(ds.lines[499]).toBe('line500')
@@ -467,19 +494,21 @@ describe('onVisibilityChange()', () => {
 })
 
 describe('$derived: filtered', () => {
-  it('returns all lines when filter is empty', () => {
+  it('returns all lines when filter is empty', async () => {
     const ds = createDiagnosticsState()
     ds.init()
     lastSseInstance().callbacks.onMessage('INFO hello')
     lastSseInstance().callbacks.onMessage('DEBUG world')
+    await flushMicrotasks()
     expect(ds.filtered).toHaveLength(2)
   })
 
-  it('filters lines when filter is set', () => {
+  it('filters lines when filter is set', async () => {
     const ds = createDiagnosticsState()
     ds.init()
     lastSseInstance().callbacks.onMessage('INFO hello')
     lastSseInstance().callbacks.onMessage('DEBUG world')
+    await flushMicrotasks()
     ds.filter = 'info'
     expect(ds.filtered).toEqual(['INFO hello'])
   })

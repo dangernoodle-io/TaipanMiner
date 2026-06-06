@@ -1,6 +1,17 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render } from '@testing-library/svelte'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render as rtlRender, cleanup } from '@testing-library/svelte'
+import { flushSync } from 'svelte'
 import { stats, info, pool } from '../lib/stores'
+
+// Force Svelte's scheduled $derived/$effect queue to drain synchronously after
+// every mount so component template/derived lines are covered deterministically.
+// Without this, V8 coverage sampling races the microtask flush, making per-file
+// lines-hit vary run-to-run and flapping the Coveralls gate.
+const render = (Component: any, options?: any) => {
+  const result = rtlRender(Component, options)
+  flushSync()
+  return result
+}
 
 vi.mock('../lib/api', () => ({
   fetchStats: vi.fn(),
@@ -52,10 +63,22 @@ const basePool = {
 
 describe('Pool', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
     vi.clearAllMocks()
     stats.set(null)
     info.set(null)
     pool.set(null)
+  })
+
+  afterEach(() => {
+    // Unmount all components so Svelte reactive subscriptions (pool store
+    // subscribers, $derived effects) are torn down between tests. Without
+    // this, every mounted Pool instance reacts to store changes in later
+    // tests, causing nondeterministic V8 coverage line attribution.
+    flushSync()
+    cleanup()
+    vi.clearAllTimers()
+    vi.useRealTimers()
   })
 
   it('renders without crashing when null', () => {

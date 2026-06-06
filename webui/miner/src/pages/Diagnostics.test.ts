@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render } from '@testing-library/svelte'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render as rtlRender, cleanup } from '@testing-library/svelte'
+import { flushSync } from 'svelte'
 import type { RecentDrop } from '../lib/api'
 import type { SseStatus } from '../lib/sse'
 
@@ -141,6 +142,7 @@ vi.mock('../lib/stores', async () => {
 import Diagnostics from './Diagnostics.svelte'
 
 beforeEach(() => {
+  vi.useFakeTimers()
   vi.clearAllMocks()
   // Reset to clean defaults
   mockDs.recentDrops = []
@@ -165,6 +167,25 @@ beforeEach(() => {
   mockDs.tasksLoading = false
   mockDs.panic = null
   mockDs.abnormalResets = null
+})
+
+// Drain Svelte's scheduled $derived/$effect queue synchronously after every
+// mount so component lines are covered deterministically (V8 coverage otherwise
+// races the microtask flush, flapping per-file lines-hit run-to-run).
+const render = (Component: any, options?: any) => {
+  const result = rtlRender(Component, options)
+  flushSync()
+  return result
+}
+
+afterEach(() => {
+  // Unmount all components so Svelte lifecycle (onMount/onDestroy) completes
+  // cleanly and no reactive effects bleed into the next test or into V8
+  // coverage collection for adjacent test files.
+  flushSync()
+  cleanup()
+  vi.clearAllTimers()
+  vi.useRealTimers()
 })
 
 describe('Diagnostics — UI rendering', () => {

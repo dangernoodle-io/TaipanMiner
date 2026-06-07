@@ -431,10 +431,12 @@ static bb_err_t pool_handler(bb_http_request_t *req)
 
     // Snapshot per-pool stats (ordered by last_seen_us descending, empty slots omitted).
     {
+        /* TA-413: pool_stats is no longer embedded in mining_stats_t.
+         * Use the mining_pool_stats_*() API; the mutex still guards access. */
         xSemaphoreTake(mining_stats.mutex, portMAX_DELAY);
         for (int i = 0; i < MINING_POOL_STATS_MAX; i++) {
-            const mining_pool_stat_t *src = &mining_stats.pool_stats.slots[i];
-            if (src->last_seen_us == 0) continue;
+            const mining_pool_stat_t *src = mining_pool_stats_slot(i);
+            if (!src || src->last_seen_us == 0) continue;
             pool_stat_snapshot_t *dst = &stats_arr[stats_count++];
             dst->last_seen_us = src->last_seen_us;
             dst->shares       = src->shares;
@@ -447,8 +449,8 @@ static bb_err_t pool_handler(bb_http_request_t *req)
             dst->best_diff_ts  = src->best_diff_ts;
             dst->last_block_ts = src->last_block_ts;
         }
-        s->lifetime_blocks_total    = mining_stats.pool_stats.lifetime_blocks_total;
-        s->lifetime_last_block_ts   = mining_stats.pool_stats.lifetime_last_block_ts;
+        s->lifetime_blocks_total    = mining_pool_stats_lifetime_blocks();
+        s->lifetime_last_block_ts   = mining_pool_stats_lifetime_last_block_ts();
         xSemaphoreGive(mining_stats.mutex);
 
         // In-place sort by last_seen_us descending.

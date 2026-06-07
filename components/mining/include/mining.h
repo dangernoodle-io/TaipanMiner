@@ -284,9 +284,19 @@ typedef struct {
 #endif
     uint32_t            hw_shares;
     mining_session_t    session;
-    mining_pool_stats_t pool_stats;
+    /* TA-413: pool_stats extracted to file-scope global in mining_pool_stats.c.
+     * Embedding 976 bytes here shifted hot-loop BSS addresses and caused
+     * ~1-3% hashrate regression. Access via mining_pool_stats_*() API only. */
     SemaphoreHandle_t   mutex;
 } mining_stats_t;
+
+/* TA-413: guard against re-embedding pool_stats or other large blobs into
+ * mining_stats_t. mining_session_t is ~100 bytes; the whole struct (non-ASIC)
+ * should be well under 512 bytes. Adjust the bound here if new fields are
+ * genuinely needed, but confirm the hot-loop layout is unaffected first. */
+_Static_assert(sizeof(mining_stats_t) <= 512,
+    "TA-413: mining_stats_t grew beyond 512 bytes — check that pool_stats "
+    "or another large blob was not re-embedded; BSS layout shift hurts hashrate");
 
 extern mining_stats_t mining_stats;
 

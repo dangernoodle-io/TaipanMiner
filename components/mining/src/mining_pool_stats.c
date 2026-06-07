@@ -42,12 +42,16 @@ static bb_event_topic_t s_block_topic = NULL;
 static const char *TAG  = "pool_stats";
 static const char *s_ns = "taipanminer";
 
-/* On host builds the shared mining_stats struct does not exist; use a local table. */
+/* TA-413: pool_stats lives in its own BSS global, not inside mining_stats_t.
+ * Embedding 976 bytes in mining_stats_t shifted hot-loop BSS addresses and
+ * caused ~1-3% hashrate loss on CPU boards.  The mutex from mining_stats
+ * still guards all access (same contract as before — callers hold it). */
 #ifndef ESP_PLATFORM
 static mining_pool_stats_t s_table;
 #define S_TABLE (&s_table)
 #else
-#define S_TABLE (&mining_stats.pool_stats)
+static mining_pool_stats_t s_pool_stats;
+#define S_TABLE (&s_pool_stats)
 #endif
 
 /* -------------------------------------------------------------------------
@@ -409,7 +413,7 @@ void mining_pool_stats_save(void)
 #ifdef ESP_PLATFORM
     mining_pool_stats_t snap;
     if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        snap = mining_stats.pool_stats;
+        snap = s_pool_stats;
         xSemaphoreGive(mining_stats.mutex);
     } else {
         bb_log_w(TAG, "save: mutex timeout");
@@ -443,7 +447,7 @@ void mining_pool_stats_reset(void)
 {
 #ifdef ESP_PLATFORM
     if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        memset(&mining_stats.pool_stats, 0, sizeof(mining_stats.pool_stats));
+        memset(&s_pool_stats, 0, sizeof(s_pool_stats));
         xSemaphoreGive(mining_stats.mutex);
     } else {
         bb_log_w(TAG, "reset: mutex timeout");

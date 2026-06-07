@@ -1,7 +1,10 @@
 <script lang="ts">
   import type { RejectedBreakdown } from '../lib/api'
 
-  export let rejected: RejectedBreakdown | null | undefined = undefined
+  interface Props {
+    rejected?: RejectedBreakdown | null | undefined
+  }
+  let { rejected = undefined }: Props = $props()
 
   const REJECT_REASONS: { key: string; label: string; color: string }[] = [
     { key: 'job_not_found',  label: 'job not found',  color: '#f39c12' },
@@ -11,13 +14,13 @@
     { key: 'other',          label: 'other',          color: '#7f8c8d' }
   ]
 
-  $: segments = (() => {
+  const segments = $derived.by(() => {
     const r = rejected
     if (!r) return [] as { key: string; label: string; color: string; count: number }[]
     return REJECT_REASONS
       .map((d) => ({ ...d, count: (r as unknown as Record<string, number>)[d.key] ?? 0 }))
       .filter((p) => p.count > 0)
-  })()
+  })
 </script>
 
 {#if segments.length > 0}

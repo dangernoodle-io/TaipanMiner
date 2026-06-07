@@ -1,21 +1,25 @@
 <script lang="ts">
-  export let used: number | null | undefined
-  export let total: number | null | undefined
-  export let label: string
-  export let format: 'bytes' | 'percent' = 'bytes'
-  export let size = 120
+  interface Props {
+    used: number | null | undefined
+    total: number | null | undefined
+    label: string
+    format?: 'bytes' | 'percent'
+    size?: number
+  }
+  let { used, total, label, format = 'bytes', size = 120 }: Props = $props()
 
-  $: ratio = used != null && total != null && total > 0 ? Math.min(used / total, 1) : 0
-  $: pct = ratio * 100
-  $: strokeColor =
+  const ratio = $derived(used != null && total != null && total > 0 ? Math.min(used / total, 1) : 0)
+  const pct = $derived(ratio * 100)
+  const strokeColor = $derived(
     pct > 90 ? 'var(--danger)' :
     pct > 75 ? 'var(--warning)' :
     'var(--accent)'
+  )
 
   const radius = 42
   const circumference = 2 * Math.PI * radius
 
-  $: dashOffset = circumference * (1 - ratio)
+  const dashOffset = $derived(circumference * (1 - ratio))
 
   function fmtBytes(b: number | null | undefined): string {
     if (b == null) return '—'

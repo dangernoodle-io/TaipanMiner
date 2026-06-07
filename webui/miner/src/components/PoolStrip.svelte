@@ -3,10 +3,11 @@
   import { fmtPoolDiff } from '../lib/fmt'
 
   // Connection indicator: green=connected, red=not connected, gray=unknown.
-  $: dotClass =
+  const dotClass = $derived(
     $pool == null ? 'unknown'
     : $pool.connected ? 'connected'
     : 'disconnected'
+  )
 </script>
 
 <div class="pool-strip">

@@ -1,26 +1,31 @@
 <script lang="ts">
-  export let now: number | null = null
-  export let m1: number | null = null
-  export let m10: number | null = null
-  export let h1: number | null = null
-  export let expected: number | null = null
+  interface Props {
+    now?: number | null
+    m1?: number | null
+    m10?: number | null
+    h1?: number | null
+    expected?: number | null
+  }
+  let { now = null, m1 = null, m10 = null, h1 = null, expected = null }: Props = $props()
 
   function fmt(v: number | null): string {
     if (v == null || isNaN(v) || v <= 0) return '—'
     return v.toFixed(1)
   }
 
-  $: deltaPct = (now != null && expected != null && expected > 0)
-    ? ((now - expected) / expected) * 100
-    : null
-  $: status = deltaPct == null ? '' : deltaPct > 15 ? 'warn' : ''
+  const deltaPct = $derived(
+    (now != null && expected != null && expected > 0)
+      ? ((now - expected) / expected) * 100
+      : null
+  )
+  const status = $derived(deltaPct == null ? '' : deltaPct > 15 ? 'warn' : '')
 
   // Sparkline datapoints = 1m/10m/1h rolling efficiency, drawn on top.
-  $: sparkPts = [m1 ?? 0, m10 ?? 0, h1 ?? 0]
-  $: sparkMax = Math.max(...sparkPts, 0.0001)
-  $: sparkMin = Math.min(...sparkPts, 0)
-  $: sparkRange = Math.max(sparkMax - sparkMin, 0.0001)
-  $: sparkY = sparkPts.map((v) => 44 - ((v - sparkMin) / sparkRange) * 14)
+  const sparkPts = $derived([m1 ?? 0, m10 ?? 0, h1 ?? 0])
+  const sparkMax = $derived(Math.max(...sparkPts, 0.0001))
+  const sparkMin = $derived(Math.min(...sparkPts, 0))
+  const sparkRange = $derived(Math.max(sparkMax - sparkMin, 0.0001))
+  const sparkY = $derived(sparkPts.map((v) => 44 - ((v - sparkMin) / sparkRange) * 14))
 </script>
 
 <div class="tile" data-status={status}>

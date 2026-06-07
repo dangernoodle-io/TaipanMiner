@@ -1,38 +1,45 @@
 <script lang="ts">
   import { fmtGhsNum, fmtGhsUnit, fmtPct } from '../lib/fmt'
 
-  export let ghs1m: number | null = null
-  export let ghs10m: number | null = null
-  export let ghs1h: number | null = null
-  export let err1m: number | null = null
-  export let err10m: number | null = null
-  export let err1h: number | null = null
-  export let showErr: boolean = true
+  interface Props {
+    ghs1m?: number | null
+    ghs10m?: number | null
+    ghs1h?: number | null
+    err1m?: number | null
+    err10m?: number | null
+    err1h?: number | null
+    showErr?: boolean
+    // Generic mode: pass `values` (+ optional unit/decimals) to render an
+    // arbitrary 1m/10m/1h metric instead of hashrate (e.g. efficiency).
+    // `showSpark={false}` renders numbers only (caller draws its own sparkline).
+    values?: (number | null)[] | null
+    unit?: string
+    decimals?: number
+    showSpark?: boolean
+    sparkTop?: boolean
+  }
+  let {
+    ghs1m = null, ghs10m = null, ghs1h = null,
+    err1m = null, err10m = null, err1h = null,
+    showErr = true, values = null, unit = '', decimals = 1,
+    showSpark = true, sparkTop = false
+  }: Props = $props()
 
-  // Generic mode: pass `values` (+ optional unit/decimals) to render an
-  // arbitrary 1m/10m/1h metric instead of hashrate (e.g. efficiency).
-  // `showSpark={false}` renders numbers only (caller draws its own sparkline).
-  export let values: (number | null)[] | null = null
-  export let unit: string = ''
-  export let decimals: number = 1
-  export let showSpark: boolean = true
-  export let sparkTop: boolean = false
-
-  $: generic = values != null
-  $: v1 = generic ? values![0] ?? null : ghs1m
-  $: v2 = generic ? values![1] ?? null : ghs10m
-  $: v3 = generic ? values![2] ?? null : ghs1h
+  const generic = $derived(values != null)
+  const v1 = $derived(generic ? values![0] ?? null : ghs1m)
+  const v2 = $derived(generic ? values![1] ?? null : ghs10m)
+  const v3 = $derived(generic ? values![2] ?? null : ghs1h)
 
   function fmtVal(v: number | null): string {
     if (v == null || isNaN(v) || v <= 0) return '—'
     return v.toFixed(decimals)
   }
 
-  $: sparkPts = [v1 ?? 0, v2 ?? 0, v3 ?? 0]
-  $: sparkMax = Math.max(...sparkPts, 0.0001)
-  $: sparkMin = Math.min(...sparkPts, 0)
-  $: sparkRange = Math.max(sparkMax - sparkMin, 0.0001)
-  $: sparkY = sparkPts.map((v) => 14 - ((v - sparkMin) / sparkRange) * 12)
+  const sparkPts = $derived([v1 ?? 0, v2 ?? 0, v3 ?? 0])
+  const sparkMax = $derived(Math.max(...sparkPts, 0.0001))
+  const sparkMin = $derived(Math.min(...sparkPts, 0))
+  const sparkRange = $derived(Math.max(sparkMax - sparkMin, 0.0001))
+  const sparkY = $derived(sparkPts.map((v) => 14 - ((v - sparkMin) / sparkRange) * 12))
 </script>
 
 <div class="rolling">

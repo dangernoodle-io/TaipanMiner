@@ -21,18 +21,18 @@
     { id: 'fan-manual', label: 'Fan speed',          suffix: '%',  min: 0,  max: 100, key: 'manual_pct',   autofanOn: false },
   ] as const
 
-  let autofan = false
-  let values: Record<string, number> = { 'fan-die': 60, 'fan-vr': 75, 'fan-min': 35, 'fan-manual': 80 }
-  let originals: Record<string, number> = { ...values }
-  let saving = false
-  let msg = ''
-  let kind: '' | 'ok' | 'err' = ''
+  let autofan = $state(false)
+  let values = $state<Record<string, number>>({ 'fan-die': 60, 'fan-vr': 75, 'fan-min': 35, 'fan-manual': 80 })
+  let originals = $state<Record<string, number>>({ 'fan-die': 60, 'fan-vr': 75, 'fan-min': 35, 'fan-manual': 80 })
+  let saving = $state(false)
+  let msg = $state('')
+  let kind = $state<'' | 'ok' | 'err'>('')
 
   // Seed form fields ONCE per open transition, the first time both the dialog
   // is open AND $fan is available. Reseeding on every $fan poll would clobber
   // an in-progress drag.
-  let seeded = false
-  $: {
+  let seeded = $state(false)
+  $effect(() => {
     if ($fanEditOpen && $fan && !seeded) {
       autofan = $fan.autofan
       values = SLIDERS.reduce(
@@ -45,7 +45,7 @@
       seeded = true
     }
     if (!$fanEditOpen) seeded = false
-  }
+  })
 
   function originalPct(s: SliderCfg): number {
     return ((originals[s.id] - s.min) / (s.max - s.min)) * 100

@@ -8,11 +8,13 @@
 
   function openFanEdit() { fanEditOpen.set(true) }
 
-  $: chips = $stats?.asic_chips ?? []
-  $: expectedPerDomain = $stats?.asic_total_ghs && chips.length
-    ? $stats.asic_total_ghs / chips.length / 4
-    : undefined
-  $: pcoreW = $power?.pcore_mw != null ? $power.pcore_mw / 1000 : null
+  const chips = $derived($stats?.asic_chips ?? [])
+  const expectedPerDomain = $derived(
+    $stats?.asic_total_ghs && chips.length
+      ? $stats.asic_total_ghs / chips.length / 4
+      : undefined
+  )
+  const pcoreW = $derived($power?.pcore_mw != null ? $power.pcore_mw / 1000 : null)
 </script>
 
 <div class="sticky-pool"><PoolStrip /></div>
@@ -70,7 +72,7 @@
           {#if $fan?.autofan && $fan?.pid_input_src}
             <span class="mode-badge" data-mode="auto" title="Autofan PID input source">PID: {$fan.pid_input_src === 'die' ? 'ASIC' : $fan.pid_input_src.toUpperCase()}</span>
           {/if}
-          <button class="header-edit" on:click={openFanEdit} title="Edit fan settings">edit</button>
+          <button class="header-edit" onclick={openFanEdit} title="Edit fan settings">edit</button>
         </h3>
         <div class="tile-grid">
           <StatTile label="Fan Speed" value={$fan?.duty_pct ?? null}       unit="%"   progress={$fan?.duty_pct ?? null} />

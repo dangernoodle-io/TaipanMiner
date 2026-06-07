@@ -1,5 +1,11 @@
 {
   "name": "taipanminer-webui-workspace",
   "version": "0.0.0",
-  "private": true
+  "private": true,
+  "pnpm": {
+    "overrides": {
+      "svelte": ">=5.55.7",
+      "devalue": ">=5.8.1"
+    }
+  }
 }

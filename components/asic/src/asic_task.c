@@ -13,8 +13,9 @@
 #include "share_validate.h"
 #include "mining_pool_stats.h"
 #include "crc.h"
-#include "tps546.h"
-#include "emc2101.h"
+#include "bb_power.h"
+#include "bb_fan.h"
+#include "bb_fan_emc2101.h"
 #include "pid.h"
 #include "config.h"
 #include "mining.h"
@@ -329,10 +330,27 @@ bb_err_t asic_init(void)
         bb_log_w(TAG, "I2C bus not available, skipping voltage regulator init");
     }
 
-    // 5. EMC2101 temp sensor + fan
+    // 5. EMC2101 temp sensor + fan (via bb_fan HAL)
     if (s_i2c_bus != NULL) {
-        ESP_RETURN_ON_ERROR(emc2101_init(s_i2c_bus, EMC2101_I2C_ADDR), TAG, "emc2101");
-        ESP_RETURN_ON_ERROR(emc2101_set_fan_duty(63), TAG, "fan on");  // max
+        bb_fan_handle_t fan_h;
+        bb_fan_emc2101_cfg_t fan_cfg = {
+            .bus      = s_i2c_bus,
+            .addr     = EMC2101_I2C_ADDR,
+#ifdef EMC2101_IDEALITY_FACTOR
+            .ideality = EMC2101_IDEALITY_FACTOR,
+#else
+            .ideality = 0,
+#endif
+#ifdef EMC2101_BETA_COMPENSATION
+            .beta     = EMC2101_BETA_COMPENSATION,
+#else
+            .beta     = 0,
+#endif
+        };
+        ESP_RETURN_ON_ERROR(bb_fan_emc2101_open(&fan_cfg, &fan_h), TAG, "emc2101");
+        bb_fan_set_primary(fan_h);
+        // Failsafe: start at 100% until telemetry loop takes over
+        ESP_RETURN_ON_ERROR(bb_fan_set_duty_pct(fan_h, 100), TAG, "fan on");
     } else {
         bb_log_w(TAG, "I2C bus not available, skipping EMC2101 init");
     }
@@ -739,9 +757,18 @@ void asic_mining_task(void *arg)
         // we fold it into the existing 5s tick to keep the patch small).
         TickType_t now = xTaskGetTickCount();
         if (now - last_temp_tick >= pdMS_TO_TICKS(5000)) {
-            float temp;
             int fan_duty;
-            bool temp_ok = (emc2101_read_temp(&temp) == BB_OK);
+
+            // Poll fan HAL to refresh cached snapshot
+            bb_fan_handle_t fan_h = bb_fan_primary();
+            if (fan_h != NULL) {
+                bb_fan_poll(fan_h);
+            }
+            bb_fan_snapshot_t fs;
+            bb_fan_snapshot(fan_h, &fs);
+
+            float temp = fs.die_c;
+            bool temp_ok = !isnan(temp);
 
             if (temp_ok) {
                 if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
@@ -814,24 +841,37 @@ void asic_mining_task(void *arg)
                 fan_duty = (int)config_manual_fan_pct();
             }
 
-            emc2101_set_duty_pct(fan_duty);
+            if (fan_h != NULL) {
+                bb_fan_set_duty_pct(fan_h, fan_duty);
+            }
 
             {
-                int v = tps546_read_vout_mv();
-                int i = tps546_read_iout_ma();
-                int p = (v >= 0 && i >= 0) ? (int)((int64_t)v * i / 1000) + BOARD_POWER_OFFSET_MW : -1;
-                int vin = tps546_read_vin_mv();
-                int vr_temp = tps546_read_temp_c();
-                int rpm = emc2101_read_rpm();
-                int duty = emc2101_get_duty_pct();
-                float board_t = -1.0f;
-                if (emc2101_read_internal_temp(&board_t) != BB_OK) board_t = -1.0f;
+                // Poll power HAL and gather snapshot
+                bb_power_handle_t pwr_h = bb_power_primary();
+                if (pwr_h != NULL) {
+                    bb_power_poll(pwr_h);
+                }
+                bb_power_snapshot_t ps;
+                bb_power_snapshot(pwr_h, &ps);
+
+                int v   = ps.vout_mv;
+                int i   = ps.iout_ma;
+                int vin = ps.vin_mv;
+                int p   = (v >= 0 && i >= 0)
+                          ? (int)((int64_t)v * i / 1000) + BOARD_POWER_OFFSET_MW
+                          : -1;
+
+                // fan snapshot was already populated above (after poll)
+                int rpm  = fs.rpm;
+                int duty = fs.duty_pct;
+                float board_t = isnan(fs.board_c) ? -1.0f : fs.board_c;
+
                 if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                     mining_stats.vcore_mv = v;
                     mining_stats.icore_ma = i;
                     mining_stats.pcore_mw = p;
-                    mining_stats.vin_mv = vin;
-                    mining_stats.vr_temp_c = (vr_temp >= 0) ? (float)vr_temp : -1.0f;
+                    mining_stats.vin_mv   = vin;
+                    mining_stats.vr_temp_c = (ps.temp_c >= 0) ? (float)ps.temp_c : -1.0f;
                     mining_stats.fan_rpm = rpm;
                     mining_stats.fan_duty_pct = duty;
                     mining_stats.board_temp_c = board_t;

@@ -37,7 +37,7 @@ void mining_pool_stats_save(void);
  * Look up the slot for host:port (case-insensitive host match).
  * If not found: allocate an empty slot, or evict the slot with the
  * smallest last_seen_us when all 8 are occupied. Updates last_seen_us.
- * Returns a pointer into mining_stats.pool_stats.slots[].
+ * Returns a pointer into the internal pool stats table (s_pool_stats.slots[]).
  * Never returns NULL.
  */
 mining_pool_stat_t *mining_pool_stats_find_or_alloc(const char *host, uint16_t port);

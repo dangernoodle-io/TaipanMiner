@@ -634,7 +634,9 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
      * fix, the D0 reject-path working set is tiny and the aligned-static placement
      * measured ~1.5% SLOWER than stack (445 → 452 kH/s), so D0 opts out. */
 #if CONFIG_MINING_PIN_HOTLOOP_DATA
-    static uint8_t __attribute__((aligned(32))) block2[64];
+    /* TA-413: 64-byte alignment — S3 D-cache line is 64 B, not 32 B.
+     * aligned(32) was correct for classic-ESP32 uncached DRAM; S3 AHB needs 64. */
+    static uint8_t __attribute__((aligned(64))) block2[64];
 #else
     uint8_t block2[64];
 #endif
@@ -984,7 +986,8 @@ void mining_task(void *arg)
      * on their own cache lines; unpinned (D0) uses the stack, which measured
      * faster there post-TA-396. */
 #if CONFIG_MINING_PIN_HOTLOOP_DATA
-    static __attribute__((aligned(32))) hw_backend_ctx_t hw_ctx;
+    /* TA-413: 64-byte alignment — S3 D-cache line is 64 B (see block2 above). */
+    static __attribute__((aligned(64))) hw_backend_ctx_t hw_ctx;
 #else
     hw_backend_ctx_t hw_ctx;
 #endif

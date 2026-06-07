@@ -1,25 +1,31 @@
 <script lang="ts">
-  export let label: string
-  export let value: number | string | null
-  export let unit: string = ''
-  export let danger: number | null = null
-  export let warn: number | null = null
-  export let flag: 'warn' | 'danger' | null = null
-  export let decimals: number | null = null
-  export let progress: number | null = null  // 0-100, draws a subtle fill bar under .value
+  interface Props {
+    label: string
+    value: number | string | null
+    unit?: string
+    danger?: number | null
+    warn?: number | null
+    flag?: 'warn' | 'danger' | null
+    decimals?: number | null
+    progress?: number | null  // 0-100, draws a subtle fill bar under .value
+  }
+  let { label, value, unit = '', danger = null, warn = null, flag = null, decimals = null, progress = null }: Props = $props()
 
-  $: numeric = typeof value === 'number' ? value : null
-  $: status =
+  const numeric = $derived(typeof value === 'number' ? value : null)
+  const status = $derived(
     flag !== null ? flag
     : numeric === null || (danger === null && warn === null) ? ''
     : danger !== null && numeric >= danger ? 'danger'
     : warn !== null && numeric >= warn ? 'warn'
     : ''
-  $: display = value === null || value === undefined
-    ? '—'
-    : typeof value === 'number'
-      ? (decimals !== null ? value.toFixed(decimals) : value >= 100 ? value.toFixed(0) : value.toFixed(1))
-      : value
+  )
+  const display = $derived(
+    value === null || value === undefined
+      ? '—'
+      : typeof value === 'number'
+        ? (decimals !== null ? value.toFixed(decimals) : value >= 100 ? value.toFixed(0) : value.toFixed(1))
+        : value
+  )
 </script>
 
 <div class="tile" data-status={status}>

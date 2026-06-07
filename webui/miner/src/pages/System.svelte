@@ -12,7 +12,7 @@
    *             (board, MAC, IP, version, reset reason, etc.). */
 
   type Dot = 'ok' | 'warn' | 'err' | 'idle'
-  $: healthRows = [
+  const healthRows = $derived([
     { label: 'WiFi',     dot: ($health?.network?.connected ? 'ok' : 'err') as Dot },
     { label: 'mDNS',     dot: ($health?.network?.mdns ? 'ok' : 'idle') as Dot },
     { label: 'Knot',     dot: ($health?.network?.knot ? 'ok' : 'idle') as Dot },
@@ -20,14 +20,16 @@
     { label: 'Firmware', dot: ($health?.validated === true ? 'ok'
                            : $health?.validated === false ? 'warn'
                            : 'idle') as Dot }
-  ]
+  ])
 
-  $: freeHeap = $health?.free_heap ?? $info?.free_heap ?? null
-  $: heapUsed = $info?.total_heap != null && freeHeap != null
-    ? $info.total_heap - freeHeap
-    : null
-  $: rssi = $health?.network?.rssi ?? null
-  $: stratumFails = $health?.network?.stratum_fail_count ?? 0
+  const freeHeap = $derived($health?.free_heap ?? $info?.free_heap ?? null)
+  const heapUsed = $derived(
+    $info?.total_heap != null && freeHeap != null
+      ? $info.total_heap - freeHeap
+      : null
+  )
+  const rssi = $derived($health?.network?.rssi ?? null)
+  const stratumFails = $derived($health?.network?.stratum_fail_count ?? 0)
 
   // ASIC topology: model derives from the board; expected chip count comes from $stats.asic_count.
   const BOARD_ASIC: Record<string, { model: string }> = {
@@ -35,18 +37,18 @@
     'bitaxe-650': { model: 'BM1370 ×2' },
     'bitaxe-403': { model: 'BM1368'    },
   }
-  $: asicSpec = $info?.board ? BOARD_ASIC[$info.board] : undefined
-  $: detectedChips = $stats?.asic_chips?.length ?? null
-  $: expectedChips = $stats?.asic_count ?? null
-  $: smallCoresPerChip = $stats?.asic_small_cores ?? null  // BOARD_SMALL_CORES (per-chip)
-  $: detectedCores = (detectedChips != null && smallCoresPerChip != null) ? detectedChips * smallCoresPerChip : null
-  $: expectedCores = (expectedChips != null && smallCoresPerChip != null) ? expectedChips * smallCoresPerChip : null
-  $: chipsBad = (expectedChips != null && detectedChips != null && detectedChips < expectedChips)
-  $: hasAsic = asicSpec != null
+  const asicSpec = $derived($info?.board ? BOARD_ASIC[$info.board] : undefined)
+  const detectedChips = $derived($stats?.asic_chips?.length ?? null)
+  const expectedChips = $derived($stats?.asic_count ?? null)
+  const smallCoresPerChip = $derived($stats?.asic_small_cores ?? null)  // BOARD_SMALL_CORES (per-chip)
+  const detectedCores = $derived((detectedChips != null && smallCoresPerChip != null) ? detectedChips * smallCoresPerChip : null)
+  const expectedCores = $derived((expectedChips != null && smallCoresPerChip != null) ? expectedChips * smallCoresPerChip : null)
+  const chipsBad = $derived(expectedChips != null && detectedChips != null && detectedChips < expectedChips)
+  const hasAsic = $derived(asicSpec != null)
 
-  let showResetDialog = false
-  let resetting = false
-  let resetErr = ''
+  let showResetDialog = $state(false)
+  let resetting = $state(false)
+  let resetErr = $state('')
 
   async function doResetStats() {
     resetting = true

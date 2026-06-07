@@ -35,7 +35,7 @@
     }
   })
 
-  $: alerts = (() => {
+  const alerts = $derived.by(() => {
     const list: Alert[] = []
     if ($health?.sha_self_test_failed) {
       list.push({
@@ -63,7 +63,7 @@
       list.push({ key: 'pool_diff', severity: 'info', message: 'Waiting for pool difficulty' })
     }
     return list
-  })()
+  })
 </script>
 
 <LiveTitle />

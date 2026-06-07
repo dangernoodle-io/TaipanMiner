@@ -13,7 +13,7 @@
     { id: 'update',      label: 'Update' }
   ]
 
-  $: links = allLinks.filter(link => link.id !== 'knot' || $health?.network?.knot !== false)
+  const links = $derived(allLinks.filter(link => link.id !== 'knot' || $health?.network?.knot !== false))
 </script>
 
 <nav>

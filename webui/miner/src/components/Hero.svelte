@@ -7,39 +7,41 @@
   // Lifetime aggregates derived from per-pool stats array (the firmware-side
   // mining_lifetime_t aggregate was replaced with per-pool slots; the hero
   // still wants a "across all pools" headline number).
-  $: poolStats = $pool?.stats ?? []
-  $: lifetimeShares = poolStats.reduce((acc, s) => acc + (s.shares ?? 0), 0)
-  $: lifetimeBestDiff = poolStats.reduce((acc, s) => Math.max(acc, s.best_diff ?? 0), 0)
+  const poolStats = $derived($pool?.stats ?? [])
+  const lifetimeShares = $derived(poolStats.reduce((acc, s) => acc + (s.shares ?? 0), 0))
+  const lifetimeBestDiff = $derived(poolStats.reduce((acc, s) => Math.max(acc, s.best_diff ?? 0), 0))
   /* Prefer the device-lifetime counter from the firmware (survives LRU pool
      eviction); fall back to summing across currently-live slots only if the
      field is absent (older firmware). */
-  $: lifetimeBlocks = ($pool?.lifetime_blocks_total)
-    ?? poolStats.reduce((acc, s) => acc + (s.blocks_found ?? 0), 0)
+  const lifetimeBlocks = $derived(
+    ($pool?.lifetime_blocks_total)
+      ?? poolStats.reduce((acc, s) => acc + (s.blocks_found ?? 0), 0)
+  )
   /* Wall-clock unix-second timestamps for tile tooltips. 0/missing → "—". */
-  $: sessionBlockRel  = fmtRelativeFromUnixTs($stats?.session_last_block_ts)
-  $: lifetimeBlockRel = fmtRelativeFromUnixTs($pool?.lifetime_last_block_ts)
-  $: sessionBestRel   = fmtRelativeFromUnixTs($stats?.session_best_diff_ts)
-  $: lifetimeBestRel  = fmtRelativeFromUnixTs(
-       poolStats.reduce((acc, s) => Math.max(acc, s.best_diff_ts ?? 0), 0) || 0,
-     )
+  const sessionBlockRel  = $derived(fmtRelativeFromUnixTs($stats?.session_last_block_ts))
+  const lifetimeBlockRel = $derived(fmtRelativeFromUnixTs($pool?.lifetime_last_block_ts))
+  const sessionBestRel   = $derived(fmtRelativeFromUnixTs($stats?.session_best_diff_ts))
+  const lifetimeBestRel  = $derived(fmtRelativeFromUnixTs(
+    poolStats.reduce((acc, s) => Math.max(acc, s.best_diff_ts ?? 0), 0) || 0,
+  ))
 
-  $: ghs = $stats?.asic_total_ghs ?? ($stats?.hashrate ? $stats.hashrate / 1e9 : null)
-  $: ghs1m = $stats?.asic_total_ghs_1m ?? ($stats?.hashrate_1m != null ? $stats.hashrate_1m / 1e9 : null)
-  $: ghs10m = $stats?.asic_total_ghs_10m ?? ($stats?.hashrate_10m != null ? $stats.hashrate_10m / 1e9 : null)
-  $: ghs1h = $stats?.asic_total_ghs_1h ?? ($stats?.hashrate_1h != null ? $stats.hashrate_1h / 1e9 : null)
-  $: emaGhs = $stats?.asic_hashrate_avg ? $stats.asic_hashrate_avg / 1e9 : ($stats ? $stats.hashrate_avg / 1e9 : null)
-  $: expectedGhs = $stats?.expected_ghs ?? null
-  $: poolEffectiveGhs = $stats?.pool_effective_hashrate != null ? $stats.pool_effective_hashrate / 1e9 : null
-  $: err = $stats?.asic_hw_error_pct ?? null
-  $: err1m = $stats?.asic_hw_error_pct_1m ?? null
-  $: err10m = $stats?.asic_hw_error_pct_10m ?? null
-  $: err1h = $stats?.asic_hw_error_pct_1h ?? null
-  $: accepted = $stats?.session_shares ?? 0
-  $: rejected = $stats?.session_rejected ?? 0
-  $: acceptRate = accepted + rejected > 0 ? (100 * accepted) / (accepted + rejected) : null
-  $: sharesPerHour = $stats && $stats.uptime_s > 60 ? (accepted * 3600) / $stats.uptime_s : null
-  $: diffMult = $stats && $pool && $pool.current_difficulty > 0 ? $stats.best_diff / $pool.current_difficulty : null
-  $: poolEffShowSync = $stats && ($stats.uptime_s < 300 || $stats.pool_effective_hashrate == null)
+  const ghs = $derived($stats?.asic_total_ghs ?? ($stats?.hashrate ? $stats.hashrate / 1e9 : null))
+  const ghs1m = $derived($stats?.asic_total_ghs_1m ?? ($stats?.hashrate_1m != null ? $stats.hashrate_1m / 1e9 : null))
+  const ghs10m = $derived($stats?.asic_total_ghs_10m ?? ($stats?.hashrate_10m != null ? $stats.hashrate_10m / 1e9 : null))
+  const ghs1h = $derived($stats?.asic_total_ghs_1h ?? ($stats?.hashrate_1h != null ? $stats.hashrate_1h / 1e9 : null))
+  const emaGhs = $derived($stats?.asic_hashrate_avg ? $stats.asic_hashrate_avg / 1e9 : ($stats ? $stats.hashrate_avg / 1e9 : null))
+  const expectedGhs = $derived($stats?.expected_ghs ?? null)
+  const poolEffectiveGhs = $derived($stats?.pool_effective_hashrate != null ? $stats.pool_effective_hashrate / 1e9 : null)
+  const err = $derived($stats?.asic_hw_error_pct ?? null)
+  const err1m = $derived($stats?.asic_hw_error_pct_1m ?? null)
+  const err10m = $derived($stats?.asic_hw_error_pct_10m ?? null)
+  const err1h = $derived($stats?.asic_hw_error_pct_1h ?? null)
+  const accepted = $derived($stats?.session_shares ?? 0)
+  const rejected = $derived($stats?.session_rejected ?? 0)
+  const acceptRate = $derived(accepted + rejected > 0 ? (100 * accepted) / (accepted + rejected) : null)
+  const sharesPerHour = $derived($stats && $stats.uptime_s > 60 ? (accepted * 3600) / $stats.uptime_s : null)
+  const diffMult = $derived($stats && $pool && $pool.current_difficulty > 0 ? $stats.best_diff / $pool.current_difficulty : null)
+  const poolEffShowSync = $derived($stats && ($stats.uptime_s < 300 || $stats.pool_effective_hashrate == null))
 </script>
 
 {#if $stats}

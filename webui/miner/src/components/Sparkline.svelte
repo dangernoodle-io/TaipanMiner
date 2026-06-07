@@ -1,12 +1,15 @@
 <script lang="ts">
-  export let points: number[]
-  export let width = 80
-  export let height = 24
-  export let color = 'var(--accent)'
+  interface Props {
+    points: number[]
+    width?: number
+    height?: number
+    color?: string
+  }
+  let { points, width = 80, height = 24, color = 'var(--accent)' }: Props = $props()
 
-  $: maxVal = Math.max(...points, 0.0001)
-  $: minVal = Math.min(...points, 0)
-  $: range = Math.max(maxVal - minVal, 0.0001)
+  const maxVal = $derived(Math.max(...points, 0.0001))
+  const minVal = $derived(Math.min(...points, 0))
+  const range = $derived(Math.max(maxVal - minVal, 0.0001))
 
   function getX(i: number, n: number): number {
     if (n === 1) return width / 2
@@ -17,9 +20,11 @@
     return height - ((val - minVal) / range) * height
   }
 
-  $: polylinePoints = points
-    .map((val, i) => `${getX(i, points.length)},${getY(val)}`)
-    .join(' ')
+  const polylinePoints = $derived(
+    points
+      .map((val, i) => `${getX(i, points.length)},${getY(val)}`)
+      .join(' ')
+  )
 </script>
 
 <svg {width} {height} viewBox={`0 0 ${width} ${height}`} class="sparkline">

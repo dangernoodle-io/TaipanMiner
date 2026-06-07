@@ -42,6 +42,9 @@ jobs:
       - name: Typecheck ui-kit
         working-directory: webui
         run: pnpm --filter ui-kit run check
+      - name: Guard against legacy Svelte reactive statements
+        working-directory: webui
+        run: 'if grep -rnE "^[[:space:]]*\$:" --include=*.svelte */src; then echo "legacy \$: found — use \$derived/\$effect (runes)"; exit 1; fi'
       - name: Webui unit tests with coverage
         working-directory: webui
         run: pnpm --filter miner run test --run --coverage

@@ -5,11 +5,11 @@
   import { fetchKnot, type KnotPeer } from '../lib/api'
   import { fmtRelative, fmtHashGhs } from '../lib/fmt'
 
-  let peers: KnotPeer[] = []
-  let loading = true
-  let loadErr = ''
-  let lastFetch = 0
-  let now = Date.now()
+  let peers = $state<KnotPeer[]>([])
+  let loading = $state(true)
+  let loadErr = $state('')
+  let lastFetch = $state(0)
+  let now = $state(Date.now())
   let nowTimer: ReturnType<typeof setInterval> | null = null
   let knotTimer: ReturnType<typeof setInterval> | null = null
   let statsTimer: ReturnType<typeof setInterval> | null = null
@@ -24,17 +24,17 @@
     ghs: number | null
     shares: number | null
   }
-  let peerStats: Record<string, PeerStat> = {}
+  let peerStats = $state<Record<string, PeerStat>>({})
 
-  $: lastFetchAgoS = lastFetch > 0 ? Math.floor((now - lastFetch) / 1000) : null
+  const lastFetchAgoS = $derived(lastFetch > 0 ? Math.floor((now - lastFetch) / 1000) : null)
   /* The peer list refreshes every 60s; >150s without a successful refresh means
    * polling stalled (network drop, tab throttled, fetch erroring). Flag it. */
-  $: stale = lastFetchAgoS != null && lastFetchAgoS > 150
+  const stale = $derived(lastFetchAgoS != null && lastFetchAgoS > 150)
 
   // Other miners only — never list the device that's serving this page.
-  $: displayPeers = peers.filter((p) => p.hostname !== $info?.hostname)
-  $: legendBoards = Array.from(new Set(displayPeers.map((p) => p.board).filter(Boolean))).sort()
-  $: legendStatuses = Array.from(new Set(displayPeers.map((p) => p.state || 'unknown'))).sort()
+  const displayPeers = $derived(peers.filter((p) => p.hostname !== $info?.hostname))
+  const legendBoards = $derived(Array.from(new Set(displayPeers.map((p) => p.board).filter(Boolean))).sort())
+  const legendStatuses = $derived(Array.from(new Set(displayPeers.map((p) => p.state || 'unknown'))).sort())
 
   async function fetchPeerStats(peer: KnotPeer) {
     // Only show the loading placeholder on the first fetch. On later polls keep

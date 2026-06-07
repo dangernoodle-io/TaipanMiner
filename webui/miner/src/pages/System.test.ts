@@ -255,7 +255,10 @@ describe('System — Reset stats action', () => {
     const { getByText } = render(System)
     await fireEvent.click(getByText('Reset stats'))
     await fireEvent.click(getByText('Reset'))
-    expect(api.resetStats).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(api.resetStats).toHaveBeenCalledTimes(1))
+    // waitFor ensures the async body (Promise.all, fetchStats, fetchPool) ran through
+    await vi.waitFor(() => expect(api.fetchStats).toHaveBeenCalled())
+    await vi.waitFor(() => expect(api.fetchPool).toHaveBeenCalled())
   })
 
   it('shows error message when resetStats fails', async () => {
@@ -306,6 +309,33 @@ describe('System — chip detection driven by stats.asic_count', () => {
     stats.set(null)
     const { component } = render(System)
     expect(component).toBeDefined()
+  })
+})
+
+describe('System — stratumFails row', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    stats.set(null)
+    info.set(null)
+    health.set(null)
+  })
+
+  it('renders stratum-fail count row when stratum_fail_count > 0', () => {
+    health.set({
+      ...baseHealth,
+      network: { ...baseHealth.network, stratum_fail_count: 3 }
+    } as any)
+    const { container } = render(System)
+    expect(container.textContent).toContain('3 fails')
+  })
+
+  it('does not render stratum-fail row when stratum_fail_count is 0', () => {
+    health.set({
+      ...baseHealth,
+      network: { ...baseHealth.network, stratum_fail_count: 0 }
+    } as any)
+    const { container } = render(System)
+    expect(container.textContent).not.toContain('fails')
   })
 })
 

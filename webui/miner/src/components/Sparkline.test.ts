@@ -31,4 +31,18 @@ describe('Sparkline', () => {
     const circles = document.querySelectorAll('circle')
     expect(circles.length).toBe(1)
   })
+
+  it('positions single point at center x', () => {
+    // getX returns width/2 when n===1 — exercises the n===1 branch
+    render(Sparkline, { props: { points: [5], width: 80 } })
+    const circle = document.querySelector('circle')!
+    expect(Number(circle.getAttribute('cx'))).toBeCloseTo(40)
+  })
+
+  it('applies custom color via style attribute', () => {
+    // Pass a named color to avoid jsdom hex→rgb normalization
+    render(Sparkline, { props: { points: [1, 2], color: 'red' } })
+    const polyline = document.querySelector('polyline')!
+    expect(polyline.getAttribute('style')).toContain('red')
+  })
 })

@@ -36,4 +36,34 @@ describe('RollingRates', () => {
     render(RollingRates, { props: { ghs1m: 1, err1m: 0.5 } })
     expect(document.querySelector('.rolling-row.err')).not.toBeNull()
   })
+
+  it('renders generic values via values prop', () => {
+    render(RollingRates, { props: { values: [12.5, 11.0, 10.2], unit: 'J/TH', decimals: 1 } })
+    expect(screen.getAllByText('J/TH').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('12.5').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('renders dash in generic mode for null entries', () => {
+    render(RollingRates, { props: { values: [null, null, null] } })
+    const dashes = screen.getAllByText('—')
+    expect(dashes.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('suppresses unit span when unit is empty string in generic mode', () => {
+    const { container } = render(RollingRates, { props: { values: [5.0, 4.5, 4.0], unit: '' } })
+    // No unit spans inside the generic rolling-row
+    const cells = container.querySelectorAll('.rolling-row .cell .u')
+    expect(cells.length).toBe(0)
+  })
+
+  it('renders generic values with zero-or-negative as dash', () => {
+    render(RollingRates, { props: { values: [0, -1, null] } })
+    const dashes = screen.getAllByText('—')
+    expect(dashes.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('hides sparkline when showSpark=false', () => {
+    render(RollingRates, { props: { ghs1m: 1, ghs10m: 2, ghs1h: 3, showSpark: false } })
+    expect(document.querySelector('svg.rolling-spark')).toBeNull()
+  })
 })

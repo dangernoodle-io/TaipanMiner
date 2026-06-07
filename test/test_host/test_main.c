@@ -621,26 +621,8 @@ void test_knot_walk_early_abort(void);
 
 #ifdef ASIC_CHIP
 // Forward declarations from test_routes_json_asic.c (TA-292)
-void test_power_all_sensors_populated(void);
-void test_power_all_sensors_null(void);
-void test_power_efficiency_null_when_hashrate_zero(void);
-void test_power_efficiency_null_when_pcore_zero(void);
-void test_power_vin_low_true(void);
-void test_power_vin_low_false_above_threshold(void);
-void test_power_vin_low_false_at_threshold(void);
-void test_power_vcore_null_others_populated(void);
-void test_power_icore_null(void);
-void test_power_board_temp_null(void);
-void test_power_vr_temp_null(void);
-void test_power_rolling_efficiency_populated(void);
-void test_power_rolling_efficiency_null_sentinels(void);
-void test_fan_both_populated(void);
-void test_fan_rpm_null(void);
-void test_fan_duty_null(void);
-void test_fan_both_null(void);
-void test_fan_targets_null(void);
-void test_fan_pct_sentinels_null(void);
-void test_fan_thermal_sentinels_null(void);
+// /api/power and /api/fan emitters removed (P4b) — moved to BB extenders
+void test_stats_no_asic_temp_c(void);
 void test_stats_asic_total_valid_true(void);
 void test_stats_asic_total_valid_false(void);
 void test_stats_expected_ghs_populated(void);
@@ -1447,26 +1429,8 @@ int main(void) {
 
 #ifdef ASIC_CHIP
     // TA-292: ASIC-gated JSON builder tests
-    RUN_TEST(test_power_all_sensors_populated);
-    RUN_TEST(test_power_all_sensors_null);
-    RUN_TEST(test_power_efficiency_null_when_hashrate_zero);
-    RUN_TEST(test_power_efficiency_null_when_pcore_zero);
-    RUN_TEST(test_power_vin_low_true);
-    RUN_TEST(test_power_vin_low_false_above_threshold);
-    RUN_TEST(test_power_vin_low_false_at_threshold);
-    RUN_TEST(test_power_vcore_null_others_populated);
-    RUN_TEST(test_power_icore_null);
-    RUN_TEST(test_power_board_temp_null);
-    RUN_TEST(test_power_vr_temp_null);
-    RUN_TEST(test_power_rolling_efficiency_populated);
-    RUN_TEST(test_power_rolling_efficiency_null_sentinels);
-    RUN_TEST(test_fan_both_populated);
-    RUN_TEST(test_fan_rpm_null);
-    RUN_TEST(test_fan_duty_null);
-    RUN_TEST(test_fan_both_null);
-    RUN_TEST(test_fan_targets_null);
-    RUN_TEST(test_fan_pct_sentinels_null);
-    RUN_TEST(test_fan_thermal_sentinels_null);
+    /* P4b: /api/power and /api/fan emitters removed; extender math in test_mining.c */
+    RUN_TEST(test_stats_no_asic_temp_c);
     RUN_TEST(test_stats_asic_total_valid_true);
     RUN_TEST(test_stats_asic_total_valid_false);
     RUN_TEST(test_stats_expected_ghs_populated);

@@ -39,6 +39,7 @@
 #include "knot.h"
 #endif
 #include "routes_json.h"
+#include "bb_http_extender.h"
 #include "mining_pool_stats.h"
 #include "sha256.h"
 #if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32C3
@@ -227,7 +228,7 @@ static bb_err_t stats_handler(bb_http_request_t *req)
         s.asic_rate         = mining_stats.asic_hashrate;
         s.asic_ema          = mining_stats.asic_ema.value;
         s.asic_shares       = mining_stats.asic_shares;
-        s.asic_temp_c       = mining_stats.asic_temp_c;
+        /* asic_temp_c removed — now in /api/thermal (asic die source) */
         s.asic_freq_cfg     = mining_stats.asic_freq_configured_mhz;
         s.asic_freq_eff     = mining_stats.asic_freq_effective_mhz;
         s.asic_total_ghs    = mining_stats.asic_total_ghs;
@@ -869,109 +870,151 @@ static bb_err_t pool_delete_primary_handler(bb_http_request_t *req)
     return bb_http_resp_no_content(req);
 }
 
+// ============================================================================
+// BB ROUTE EXTENDERS (P4b)
+// /api/power and /api/fan are now owned by BB. TM injects mining-specific
+// fields via extenders registered at order 0 (before BB routes init at order 1).
+// ============================================================================
+
 #ifdef ASIC_CHIP
-static bb_err_t power_handler(bb_http_request_t *req)
-{
-    set_common_headers(req);
 
-    power_snapshot_t s = {
-        .vcore_mv      = -1,
-        .icore_ma      = -1,
-        .pcore_mw      = -1,
-        .vin_mv        = -1,
-        .asic_hashrate = 0,
-        .board_temp_c  = -1.0f,
-        .vr_temp_c     = -1.0f,
-        .nominal_vin_mv = BOARD_NOMINAL_VIN_MV,
-        .efficiency_jth_1m = -1.0,
-        .efficiency_jth_10m = -1.0,
-        .efficiency_jth_1h = -1.0,
-        .expected_efficiency_jth = -1.0,
-    };
+// ---------------------------------------------------------------------------
+// Power extender: efficiency_jth, efficiency_jth_1m/10m/1h,
+//                 expected_efficiency_jth, vin_low
+// Source: mining_stats (pcore_mw rolling windows + asic hashrate for efficiency;
+//         vin_mv + BOARD_NOMINAL_VIN_MV for vin_low).
+// Note: BB already emits vout_mv/iout_ma/pout_mw/vin_mv/temp_c — not duplicated.
+// ---------------------------------------------------------------------------
+
+static void taipan_power_extender(bb_json_t root)
+{
+    int    pcore_mw             = -1;
+    double asic_hashrate        = 0.0;
+    float  pcore_1m             = -1.0f;
+    float  pcore_10m            = -1.0f;
+    float  pcore_1h             = -1.0f;
+    float  ghs_1m               = -1.0f;
+    float  ghs_10m              = -1.0f;
+    float  ghs_1h               = -1.0f;
+    float  asic_freq            = 0.0f;
+    int    vin_mv               = -1;
 
     if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        s.vcore_mv      = mining_stats.vcore_mv;
-        s.icore_ma      = mining_stats.icore_ma;
-        s.pcore_mw      = mining_stats.pcore_mw;
-        s.vin_mv        = mining_stats.vin_mv;
-        s.asic_hashrate = mining_stats.asic_hashrate;
-        s.board_temp_c  = mining_stats.board_temp_c;
-        s.vr_temp_c     = mining_stats.vr_temp_c;
-
-        float pcore_1m = mining_stats.pcore_mw_1m;
-        float pcore_10m = mining_stats.pcore_mw_10m;
-        float pcore_1h = mining_stats.pcore_mw_1h;
-        float ghs_1m = mining_stats.asic_total_ghs_1m;
-        float ghs_10m = mining_stats.asic_total_ghs_10m;
-        float ghs_1h = mining_stats.asic_total_ghs_1h;
-
-        {
-            double e;
-            e = mining_efficiency_jth((double)pcore_1m, (double)ghs_1m);
-            if (e >= 0.0) s.efficiency_jth_1m = e;
-            e = mining_efficiency_jth((double)pcore_10m, (double)ghs_10m);
-            if (e >= 0.0) s.efficiency_jth_10m = e;
-            e = mining_efficiency_jth((double)pcore_1h, (double)ghs_1h);
-            if (e >= 0.0) s.efficiency_jth_1h = e;
-        }
-
-        float asic_freq = mining_stats.asic_freq_configured_mhz;
-        if (s.pcore_mw > 0 && asic_freq > 0) {
-            double expected_ghs = 0.0;
-            if (mining_get_expected_ghs(asic_freq, &expected_ghs) && expected_ghs > 0) {
-                s.expected_efficiency_jth = mining_efficiency_jth((double)s.pcore_mw, expected_ghs);
-            }
-        }
-
+        pcore_mw      = mining_stats.pcore_mw;
+        asic_hashrate = mining_stats.asic_hashrate;
+        pcore_1m      = mining_stats.pcore_mw_1m;
+        pcore_10m     = mining_stats.pcore_mw_10m;
+        pcore_1h      = mining_stats.pcore_mw_1h;
+        ghs_1m        = mining_stats.asic_total_ghs_1m;
+        ghs_10m       = mining_stats.asic_total_ghs_10m;
+        ghs_1h        = mining_stats.asic_total_ghs_1h;
+        asic_freq     = mining_stats.asic_freq_configured_mhz;
+        vin_mv        = mining_stats.vin_mv;
         xSemaphoreGive(mining_stats.mutex);
     }
 
-    bb_http_json_obj_stream_t obj;
-    bb_err_t rc = bb_http_resp_json_obj_begin(req, &obj);
-    if (rc != BB_OK) return rc;
-
-    emit_power_json(&obj, &s);
-
-    return bb_http_resp_json_obj_end(&obj);
-}
-
-static bb_err_t fan_handler(bb_http_request_t *req)
-{
-    set_common_headers(req);
-
-    fan_snapshot_t s = {
-        .fan_rpm      = -1,
-        .fan_duty_pct = -1,
-        .autofan      = config_autofan_enabled(),
-        .die_target_c = (int)config_die_target_c(),
-        .vr_target_c  = (int)config_vr_target_c(),
-        .manual_pct    = (int)config_manual_fan_pct(),
-        .min_pct       = (int)config_min_fan_pct(),
-        .die_ema_c     = -1.0f,
-        .vr_ema_c      = -1.0f,
-        .pid_input_c   = -1.0f,
-        .pid_input_src = "",
-    };
-
-    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        s.fan_rpm      = mining_stats.fan_rpm;
-        s.fan_duty_pct = mining_stats.fan_duty_pct;
-        xSemaphoreGive(mining_stats.mutex);
+    /* efficiency_jth: instantaneous (pcore_mw + live hashrate) */
+    {
+        /* asic_hashrate is H/s; divide by 1e9 to get GH/s */
+        double eff = mining_efficiency_jth((double)pcore_mw, asic_hashrate / 1e9);
+        if (eff >= 0.0) bb_json_obj_set_number(root, "efficiency_jth", eff);
+        else            bb_json_obj_set_null(root, "efficiency_jth");
     }
 
-    // TA-141: Fetch autofan telemetry (die/vr EMAs, PID input source)
-    asic_task_get_autofan_telemetry(&s.die_ema_c, &s.vr_ema_c, &s.pid_input_c, &s.pid_input_src);
+    /* rolling efficiency windows */
+    {
+        double e;
+        e = mining_efficiency_jth((double)pcore_1m, (double)ghs_1m);
+        if (e >= 0.0) bb_json_obj_set_number(root, "efficiency_jth_1m", e);
+        else          bb_json_obj_set_null(root, "efficiency_jth_1m");
+        e = mining_efficiency_jth((double)pcore_10m, (double)ghs_10m);
+        if (e >= 0.0) bb_json_obj_set_number(root, "efficiency_jth_10m", e);
+        else          bb_json_obj_set_null(root, "efficiency_jth_10m");
+        e = mining_efficiency_jth((double)pcore_1h, (double)ghs_1h);
+        if (e >= 0.0) bb_json_obj_set_number(root, "efficiency_jth_1h", e);
+        else          bb_json_obj_set_null(root, "efficiency_jth_1h");
+    }
 
-    bb_http_json_obj_stream_t obj;
-    bb_err_t rc = bb_http_resp_json_obj_begin(req, &obj);
-    if (rc != BB_OK) return rc;
+    /* expected_efficiency_jth: from configured freq + board TDP model */
+    {
+        double expected_ghs = 0.0;
+        if (pcore_mw > 0 && asic_freq > 0 &&
+            mining_get_expected_ghs(asic_freq, &expected_ghs) && expected_ghs > 0) {
+            double eff = mining_efficiency_jth((double)pcore_mw, expected_ghs);
+            if (eff >= 0.0) bb_json_obj_set_number(root, "expected_efficiency_jth", eff);
+            else            bb_json_obj_set_null(root, "expected_efficiency_jth");
+        } else {
+            bb_json_obj_set_null(root, "expected_efficiency_jth");
+        }
+    }
 
-    emit_fan_json(&obj, &s);
-
-    return bb_http_resp_json_obj_end(&obj);
+    /* vin_low: true when vin_mv < 87% of (nominal + 500 mV) */
+    if (vin_mv >= 0) {
+        bool vin_low = (vin_mv < (BOARD_NOMINAL_VIN_MV + 500) * 87 / 100);
+        bb_json_obj_set_bool(root, "vin_low", vin_low);
+    } else {
+        bb_json_obj_set_null(root, "vin_low");
+    }
 }
 
-// TA-315: POST /api/fan — update autofan config fields (form-urlencoded, partial)
+// ---------------------------------------------------------------------------
+// Fan extender: autofan, die_target_c, vr_target_c, manual_pct, min_pct,
+//               die_ema_c, vr_ema_c, pid_input_c, pid_input_src
+// Note: BB already emits rpm and duty_pct — not duplicated.
+// ---------------------------------------------------------------------------
+
+static void taipan_fan_extender(bb_json_t root)
+{
+    bb_json_obj_set_bool(root, "autofan",      config_autofan_enabled());
+    bb_json_obj_set_number(root, "die_target_c", (double)(int)config_die_target_c());
+    bb_json_obj_set_number(root, "vr_target_c",  (double)(int)config_vr_target_c());
+    bb_json_obj_set_number(root, "manual_pct",   (double)(int)config_manual_fan_pct());
+    bb_json_obj_set_number(root, "min_pct",      (double)(int)config_min_fan_pct());
+
+    float die_ema_c = -1.0f, vr_ema_c = -1.0f, pid_input_c = -1.0f;
+    const char *pid_input_src = "";
+    asic_task_get_autofan_telemetry(&die_ema_c, &vr_ema_c, &pid_input_c, &pid_input_src);
+
+    if (die_ema_c >= 0.0f)   bb_json_obj_set_number(root, "die_ema_c",   (double)die_ema_c);
+    else                     bb_json_obj_set_null(root, "die_ema_c");
+    if (vr_ema_c >= 0.0f)    bb_json_obj_set_number(root, "vr_ema_c",    (double)vr_ema_c);
+    else                     bb_json_obj_set_null(root, "vr_ema_c");
+    if (pid_input_c >= 0.0f) bb_json_obj_set_number(root, "pid_input_c", (double)pid_input_c);
+    else                     bb_json_obj_set_null(root, "pid_input_c");
+    bb_json_obj_set_string(root, "pid_input_src", pid_input_src ? pid_input_src : "");
+}
+
+// Schema property fragments for OpenAPI (comma-separated properties, no braces)
+static const char k_power_extender_schema[] =
+    "\"efficiency_jth\":{\"type\":[\"number\",\"null\"],"
+    "\"description\":\"J/TH; null until ASIC hashrate and power both available\"},"
+    "\"efficiency_jth_1m\":{\"type\":[\"number\",\"null\"]},"
+    "\"efficiency_jth_10m\":{\"type\":[\"number\",\"null\"]},"
+    "\"efficiency_jth_1h\":{\"type\":[\"number\",\"null\"]},"
+    "\"expected_efficiency_jth\":{\"type\":[\"number\",\"null\"]},"
+    "\"vin_low\":{\"type\":[\"boolean\",\"null\"],"
+    "\"description\":\"true when VIN is below 87% of (nominal+500mV) threshold\"}";
+
+static const char k_fan_extender_schema[] =
+    "\"autofan\":{\"type\":\"boolean\",\"description\":\"autofan enabled\"},"
+    "\"die_target_c\":{\"type\":\"integer\",\"description\":\"ASIC die target temperature\"},"
+    "\"vr_target_c\":{\"type\":\"integer\",\"description\":\"VR target temperature\"},"
+    "\"manual_pct\":{\"type\":\"integer\",\"description\":\"manual duty % when autofan disabled\"},"
+    "\"min_pct\":{\"type\":\"integer\",\"description\":\"minimum fan duty %\"},"
+    "\"die_ema_c\":{\"type\":[\"number\",\"null\"],\"description\":\"filtered ASIC die temperature\"},"
+    "\"vr_ema_c\":{\"type\":[\"number\",\"null\"],\"description\":\"filtered VR temperature\"},"
+    "\"pid_input_c\":{\"type\":[\"number\",\"null\"],\"description\":\"PID input selected by max(err/target) ratio\"},"
+    "\"pid_input_src\":{\"type\":\"string\",\"description\":\"which sensor is driving PID: 'die' or 'vr'\"}";
+
+#endif /* ASIC_CHIP */
+
+// ---------------------------------------------------------------------------
+// POST /api/fan — update autofan config (now handled by this TM-owned handler
+// because BB's POST /api/fan does raw duty-set, but TM's config fields
+// are TM-specific policy and not suitable for the generic BB route).
+// ---------------------------------------------------------------------------
+
+#ifdef ASIC_CHIP
 static bb_err_t fan_post_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
@@ -1065,7 +1108,7 @@ static bb_err_t fan_post_handler(bb_http_request_t *req)
 
     return bb_http_resp_no_content(req);
 }
-#endif // ASIC_BM1370 || ASIC_BM1368
+#endif /* ASIC_CHIP */
 
 #if CONFIG_KNOT_ENABLED
 /* Context for knot_walk callback */
@@ -1214,6 +1257,20 @@ bb_err_t webui_register_info_extender(void)
     bb_info_register_capability("knot");
 #endif
 
+    return BB_OK;
+}
+
+// Register TM-specific extenders for BB-owned /api/power and /api/fan routes.
+// Must be called at order 0 (before BB route init at order 1 which assembles schemas).
+bb_err_t webui_register_power_fan_extenders(void)
+{
+#ifdef ASIC_CHIP
+    bb_err_t err;
+    err = bb_http_register_route_extender("power", taipan_power_extender, k_power_extender_schema);
+    if (err != BB_OK) return err;
+    err = bb_http_register_route_extender("fan", taipan_fan_extender, k_fan_extender_schema);
+    if (err != BB_OK) return err;
+#endif
     return BB_OK;
 }
 
@@ -2131,74 +2188,11 @@ static const bb_route_t s_settings_patch_route = {
     .handler              = settings_patch_handler,
 };
 
+// /api/power GET and /api/fan GET are now registered by BB (bb_power_routes,
+// bb_fan_routes) via CONFIG_BB_POWER_ROUTES_AUTOREGISTER / CONFIG_BB_FAN_ROUTES_AUTOREGISTER.
+// TM's POST /api/fan (autofan config) remains here since it sets TM-specific policy fields.
+
 #ifdef ASIC_CHIP
-
-// ---------------------------------------------------------------------------
-// /api/power — GET (ASIC boards only)
-// ---------------------------------------------------------------------------
-
-static const bb_route_response_t s_power_responses[] = {
-    { 200, "application/json",
-      "{\"type\":\"object\","
-      "\"properties\":{"
-      "\"vcore_mv\":{\"type\":[\"integer\",\"null\"]},"
-      "\"icore_ma\":{\"type\":[\"integer\",\"null\"]},"
-      "\"pcore_mw\":{\"type\":[\"integer\",\"null\"]},"
-      "\"efficiency_jth\":{\"type\":[\"number\",\"null\"],"
-      "\"description\":\"J/TH; null until ASIC hashrate and power both available\"},"
-      "\"vin_mv\":{\"type\":[\"integer\",\"null\"]},"
-      "\"vin_low\":{\"type\":[\"boolean\",\"null\"]},"
-      "\"board_temp_c\":{\"type\":[\"number\",\"null\"]},"
-      "\"vr_temp_c\":{\"type\":[\"number\",\"null\"]}}}",
-      "ASIC power and thermal telemetry" },
-    { 0 },
-};
-
-static const bb_route_t s_power_route = {
-    .method       = BB_HTTP_GET,
-    .path         = "/api/power",
-    .tag          = "mining",
-    .summary      = "Get ASIC power and thermal telemetry",
-    .operation_id = "getPower",
-    .responses    = s_power_responses,
-    .handler      = power_handler,
-};
-
-// ---------------------------------------------------------------------------
-// /api/fan — GET (ASIC boards only)
-// ---------------------------------------------------------------------------
-
-static const bb_route_response_t s_fan_responses[] = {
-    { 200, "application/json",
-      "{\"type\":\"object\","
-      "\"properties\":{"
-      "\"rpm\":{\"type\":[\"integer\",\"null\"]},"
-      "\"duty_pct\":{\"type\":[\"integer\",\"null\"],"
-      "\"description\":\"curve-controlled duty %; null until first telemetry tick\"},"
-      "\"autofan\":{\"type\":\"boolean\",\"description\":\"autofan enabled\"},"
-      "\"die_target_c\":{\"type\":[\"integer\",\"null\"],\"description\":\"ASIC die target temperature\"},"
-      "\"vr_target_c\":{\"type\":[\"integer\",\"null\"],\"description\":\"VR target temperature\"},"
-      "\"manual_pct\":{\"type\":[\"integer\",\"null\"],\"description\":\"manual duty % when autofan disabled\"},"
-      "\"min_pct\":{\"type\":[\"integer\",\"null\"],\"description\":\"minimum fan duty %\"},"
-      "\"die_ema_c\":{\"type\":[\"number\",\"null\"],\"description\":\"filtered ASIC die temperature\"},"
-      "\"vr_ema_c\":{\"type\":[\"number\",\"null\"],\"description\":\"filtered VR temperature\"},"
-      "\"pid_input_c\":{\"type\":[\"number\",\"null\"],\"description\":\"PID input selected by max(err/target) ratio\"},"
-      "\"pid_input_src\":{\"type\":\"string\",\"description\":\"which sensor is driving PID: 'die' or 'vr'\"}"
-      "}}",
-      "fan telemetry" },
-    { 0 },
-};
-
-static const bb_route_t s_fan_route = {
-    .method       = BB_HTTP_GET,
-    .path         = "/api/fan",
-    .tag          = "mining",
-    .summary      = "Get fan speed and duty cycle",
-    .operation_id = "getFan",
-    .responses    = s_fan_responses,
-    .handler      = fan_handler,
-};
-
 // TA-315: POST /api/fan — update autofan config (form-urlencoded, all fields optional)
 static const bb_route_response_t s_fan_post_responses[] = {
     { 204, NULL, NULL, "Fan config updated" },
@@ -2214,7 +2208,6 @@ static const bb_route_t s_fan_post_route = {
     .responses    = s_fan_post_responses,
     .handler      = fan_post_handler,
 };
-
 #endif /* ASIC_CHIP */
 
 // ============================================================================
@@ -2394,9 +2387,8 @@ static const bb_route_t * const s_mining_routes[] = {
     &s_settings_get_route,
     &s_settings_post_route,
 #ifdef ASIC_CHIP
-    &s_power_route,
-    &s_fan_route,
-    &s_fan_post_route,
+    /* /api/power GET and /api/fan GET: registered by BB (bb_power_routes, bb_fan_routes) */
+    &s_fan_post_route,  /* TM POST /api/fan: autofan config policy — TM-owned */
 #endif
     &s_settings_patch_route,
 };

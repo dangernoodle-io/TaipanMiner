@@ -1150,6 +1150,27 @@ static void taipan_info_extender(bb_json_t root)
         bb_json_obj_set_number(network, "stratum_reconnect_ms", stratum_get_reconnect_delay_ms());
         bb_json_obj_set_number(network, "stratum_fail_count", stratum_get_connect_fail_count());
     }
+
+#ifdef ASIC_CHIP
+    // ASIC descriptor: model, chip count, and small cores per chip.
+    // Field names: "model" (chip designation), "chips" (count in chain),
+    // "small_cores_per_chip" (per-chip parallelism). Frontend consumes these
+    // directly without hardcoding the board→chip mapping.
+    {
+        bb_json_t asic = bb_json_obj_new();
+#if defined(ASIC_BM1370)
+        bb_json_obj_set_string(asic, "model", "BM1370");
+#elif defined(ASIC_BM1368)
+        bb_json_obj_set_string(asic, "model", "BM1368");
+#else
+        bb_json_obj_set_string(asic, "model", "unknown");
+#endif
+        bb_json_obj_set_number(asic, "chips", BOARD_ASIC_COUNT);
+        bb_json_obj_set_number(asic, "small_cores_per_chip",
+                               BOARD_SMALL_CORES / BOARD_ASIC_COUNT);
+        bb_json_obj_set_obj(root, "asic", asic);
+    }
+#endif /* ASIC_CHIP */
 }
 
 static void taipan_health_extender(bb_json_t root)
@@ -1173,7 +1194,27 @@ bb_err_t webui_register_info_extender(void)
 {
     bb_err_t err = bb_info_register_extender(taipan_info_extender);
     if (err != BB_OK) return err;
-    return bb_health_register_extender(taipan_health_extender);
+    err = bb_health_register_extender(taipan_health_extender);
+    if (err != BB_OK) return err;
+
+    // Capability flags: advertise which optional hardware/features this build has.
+    // Gating mirrors the existing route-registration conditions so the frontend
+    // can infer which API endpoints are present without probing 404s.
+#ifdef ASIC_CHIP
+    bb_info_register_capability("asic");
+#endif
+#if defined(ASIC_BM1370) || defined(ASIC_BM1368)
+    bb_info_register_capability("fan");
+    bb_info_register_capability("power");
+#endif
+#if CONFIG_WEBUI_MINING_UI
+    bb_info_register_capability("mining_ui");
+#endif
+#if CONFIG_KNOT_ENABLED
+    bb_info_register_capability("knot");
+#endif
+
+    return BB_OK;
 }
 
 static bb_err_t settings_get_handler(bb_http_request_t *req)

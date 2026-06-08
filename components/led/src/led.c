@@ -70,6 +70,9 @@ bb_err_t led_init(void) {
         return BB_OK;
     }
 
+    // Designate as the primary status LED so bb_led_info can report it.
+    bb_led_set_primary(s_led);
+
     // Animator drives patterns (e.g. the mining heartbeat) off a bb_timer, so it
     // keeps ticking even while the single-core miner saturates the CPU.
     bb_led_anim_cfg_t acfg = { .led = s_led, .tick_period_ms = 0, .auto_start_timer = true };

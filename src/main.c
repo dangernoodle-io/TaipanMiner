@@ -49,6 +49,9 @@
 #ifdef ASIC_CHIP
 #include "asic.h"
 #endif
+#include "bb_display_info.h"
+#include "bb_led_info.h"
+#include "bb_temp.h"
 
 #if CONFIG_WEBUI_MINING_UI
 #define MINER_UI_TXT "1"
@@ -265,6 +268,7 @@ void app_main(void)
     BB_ERROR_CHECK(config_register_manifest());
     log_reset_reason();
     BB_ERROR_CHECK(led_init());
+    bb_led_register_info();
 
 #ifdef BOARD_OTA_BOOT_MODE
     // OTA-only boot mode (tight/serial-less boards, e.g. S2): if armed via
@@ -334,6 +338,12 @@ void app_main(void)
 #ifdef TM_BENCH_QUIET
     bb_log_w(TAG, "TM_BENCH_QUIET: display disabled");
 #endif
+    // Register /api/info and /api/health satellite extenders. All three degrade
+    // to present:false gracefully when hardware is absent (no display on wroom32,
+    // no LED on bitaxe, no SoC temp sensor on classic ESP32). Must run before
+    // bb_registry_init() which starts the HTTP server and freezes the extender table.
+    bb_display_register_info();
+    bb_temp_register_info();
 
     if (!bb_nv_config_is_provisioned()) {
         bb_log_i(TAG, "entering provisioning mode");

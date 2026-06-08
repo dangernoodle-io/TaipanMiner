@@ -10,6 +10,8 @@
   import RollingRates from '../components/RollingRates.svelte'
   import { createPoolState } from '../lib/poolState.svelte'
   import PoolStatsCard from '../components/PoolStatsCard.svelte'
+  import StatField from 'ui-kit/StatField.svelte'
+  import InfoRow from 'ui-kit/InfoRow.svelte'
 
   const POOL_IDXS: (0 | 1)[] = [0, 1]
 
@@ -87,31 +89,16 @@
       </div>
     </div>
     <div class="card-footer">
-      <div class="sf">
-        <div class="field-key">diff</div>
-        <div class="field-val mono">{fmtPoolDiff(displayPool?.current_difficulty)}</div>
-      </div>
+      <StatField label="diff" mono>{fmtPoolDiff(displayPool?.current_difficulty)}</StatField>
       {#if displayPool?.extranonce1}
-        <div class="sf">
-          <div class="field-key">extranonce1</div>
-          <div class="field-val mono" title="server-assigned per-session nonce prefix">
-            {displayPool.extranonce1}{displayPool.extranonce2_size != null ? ` · ${displayPool.extranonce2_size}B en2` : ''}
-          </div>
-        </div>
+        <StatField label="extranonce1" mono title="server-assigned per-session nonce prefix">
+          {displayPool.extranonce1}{displayPool.extranonce2_size != null ? ` · ${displayPool.extranonce2_size}B en2` : ''}
+        </StatField>
       {/if}
-      <div class="sf">
-        <div class="field-key">latency</div>
-        <div class="field-val mono">{displayPool?.latency_ms != null ? `${displayPool.latency_ms} ms` : '—'}</div>
-      </div>
-      <div class="sf">
-        <div class="field-key">session</div>
-        <div class="field-val mono">{displayPool?.session_start_ago_s != null ? fmtRelative(displayPool.session_start_ago_s) : '—'}</div>
-      </div>
+      <StatField label="latency" mono>{displayPool?.latency_ms != null ? `${displayPool.latency_ms} ms` : '—'}</StatField>
+      <StatField label="session" mono>{displayPool?.session_start_ago_s != null ? fmtRelative(displayPool.session_start_ago_s) : '—'}</StatField>
       {#if displayPool?.version_mask}
-        <div class="sf">
-          <div class="field-key">version mask</div>
-          <div class="field-val mono" title="BIP-320 version-rolling bits">0x{displayPool.version_mask}</div>
-        </div>
+        <StatField label="version mask" mono title="BIP-320 version-rolling bits">0x{displayPool.version_mask}</StatField>
       {/if}
     </div>
 
@@ -146,51 +133,29 @@
       </header>
       <div class="stratum-grid">
         {#if activeDecodeCoinbase && coinbaseHeight(n.coinb1) != null}
-          <div class="sf">
-            <div class="sk">block height</div>
-            <div class="sv mono">{fmtNetDiff(coinbaseHeight(n.coinb1) ?? 0)}</div>
-          </div>
+          <StatField label="block height" mono>{fmtNetDiff(coinbaseHeight(n.coinb1) ?? 0)}</StatField>
         {/if}
         {#if activeDecodeCoinbase && coinbaseTotalReward(n.coinb2) != null}
-          <div class="sf">
-            <div class="sk">block reward</div>
-            <div class="sv mono">{fmtBtc(coinbaseTotalReward(n.coinb2) ?? 0)}</div>
-          </div>
+          <StatField label="block reward" mono>{fmtBtc(coinbaseTotalReward(n.coinb2) ?? 0)}</StatField>
         {/if}
-        <div class="sf">
-          <div class="sk">merkle depth</div>
-          <div class="sv mono">{n.merkle_branches.length}</div>
-        </div>
-        <div class="sf">
-          <div class="sk">network diff</div>
-          <div class="sv mono">{fmtNetDiff(nbitsToDifficulty(n.nbits))}</div>
-        </div>
-        <div class="sf">
-          <div class="sk">prev block</div>
-          <div class="sv mono" title={n.prev_hash}>
-            {n.prev_hash.slice(0, 8)}…{n.prev_hash.slice(-8)}
-          </div>
-        </div>
+        <StatField label="merkle depth" mono>{n.merkle_branches.length}</StatField>
+        <StatField label="network diff" mono>{fmtNetDiff(nbitsToDifficulty(n.nbits))}</StatField>
+        <StatField label="prev block" mono title={n.prev_hash}>{n.prev_hash.slice(0, 8)}…{n.prev_hash.slice(-8)}</StatField>
         {#if fmtNtimeAge(n.ntime)}
-          <div class="sf">
-            <div class="sk">template age</div>
-            <div class="sv mono">{fmtNtimeAge(n.ntime)}</div>
-          </div>
+          <StatField label="template age" mono>{fmtNtimeAge(n.ntime)}</StatField>
         {/if}
-        <div class="sf">
-          <div class="sk">version</div>
-          <div class="sv mono">0x{n.version}</div>
-        </div>
+        <StatField label="version" mono>0x{n.version}</StatField>
       </div>
       {#if activeDecodeCoinbase && coinbasePayoutSpk(n.coinb2)}
         {@const spk = coinbasePayoutSpk(n.coinb2)}
         {@const addr = spk ? segwitAddress(spk) : null}
-        <div class="card-footer">
-          <span class="field-key">payout</span>
-          <span class="field-val mono" title={addr ?? spk ?? ''}>
-            {addr ?? 'non-segwit ' + (spk ?? '')}
-          </span>
-        </div>
+        {@const payoutMismatch = !!displayPool.wallet && (addr == null || addr !== displayPool.wallet)}
+        <dl class="payout-row">
+          <InfoRow label="payout" mono bad={payoutMismatch}
+          >{addr ?? 'non-segwit ' + (spk ?? '')}{#if payoutMismatch}&nbsp;<Tooltip
+              text={`Coinbase pays a different address than your configured wallet. Normal for shared/proxy pools (they pay the pool and credit your share off-chain) — but if you're solo mining your rewards are going elsewhere: a misconfigured pool or a scam. Verify the payout address.`}
+              icon placement="top" align="right" />{/if}</InfoRow>
+        </dl>
       {/if}
     </section>
   {/if}
@@ -278,8 +243,16 @@
     align-items: baseline;
     gap: 10px;
     margin-bottom: 10px;
+    flex-wrap: wrap;
   }
 
+
+  /* the Tooltip wrapper is inline-flex (content-sized); let it shrink + cap to
+     the header width so the pill inside actually wraps instead of overflowing. */
+  .active-head :global(.has-tip) {
+    min-width: 0;
+    max-width: 100%;
+  }
 
   .pool-tag .tag-prefix {
     font-size: 9px;
@@ -300,10 +273,11 @@
     border-radius: 4px;
     background: color-mix(in srgb, var(--accent) 18%, transparent);
     border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-    max-width: 220px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: normal;
     vertical-align: middle;
     margin-left: 6px;
   }
@@ -326,20 +300,25 @@
     background: color-mix(in srgb, var(--success) 12%, transparent);
   }
 
-  /* session / payout strip: sf children need min-width guard for long mono values */
-  .card-footer .sf { min-width: 0; }
-  .card-footer .sf:last-child { text-align: right; }
-  /* mono field-val values in strips need overflow clipping */
-  .card-footer .field-val {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-  }
+  /* session / payout strip: stat-field children need min-width guard */
+  .card-footer :global(.stat-field) { min-width: 0; }
+  .card-footer :global(.stat-field:last-child) { text-align: right; }
 
   @media (max-width: 720px) {
-    .card-footer .sf:last-child { text-align: left; }
+    .card-footer :global(.stat-field:last-child) { text-align: left; }
   }
+
+  /* payout: a single label-left / value-right row (InfoRow) — the address
+     right-aligns in the value column, matching the original Pool layout.
+     Keeps the .card-footer dashed divider above it. */
+  .payout-row {
+    margin: 12px 0 0;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border);
+  }
+  .payout-row :global(.info-row:last-child) { border-bottom: none; }
+  /* let the value cell overflow so the warning ? tooltip popup isn't clipped */
+  .payout-row :global(.info-row dd) { overflow: visible; }
 
   .stratum-grid {
     display: flex;
@@ -349,8 +328,8 @@
     flex-wrap: wrap;
   }
 
-  .stratum-grid .sf { text-align: left; }
-  .stratum-grid .sf:last-child { text-align: right; }
+  .stratum-grid :global(.stat-field) { text-align: left; }
+  .stratum-grid :global(.stat-field:last-child) { text-align: right; }
 
   @media (max-width: 720px) {
     .stratum-grid {
@@ -358,28 +337,8 @@
       grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
       gap: 10px 18px;
     }
-    .stratum-grid .sf,
-    .stratum-grid .sf:last-child { text-align: left; }
-  }
-
-  .sf .sk {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--label);
-    margin-bottom: 2px;
-    text-align: inherit;
-  }
-
-  .sf .sv {
-    font-size: 13px;
-    color: var(--text);
-    font-variant-numeric: tabular-nums;
-    text-align: inherit;
-  }
-
-  .sf .sv.mono {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    .stratum-grid :global(.stat-field),
+    .stratum-grid :global(.stat-field:last-child) { text-align: left; }
   }
 
   /* card h3 typography lives in ui-kit utilities.css; this page's h3s sit
@@ -476,5 +435,4 @@
     gap: 8px;
   }
 
-  .mono { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
 </style>

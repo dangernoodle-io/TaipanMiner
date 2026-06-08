@@ -1,5 +1,6 @@
 import { fetchSettings, patchSettings } from './api'
 import { formFromSettings } from './settingsHelpers'
+import { invalidateConfig } from './stores'
 
 export function createSettingsState() {
   let loading = $state(true)
@@ -53,6 +54,7 @@ export function createSettingsState() {
     try {
       const res = await patchSettings({ display_en: next })
       displayOn = next
+      invalidateConfig() // refresh /api/info so the System page display chip updates
       displayKind = 'ok'
       displayMsg = res.reboot_required ? 'Saved — reboot to apply' : 'Saved'
     } catch (e) {
@@ -129,6 +131,7 @@ export function createSettingsState() {
     try {
       const res = await patchSettings({ led_heartbeat_en: next })
       heartbeatOn = next
+      invalidateConfig() // refresh /api/settings so the System page LED chip updates
       heartbeatKind = 'ok'
       heartbeatMsg = res.reboot_required ? 'Saved — reboot to apply' : 'Saved'
     } catch (e) {

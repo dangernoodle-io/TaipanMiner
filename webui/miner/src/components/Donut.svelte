@@ -1,12 +1,15 @@
 <script lang="ts">
+  import Tooltip from './Tooltip.svelte'
+
   interface Props {
     used: number | null | undefined
     total: number | null | undefined
     label: string
     format?: 'bytes' | 'percent'
     size?: number
+    hint?: string
   }
-  let { used, total, label, format = 'bytes', size = 120 }: Props = $props()
+  let { used, total, label, format = 'bytes', size = 120, hint }: Props = $props()
 
   const ratio = $derived(used != null && total != null && total > 0 ? Math.min(used / total, 1) : 0)
   const pct = $derived(ratio * 100)
@@ -54,7 +57,7 @@
       {/if}
     </div>
   </div>
-  <div class="label">{label}</div>
+  <div class="label">{label}{#if hint}<Tooltip text={hint} icon placement="top" />{/if}</div>
 </div>
 
 <style>
@@ -84,7 +87,8 @@
   }
 
   .pct {
-    font-size: 20px;
+    /* scale text with the donut so it doesn't squish at smaller sizes */
+    font-size: calc(var(--size) * 0.175);
     font-weight: 600;
     color: var(--text);
     line-height: 1;
@@ -92,16 +96,19 @@
   }
 
   .sub {
-    font-size: 9px;
-    color: var(--muted);
+    font-size: calc(var(--size) * 0.078);
+    color: var(--label);
     font-variant-numeric: tabular-nums;
   }
 
   .label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: var(--label);
+    color: var(--muted);
     font-weight: 600;
   }
 </style>

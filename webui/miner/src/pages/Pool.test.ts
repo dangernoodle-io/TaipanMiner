@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render as rtlRender, cleanup } from '@testing-library/svelte'
 import { flushSync } from 'svelte'
 import { stats, info, pool } from '../lib/stores'
+import { segwitAddress } from '../lib/coinbase'
 
 // Force Svelte's scheduled $derived/$effect queue to drain synchronously after
 // every mount so component template/derived lines are covered deterministically.
@@ -546,5 +547,116 @@ describe('Pool', () => {
     pool.set({ ...basePool, stats: [] } as any)
     const { queryByText } = render(Pool)
     expect(queryByText('Pool History')).toBeNull()
+  })
+})
+
+// Synthetic coinb2 builder:
+//   nSequence(4) + out_count(1) + [value_le(8) + script_len(1) + script(N)]
+function makeCoinb2(spkHex: string): string {
+  const scriptLen = (spkHex.length / 2).toString(16).padStart(2, '0')
+  // 1 BTC in satoshis, 8-byte LE: 0xe8d4a51000 → bytes 00 ca 9a 3b 00 00 00 00
+  return 'ffffffff' + '01' + '00ca9a3b00000000' + scriptLen + spkHex
+}
+
+// A valid P2WPKH scriptPubKey (v0 witness, 20-byte program).
+// segwitAddress(SEGWIT_SPK) → some bc1q... address (not 'bc1qdifferentaddr').
+const SEGWIT_SPK = '001400112233445566778899aabbccddeeff00112233'
+
+// A P2PKH scriptPubKey — not a segwit program, so segwitAddress() returns null.
+const NONSEGWIT_SPK = '76a91400112233445566778899aabbccddeeff0011223388ac'
+
+// A coinb1 long enough to pass coinbasePayoutSpk's null guard (>= 84 chars required by coinbaseHeight).
+// Layout: version(4) + in_count(1) + prev_hash(32) + prev_idx(4) + scriptSig_len(1) + scriptSig…
+// We just need length >= 84 chars; content can be synthetic.
+const LONG_COINB1 = '01000000' + '01' + '00'.repeat(32) + 'ffffffff' + '04' + '03' + '50c807' + '00'
+
+describe('Pool — payout mismatch branch', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.clearAllMocks()
+    stats.set(null)
+    info.set(null)
+    pool.set(null)
+  })
+
+  afterEach(() => {
+    flushSync()
+    cleanup()
+    vi.clearAllTimers()
+    vi.useRealTimers()
+  })
+
+  it('shows payout row without bad class when wallet matches coinbase address', () => {
+    const spk = SEGWIT_SPK
+    const addr = segwitAddress(spk)
+    pool.set({
+      ...basePool,
+      wallet: addr,
+      configured: {
+        primary: { ...basePool.configured.primary, decode_coinbase: true, wallet: addr },
+        fallback: null
+      },
+      notify: {
+        job_id: 'j1', prev_hash: '00'.repeat(32), coinb1: LONG_COINB1,
+        coinb2: makeCoinb2(spk),
+        merkle_branches: [], version: '20000000', nbits: '1701453b',
+        ntime: '67ac6400', clean_jobs: false
+      }
+    } as any)
+    const { container } = render(Pool)
+    const ddBad = container.querySelector('dd.bad')
+    expect(ddBad).toBeNull()
+  })
+
+  it('shows payout row with bad class (amber) when segwit address mismatches wallet', () => {
+    pool.set({
+      ...basePool,
+      wallet: 'bc1qdifferentaddressthatdoesnotmatch000000',
+      configured: {
+        primary: {
+          ...basePool.configured.primary,
+          decode_coinbase: true,
+          wallet: 'bc1qdifferentaddressthatdoesnotmatch000000'
+        },
+        fallback: null
+      },
+      notify: {
+        job_id: 'j1', prev_hash: '00'.repeat(32), coinb1: LONG_COINB1,
+        coinb2: makeCoinb2(SEGWIT_SPK),
+        merkle_branches: [], version: '20000000', nbits: '1701453b',
+        ntime: '67ac6400', clean_jobs: false
+      }
+    } as any)
+    const { container } = render(Pool)
+    // InfoRow bad=true → dd.bad
+    const ddBad = container.querySelector('dd.bad')
+    expect(ddBad).not.toBeNull()
+  })
+
+  it('shows payout row with bad class when non-segwit SPK (addr=null) and wallet is set', () => {
+    pool.set({
+      ...basePool,
+      wallet: 'bc1qmywallet',
+      configured: {
+        primary: {
+          ...basePool.configured.primary,
+          decode_coinbase: true,
+          wallet: 'bc1qmywallet'
+        },
+        fallback: null
+      },
+      notify: {
+        job_id: 'j1', prev_hash: '00'.repeat(32), coinb1: LONG_COINB1,
+        coinb2: makeCoinb2(NONSEGWIT_SPK),
+        merkle_branches: [], version: '20000000', nbits: '1701453b',
+        ntime: '67ac6400', clean_jobs: false
+      }
+    } as any)
+    const { container } = render(Pool)
+    // addr == null → payoutMismatch=true → dd.bad
+    const ddBad = container.querySelector('dd.bad')
+    expect(ddBad).not.toBeNull()
+    // non-segwit renders "non-segwit <spk>" text
+    expect(container.textContent).toContain('non-segwit')
   })
 })

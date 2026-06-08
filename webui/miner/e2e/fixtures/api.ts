@@ -129,6 +129,7 @@ export const healthFixture = {
 }
 
 export const powerFixture = {
+  present: true,
   vcore_mv: 1180,
   icore_ma: 14500,
   pcore_mw: 17110,

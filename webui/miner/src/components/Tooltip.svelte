@@ -10,11 +10,14 @@
   export let text: string
   export let icon = false
   export let placement: 'top' | 'bottom' = 'bottom'
+  // which edge the popup anchors to — use 'right' when the trigger sits near the
+  // right edge so the panel opens leftward and stays on-screen.
+  export let align: 'left' | 'right' = 'left'
 </script>
 
 <span class="has-tip" class:icon tabindex="0" role="button" aria-label={text}>
   {#if icon}<span class="ico" aria-hidden="true">?</span>{:else}<slot />{/if}
-  <span class="tip" class:top={placement === 'top'} role="tooltip">{text}</span>
+  <span class="tip" class:top={placement === 'top'} class:right={align === 'right'} role="tooltip">{text}</span>
 </span>
 
 <style>
@@ -56,12 +59,15 @@
     color: var(--text);
     border: 1px solid var(--border);
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+    /* standard UI font — don't inherit a mono/other face from the trigger's cell */
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
     font-size: 11px;
     font-weight: 400;
     line-height: 1.45;
     text-transform: none;
     letter-spacing: 0;
     white-space: normal;
+    text-align: left;
     opacity: 0;
     pointer-events: none;
     transform: translateY(-2px);
@@ -71,6 +77,13 @@
   .tip.top {
     top: auto;
     bottom: calc(100% + 6px);
+  }
+
+  /* anchor to the right edge so the panel opens leftward (stays on-screen near
+     the right side of a card) */
+  .tip.right {
+    left: auto;
+    right: 0;
   }
 
   .has-tip:hover .tip,

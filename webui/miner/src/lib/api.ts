@@ -108,6 +108,11 @@ export interface Info {
   app_size: number
   total_heap: number
   free_heap: number
+  // breadboard v0.52+ (BB-248): per-region memory. heap_psram is 0/0 on no-PSRAM
+  // boards; rtc is the static RTC-slow region (used/reserved, not a heap).
+  heap_internal?: { free: number; total: number }
+  heap_psram?: { free: number; total: number }
+  rtc?: { used: number; total: number }
   reset_reason: string | null
   wdt_resets: number | null
   boot_time: number | null
@@ -115,6 +120,10 @@ export interface Info {
   hostname: string
   validated: boolean
   network?: InfoNetwork
+  display?: { present: boolean; panel?: 'st77xx' | 'ssd1306'; width?: number; height?: number; enabled?: boolean }
+  led?: { present: boolean; type?: 'apa102' | 'pwm'; count?: number; rgb?: boolean }
+  capabilities?: string[]
+  asic?: { model: string; chips: number; small_cores_per_chip: number }
 }
 
 /**
@@ -141,6 +150,7 @@ export interface Health {
   validated: boolean
   network: HealthNetwork
   sha_self_test_failed?: boolean
+  temp?: { present: boolean; soc_c?: number }
 }
 
 export interface ThermalSensor {
@@ -156,6 +166,8 @@ export interface Thermal {
 }
 
 export interface Power {
+  /** BB /api/power presence flag — false on boards with no VR (tdongle/wroom/s2/c3). */
+  present?: boolean
   vcore_mv: number | null
   icore_ma: number | null
   pcore_mw: number | null

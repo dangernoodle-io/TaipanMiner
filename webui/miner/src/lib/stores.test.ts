@@ -344,7 +344,7 @@ describe('start()', () => {
   })
 
   it('fetches fan data on ASIC boards each poll', async () => {
-    setupPollMocks({ power: { vcore_mv: 1200, icore_ma: 3000, pcore_mw: 3600, efficiency_jth: null, vin_mv: null, vin_low: null, board_temp_c: 40, vr_temp_c: 50 }, fan: { rpm: 2400, duty_pct: 50, autofan: true, die_target_c: 65, vr_target_c: 80, manual_pct: 0, min_pct: 20, die_ema_c: null, vr_ema_c: null, pid_input_c: null, pid_input_src: 'die' } })
+    setupPollMocks({ power: { present: true, vcore_mv: 1200, icore_ma: 3000, pcore_mw: 3600, efficiency_jth: null, vin_mv: null, vin_low: null, board_temp_c: 40, vr_temp_c: 50 }, fan: { rpm: 2400, duty_pct: 50, autofan: true, die_target_c: 65, vr_target_c: 80, manual_pct: 0, min_pct: 20, die_ema_c: null, vr_ema_c: null, pid_input_c: null, pid_input_src: 'die' } })
     start()
     await vi.advanceTimersByTimeAsync(0)
     expect(get(hasAsic)).toBe(true)

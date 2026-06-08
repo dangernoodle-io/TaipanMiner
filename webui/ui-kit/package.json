@@ -12,6 +12,18 @@
       "svelte": "./Brand.svelte",
       "default": "./Brand.svelte"
     },
+    "./InfoCard.svelte": {
+      "svelte": "./InfoCard.svelte",
+      "default": "./InfoCard.svelte"
+    },
+    "./StatField.svelte": {
+      "svelte": "./StatField.svelte",
+      "default": "./StatField.svelte"
+    },
+    "./InfoRow.svelte": {
+      "svelte": "./InfoRow.svelte",
+      "default": "./InfoRow.svelte"
+    },
     "./Header.svelte": {
       "svelte": "./Header.svelte",
       "default": "./Header.svelte"

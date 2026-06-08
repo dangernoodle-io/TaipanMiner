@@ -3,6 +3,7 @@
   import { fmtBuildTime, fmtBytes } from '../lib/fmt'
   import ConfirmDialog from '../components/ConfirmDialog.svelte'
   import UpdateDevMockPanel from '../components/UpdateDevMockPanel.svelte'
+  import InfoRow from 'ui-kit/InfoRow.svelte'
   import { createOtaState } from '../lib/otaState.svelte'
   import { firmwareName, minerBusy } from '../lib/otaHelpers'
 
@@ -22,9 +23,11 @@
   <!-- Firmware + check -->
   <div class="card">
     <h2>Firmware</h2>
-    <div class="info-row"><span class="k">Version</span><span>{$info?.version ?? '—'}</span></div>
-    <div class="info-row"><span class="k">Board</span><span>{$info?.board ?? '—'}</span></div>
-    <div class="info-row"><span class="k">Build</span><span>{fmtBuildTime($info?.build_date, $info?.build_time)}</span></div>
+    <dl class="fw-rows">
+      <InfoRow label="Version">{$info?.version ?? '—'}</InfoRow>
+      <InfoRow label="Board">{$info?.board ?? '—'}</InfoRow>
+      <InfoRow label="Build">{fmtBuildTime($info?.build_date, $info?.build_time)}</InfoRow>
+    </dl>
 
     <div class="row-actions">
       <button class="btn primary" onclick={os.handleCheck} disabled={$otaCheck.checking || $otaInstall.installing || busy}>
@@ -135,26 +138,11 @@
   /* card h2 typography base from ui-kit; override size (14px here vs 13px global) */
   h2 { margin: 0 0 14px 0; font-size: 14px; }
 
-  .info-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 8px 0;
-    border-bottom: 1px dotted var(--border);
-    font-size: 13px;
+  .fw-rows {
+    margin: 0 0 4px;
   }
-
-  .info-row .k {
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-size: 11px;
-  }
-
-  .info-row span:not(.k) {
-    color: var(--text);
-    font-family: ui-monospace, Menlo, monospace;
-    font-size: 12px;
-  }
+  /* drop the dotted separator under the last row before the action buttons */
+  .fw-rows :global(.info-row:last-child) { border-bottom: none; }
 
   .row-actions {
     display: flex;

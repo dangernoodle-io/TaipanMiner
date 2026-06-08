@@ -167,7 +167,8 @@ export interface Power {
   expected_efficiency_jth: number | null
   vin_mv: number | null
   vin_low: boolean | null
-  board_temp_c: number | null
+  /** @deprecated Not emitted by /api/power since P4b. Read board temp from /api/thermal board sensor. */
+  board_temp_c?: number | null
   vr_temp_c: number | null
 }
 

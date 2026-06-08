@@ -191,7 +191,7 @@ async function poll() {
       hw_err_pct: statsData.asic_hw_error_pct ?? null,
       temp_c: (thermalData?.asic.present ? thermalData.asic.c : null) ?? statsData.temp_c ?? null,
       vr_temp_c: powerData?.vr_temp_c ?? null,
-      board_temp_c: powerData?.board_temp_c ?? null,
+      board_temp_c: (thermalData?.board.present ? thermalData.board.c : null) ?? null,
       pcore_w: powerData?.pcore_mw != null ? powerData.pcore_mw / 1000 : null,
       vcore_v: powerData?.vcore_mv != null ? powerData.vcore_mv / 1000 : null,
       efficiency_jth: powerData?.efficiency_jth ?? null,

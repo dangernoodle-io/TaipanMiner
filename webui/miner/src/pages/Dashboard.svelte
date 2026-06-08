@@ -60,7 +60,7 @@
       <section class="card">
         <h3>Cooling</h3>
         <div class="tile-grid">
-          <StatTile label="Board"     value={$power?.board_temp_c ?? null}                                         unit="°C"  warn={60} danger={75} />
+          <StatTile label="Board"     value={$thermal?.board.present ? ($thermal.board.c ?? null) : null}         unit="°C"  warn={60} danger={75} />
           <StatTile label="ASIC"      value={$thermal?.asic.present ? ($thermal.asic.c ?? null) : null}          unit="°C"  warn={70} danger={80} />
           <StatTile label="VR"        value={$power?.vr_temp_c ?? null}                                          unit="°C"  warn={90} danger={105} />
         </div>

@@ -42,6 +42,7 @@
 #include "bb_http_extender.h"
 #include "bb_fan_routes.h"
 #include "bb_fan.h"
+#include "bb_power.h"
 #include "mining_pool_stats.h"
 #include "sha256.h"
 #if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32C3
@@ -881,11 +882,17 @@ static bb_err_t pool_delete_primary_handler(bb_http_request_t *req)
 #ifdef ASIC_CHIP
 
 // ---------------------------------------------------------------------------
-// Power extender: efficiency_jth, efficiency_jth_1m/10m/1h,
-//                 expected_efficiency_jth, vin_low
-// Source: mining_stats (pcore_mw rolling windows + asic hashrate for efficiency;
-//         vin_mv + BOARD_NOMINAL_VIN_MV for vin_low).
-// Note: BB already emits vout_mv/iout_ma/pout_mw/vin_mv/temp_c — not duplicated.
+// Power extender: TM-domain fields + efficiency/vin_low
+//
+// TM-domain fields emitted:
+//   vcore_mv  — VR output voltage (mirrors BB's vout_mv; sourced from bb_power_snapshot)
+//   icore_ma  — VR output current (mirrors BB's iout_ma; sourced from bb_power_snapshot)
+//   pcore_mw  — TOTAL board power WITH BOARD_POWER_OFFSET_MW (mining_stats.pcore_mw);
+//               BB's pout_mw is VR-only (vout*iout/1000) with no board offset.
+//   vr_temp_c — VR temperature (mirrors BB's temp_c; sourced from bb_power_snapshot)
+//   board_temp_c — NOT emitted here; frontend reads it from /api/thermal "board".
+//
+// Efficiency/vin_low remain as-is.
 // ---------------------------------------------------------------------------
 
 static void taipan_power_extender(bb_json_t root)
@@ -914,6 +921,38 @@ static void taipan_power_extender(bb_json_t root)
         vin_mv        = mining_stats.vin_mv;
         xSemaphoreGive(mining_stats.mutex);
     }
+
+    /* TM-domain power fields for the frontend Power card.
+     * vcore_mv/icore_ma/vr_temp_c mirror BB's vout_mv/iout_ma/temp_c but
+     * use the TM field names the UI expects.  We read the primary bb_power
+     * snapshot directly so we don't duplicate the polling logic. */
+    {
+        bb_power_snapshot_t psnap;
+        bb_power_snapshot(bb_power_primary(), &psnap);
+
+        if (psnap.vout_mv >= 0)
+            bb_json_obj_set_number(root, "vcore_mv", (double)psnap.vout_mv);
+        else
+            bb_json_obj_set_null(root, "vcore_mv");
+
+        if (psnap.iout_ma >= 0)
+            bb_json_obj_set_number(root, "icore_ma", (double)psnap.iout_ma);
+        else
+            bb_json_obj_set_null(root, "icore_ma");
+
+        if (psnap.temp_c >= 0)
+            bb_json_obj_set_number(root, "vr_temp_c", (double)psnap.temp_c);
+        else
+            bb_json_obj_set_null(root, "vr_temp_c");
+    }
+
+    /* pcore_mw — TOTAL board power WITH BOARD_POWER_OFFSET_MW.
+     * BB's pout_mw is raw VR only; this value includes the board offset and
+     * is the canonical power figure used by the efficiency calculation. */
+    if (pcore_mw >= 0)
+        bb_json_obj_set_number(root, "pcore_mw", (double)pcore_mw);
+    else
+        bb_json_obj_set_null(root, "pcore_mw");
 
     /* efficiency_jth: instantaneous (pcore_mw + live hashrate) */
     {
@@ -961,6 +1000,14 @@ static void taipan_power_extender(bb_json_t root)
 
 // Schema property fragments for OpenAPI (comma-separated properties, no braces)
 static const char k_power_extender_schema[] =
+    "\"vcore_mv\":{\"type\":[\"number\",\"null\"],"
+    "\"description\":\"VR output voltage in mV (TM alias for vout_mv)\"},"
+    "\"icore_ma\":{\"type\":[\"number\",\"null\"],"
+    "\"description\":\"VR output current in mA (TM alias for iout_ma)\"},"
+    "\"pcore_mw\":{\"type\":[\"number\",\"null\"],"
+    "\"description\":\"Total board power in mW including BOARD_POWER_OFFSET_MW\"},"
+    "\"vr_temp_c\":{\"type\":[\"number\",\"null\"],"
+    "\"description\":\"VR temperature in °C (TM alias for temp_c)\"},"
     "\"efficiency_jth\":{\"type\":[\"number\",\"null\"],"
     "\"description\":\"J/TH; null until ASIC hashrate and power both available\"},"
     "\"efficiency_jth_1m\":{\"type\":[\"number\",\"null\"]},"

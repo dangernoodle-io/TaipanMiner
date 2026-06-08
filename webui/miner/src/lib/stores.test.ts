@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { startRebootRecovery, rebooting, __resetRebootPoll, start, stop, stats, info, settings, power, fan, pool, health, hasAsic, connected, history } from './stores'
+import { startRebootRecovery, rebooting, __resetRebootPoll, start, stop, stats, info, settings, power, fan, thermal, pool, health, hasAsic, connected, history } from './stores'
 import { get } from 'svelte/store'
 
 vi.mock('./api', () => ({
@@ -9,11 +9,12 @@ vi.mock('./api', () => ({
   fetchHealth: vi.fn(),
   fetchPower: vi.fn(),
   fetchFan: vi.fn(),
+  fetchThermal: vi.fn(),
   fetchSettings: vi.fn(),
   fetchPool: vi.fn(),
 }))
 
-import { ping as apiPing, fetchStats, fetchInfo, fetchHealth, fetchPower, fetchFan, fetchSettings, fetchPool } from './api'
+import { ping as apiPing, fetchStats, fetchInfo, fetchHealth, fetchPower, fetchFan, fetchThermal, fetchSettings, fetchPool } from './api'
 
 // ---------------------------------------------------------------------------
 // Shared poll mock setup
@@ -33,7 +34,6 @@ const STUB_STATS = {
   asic_hashrate: null,
   asic_hashrate_avg: null,
   asic_shares: null,
-  asic_temp_c: null,
   asic_freq_configured_mhz: null,
   asic_freq_effective_mhz: null,
   asic_small_cores: null,
@@ -63,6 +63,7 @@ function setupPollMocks(overrides: {
   stats?: Partial<typeof STUB_STATS> | AnyFn
   power?: object | null
   fan?: object | null
+  thermal?: object | null
   pool?: object | null
   health?: object | null
   info?: object | null
@@ -89,6 +90,14 @@ function setupPollMocks(overrides: {
   } else {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vi.mocked(fetchFan).mockResolvedValue(fanVal as any)
+  }
+
+  const thermalVal = overrides.thermal === undefined ? null : overrides.thermal
+  if (thermalVal === null) {
+    vi.mocked(fetchThermal).mockRejectedValue(new Error('no thermal'))
+  } else {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(fetchThermal).mockResolvedValue(thermalVal as any)
   }
 
   const poolVal = overrides.pool === undefined ? { connected: true, current_difficulty: 512 } : overrides.pool
@@ -127,6 +136,7 @@ beforeEach(() => {
   settings.set(null)
   power.set(null)
   fan.set(null)
+  thermal.set(null)
   pool.set(null)
   hasAsic.set(false)
   connected.set(false)

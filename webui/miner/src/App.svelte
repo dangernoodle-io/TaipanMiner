@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { start, stop, stats, connected, power, pool, health } from './lib/stores'
+  import { start, stop, stats, connected, power, thermal, pool, health } from './lib/stores'
   import { route } from './lib/router'
   import AlertBanner from './components/AlertBanner.svelte'
   import type { Alert } from './components/AlertBanner.svelte'
@@ -47,8 +47,9 @@
     if (!$connected) {
       list.push({ key: 'disconnected', severity: 'danger', message: 'Miner unreachable' })
     }
-    if ($stats?.asic_temp_c && $stats.asic_temp_c > 75) {
-      list.push({ key: 'temp', severity: 'warning', message: `High temperature: ${$stats.asic_temp_c.toFixed(1)}°C` })
+    const asicTempC = $thermal?.asic.present ? $thermal.asic.c : null
+    if (asicTempC != null && asicTempC > 75) {
+      list.push({ key: 'temp', severity: 'warning', message: `High temperature: ${asicTempC.toFixed(1)}°C` })
     }
     if ($power?.vin_low) {
       list.push({

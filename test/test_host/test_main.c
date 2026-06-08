@@ -621,26 +621,8 @@ void test_knot_walk_early_abort(void);
 
 #ifdef ASIC_CHIP
 // Forward declarations from test_routes_json_asic.c (TA-292)
-void test_power_all_sensors_populated(void);
-void test_power_all_sensors_null(void);
-void test_power_efficiency_null_when_hashrate_zero(void);
-void test_power_efficiency_null_when_pcore_zero(void);
-void test_power_vin_low_true(void);
-void test_power_vin_low_false_above_threshold(void);
-void test_power_vin_low_false_at_threshold(void);
-void test_power_vcore_null_others_populated(void);
-void test_power_icore_null(void);
-void test_power_board_temp_null(void);
-void test_power_vr_temp_null(void);
-void test_power_rolling_efficiency_populated(void);
-void test_power_rolling_efficiency_null_sentinels(void);
-void test_fan_both_populated(void);
-void test_fan_rpm_null(void);
-void test_fan_duty_null(void);
-void test_fan_both_null(void);
-void test_fan_targets_null(void);
-void test_fan_pct_sentinels_null(void);
-void test_fan_thermal_sentinels_null(void);
+// /api/power and /api/fan emitters removed (P4b) — moved to BB extenders
+void test_stats_no_asic_temp_c(void);
 void test_stats_asic_total_valid_true(void);
 void test_stats_asic_total_valid_false(void);
 void test_stats_expected_ghs_populated(void);
@@ -684,21 +666,6 @@ void test_knot_peer_matches_array_builder(void);
 void test_settings_happy_path(void);
 void test_settings_empty_optional_fields(void);
 void test_settings_all_bools_true(void);
-
-// TA-315: PID autofan controller
-void test_pid_high_temp_drives_output_near_max(void);
-void test_pid_low_temp_drives_output_near_min(void);
-void test_pid_at_setpoint_output_stable_mid_range(void);
-void test_pid_output_always_within_limits(void);
-void test_pid_compute_false_in_manual_mode(void);
-void test_pid_compute_false_before_sample_time(void);
-void test_pid_trajectory_hot_to_cold_to_setpoint(void);
-void test_pid_set_tunings_updates_gains(void);
-void test_pid_set_sample_time_scales_gains(void);
-void test_pid_set_controller_direction_flips_signs_in_auto(void);
-void test_pid_initialize_clamps_output_sum(void);
-void test_pid_getters_return_display_values(void);
-void test_pid_set_output_limits_rejects_invalid(void);
 
 // TA-315/TA-352: autofan setters
 void test_set_autofan_enabled_round_trip(void);
@@ -1447,26 +1414,8 @@ int main(void) {
 
 #ifdef ASIC_CHIP
     // TA-292: ASIC-gated JSON builder tests
-    RUN_TEST(test_power_all_sensors_populated);
-    RUN_TEST(test_power_all_sensors_null);
-    RUN_TEST(test_power_efficiency_null_when_hashrate_zero);
-    RUN_TEST(test_power_efficiency_null_when_pcore_zero);
-    RUN_TEST(test_power_vin_low_true);
-    RUN_TEST(test_power_vin_low_false_above_threshold);
-    RUN_TEST(test_power_vin_low_false_at_threshold);
-    RUN_TEST(test_power_vcore_null_others_populated);
-    RUN_TEST(test_power_icore_null);
-    RUN_TEST(test_power_board_temp_null);
-    RUN_TEST(test_power_vr_temp_null);
-    RUN_TEST(test_power_rolling_efficiency_populated);
-    RUN_TEST(test_power_rolling_efficiency_null_sentinels);
-    RUN_TEST(test_fan_both_populated);
-    RUN_TEST(test_fan_rpm_null);
-    RUN_TEST(test_fan_duty_null);
-    RUN_TEST(test_fan_both_null);
-    RUN_TEST(test_fan_targets_null);
-    RUN_TEST(test_fan_pct_sentinels_null);
-    RUN_TEST(test_fan_thermal_sentinels_null);
+    /* P4b: /api/power and /api/fan emitters removed; extender math in test_mining.c */
+    RUN_TEST(test_stats_no_asic_temp_c);
     RUN_TEST(test_stats_asic_total_valid_true);
     RUN_TEST(test_stats_asic_total_valid_false);
     RUN_TEST(test_stats_expected_ghs_populated);
@@ -1480,20 +1429,7 @@ int main(void) {
     RUN_TEST(test_stats_now_us_less_than_last_drop_emits_null);
 #endif /* ASIC_CHIP */
 
-    // TA-315: PID autofan controller tests
-    RUN_TEST(test_pid_high_temp_drives_output_near_max);
-    RUN_TEST(test_pid_low_temp_drives_output_near_min);
-    RUN_TEST(test_pid_at_setpoint_output_stable_mid_range);
-    RUN_TEST(test_pid_output_always_within_limits);
-    RUN_TEST(test_pid_compute_false_in_manual_mode);
-    RUN_TEST(test_pid_compute_false_before_sample_time);
-    RUN_TEST(test_pid_trajectory_hot_to_cold_to_setpoint);
-    RUN_TEST(test_pid_set_tunings_updates_gains);
-    RUN_TEST(test_pid_set_sample_time_scales_gains);
-    RUN_TEST(test_pid_set_controller_direction_flips_signs_in_auto);
-    RUN_TEST(test_pid_initialize_clamps_output_sum);
-    RUN_TEST(test_pid_getters_return_display_values);
-    RUN_TEST(test_pid_set_output_limits_rejects_invalid);
+    // TA-315/TA-352: autofan config NVS persistence tests
     RUN_TEST(test_set_autofan_enabled_round_trip);
     RUN_TEST(test_set_die_target_in_range);
     RUN_TEST(test_set_die_target_clamps_low);

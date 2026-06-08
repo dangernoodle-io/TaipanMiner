@@ -344,9 +344,5 @@ typedef struct {
 // Returns number of entries filled.
 int asic_task_get_chip_telemetry(asic_chip_telemetry_t *out, int max_chips);
 
-// TA-141: Autofan thermal aggregation telemetry — retrieve filtered die/vr temps and which is driving PID.
-// Any of the output pointers may be NULL to skip reading that value.
-void asic_task_get_autofan_telemetry(float *die_ema_c, float *vr_ema_c, float *pid_input_c, const char **pid_input_src);
-
 // TA-238: snapshot of recent telemetry-drop events declared in asic_drop_log.h.
 #endif

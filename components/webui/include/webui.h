@@ -25,4 +25,8 @@ bb_err_t webui_register_mining_routes(bb_http_handle_t server);
 // Register TaipanMiner-specific info extender callback (call before HTTP server starts)
 bb_err_t webui_register_info_extender(void);
 
+// Register TM extenders for BB-owned /api/power and /api/fan routes.
+// Must be called at order 0 — before BB route init (order 1) assembles schemas.
+bb_err_t webui_register_power_fan_extenders(void);
+
 #endif

@@ -303,6 +303,8 @@ void app_main(void)
 
     // Register TaipanMiner-specific info extender for breadboard's /api/info endpoint
     BB_ERROR_CHECK(webui_register_info_extender());
+    // Register TM extenders for BB-owned /api/power and /api/fan routes (P4b)
+    BB_ERROR_CHECK(webui_register_power_fan_extenders());
 
     if (should_fall_back_to_ap(boot_cnt, bb_nv_config_is_provisioned(), bb_ota_is_validated())) {
         bb_log_w(TAG, "boot_count=%" PRIu8 " >= %d: clearing provisioning for AP fallback",

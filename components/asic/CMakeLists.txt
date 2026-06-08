@@ -1,7 +1,8 @@
 idf_component_register(
     SRCS "src/asic_task.c" "src/asic_pause_coalesce.c" "src/asic_drop_detect.c" "src/asic_drop_log.c" "src/asic_chip_routing.c" "src/asic_nonce_dedup.c" "src/crc.c" "src/pll.c" "src/asic_proto.c"
          "src/bm137x_chip_init.c" "src/bm1370_regs.c" "src/bm1368_regs.c"
-         "src/bm1370_ops.c" "src/bm1368_ops.c" "src/tps546.c" "src/emc2101.c" "src/pid.c"
+         "src/bm1370_ops.c" "src/bm1368_ops.c"
     INCLUDE_DIRS "include"
     REQUIRES mining freertos driver esp_driver_i2c esp_driver_gpio board stratum bb_nv bb_system bb_log config bb_timer
+             bb_power bb_power_tps546 bb_fan bb_fan_emc2101
 )

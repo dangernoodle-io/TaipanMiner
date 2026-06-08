@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, fireEvent } from '@testing-library/svelte'
-import { stats, power, fan, hasAsic, fanEditOpen } from '../lib/stores'
+import { stats, power, fan, thermal, hasAsic, fanEditOpen } from '../lib/stores'
 
 vi.mock('../lib/api', () => ({
   fetchStats: vi.fn(),
@@ -32,7 +32,6 @@ const baseStats = {
   asic_hashrate: null,
   asic_hashrate_avg: null,
   asic_shares: null,
-  asic_temp_c: 72,
   asic_freq_configured_mhz: 400,
   asic_freq_effective_mhz: 395,
   asic_small_cores: 256,
@@ -89,6 +88,7 @@ describe('Dashboard', () => {
     stats.set(null)
     power.set(null)
     fan.set(null)
+    thermal.set(null)
     hasAsic.set(false)
     fanEditOpen.set(false)
   })
@@ -139,8 +139,9 @@ describe('Dashboard', () => {
   })
 
   it('shows ASIC temperatures when hasAsic', () => {
-    stats.set({ ...baseStats, asic_temp_c: 72 } as any)
+    stats.set(baseStats as any)
     power.set({ ...basePower, board_temp_c: 45, vr_temp_c: 60 } as any)
+    thermal.set({ asic: { present: true, c: 72 }, soc: { present: false, c: null }, vr: { present: false, c: null }, board: { present: false, c: null } })
     hasAsic.set(true)
     render(Dashboard)
 

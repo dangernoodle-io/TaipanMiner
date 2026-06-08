@@ -87,7 +87,7 @@ void emit_stats_json(bb_http_json_obj_stream_t *obj, const stats_snapshot_t *sna
     bb_http_resp_json_obj_set_num(obj, "asic_hashrate",     snap->asic_rate);
     bb_http_resp_json_obj_set_num(obj, "asic_hashrate_avg", snap->asic_ema);
     bb_http_resp_json_obj_set_int(obj, "asic_shares",       (int64_t)snap->asic_shares);
-    bb_http_resp_json_obj_set_num(obj, "asic_temp_c",       (double)snap->asic_temp_c);
+    /* asic_temp_c removed from /api/stats — now in /api/thermal (asic die source) */
     if (snap->asic_freq_cfg >= 0.0f) bb_http_resp_json_obj_set_num(obj, "asic_freq_configured_mhz", (double)snap->asic_freq_cfg);
     else                             bb_http_resp_json_obj_set_null(obj, "asic_freq_configured_mhz");
     if (snap->asic_freq_eff >= 0.0f) bb_http_resp_json_obj_set_num(obj, "asic_freq_effective_mhz", (double)snap->asic_freq_eff);
@@ -364,75 +364,9 @@ void emit_settings_json(bb_http_json_obj_stream_t *obj, const settings_snapshot_
     bb_http_resp_json_obj_set_bool(obj, "provisioned",    snap->provisioned);
 }
 
-/* ============================================================================
- * /api/power  (ASIC_CHIP only)
- * ========================================================================= */
-
-#ifdef ASIC_CHIP
-void emit_power_json(bb_http_json_obj_stream_t *obj, const power_snapshot_t *snap)
-{
-    if (snap->vcore_mv >= 0)  bb_http_resp_json_obj_set_int(obj, "vcore_mv", (int64_t)snap->vcore_mv);
-    else                      bb_http_resp_json_obj_set_null(obj, "vcore_mv");
-    if (snap->icore_ma >= 0)  bb_http_resp_json_obj_set_int(obj, "icore_ma", (int64_t)snap->icore_ma);
-    else                      bb_http_resp_json_obj_set_null(obj, "icore_ma");
-    if (snap->pcore_mw >= 0)  bb_http_resp_json_obj_set_int(obj, "pcore_mw", (int64_t)snap->pcore_mw);
-    else                      bb_http_resp_json_obj_set_null(obj, "pcore_mw");
-    {
-        /* asic_hashrate is H/s; divide by 1e9 to get GH/s for mining_efficiency_jth */
-        double eff = mining_efficiency_jth((double)snap->pcore_mw, snap->asic_hashrate / 1e9);
-        if (eff >= 0.0) bb_http_resp_json_obj_set_num(obj, "efficiency_jth", eff);
-        else            bb_http_resp_json_obj_set_null(obj, "efficiency_jth");
-    }
-    if (snap->efficiency_jth_1m >= 0.0)         bb_http_resp_json_obj_set_num(obj, "efficiency_jth_1m", snap->efficiency_jth_1m);
-    else                                         bb_http_resp_json_obj_set_null(obj, "efficiency_jth_1m");
-    if (snap->efficiency_jth_10m >= 0.0)        bb_http_resp_json_obj_set_num(obj, "efficiency_jth_10m", snap->efficiency_jth_10m);
-    else                                         bb_http_resp_json_obj_set_null(obj, "efficiency_jth_10m");
-    if (snap->efficiency_jth_1h >= 0.0)         bb_http_resp_json_obj_set_num(obj, "efficiency_jth_1h", snap->efficiency_jth_1h);
-    else                                         bb_http_resp_json_obj_set_null(obj, "efficiency_jth_1h");
-    if (snap->expected_efficiency_jth >= 0.0)   bb_http_resp_json_obj_set_num(obj, "expected_efficiency_jth", snap->expected_efficiency_jth);
-    else                                         bb_http_resp_json_obj_set_null(obj, "expected_efficiency_jth");
-    if (snap->vin_mv >= 0) {
-        bb_http_resp_json_obj_set_int(obj, "vin_mv", (int64_t)snap->vin_mv);
-        bool vin_low = (snap->vin_mv < (snap->nominal_vin_mv + 500) * 87 / 100);
-        bb_http_resp_json_obj_set_bool(obj, "vin_low", vin_low);
-    } else {
-        bb_http_resp_json_obj_set_null(obj, "vin_mv");
-        bb_http_resp_json_obj_set_null(obj, "vin_low");
-    }
-    if (snap->board_temp_c >= 0.0f) bb_http_resp_json_obj_set_num(obj, "board_temp_c", (double)snap->board_temp_c);
-    else                            bb_http_resp_json_obj_set_null(obj, "board_temp_c");
-    if (snap->vr_temp_c >= 0.0f)   bb_http_resp_json_obj_set_num(obj, "vr_temp_c", (double)snap->vr_temp_c);
-    else                            bb_http_resp_json_obj_set_null(obj, "vr_temp_c");
-}
-
-/* ============================================================================
- * /api/fan  (ASIC_CHIP only)
- * ========================================================================= */
-
-void emit_fan_json(bb_http_json_obj_stream_t *obj, const fan_snapshot_t *snap)
-{
-    if (snap->fan_rpm >= 0)      bb_http_resp_json_obj_set_int(obj, "rpm",       (int64_t)snap->fan_rpm);
-    else                         bb_http_resp_json_obj_set_null(obj, "rpm");
-    if (snap->fan_duty_pct >= 0) bb_http_resp_json_obj_set_int(obj, "duty_pct",  (int64_t)snap->fan_duty_pct);
-    else                         bb_http_resp_json_obj_set_null(obj, "duty_pct");
-    bb_http_resp_json_obj_set_bool(obj, "autofan", snap->autofan);
-    if (snap->die_target_c >= 0) bb_http_resp_json_obj_set_int(obj, "die_target_c", (int64_t)snap->die_target_c);
-    else                         bb_http_resp_json_obj_set_null(obj, "die_target_c");
-    if (snap->vr_target_c >= 0)  bb_http_resp_json_obj_set_int(obj, "vr_target_c",  (int64_t)snap->vr_target_c);
-    else                         bb_http_resp_json_obj_set_null(obj, "vr_target_c");
-    if (snap->manual_pct >= 0)   bb_http_resp_json_obj_set_int(obj, "manual_pct",   (int64_t)snap->manual_pct);
-    else                         bb_http_resp_json_obj_set_null(obj, "manual_pct");
-    if (snap->min_pct >= 0)      bb_http_resp_json_obj_set_int(obj, "min_pct",       (int64_t)snap->min_pct);
-    else                         bb_http_resp_json_obj_set_null(obj, "min_pct");
-    if (snap->die_ema_c >= 0.0f) bb_http_resp_json_obj_set_num(obj, "die_ema_c", (double)snap->die_ema_c);
-    else                         bb_http_resp_json_obj_set_null(obj, "die_ema_c");
-    if (snap->vr_ema_c >= 0.0f)  bb_http_resp_json_obj_set_num(obj, "vr_ema_c",  (double)snap->vr_ema_c);
-    else                         bb_http_resp_json_obj_set_null(obj, "vr_ema_c");
-    if (snap->pid_input_c >= 0.0f) bb_http_resp_json_obj_set_num(obj, "pid_input_c", (double)snap->pid_input_c);
-    else                           bb_http_resp_json_obj_set_null(obj, "pid_input_c");
-    bb_http_resp_json_obj_set_str(obj, "pid_input_src", snap->pid_input_src);
-}
-#endif /* ASIC_CHIP */
+/* /api/power and /api/fan are now owned by BB (bb_power_routes, bb_fan_routes).
+ * TM injects mining-specific fields via route-extenders registered in routes.c.
+ * emit_power_json and emit_fan_json have been removed. */
 
 /* ============================================================================
  * /api/diag/benchmark  (TA-33)

@@ -44,7 +44,6 @@ export interface Stats {
   asic_hashrate: number | null
   asic_hashrate_avg: number | null
   asic_shares: number | null
-  asic_temp_c: number | null
   asic_freq_configured_mhz: number | null
   asic_freq_effective_mhz: number | null
   asic_small_cores: number | null
@@ -144,10 +143,23 @@ export interface Health {
   sha_self_test_failed?: boolean
 }
 
+export interface ThermalSensor {
+  present: boolean
+  c: number | null
+}
+
+export interface Thermal {
+  soc: ThermalSensor
+  vr: ThermalSensor
+  asic: ThermalSensor
+  board: ThermalSensor
+}
+
 export interface Power {
   vcore_mv: number | null
   icore_ma: number | null
   pcore_mw: number | null
+  pout_mw?: number | null
   efficiency_jth: number | null
   efficiency_jth_1m: number | null
   efficiency_jth_10m: number | null
@@ -155,7 +167,8 @@ export interface Power {
   expected_efficiency_jth: number | null
   vin_mv: number | null
   vin_low: boolean | null
-  board_temp_c: number | null
+  /** @deprecated Not emitted by /api/power since P4b. Read board temp from /api/thermal board sensor. */
+  board_temp_c?: number | null
   vr_temp_c: number | null
 }
 
@@ -182,18 +195,17 @@ export interface FanPatch {
   min_pct?: number
 }
 
-// POST /api/fan — form-urlencoded, partial. Strict server-side parsing
-// rejects malformed values with 400.
+// POST /api/fan — JSON, partial. BB-owned autofan route; strict server-side
+// parsing rejects malformed values with 400.
 export async function patchFan(body: FanPatch): Promise<void> {
-  const params = new URLSearchParams()
+  const payload: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(body)) {
-    if (v === undefined) continue
-    params.set(k, String(v))
+    if (v !== undefined) payload[k] = v
   }
   const res = await fetch(`${baseUrl}/api/fan`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params.toString()
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
   })
   if (!res.ok) throw new Error(`fan patch failed: ${res.status}`)
 }
@@ -388,11 +400,12 @@ export interface Settings {
   led_heartbeat_en?: boolean
 }
 
-export const fetchStats = () => getJson<Stats>('/api/stats')
-export const fetchInfo  = () => getJson<Info>('/api/info')
-export const fetchHealth = () => getJson<Health>('/api/health')
-export const fetchPower = () => getJson<Power>('/api/power')
-export const fetchFan   = () => getJson<Fan>('/api/fan')
+export const fetchStats    = () => getJson<Stats>('/api/stats')
+export const fetchInfo     = () => getJson<Info>('/api/info')
+export const fetchHealth   = () => getJson<Health>('/api/health')
+export const fetchPower    = () => getJson<Power>('/api/power')
+export const fetchFan      = () => getJson<Fan>('/api/fan')
+export const fetchThermal  = () => getJson<Thermal>('/api/thermal')
 export const fetchSettings = () => getJson<Settings>('/api/settings')
 export const fetchKnot = () => getJson<KnotPeer[]>('/api/knot')
 

@@ -147,3 +147,13 @@ CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=1024
 # ~15s stale-client reap window covers tab-reload churn. Queue depth stays
 # at BB default (8).
 CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS=2
+
+# BB power/fan/thermal routes (P4b): BB owns /api/power, /api/fan, /api/thermal;
+# TM registers extenders at order 0 before these init at order 1.
+CONFIG_BB_POWER_ROUTES_AUTOREGISTER=y
+CONFIG_BB_FAN_ROUTES_AUTOREGISTER=y
+CONFIG_BB_THERMAL_AUTOREGISTER=y
+
+# BB autofan: BB fully owns fan duty and autofan PID when enabled.
+# TM wires cfg from NVS, feeds VR aux temp, and registers persist callback.
+CONFIG_BB_FAN_AUTOFAN=y

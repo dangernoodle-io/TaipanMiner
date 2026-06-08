@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { stats, power, fan, hasAsic, fanEditOpen } from '../lib/stores'
+  import { stats, power, fan, thermal, hasAsic, fanEditOpen } from '../lib/stores'
   import Hero from '../components/Hero.svelte'
   import ChipsCard from '../components/ChipsCard.svelte'
   import StatTile from '../components/StatTile.svelte'
@@ -60,9 +60,9 @@
       <section class="card">
         <h3>Cooling</h3>
         <div class="tile-grid">
-          <StatTile label="Board"     value={$power?.board_temp_c ?? null} unit="°C"  warn={60} danger={75} />
-          <StatTile label="ASIC"      value={$stats?.asic_temp_c ?? null}  unit="°C"  warn={70} danger={80} />
-          <StatTile label="VR"        value={$power?.vr_temp_c ?? null}    unit="°C"  warn={90} danger={105} />
+          <StatTile label="Board"     value={$thermal?.board.present ? ($thermal.board.c ?? null) : null}         unit="°C"  warn={60} danger={75} />
+          <StatTile label="ASIC"      value={$thermal?.asic.present ? ($thermal.asic.c ?? null) : null}          unit="°C"  warn={70} danger={80} />
+          <StatTile label="VR"        value={$power?.vr_temp_c ?? null}                                          unit="°C"  warn={90} danger={105} />
         </div>
       </section>
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render } from '@testing-library/svelte'
-import { stats, info } from '../lib/stores'
+import { stats, info, thermal } from '../lib/stores'
 
 vi.mock('../lib/api', () => ({
   fetchStats: vi.fn(),
@@ -20,6 +20,7 @@ describe('LiveTitle', () => {
     vi.clearAllMocks()
     stats.set(null)
     info.set(null)
+    thermal.set(null)
     document.title = 'TaipanMiner'
   })
 
@@ -30,9 +31,9 @@ describe('LiveTitle', () => {
 
   it('updates document.title when stats is set', async () => {
     render(LiveTitle)
+    thermal.set({ asic: { present: true, c: 72 }, soc: { present: false, c: null }, vr: { present: false, c: null }, board: { present: false, c: null } })
     stats.set({
       asic_total_ghs: 485.5,
-      asic_temp_c: 72,
       session_shares: 10,
       session_rejected: 0,
       lifetime: { shares: 100, best_diff: 500 },

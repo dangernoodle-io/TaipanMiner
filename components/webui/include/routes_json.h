@@ -46,9 +46,8 @@ typedef enum {
     SHA_OVERLAP_UNSAFE
 } sha_overlap_state_t;
 
-/* Forward declaration for emit_power_json — avoids pulling in all of mining.h
+/* Forward declaration for diag_bench helpers — avoids pulling in all of mining.h
  * on host (which would conflict with the sha_overlap_state_t stub above). */
-double mining_efficiency_jth(double power_mw, double hashrate_ghs);
 #endif
 
 #ifdef __cplusplus
@@ -96,7 +95,6 @@ typedef struct {
     double   asic_rate;
     double   asic_ema;
     uint32_t asic_shares;
-    float    asic_temp_c;
     float    asic_freq_cfg;    /* -1 = not yet set */
     float    asic_freq_eff;    /* -1 = not yet set */
     float    asic_total_ghs;
@@ -295,54 +293,9 @@ typedef struct {
  * Caller does obj_begin / obj_end; this function emits fields only. */
 void emit_settings_json(bb_http_json_obj_stream_t *obj, const settings_snapshot_t *snap);
 
-/* ============================================================================
- * /api/power  (ASIC_CHIP only)
- * ========================================================================= */
-
-#ifdef ASIC_CHIP
-typedef struct {
-    int    vcore_mv;        /* < 0 → null */
-    int    icore_ma;        /* < 0 → null */
-    int    pcore_mw;        /* < 0 → null */
-    int    vin_mv;          /* < 0 → null */
-    double asic_hashrate;   /* 0 → efficiency_jth = null */
-    float  board_temp_c;    /* < 0 → null */
-    float  vr_temp_c;       /* < 0 → null */
-    int    nominal_vin_mv;  /* board constant (BOARD_NOMINAL_VIN_MV) */
-    double efficiency_jth_1m;     /* < 0 → null */
-    double efficiency_jth_10m;    /* < 0 → null */
-    double efficiency_jth_1h;     /* < 0 → null */
-    double expected_efficiency_jth; /* < 0 → null */
-} power_snapshot_t;
-
-/* Emit /api/power fields into an already-opened streaming JSON object.
- * Caller does obj_begin / obj_end; this function emits fields only. */
-void emit_power_json(bb_http_json_obj_stream_t *obj, const power_snapshot_t *snap);
-
-/* ============================================================================
- * /api/fan  (ASIC_CHIP only)
- * ========================================================================= */
-
-typedef struct {
-    int  fan_rpm;       /* < 0 → null */
-    int  fan_duty_pct;  /* < 0 → null */
-    /* TA-315/TA-352: autofan config fields */
-    bool autofan;
-    int  die_target_c;  /* -1 → null */
-    int  vr_target_c;   /* -1 → null */
-    int  manual_pct;    /* -1 → null */
-    int  min_pct;       /* -1 → null */
-    /* TA-141: thermal aggregation telemetry */
-    float die_ema_c;    /* < 0 → null */
-    float vr_ema_c;     /* < 0 → null */
-    float pid_input_c;  /* < 0 → null */
-    const char *pid_input_src;  /* "die" or "vr" or empty; never null */
-} fan_snapshot_t;
-
-/* Emit /api/fan fields into an already-opened streaming JSON object.
- * Caller does obj_begin / obj_end; this function emits fields only. */
-void emit_fan_json(bb_http_json_obj_stream_t *obj, const fan_snapshot_t *snap);
-#endif /* ASIC_CHIP */
+/* /api/power and /api/fan are now owned by BB (bb_power_routes, bb_fan_routes).
+ * TM injects mining-specific fields via route-extenders registered in routes.c.
+ * power_snapshot_t, fan_snapshot_t, emit_power_json, emit_fan_json are removed. */
 
 /* ============================================================================
  * /api/diag/benchmark  (TA-33)

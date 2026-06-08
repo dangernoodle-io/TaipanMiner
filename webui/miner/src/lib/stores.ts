@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store'
-import { fetchStats, fetchInfo, fetchPower, fetchFan, fetchSettings, fetchPool, fetchHealth, type Stats, type Info, type Power, type Fan, type Settings, type Pool, type Health, type OtaCheckResult } from './api'
+import { fetchStats, fetchInfo, fetchPower, fetchFan, fetchThermal, fetchSettings, fetchPool, fetchHealth, type Stats, type Info, type Power, type Fan, type Thermal, type Settings, type Pool, type Health, type OtaCheckResult } from './api'
 
 export interface HistorySample {
   ts: number              // epoch seconds (client-side)
@@ -25,6 +25,7 @@ export const health = writable<Health | null>(null)
 export const settings = writable<Settings | null>(null)
 export const power = writable<Power | null>(null)
 export const fan = writable<Fan | null>(null)
+export const thermal = writable<Thermal | null>(null)
 export const pool = writable<Pool | null>(null)
 export const hasAsic = writable<boolean>(false)
 export const connected = writable<boolean>(false)
@@ -146,29 +147,35 @@ async function poll() {
     lastUptimeS = statsData.uptime_s
 
     // Probe /api/power once to detect ASIC capability. Subsequent polls only
-    // hit /api/power and /api/fan on ASIC boards — keeps tdongle firmware
-    // logs clean of 405 warnings from missing handlers.
+    // hit /api/power, /api/fan, and /api/thermal on ASIC boards — keeps tdongle
+    // firmware logs clean of 405 warnings from missing handlers.
     let powerData: Power | null = null
     let fanData: Fan | null = null
+    let thermalData: Thermal | null = null
     if (!asicProbed) {
       powerData = await fetchPower().catch(() => null)
       asicAvailable = powerData !== null
       asicProbed = true
       hasAsic.set(asicAvailable)
       if (asicAvailable) {
-        fanData = await fetchFan().catch(() => null)
+        ;[fanData, thermalData] = await Promise.all([
+          fetchFan().catch(() => null),
+          fetchThermal().catch(() => null)
+        ])
       }
     } else if (asicAvailable) {
-      [powerData, fanData] = await Promise.all([
+      ;[powerData, fanData, thermalData] = await Promise.all([
         fetchPower().catch(() => null),
-        fetchFan().catch(() => null)
+        fetchFan().catch(() => null),
+        fetchThermal().catch(() => null)
       ])
     }
-    // Transient fetch failures leave power/fan at last value (matches pool
-    // semantics below) — otherwise a single dropped poll makes UI sections
-    // gated on $fan/$power vanish for 5s until the next tick.
+    // Transient fetch failures leave power/fan/thermal at last value (matches
+    // pool semantics below) — otherwise a single dropped poll makes UI sections
+    // gated on $fan/$power/$thermal vanish for 5s until the next tick.
     if (powerData !== null) power.set(powerData)
     if (fanData !== null) fan.set(fanData)
+    if (thermalData !== null) thermal.set(thermalData)
 
     // /api/pool — TA-281; transient failures leave the store at last value.
     try {
@@ -182,9 +189,9 @@ async function poll() {
       ts: Math.floor(Date.now() / 1000),
       total_ghs: statsData.asic_total_ghs ?? (statsData.hashrate ? statsData.hashrate / 1e9 : null),
       hw_err_pct: statsData.asic_hw_error_pct ?? null,
-      temp_c: statsData.asic_temp_c ?? statsData.temp_c ?? null,
+      temp_c: (thermalData?.asic.present ? thermalData.asic.c : null) ?? statsData.temp_c ?? null,
       vr_temp_c: powerData?.vr_temp_c ?? null,
-      board_temp_c: powerData?.board_temp_c ?? null,
+      board_temp_c: (thermalData?.board.present ? thermalData.board.c : null) ?? null,
       pcore_w: powerData?.pcore_mw != null ? powerData.pcore_mw / 1000 : null,
       vcore_v: powerData?.vcore_mv != null ? powerData.vcore_mv / 1000 : null,
       efficiency_jth: powerData?.efficiency_jth ?? null,
@@ -235,4 +242,5 @@ export function stop() {
   settingsLoaded = false
   asicProbed = false
   asicAvailable = false
+  thermal.set(null)
 }

@@ -195,18 +195,17 @@ export interface FanPatch {
   min_pct?: number
 }
 
-// POST /api/fan — form-urlencoded, partial. Strict server-side parsing
-// rejects malformed values with 400.
+// POST /api/fan — JSON, partial. BB-owned autofan route; strict server-side
+// parsing rejects malformed values with 400.
 export async function patchFan(body: FanPatch): Promise<void> {
-  const params = new URLSearchParams()
+  const payload: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(body)) {
-    if (v === undefined) continue
-    params.set(k, String(v))
+    if (v !== undefined) payload[k] = v
   }
   const res = await fetch(`${baseUrl}/api/fan`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params.toString()
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
   })
   if (!res.ok) throw new Error(`fan patch failed: ${res.status}`)
 }

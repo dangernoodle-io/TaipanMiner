@@ -44,7 +44,6 @@ const baseStats = {
   asic_hashrate: null,
   asic_hashrate_avg: null,
   asic_shares: null,
-  asic_temp_c: 72,
   asic_freq_configured_mhz: null,
   asic_freq_effective_mhz: null,
   asic_small_cores: null,

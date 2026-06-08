@@ -44,7 +44,6 @@ export interface Stats {
   asic_hashrate: number | null
   asic_hashrate_avg: number | null
   asic_shares: number | null
-  asic_temp_c: number | null
   asic_freq_configured_mhz: number | null
   asic_freq_effective_mhz: number | null
   asic_small_cores: number | null
@@ -144,10 +143,23 @@ export interface Health {
   sha_self_test_failed?: boolean
 }
 
+export interface ThermalSensor {
+  present: boolean
+  c: number | null
+}
+
+export interface Thermal {
+  soc: ThermalSensor
+  vr: ThermalSensor
+  asic: ThermalSensor
+  board: ThermalSensor
+}
+
 export interface Power {
   vcore_mv: number | null
   icore_ma: number | null
   pcore_mw: number | null
+  pout_mw?: number | null
   efficiency_jth: number | null
   efficiency_jth_1m: number | null
   efficiency_jth_10m: number | null
@@ -388,11 +400,12 @@ export interface Settings {
   led_heartbeat_en?: boolean
 }
 
-export const fetchStats = () => getJson<Stats>('/api/stats')
-export const fetchInfo  = () => getJson<Info>('/api/info')
-export const fetchHealth = () => getJson<Health>('/api/health')
-export const fetchPower = () => getJson<Power>('/api/power')
-export const fetchFan   = () => getJson<Fan>('/api/fan')
+export const fetchStats    = () => getJson<Stats>('/api/stats')
+export const fetchInfo     = () => getJson<Info>('/api/info')
+export const fetchHealth   = () => getJson<Health>('/api/health')
+export const fetchPower    = () => getJson<Power>('/api/power')
+export const fetchFan      = () => getJson<Fan>('/api/fan')
+export const fetchThermal  = () => getJson<Thermal>('/api/thermal')
 export const fetchSettings = () => getJson<Settings>('/api/settings')
 export const fetchKnot = () => getJson<KnotPeer[]>('/api/knot')
 

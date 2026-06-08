@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render } from '@testing-library/svelte'
-import { stats, connected, hasAsic, pool, health, power, fan } from './lib/stores'
+import { stats, connected, hasAsic, pool, health, power, fan, thermal } from './lib/stores'
 import { route } from './lib/router'
 
 vi.mock('./lib/api', () => ({
   fetchStats: vi.fn(), fetchInfo: vi.fn(), fetchPower: vi.fn(), fetchFan: vi.fn(),
-  fetchSettings: vi.fn(), fetchPool: vi.fn(), fetchHealth: vi.fn(), ping: vi.fn(),
+  fetchThermal: vi.fn(), fetchSettings: vi.fn(), fetchPool: vi.fn(), fetchHealth: vi.fn(), ping: vi.fn(),
   fetchDiagHeap: vi.fn(), checkDiagHeap: vi.fn(), fetchDiagTasks: vi.fn(),
   fetchDiagPanic: vi.fn(), clearAbnormalResets: vi.fn(), clearDiagPanic: vi.fn(),
   coredumpUrl: '/api/diag/coredump'
@@ -17,7 +17,7 @@ const baseStats = {
   session_shares: 10, session_rejected: 1, lifetime: { shares: 1000, best_diff: 250000 }, last_share_ago_s: 30,
   best_diff: 500000, uptime_s: 3600, temp_c: 40, hashrate: 485e9, hashrate_avg: 480e9,
   hashrate_1m: null, hashrate_10m: null, hashrate_1h: null, shares: null, asic_hashrate: null,
-  asic_hashrate_avg: null, asic_shares: null, asic_temp_c: 72, asic_freq_configured_mhz: null,
+  asic_hashrate_avg: null, asic_shares: null, asic_freq_configured_mhz: null,
   asic_freq_effective_mhz: null, asic_small_cores: null, asic_count: null, expected_ghs: 485,
   asic_total_ghs: 485.5, asic_hw_error_pct: 0.01, asic_total_ghs_1m: 484, asic_total_ghs_10m: 486,
   asic_total_ghs_1h: 483, asic_hw_error_pct_1m: 0.01, asic_hw_error_pct_10m: 0.01,
@@ -36,6 +36,7 @@ describe('App', () => {
     health.set(null)
     power.set(null)
     fan.set(null)
+    thermal.set(null)
     route.set('dashboard')
   })
 
@@ -104,7 +105,8 @@ describe('App', () => {
   })
 
   it('shows temp warning', () => {
-    stats.set({ ...baseStats, asic_temp_c: 80 } as any)
+    thermal.set({ asic: { present: true, c: 80 }, soc: { present: false, c: null }, vr: { present: false, c: null }, board: { present: false, c: null } })
+    stats.set(baseStats as any)
     const result = render(App)
     expect(result.component).toBeDefined()
   })

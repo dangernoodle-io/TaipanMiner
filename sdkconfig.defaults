@@ -153,3 +153,7 @@ CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS=2
 CONFIG_BB_POWER_ROUTES_AUTOREGISTER=y
 CONFIG_BB_FAN_ROUTES_AUTOREGISTER=y
 CONFIG_BB_THERMAL_AUTOREGISTER=y
+
+# BB autofan: BB fully owns fan duty and autofan PID when enabled.
+# TM wires cfg from NVS, feeds VR aux temp, and registers persist callback.
+CONFIG_BB_FAN_AUTOFAN=y

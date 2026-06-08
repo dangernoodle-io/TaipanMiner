@@ -40,6 +40,8 @@
 #endif
 #include "routes_json.h"
 #include "bb_http_extender.h"
+#include "bb_fan_routes.h"
+#include "bb_fan.h"
 #include "mining_pool_stats.h"
 #include "sha256.h"
 #if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32C3
@@ -957,33 +959,6 @@ static void taipan_power_extender(bb_json_t root)
     }
 }
 
-// ---------------------------------------------------------------------------
-// Fan extender: autofan, die_target_c, vr_target_c, manual_pct, min_pct,
-//               die_ema_c, vr_ema_c, pid_input_c, pid_input_src
-// Note: BB already emits rpm and duty_pct — not duplicated.
-// ---------------------------------------------------------------------------
-
-static void taipan_fan_extender(bb_json_t root)
-{
-    bb_json_obj_set_bool(root, "autofan",      config_autofan_enabled());
-    bb_json_obj_set_number(root, "die_target_c", (double)(int)config_die_target_c());
-    bb_json_obj_set_number(root, "vr_target_c",  (double)(int)config_vr_target_c());
-    bb_json_obj_set_number(root, "manual_pct",   (double)(int)config_manual_fan_pct());
-    bb_json_obj_set_number(root, "min_pct",      (double)(int)config_min_fan_pct());
-
-    float die_ema_c = -1.0f, vr_ema_c = -1.0f, pid_input_c = -1.0f;
-    const char *pid_input_src = "";
-    asic_task_get_autofan_telemetry(&die_ema_c, &vr_ema_c, &pid_input_c, &pid_input_src);
-
-    if (die_ema_c >= 0.0f)   bb_json_obj_set_number(root, "die_ema_c",   (double)die_ema_c);
-    else                     bb_json_obj_set_null(root, "die_ema_c");
-    if (vr_ema_c >= 0.0f)    bb_json_obj_set_number(root, "vr_ema_c",    (double)vr_ema_c);
-    else                     bb_json_obj_set_null(root, "vr_ema_c");
-    if (pid_input_c >= 0.0f) bb_json_obj_set_number(root, "pid_input_c", (double)pid_input_c);
-    else                     bb_json_obj_set_null(root, "pid_input_c");
-    bb_json_obj_set_string(root, "pid_input_src", pid_input_src ? pid_input_src : "");
-}
-
 // Schema property fragments for OpenAPI (comma-separated properties, no braces)
 static const char k_power_extender_schema[] =
     "\"efficiency_jth\":{\"type\":[\"number\",\"null\"],"
@@ -995,120 +970,24 @@ static const char k_power_extender_schema[] =
     "\"vin_low\":{\"type\":[\"boolean\",\"null\"],"
     "\"description\":\"true when VIN is below 87% of (nominal+500mV) threshold\"}";
 
-static const char k_fan_extender_schema[] =
-    "\"autofan\":{\"type\":\"boolean\",\"description\":\"autofan enabled\"},"
-    "\"die_target_c\":{\"type\":\"integer\",\"description\":\"ASIC die target temperature\"},"
-    "\"vr_target_c\":{\"type\":\"integer\",\"description\":\"VR target temperature\"},"
-    "\"manual_pct\":{\"type\":\"integer\",\"description\":\"manual duty % when autofan disabled\"},"
-    "\"min_pct\":{\"type\":\"integer\",\"description\":\"minimum fan duty %\"},"
-    "\"die_ema_c\":{\"type\":[\"number\",\"null\"],\"description\":\"filtered ASIC die temperature\"},"
-    "\"vr_ema_c\":{\"type\":[\"number\",\"null\"],\"description\":\"filtered VR temperature\"},"
-    "\"pid_input_c\":{\"type\":[\"number\",\"null\"],\"description\":\"PID input selected by max(err/target) ratio\"},"
-    "\"pid_input_src\":{\"type\":\"string\",\"description\":\"which sensor is driving PID: 'die' or 'vr'\"}";
-
 #endif /* ASIC_CHIP */
 
 // ---------------------------------------------------------------------------
-// POST /api/fan — update autofan config (now handled by this TM-owned handler
-// because BB's POST /api/fan does raw duty-set, but TM's config fields
-// are TM-specific policy and not suitable for the generic BB route).
+// Autofan persist callback — invoked by BB's POST /api/fan handler after a
+// successful config change. Writes the new cfg to TM NVS so it survives reboot.
+// Registered via bb_fan_routes_set_autofan_persist_cb() in webui_register_power_fan_extenders.
 // ---------------------------------------------------------------------------
-
-#ifdef ASIC_CHIP
-static bb_err_t fan_post_handler(bb_http_request_t *req)
+#if defined(ASIC_CHIP) && defined(CONFIG_BB_FAN_AUTOFAN)
+static void taipan_autofan_persist_cb(void *ctx, const bb_fan_autofan_cfg_t *cfg)
 {
-    set_common_headers(req);
-
-    char body[128];
-    int body_len = bb_http_req_body_len(req);
-    if (body_len > (int)(sizeof(body) - 1)) {
-        bb_http_resp_set_status(req, 400);
-        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
-        bb_http_resp_json_obj_set_str(&e, "error", "Body too large");
-        bb_http_resp_json_obj_end(&e);
-        return BB_ERR_INVALID_ARG;
-    }
-    int len = bb_http_req_recv(req, body, sizeof(body) - 1);
-    if (len <= 0) {
-        bb_http_resp_set_status(req, 400);
-        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
-        bb_http_resp_json_obj_set_str(&e, "error", "Empty body");
-        bb_http_resp_json_obj_end(&e);
-        return BB_ERR_INVALID_ARG;
-    }
-    body[len] = '\0';
-
-    // Parse optional fields; only fields present in the body are updated
-    char val[16];
-
-    bb_url_decode_field(body, "autofan", val, sizeof(val));
-    if (val[0] != '\0') {
-        bool autofan = false;
-        if (!bb_url_parse_bool(val, &autofan)) {
-            bb_http_resp_set_status(req, 400);
-            bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
-            bb_http_resp_json_obj_set_str(&e, "error", "Invalid autofan value");
-            bb_http_resp_json_obj_end(&e);
-            return BB_ERR_INVALID_ARG;
-        }
-        config_set_autofan_enabled(autofan);
-    }
-
-    bb_url_decode_field(body, "die_target_c", val, sizeof(val));
-    if (val[0] != '\0') {
-        unsigned long temp = 0;
-        if (!bb_url_parse_uint(val, &temp)) {
-            bb_http_resp_set_status(req, 400);
-            bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
-            bb_http_resp_json_obj_set_str(&e, "error", "Invalid die_target_c value");
-            bb_http_resp_json_obj_end(&e);
-            return BB_ERR_INVALID_ARG;
-        }
-        config_set_die_target_c((uint16_t)temp);
-    }
-
-    bb_url_decode_field(body, "vr_target_c", val, sizeof(val));
-    if (val[0] != '\0') {
-        unsigned long temp = 0;
-        if (!bb_url_parse_uint(val, &temp)) {
-            bb_http_resp_set_status(req, 400);
-            bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
-            bb_http_resp_json_obj_set_str(&e, "error", "Invalid vr_target_c value");
-            bb_http_resp_json_obj_end(&e);
-            return BB_ERR_INVALID_ARG;
-        }
-        config_set_vr_target_c((uint16_t)temp);
-    }
-
-    bb_url_decode_field(body, "manual_pct", val, sizeof(val));
-    if (val[0] != '\0') {
-        unsigned long pct = 0;
-        if (!bb_url_parse_uint(val, &pct)) {
-            bb_http_resp_set_status(req, 400);
-            bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
-            bb_http_resp_json_obj_set_str(&e, "error", "Invalid manual_pct value");
-            bb_http_resp_json_obj_end(&e);
-            return BB_ERR_INVALID_ARG;
-        }
-        config_set_manual_fan_pct((uint16_t)pct);
-    }
-
-    bb_url_decode_field(body, "min_pct", val, sizeof(val));
-    if (val[0] != '\0') {
-        unsigned long pct = 0;
-        if (!bb_url_parse_uint(val, &pct)) {
-            bb_http_resp_set_status(req, 400);
-            bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
-            bb_http_resp_json_obj_set_str(&e, "error", "Invalid min_pct value");
-            bb_http_resp_json_obj_end(&e);
-            return BB_ERR_INVALID_ARG;
-        }
-        config_set_min_fan_pct((uint16_t)pct);
-    }
-
-    return bb_http_resp_no_content(req);
+    (void)ctx;
+    config_set_autofan_enabled(cfg->enabled);
+    config_set_die_target_c((uint16_t)cfg->die_target_c);
+    config_set_vr_target_c((uint16_t)cfg->aux_target_c);
+    config_set_min_fan_pct((uint16_t)cfg->min_pct);
+    config_set_manual_fan_pct((uint16_t)cfg->manual_pct);
 }
-#endif /* ASIC_CHIP */
+#endif /* ASIC_CHIP && CONFIG_BB_FAN_AUTOFAN */
 
 #if CONFIG_KNOT_ENABLED
 /* Context for knot_walk callback */
@@ -1260,16 +1139,19 @@ bb_err_t webui_register_info_extender(void)
     return BB_OK;
 }
 
-// Register TM-specific extenders for BB-owned /api/power and /api/fan routes.
-// Must be called at order 0 (before BB route init at order 1 which assembles schemas).
+// Register TM-specific extender for BB-owned /api/power route (order 0).
+// BB's autofan (CONFIG_BB_FAN_AUTOFAN) now fully owns /api/fan GET+POST including
+// all autofan telemetry and config fields — no TM fan extender needed.
+// Register the persist callback so POST /api/fan changes survive reboot.
 bb_err_t webui_register_power_fan_extenders(void)
 {
 #ifdef ASIC_CHIP
     bb_err_t err;
     err = bb_http_register_route_extender("power", taipan_power_extender, k_power_extender_schema);
     if (err != BB_OK) return err;
-    err = bb_http_register_route_extender("fan", taipan_fan_extender, k_fan_extender_schema);
-    if (err != BB_OK) return err;
+#ifdef CONFIG_BB_FAN_AUTOFAN
+    bb_fan_routes_set_autofan_persist_cb(taipan_autofan_persist_cb, NULL);
+#endif
 #endif
     return BB_OK;
 }
@@ -2188,27 +2070,9 @@ static const bb_route_t s_settings_patch_route = {
     .handler              = settings_patch_handler,
 };
 
-// /api/power GET and /api/fan GET are now registered by BB (bb_power_routes,
-// bb_fan_routes) via CONFIG_BB_POWER_ROUTES_AUTOREGISTER / CONFIG_BB_FAN_ROUTES_AUTOREGISTER.
-// TM's POST /api/fan (autofan config) remains here since it sets TM-specific policy fields.
-
-#ifdef ASIC_CHIP
-// TA-315: POST /api/fan — update autofan config (form-urlencoded, all fields optional)
-static const bb_route_response_t s_fan_post_responses[] = {
-    { 204, NULL, NULL, "Fan config updated" },
-    { 0 },
-};
-
-static const bb_route_t s_fan_post_route = {
-    .method       = BB_HTTP_POST,
-    .path         = "/api/fan",
-    .tag          = "mining",
-    .summary      = "Update autofan configuration",
-    .operation_id = "postFan",
-    .responses    = s_fan_post_responses,
-    .handler      = fan_post_handler,
-};
-#endif /* ASIC_CHIP */
+// /api/power GET and /api/fan GET+POST are now fully owned by BB (bb_power_routes,
+// bb_fan_routes with CONFIG_BB_FAN_AUTOFAN). TM registers a persist callback so
+// POST /api/fan config changes are written to NVS for reboot survival.
 
 // ============================================================================
 // /api/diag/benchmark — POST (TA-33)
@@ -2386,10 +2250,6 @@ static const bb_route_t * const s_mining_routes[] = {
 #endif
     &s_settings_get_route,
     &s_settings_post_route,
-#ifdef ASIC_CHIP
-    /* /api/power GET and /api/fan GET: registered by BB (bb_power_routes, bb_fan_routes) */
-    &s_fan_post_route,  /* TM POST /api/fan: autofan config policy — TM-owned */
-#endif
     &s_settings_patch_route,
 };
 

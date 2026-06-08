@@ -667,21 +667,6 @@ void test_settings_happy_path(void);
 void test_settings_empty_optional_fields(void);
 void test_settings_all_bools_true(void);
 
-// TA-315: PID autofan controller
-void test_pid_high_temp_drives_output_near_max(void);
-void test_pid_low_temp_drives_output_near_min(void);
-void test_pid_at_setpoint_output_stable_mid_range(void);
-void test_pid_output_always_within_limits(void);
-void test_pid_compute_false_in_manual_mode(void);
-void test_pid_compute_false_before_sample_time(void);
-void test_pid_trajectory_hot_to_cold_to_setpoint(void);
-void test_pid_set_tunings_updates_gains(void);
-void test_pid_set_sample_time_scales_gains(void);
-void test_pid_set_controller_direction_flips_signs_in_auto(void);
-void test_pid_initialize_clamps_output_sum(void);
-void test_pid_getters_return_display_values(void);
-void test_pid_set_output_limits_rejects_invalid(void);
-
 // TA-315/TA-352: autofan setters
 void test_set_autofan_enabled_round_trip(void);
 void test_set_die_target_in_range(void);
@@ -1444,20 +1429,7 @@ int main(void) {
     RUN_TEST(test_stats_now_us_less_than_last_drop_emits_null);
 #endif /* ASIC_CHIP */
 
-    // TA-315: PID autofan controller tests
-    RUN_TEST(test_pid_high_temp_drives_output_near_max);
-    RUN_TEST(test_pid_low_temp_drives_output_near_min);
-    RUN_TEST(test_pid_at_setpoint_output_stable_mid_range);
-    RUN_TEST(test_pid_output_always_within_limits);
-    RUN_TEST(test_pid_compute_false_in_manual_mode);
-    RUN_TEST(test_pid_compute_false_before_sample_time);
-    RUN_TEST(test_pid_trajectory_hot_to_cold_to_setpoint);
-    RUN_TEST(test_pid_set_tunings_updates_gains);
-    RUN_TEST(test_pid_set_sample_time_scales_gains);
-    RUN_TEST(test_pid_set_controller_direction_flips_signs_in_auto);
-    RUN_TEST(test_pid_initialize_clamps_output_sum);
-    RUN_TEST(test_pid_getters_return_display_values);
-    RUN_TEST(test_pid_set_output_limits_rejects_invalid);
+    // TA-315/TA-352: autofan config NVS persistence tests
     RUN_TEST(test_set_autofan_enabled_round_trip);
     RUN_TEST(test_set_die_target_in_range);
     RUN_TEST(test_set_die_target_clamps_low);

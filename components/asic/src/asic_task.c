@@ -16,7 +16,6 @@
 #include "bb_power.h"
 #include "bb_fan.h"
 #include "bb_fan_emc2101.h"
-#include "pid.h"
 #include "config.h"
 #include "mining.h"
 #include "diag.h"
@@ -50,23 +49,15 @@
 
 static const char *TAG = "asic";
 
-// TA-315: autofan PID controller (initialized once at startup)
-static PIDController s_pid;
-static float         s_pid_input;
-static float         s_pid_output;
-static float         s_pid_setpoint;
-static float         s_pid_filtered = -1.0f; // <0 = uninitialized EMA
-
-// TA-141: VR-aware autofan — independent EMA filters for die + VR temps
-static float         s_die_ema = -1.0f;      // <0 = uninitialized
-static float         s_vr_ema = -1.0f;       // <0 = uninitialized
-static float         s_pid_input_c = -1.0f;  // Last computed PID input (for telemetry)
-static const char   *s_pid_input_src = "";   // "die" or "vr" (for telemetry)
-
-static unsigned long s_pid_now_ms(void)
+// Clock source for bb_fan autofan PID — millisecond timestamp via bb_timer.
+// Injected via bb_fan_autofan_set_clock() rather than bb_fan_autofan_inject_clock()
+// so we don't depend on the ESP-IDF platform shim being compiled with CONFIG_BB_FAN_AUTOFAN.
+#ifdef CONFIG_BB_FAN_AUTOFAN
+static unsigned long s_fan_now_ms(void)
 {
     return (unsigned long)(bb_timer_now_us() / 1000ULL);
 }
+#endif
 
 // --- I2C bus handle (initialized in asic_init, shared with display) ---
 static i2c_master_bus_handle_t s_i2c_bus;
@@ -349,8 +340,25 @@ bb_err_t asic_init(void)
         };
         ESP_RETURN_ON_ERROR(bb_fan_emc2101_open(&fan_cfg, &fan_h), TAG, "emc2101");
         bb_fan_set_primary(fan_h);
-        // Failsafe: start at 100% until telemetry loop takes over
+        // Failsafe: start at 100% until autofan takes over
         ESP_RETURN_ON_ERROR(bb_fan_set_duty_pct(fan_h, 100), TAG, "fan on");
+#ifdef CONFIG_BB_FAN_AUTOFAN
+        // Inject bb_timer-backed ms clock into autofan PID (required for 5s gating).
+        // Use bb_fan_autofan_set_clock directly so the shim file (bb_fan_clock_espidf.c)
+        // doesn't need CONFIG_BB_FAN_AUTOFAN at compile time.
+        bb_fan_autofan_set_clock(fan_h, s_fan_now_ms);
+        // Load persisted autofan config from NVS and apply
+        {
+            bb_fan_autofan_cfg_t af_cfg = {
+                .enabled      = config_autofan_enabled(),
+                .die_target_c = (float)config_die_target_c(),
+                .aux_target_c = (float)config_vr_target_c(),
+                .min_pct      = (int)config_min_fan_pct(),
+                .manual_pct   = (int)config_manual_fan_pct(),
+            };
+            bb_fan_set_autofan(fan_h, &af_cfg);
+        }
+#endif /* CONFIG_BB_FAN_AUTOFAN */
     } else {
         bb_log_w(TAG, "I2C bus not available, skipping EMC2101 init");
     }
@@ -385,18 +393,6 @@ void asic_mining_task(void *arg)
     TickType_t last_reg_poll = 0;
     uint32_t nonces_since_log = 0;
 
-    // TA-315/TA-352: initialize PID autofan controller.
-    // Ticks at 5000 ms — our existing temp tick cadence (AxeOS uses 100 ms but
-    // a separate task; we fold it into the existing 5s tick to keep the patch small).
-    // Start with die target; actual setpoint is selected per-tick via ratio.
-    s_pid_setpoint = (float)config_die_target_c();
-    s_pid_output   = (float)config_min_fan_pct();
-    s_pid_input    = s_pid_setpoint;
-    pid_init(&s_pid, &s_pid_input, &s_pid_output, &s_pid_setpoint,
-             5.0f, 0.1f, 2.0f, PID_P_ON_E, PID_REVERSE);
-    pid_set_clock(&s_pid, s_pid_now_ms);
-    pid_set_sample_time(&s_pid, 5000);
-    pid_set_output_limits(&s_pid, (float)config_min_fan_pct(), 100.0f);
 
     for (;;) {
         // Pet the watchdog unconditionally so empty-queue spins (e.g. during
@@ -753,14 +749,30 @@ void asic_mining_task(void *arg)
         }
 
         // 4. Periodic temp reading + fan control (~every 5s).
-        // PID ticks at 5000 ms — our existing cadence (AxeOS uses 100 ms but a separate task;
-        // we fold it into the existing 5s tick to keep the patch small).
+        // bb_fan autofan (CONFIG_BB_FAN_AUTOFAN) owns the PID and manual duty inside
+        // bb_fan_poll(). TM feeds VR aux temp before polling so the dual-EMA PID sees
+        // both sensors. Emergency override: if die temp is NaN (sensor failed entirely),
+        // TM forces 100% duty directly — BB autofan PID would compute with NaN input
+        // which is undefined, so we must apply the failsafe before poll.
         TickType_t now = xTaskGetTickCount();
         if (now - last_temp_tick >= pdMS_TO_TICKS(5000)) {
-            int fan_duty;
-
-            // Poll fan HAL to refresh cached snapshot
             bb_fan_handle_t fan_h = bb_fan_primary();
+
+#ifdef CONFIG_BB_FAN_AUTOFAN
+            // Feed VR aux temp to BB autofan before poll so the PID sees it this tick.
+            // Read last-known VR temp from mining_stats (populated by power poll below).
+            if (fan_h != NULL) {
+                float vr_temp_raw = -1.0f;
+                if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
+                    vr_temp_raw = mining_stats.vr_temp_c;
+                    xSemaphoreGive(mining_stats.mutex);
+                }
+                // Pass negative to invalidate if VR sensor absent/failed
+                bb_fan_set_aux_temp(fan_h, vr_temp_raw);
+            }
+#endif /* CONFIG_BB_FAN_AUTOFAN */
+
+            // Poll fan HAL: bb_fan_poll refreshes snapshot AND runs autofan PID (if enabled).
             if (fan_h != NULL) {
                 bb_fan_poll(fan_h);
             }
@@ -777,72 +789,12 @@ void asic_mining_task(void *arg)
                 }
             }
 
-            if (!temp_ok) {
-                // Fail-safe: temp read failed → max cooling
-                fan_duty = 100;
-            } else if (config_autofan_enabled()) {
-                // Refresh live-tunable targets and min from config each tick
-                float die_target = (float)config_die_target_c();
-                float vr_target  = (float)config_vr_target_c();
-                float new_min    = (float)config_min_fan_pct();
-                pid_set_output_limits(&s_pid, new_min, 100.0f);
-
-                // TA-141: Apply independent EMA filter (alpha=0.2) to die temperature
-                if (s_die_ema < 0.0f) {
-                    s_die_ema = temp;
-                } else {
-                    s_die_ema = 0.2f * temp + 0.8f * s_die_ema;
-                }
-
-                // TA-141: Apply independent EMA filter to VR temperature (if valid)
-                // Read VR temp from cached mining_stats (already read ~5s tick at line ~699)
-                // Note: vr_temp is captured below (~line 699), so we peek it from mining_stats
-                float vr_temp_raw = -1.0f;
-                bool vr_temp_valid = false;
-                if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
-                    vr_temp_raw = mining_stats.vr_temp_c;
-                    xSemaphoreGive(mining_stats.mutex);
-                }
-                if (vr_temp_raw >= 0.0f) {
-                    vr_temp_valid = true;
-                    if (s_vr_ema < 0.0f) {
-                        s_vr_ema = vr_temp_raw;
-                    } else {
-                        s_vr_ema = 0.2f * vr_temp_raw + 0.8f * s_vr_ema;
-                    }
-                }
-
-                // TA-352: Compute PID input and setpoint based on ratio of error over target.
-                // Whichever subsystem has the larger (error / target) ratio wins.
-                // If VR sensor is invalid, die wins by default.
-                float die_ratio = (s_die_ema - die_target) / die_target;
-                float vr_ratio  = vr_temp_valid ? (s_vr_ema - vr_target) / vr_target : -1e9f;
-                if (vr_ratio > die_ratio) {
-                    s_pid_input    = s_vr_ema;
-                    s_pid_setpoint = vr_target;
-                    s_pid_input_src = "vr";
-                } else {
-                    s_pid_input    = s_die_ema;
-                    s_pid_setpoint = die_target;
-                    s_pid_input_src = "die";
-                }
-                s_pid_input_c = s_pid_input;
-
-                // Arm PID on first valid reading
-                if (pid_get_mode(&s_pid) == MANUAL) {
-                    pid_set_mode(&s_pid, AUTOMATIC);
-                    bb_log_i(TAG, "autofan PID armed: temp=%.1f setpoint=%.1f (P:5.0 I:0.1 D:2.0)",
-                             s_pid_input, s_pid_setpoint);
-                }
-                pid_compute(&s_pid);
-                fan_duty = (int)s_pid_output;
-            } else {
-                // Manual mode
-                fan_duty = (int)config_manual_fan_pct();
-            }
-
-            if (fan_h != NULL) {
-                bb_fan_set_duty_pct(fan_h, fan_duty);
+            // Safety override: if die temp read failed (NaN), force 100% duty.
+            // BB autofan PID would receive NaN input — undefined. This must run
+            // even with CONFIG_BB_FAN_AUTOFAN enabled. High-temp protection is
+            // handled naturally by BB's REVERSE PID (output rises when die > target).
+            if (!temp_ok && fan_h != NULL) {
+                bb_fan_set_duty_pct(fan_h, 100);
             }
 
             {
@@ -1080,15 +1032,6 @@ int asic_task_get_chip_telemetry(asic_chip_telemetry_t *out, int max_chips)
 size_t asic_task_get_drop_log(asic_drop_event_t *out, size_t max_out)
 {
     return asic_drop_log_snapshot(&s_drop_log, out, max_out);
-}
-
-// TA-141: Autofan thermal aggregation telemetry accessors
-void asic_task_get_autofan_telemetry(float *die_ema_c, float *vr_ema_c, float *pid_input_c, const char **pid_input_src)
-{
-    if (die_ema_c) *die_ema_c = s_die_ema;
-    if (vr_ema_c) *vr_ema_c = s_vr_ema;
-    if (pid_input_c) *pid_input_c = s_pid_input_c;
-    if (pid_input_src) *pid_input_src = s_pid_input_src;
 }
 
 #endif // ASIC_BM1370 || ASIC_BM1368

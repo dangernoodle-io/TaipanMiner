@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, fireEvent } from '@testing-library/svelte'
+import { render } from '@testing-library/svelte'
 import { stats, info, health } from '../lib/stores'
 import * as api from '../lib/api'
 
@@ -229,7 +229,7 @@ describe('System', () => {
   })
 })
 
-describe('System — Reset stats action', () => {
+describe('System — chip detection driven by info.asic', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     stats.set(null)
@@ -237,67 +237,24 @@ describe('System — Reset stats action', () => {
     health.set(null)
   })
 
-  it('renders a Reset stats button', () => {
-    const { getByText } = render(System)
-    expect(getByText('Reset stats')).toBeTruthy()
-  })
-
-  it('clicking Reset stats opens a ConfirmDialog', async () => {
-    const { getByText } = render(System)
-    await fireEvent.click(getByText('Reset stats'))
-    expect(getByText('Reset stats?')).toBeTruthy()
-  })
-
-  it('confirming the dialog calls resetStats', async () => {
-    vi.mocked(api.resetStats).mockResolvedValue(undefined)
-    vi.mocked(api.fetchStats).mockResolvedValue({ uptime_s: 0 } as any)
-    vi.mocked(api.fetchPool).mockResolvedValue({ connected: false } as any)
-    const { getByText } = render(System)
-    await fireEvent.click(getByText('Reset stats'))
-    await fireEvent.click(getByText('Reset'))
-    await vi.waitFor(() => expect(api.resetStats).toHaveBeenCalledTimes(1))
-    // waitFor ensures the async body (Promise.all, fetchStats, fetchPool) ran through
-    await vi.waitFor(() => expect(api.fetchStats).toHaveBeenCalled())
-    await vi.waitFor(() => expect(api.fetchPool).toHaveBeenCalled())
-  })
-
-  it('shows error message when resetStats fails', async () => {
-    vi.mocked(api.resetStats).mockRejectedValue(new Error('reset stats failed: 500'))
-    vi.mocked(api.fetchStats).mockResolvedValue({ uptime_s: 0 } as any)
-    vi.mocked(api.fetchPool).mockResolvedValue({ connected: false } as any)
-    const { getByText, findByText } = render(System)
-    await fireEvent.click(getByText('Reset stats'))
-    await fireEvent.click(getByText('Reset'))
-    expect(await findByText('reset stats failed: 500')).toBeTruthy()
-  })
-})
-
-describe('System — chip detection driven by stats.asic_count', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    stats.set(null)
-    info.set(null)
-    health.set(null)
-  })
-
-  it('flags chipsBad when detectedChips < asic_count', () => {
-    info.set(baseInfo as any)
+  it('flags chipsBad when detectedChips < info.asic.chips', () => {
+    info.set({ ...baseInfo, capabilities: ['asic'], asic: { model: 'BM1370', chips: 2, small_cores_per_chip: 256 } } as any)
     stats.set({ asic_chips: [{}], asic_count: 2, asic_small_cores: 256 } as any)
     const { container } = render(System)
     const badDds = container.querySelectorAll('dd.bad')
     expect(badDds.length).toBeGreaterThan(0)
   })
 
-  it('does not flag chipsBad when detectedChips == asic_count', () => {
-    info.set(baseInfo as any)
+  it('does not flag chipsBad when detectedChips == info.asic.chips', () => {
+    info.set({ ...baseInfo, capabilities: ['asic'], asic: { model: 'BM1370', chips: 1, small_cores_per_chip: 256 } } as any)
     stats.set({ asic_chips: [{}], asic_count: 1, asic_small_cores: 256 } as any)
     const { container } = render(System)
     const badDds = container.querySelectorAll('dd.bad')
     expect(badDds.length).toBe(0)
   })
 
-  it('does not flag chipsBad when asic_count is null', () => {
-    info.set(baseInfo as any)
+  it('does not flag chipsBad when info.asic is absent', () => {
+    info.set({ ...baseInfo } as any)
     stats.set({ asic_chips: [{}], asic_count: null, asic_small_cores: 256 } as any)
     const { container } = render(System)
     const badDds = container.querySelectorAll('dd.bad')
@@ -305,7 +262,7 @@ describe('System — chip detection driven by stats.asic_count', () => {
   })
 
   it('does not flag chipsBad when stats is null', () => {
-    info.set(baseInfo as any)
+    info.set({ ...baseInfo, capabilities: ['asic'], asic: { model: 'BM1370', chips: 1, small_cores_per_chip: 256 } } as any)
     stats.set(null)
     const { component } = render(System)
     expect(component).toBeDefined()
@@ -336,6 +293,290 @@ describe('System — stratumFails row', () => {
     } as any)
     const { container } = render(System)
     expect(container.textContent).not.toContain('fails')
+  })
+})
+
+describe('System — Display row', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    stats.set(null)
+    info.set(null)
+    health.set(null)
+  })
+
+  it('shows "None" when display is absent', () => {
+    info.set({ ...baseInfo, display: { present: false } } as any)
+    const { container } = render(System)
+    const dts = container.querySelectorAll('dt')
+    let displayDd: Element | null = null
+    for (const dt of dts) {
+      if (dt.textContent?.trim() === 'Display') {
+        displayDd = dt.nextElementSibling
+        break
+      }
+    }
+    expect(displayDd?.textContent?.trim()).toBe('None')
+  })
+
+  it('shows panel + resolution + state when display is present', () => {
+    info.set({
+      ...baseInfo,
+      display: { present: true, panel: 'st77xx', width: 160, height: 80, enabled: true }
+    } as any)
+    const { container } = render(System)
+    expect(container.textContent).toContain('ST77xx')
+    expect(container.textContent).toContain('160×80')
+    // on/off state lives in the status-bar Display chip
+    expect(container.textContent).toContain('Display on')
+  })
+
+  it('maps ssd1306 panel label correctly', () => {
+    info.set({
+      ...baseInfo,
+      display: { present: true, panel: 'ssd1306', width: 128, height: 32, enabled: false }
+    } as any)
+    const { container } = render(System)
+    expect(container.textContent).toContain('SSD1306')
+    // display disabled -> status-bar chip reads "Display off"
+    expect(container.textContent).toContain('Display off')
+  })
+
+  it('shows "None" when display field is absent from info', () => {
+    info.set({ ...baseInfo } as any)
+    const { container } = render(System)
+    expect(container.textContent).toContain('None')
+  })
+})
+
+describe('System — LED row', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    stats.set(null)
+    info.set(null)
+    health.set(null)
+  })
+
+  it('shows "None" when led is absent', () => {
+    info.set({ ...baseInfo, led: { present: false } } as any)
+    const { container } = render(System)
+    const dts = container.querySelectorAll('dt')
+    let ledDd: Element | null = null
+    for (const dt of dts) {
+      if (dt.textContent?.trim() === 'LED') {
+        ledDd = dt.nextElementSibling
+        break
+      }
+    }
+    expect(ledDd?.textContent?.trim()).toBe('None')
+  })
+
+  it('shows APA102 + count + RGB when led is present', () => {
+    info.set({
+      ...baseInfo,
+      led: { present: true, type: 'apa102', count: 1, rgb: true }
+    } as any)
+    const { container } = render(System)
+    expect(container.textContent).toContain('APA102')
+    expect(container.textContent).toContain('×1')
+    expect(container.textContent).toContain('· RGB')
+  })
+
+  it('shows PWM without RGB marker when rgb is false', () => {
+    info.set({
+      ...baseInfo,
+      led: { present: true, type: 'pwm', count: 1, rgb: false }
+    } as any)
+    const { container } = render(System)
+    expect(container.textContent).toContain('PWM')
+    expect(container.textContent).not.toContain('· RGB')
+  })
+})
+
+describe('System — SoC temp chip', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    stats.set(null)
+    info.set(null)
+    health.set(null)
+  })
+
+  it('shows SoC temp when temp.present=true and board lacks power capability', () => {
+    info.set({ ...baseInfo, capabilities: [] } as any)
+    health.set({ ...baseHealth, temp: { present: true, soc_c: 42 } } as any)
+    const { container } = render(System)
+    expect(container.textContent).toContain('42°C')
+  })
+
+  it('hides SoC temp when temp.present=true but board has power capability', () => {
+    info.set({ ...baseInfo, capabilities: ['power'] } as any)
+    health.set({ ...baseHealth, temp: { present: true, soc_c: 42 } } as any)
+    const { container } = render(System)
+    expect(container.textContent).not.toContain('42°C')
+  })
+
+  it('hides SoC temp when temp.present=false', () => {
+    health.set({ ...baseHealth, temp: { present: false } } as any)
+    const { container } = render(System)
+    expect(container.textContent).not.toContain('°C')
+  })
+
+  it('hides SoC temp when temp field is absent', () => {
+    health.set({ ...baseHealth } as any)
+    const { container } = render(System)
+    expect(container.textContent).not.toContain('°C')
+  })
+
+  it('rounds soc_c to whole number when visible', () => {
+    info.set({ ...baseInfo, capabilities: [] } as any)
+    health.set({ ...baseHealth, temp: { present: true, soc_c: 41.7 } } as any)
+    const { container } = render(System)
+    expect(container.textContent).toContain('42°C')
+  })
+
+  it('hides SoC temp when power capability is in a multi-element capabilities array', () => {
+    info.set({ ...baseInfo, capabilities: ['asic', 'power', 'fan'] } as any)
+    health.set({ ...baseHealth, temp: { present: true, soc_c: 42 } } as any)
+    const { container } = render(System)
+    expect(container.textContent).not.toContain('42°C')
+  })
+})
+
+describe('System — ASIC from info.asic (not hardcoded map)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    stats.set(null)
+    info.set(null)
+    health.set(null)
+  })
+
+  it('shows ASIC card when capabilities includes "asic"', () => {
+    info.set({
+      ...baseInfo,
+      capabilities: ['asic', 'fan'],
+      asic: { model: 'BM1370', chips: 1, small_cores_per_chip: 256 }
+    } as any)
+    const { container } = render(System)
+    expect(container.textContent).toContain('ASIC')
+    expect(container.textContent).toContain('BM1370')
+  })
+
+  it('shows ASIC card when asic field is present (no capabilities)', () => {
+    info.set({
+      ...baseInfo,
+      asic: { model: 'BM1368', chips: 1, small_cores_per_chip: 128 }
+    } as any)
+    const { container } = render(System)
+    expect(container.textContent).toContain('BM1368')
+  })
+
+  it('shows ×N suffix when chips > 1', () => {
+    info.set({
+      ...baseInfo,
+      capabilities: ['asic'],
+      asic: { model: 'BM1370', chips: 2, small_cores_per_chip: 256 }
+    } as any)
+    const { container } = render(System)
+    expect(container.textContent).toContain('BM1370 ×2')
+  })
+
+  it('hides ASIC card when neither capabilities nor asic present', () => {
+    info.set({ ...baseInfo } as any)
+    const { container } = render(System)
+    expect(container.textContent).not.toContain('ASIC')
+  })
+
+  it('derives expectedChips from info.asic.chips', () => {
+    info.set({
+      ...baseInfo,
+      capabilities: ['asic'],
+      asic: { model: 'BM1370', chips: 2, small_cores_per_chip: 256 }
+    } as any)
+    stats.set({ asic_chips: [{}], asic_count: 2, asic_small_cores: 256 } as any)
+    const { container } = render(System)
+    // expectedChips=2 from info.asic.chips, detectedChips=1 → chipsBad → dd.bad
+    const badDds = container.querySelectorAll('dd.bad')
+    expect(badDds.length).toBeGreaterThan(0)
+  })
+
+  it('derives expectedCores from info.asic.chips * small_cores_per_chip', () => {
+    info.set({
+      ...baseInfo,
+      capabilities: ['asic'],
+      asic: { model: 'BM1370', chips: 1, small_cores_per_chip: 256 }
+    } as any)
+    stats.set({ asic_chips: [{}], asic_count: 1, asic_small_cores: 256 } as any)
+    const { container } = render(System)
+    expect(container.textContent).toContain('256')
+  })
+})
+
+// Helper: find Donut label elements (div.label inside .donut) with given text.
+function psramDonutLabels(container: HTMLElement): Element[] {
+  return Array.from(container.querySelectorAll('.donut .label')).filter(
+    el => el.childNodes[0]?.nodeValue?.trim() === 'PSRAM'
+  )
+}
+
+function rtcDonutLabels(container: HTMLElement): Element[] {
+  return Array.from(container.querySelectorAll('.donut .label')).filter(
+    el => el.childNodes[0]?.nodeValue?.trim() === 'RTC'
+  )
+}
+
+describe('System — PSRAM donut', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    stats.set(null)
+    info.set(null)
+    health.set(null)
+  })
+
+  it('renders PSRAM donut when heap_psram.total > 0', () => {
+    info.set({
+      ...baseInfo,
+      heap_psram: { free: 2 * 1024 * 1024, total: 4 * 1024 * 1024 }
+    } as any)
+    const { container } = render(System)
+    expect(psramDonutLabels(container).length).toBe(1)
+  })
+
+  it('does not render PSRAM donut when heap_psram is absent', () => {
+    info.set({ ...baseInfo } as any)
+    const { container } = render(System)
+    expect(psramDonutLabels(container).length).toBe(0)
+  })
+
+  it('does not render PSRAM donut when heap_psram.total is 0', () => {
+    info.set({
+      ...baseInfo,
+      heap_psram: { free: 0, total: 0 }
+    } as any)
+    const { container } = render(System)
+    expect(psramDonutLabels(container).length).toBe(0)
+  })
+})
+
+describe('System — RTC donut', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    stats.set(null)
+    info.set(null)
+    health.set(null)
+  })
+
+  it('renders RTC donut when rtc is present', () => {
+    info.set({
+      ...baseInfo,
+      rtc: { used: 2048, total: 8192 }
+    } as any)
+    const { container } = render(System)
+    expect(rtcDonutLabels(container).length).toBe(1)
+  })
+
+  it('does not render RTC donut when rtc is absent', () => {
+    info.set({ ...baseInfo } as any)
+    const { container } = render(System)
+    expect(rtcDonutLabels(container).length).toBe(0)
   })
 })
 

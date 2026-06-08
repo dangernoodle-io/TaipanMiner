@@ -25,14 +25,16 @@ test.describe('System page', () => {
     await expect(page.getByText('5.5.3')).toBeVisible()
   })
 
-  test('renders RAM and Flash donuts', async ({ page }) => {
-    await expect(page.getByText('RAM usage')).toBeVisible()
-    await expect(page.getByText('Flash')).toBeVisible()
+  test('renders SRAM and Flash donuts', async ({ page }) => {
+    // donut labels now embed a hint tooltip, so scope to the label element;
+    // /^SRAM/ keeps it from matching the PSRAM label.
+    await expect(page.locator('.donut .label').filter({ hasText: /^SRAM/ })).toBeVisible()
+    await expect(page.locator('.donut .label').filter({ hasText: 'Flash' })).toBeVisible()
   })
 
-  test('shows Uptime card', async ({ page }) => {
-    // 7200s uptime → "2h 0m"
-    await expect(page.getByText('Uptime')).toBeVisible()
+  test('shows uptime in the status bar', async ({ page }) => {
+    // 7200s uptime → "2h 0m"; "Uptime" is now a status-bar tooltip title, not body text.
+    await expect(page.getByTitle('Uptime')).toBeVisible()
     await expect(page.getByText('2h 0m')).toBeVisible()
   })
 })

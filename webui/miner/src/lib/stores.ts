@@ -121,6 +121,16 @@ let infoLoaded = false
 let settingsLoaded = false
 let asicProbed = false
 let asicAvailable = false
+
+/* Drop the cached /api/info + /api/settings so the next poll re-fetches them.
+ * Call after a settings mutation so live config changes (display/LED on-off,
+ * mDNS, etc.) propagate to read-only views like the System page without
+ * continuous polling. Re-fetch (not optimistic) reflects reboot-pending state
+ * truthfully. */
+export function invalidateConfig() {
+  infoLoaded = false
+  settingsLoaded = false
+}
 /* Reboot detector: stats.uptime_s monotonically increases since boot, so a
  * drop means the device rebooted (counter restarted from ~0). When that
  * happens we invalidate the cached /api/info so the System page's Runtime
@@ -154,7 +164,10 @@ async function poll() {
     let thermalData: Thermal | null = null
     if (!asicProbed) {
       powerData = await fetchPower().catch(() => null)
-      asicAvailable = powerData !== null
+      // BB serves /api/power on every board post-P4 (returns {present:false} on
+      // boards with no VR), so a non-null response no longer implies an ASIC —
+      // gate on the present flag.
+      asicAvailable = powerData?.present === true
       asicProbed = true
       hasAsic.set(asicAvailable)
       if (asicAvailable) {

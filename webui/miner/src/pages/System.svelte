@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { stats, info, health, pool } from '../lib/stores'
+  import { stats, info, health, settings } from '../lib/stores'
   import Donut from '../components/Donut.svelte'
-  import ConfirmDialog from '../components/ConfirmDialog.svelte'
-  import { fmtBytes, fmtUnixTs, fmtBuildTime, fmtDuration, rssiBars } from '../lib/fmt'
-  import { resetStats, fetchStats, fetchPool } from '../lib/api'
+  import InfoCard from 'ui-kit/InfoCard.svelte'
+  import InfoRow from 'ui-kit/InfoRow.svelte'
+  import Tooltip from '../components/Tooltip.svelte'
+  import { fmtUnixTs, fmtBuildTime, fmtDuration, rssiBars } from '../lib/fmt'
 
   /* Layered data sources:
    *   $health — polled every 5s, drives the visual row (live liveness signals)
@@ -31,48 +32,69 @@
   const rssi = $derived($health?.network?.rssi ?? null)
   const stratumFails = $derived($health?.network?.stratum_fail_count ?? 0)
 
-  // ASIC topology: model derives from the board; expected chip count comes from $stats.asic_count.
-  const BOARD_ASIC: Record<string, { model: string }> = {
-    'bitaxe-601': { model: 'BM1370'    },
-    'bitaxe-650': { model: 'BM1370 ×2' },
-    'bitaxe-403': { model: 'BM1368'    },
-  }
-  const asicSpec = $derived($info?.board ? BOARD_ASIC[$info.board] : undefined)
+  // Per-region memory (breadboard v0.52+, BB-248). PSRAM hidden when absent.
+  const memInternal = $derived($info?.heap_internal ?? null)
+  const memPsram = $derived($info?.heap_psram ?? null)
+  const memRtc = $derived($info?.rtc ?? null)
+
+  // ASIC topology: sourced from /api/info fields.
+  const hasAsic = $derived(
+    $info?.capabilities?.includes('asic') ?? ($info?.asic != null)
+  )
+  const asicModel = $derived(
+    $info?.asic
+      ? ($info.asic.chips > 1 ? `${$info.asic.model} ×${$info.asic.chips}` : $info.asic.model)
+      : undefined
+  )
   const detectedChips = $derived($stats?.asic_chips?.length ?? null)
-  const expectedChips = $derived($stats?.asic_count ?? null)
-  const smallCoresPerChip = $derived($stats?.asic_small_cores ?? null)  // BOARD_SMALL_CORES (per-chip)
+  const expectedChips = $derived($info?.asic?.chips ?? null)
+  const smallCoresPerChip = $derived($stats?.asic_small_cores ?? null)  // per-chip from stats
   const detectedCores = $derived((detectedChips != null && smallCoresPerChip != null) ? detectedChips * smallCoresPerChip : null)
-  const expectedCores = $derived((expectedChips != null && smallCoresPerChip != null) ? expectedChips * smallCoresPerChip : null)
+  const expectedCores = $derived(
+    ($info?.asic != null)
+      ? $info.asic.chips * $info.asic.small_cores_per_chip
+      : (expectedChips != null && smallCoresPerChip != null) ? expectedChips * smallCoresPerChip : null
+  )
   const chipsBad = $derived(expectedChips != null && detectedChips != null && detectedChips < expectedChips)
-  const hasAsic = $derived(asicSpec != null)
 
-  let showResetDialog = $state(false)
-  let resetting = $state(false)
-  let resetErr = $state('')
+  // Display/LED: sourced from /api/info fields.
+  const PANEL_LABEL: Record<string, string> = { st77xx: 'ST77xx', ssd1306: 'SSD1306' }
+  const LED_LABEL: Record<string, string> = { apa102: 'APA102', pwm: 'PWM' }
+  const displayLabel = $derived(
+    $info?.display?.present
+      ? (() => {
+          const panel = $info!.display!.panel
+          const pName = panel ? (PANEL_LABEL[panel] ?? panel.toUpperCase()) : ''
+          const res = ($info!.display!.width != null && $info!.display!.height != null)
+            ? ` ${$info!.display!.width}×${$info!.display!.height}`
+            : ''
+          // on/off state now lives in the status-bar Display chip
+          return `${pName}${res}`
+        })()
+      : 'None'
+  )
+  const ledLabel = $derived(
+    $info?.led?.present
+      ? (() => {
+          const t = $info!.led!.type
+          const tName = t ? (LED_LABEL[t] ?? t.toUpperCase()) : ''
+          const cnt = $info!.led!.count != null ? ` ×${$info!.led!.count}` : ''
+          const rgb = $info!.led!.rgb ? ' · RGB' : ''
+          return `${tName}${cnt}${rgb}`
+        })()
+      : 'None'
+  )
 
-  async function doResetStats() {
-    resetting = true
-    resetErr = ''
-    try {
-      await resetStats()
-      const [newStats, newPool] = await Promise.all([
-        fetchStats().catch(() => null),
-        fetchPool().catch(() => null),
-      ])
-      if (newStats !== null) stats.set(newStats)
-      if (newPool !== null) pool.set(newPool)
-    } catch (e) {
-      resetErr = e instanceof Error ? e.message : 'reset failed'
-    } finally {
-      resetting = false
-    }
-  }
+  // SoC temperature from /api/health.
+  const socTemp = $derived($health?.temp?.present ? ($health.temp.soc_c ?? null) : null)
+  // Show SoC temp only when board lacks dedicated power telemetry (bitaxe boards with power capability hide it).
+  const showSocTemp = $derived(socTemp != null && !($info?.capabilities?.includes('power') ?? false))
 </script>
 
-<div class="visual-row">
-  <div class="viz health">
+<div class="status-bar">
+  <div class="sb-checks">
     {#each healthRows as r (r.label)}
-      <div class="h-row" data-state={r.dot}>
+      <span class="h-row" data-state={r.dot}>
         <svg viewBox="0 0 20 20" class="h-icon" aria-hidden="true">
           {#if r.dot === 'ok'}
             <path d="M4 10 L8 14 L16 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
@@ -86,120 +108,146 @@
           {/if}
         </svg>
         <span class="h-label">{r.label}</span>
-      </div>
+      </span>
     {/each}
     {#if stratumFails}
-      <div class="h-row" data-state="warn">
+      <span class="h-row" data-state="warn">
         <svg viewBox="0 0 20 20" class="h-icon" aria-hidden="true">
           <path d="M10 3 L18 17 L2 17 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
           <path d="M10 8 L10 12 M10 14.5 L10 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
         </svg>
         <span class="h-label">{stratumFails} fails</span>
-      </div>
+      </span>
     {/if}
   </div>
-  <div class="viz">
-    <Donut used={heapUsed} total={$info?.total_heap} label="RAM usage" />
-  </div>
-  <div class="viz">
-    <Donut used={$info?.app_size} total={$info?.flash_size} label="Flash" />
-  </div>
-  <div class="viz uptime">
-    <div class="uptime-val">{fmtDuration($stats?.uptime_s)}</div>
-    <div class="uptime-label">Uptime</div>
-  </div>
+  {#if showSocTemp && socTemp != null}
+    <span class="sb-soc-temp" title="SoC temperature">
+      <svg viewBox="0 0 20 20" class="h-icon" aria-hidden="true">
+        <path d="M10 3 L10 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        <circle cx="10" cy="15" r="3" fill="currentColor" />
+      </svg>
+      {Math.round(socTemp)}°C
+    </span>
+  {/if}
+  {#if $info?.display?.present}
+    <Tooltip text="Display {$info.display.enabled ? 'on' : 'off'}">
+      <span class="sb-ico" class:sb-off={!$info.display.enabled}>
+        <svg viewBox="0 0 20 20" class="h-icon" aria-hidden="true">
+          <rect x="3" y="4" width="14" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8" />
+          <path d="M8 17 L12 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+        </svg>
+      </span>
+    </Tooltip>
+  {/if}
+  {#if $info?.led?.present}
+    <Tooltip text="LED {$settings?.led_heartbeat_en ? 'on' : 'off'}">
+      <span class="sb-ico" class:sb-off={!$settings?.led_heartbeat_en}>
+        <svg viewBox="0 0 20 20" class="h-icon" aria-hidden="true">
+          <circle cx="10" cy="10" r="3.5" fill="currentColor" />
+          <circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="1.4" opacity="0.55" />
+        </svg>
+      </span>
+    </Tooltip>
+  {/if}
+  <span class="sb-uptime" title="Uptime">
+    <svg viewBox="0 0 20 20" class="h-icon" aria-hidden="true">
+      <circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="1.6" />
+      <path d="M10 6 L10 10 L13 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+    {fmtDuration($stats?.uptime_s)}
+  </span>
 </div>
+
+<div class="net-bar">
+  <span class="net-item">
+    <span class="net-label">Host</span>
+    <span class="net-val">{$info?.hostname ?? '—'}</span>
+  </span>
+  <span class="net-item">
+    <span class="net-label">IP</span>
+    <span class="net-val mono">{$info?.network?.ip ?? '—'}</span>
+  </span>
+  <span class="net-item">
+    <span class="net-label">SSID</span>
+    <span class="net-val">{$info?.network?.ssid ?? $info?.ssid ?? '—'}</span>
+  </span>
+  <span class="net-item">
+    <span class="net-label">Signal</span>
+    <span class="net-val">{rssi ?? '—'}{#if rssi != null}<span class="dim"> dBm</span> <span class="bars">{rssiBars(rssi)}</span>{/if}</span>
+  </span>
+</div>
+
+<section class="card resource-card">
+  <h3>Resources</h3>
+  <div class="visual-row">
+    <div class="viz">
+      <Donut used={memInternal ? memInternal.total - memInternal.free : heapUsed}
+             total={memInternal?.total ?? $info?.total_heap} label="SRAM" size={108}
+             hint="On-chip static RAM — the chip's internal RAM heap used for stacks, buffers, and allocations. The primary memory budget for firmware (distinct from external PSRAM)." />
+    </div>
+    {#if memPsram && memPsram.total > 0}
+      <div class="viz">
+        <Donut used={memPsram.total - memPsram.free} total={memPsram.total} label="PSRAM" size={108}
+               hint="External SPI PSRAM — extra RAM on PSRAM-equipped modules. Absent on most boards." />
+      </div>
+    {/if}
+    {#if memRtc}
+      <div class="viz">
+        <Donut used={memRtc.used} total={memRtc.total} label="RTC" size={108}
+               hint="RTC slow memory — a small region that survives deep sleep and soft resets. Used for state that must persist across reboots." />
+      </div>
+    {/if}
+    <div class="viz">
+      <Donut used={$info?.app_size} total={$info?.flash_size} label="Flash" size={108}
+             hint="Flash storage — the running app partition's size vs total flash. The remainder holds the second OTA slot, filesystem, and NVS." />
+    </div>
+  </div>
+</section>
 
 <div class="detail-grid">
-  <section class="card">
-    <h3>Device</h3>
-    <dl>
-      <div><dt>Board</dt><dd>{$info?.board ?? '—'}</dd></div>
-      <div><dt>Chip</dt><dd>{$info?.chip_model ?? '—'}</dd></div>
-      <div><dt>Cores</dt><dd>{$info?.cores ?? '—'}</dd></div>
-      <div><dt>MAC</dt><dd class="mono">{$info?.mac ?? '—'}</dd></div>
-      <div><dt>IP</dt><dd class="mono">{$info?.network?.ip ?? '—'}</dd></div>
-      <div><dt>SSID</dt><dd>{$info?.network?.ssid ?? $info?.ssid ?? '—'}</dd></div>
-      <div><dt>BSSID</dt><dd class="mono">{$info?.network?.bssid ?? '—'}</dd></div>
-      <div>
-        <dt>Signal</dt>
-        <dd>
-          {rssi ?? '—'}{#if rssi != null}<span class="dim"> dBm</span> <span class="bars">{rssiBars(rssi)}</span>{/if}
-        </dd>
-      </div>
-    </dl>
-  </section>
-
-  <section class="card">
-    <h3>Firmware</h3>
-    <dl>
-      <div><dt>Project</dt><dd class="mono small">{$info?.project_name ?? '—'}</dd></div>
-      <div><dt>Version</dt><dd>{$info?.version ?? '—'}</dd></div>
-      <div><dt>Built</dt><dd>{fmtBuildTime($info?.build_date, $info?.build_time)}</dd></div>
-      <div><dt>IDF</dt><dd>{$info?.idf_version ?? '—'}</dd></div>
-    </dl>
-  </section>
-
   {#if hasAsic}
-    <section class="card">
-      <h3>ASIC</h3>
-      <dl>
-        <div><dt>Model</dt><dd>{asicSpec?.model}</dd></div>
-        <div>
-          <dt>Chips</dt>
-          <dd class:bad={chipsBad}>
-            {detectedChips ?? '—'}<span class="dim"> / {expectedChips ?? '—'}</span>
-          </dd>
-        </div>
-        <div>
-          <dt>Small cores</dt>
-          <dd class:bad={chipsBad}>
-            {detectedCores ?? '—'}<span class="dim"> / {expectedCores ?? '—'}</span>
-          </dd>
-        </div>
-      </dl>
-    </section>
+    <InfoCard title="ASIC">
+      <InfoRow label="Model">{asicModel ?? '—'}</InfoRow>
+      <InfoRow label="Chips" bad={chipsBad}>{detectedChips ?? '—'} <span class="dim">/ {expectedChips ?? '—'}</span></InfoRow>
+      <InfoRow label="Small cores" bad={chipsBad}>{detectedCores ?? '—'} <span class="dim">/ {expectedCores ?? '—'}</span></InfoRow>
+    </InfoCard>
   {/if}
 
-  <section class="card">
-    <h3>Runtime</h3>
-    <dl>
-      <div><dt>Reset reason</dt><dd>{$info?.reset_reason ?? '—'}</dd></div>
-      <div><dt>WDT resets</dt><dd>{$info?.wdt_resets ?? '—'}</dd></div>
-      <div><dt>Last boot</dt><dd>{fmtUnixTs($info?.boot_time)}</dd></div>
-    </dl>
-  </section>
+  <InfoCard title="Device">
+    <InfoRow label="Board">{$info?.board ?? '—'}</InfoRow>
+    <InfoRow label="Chip">{$info?.chip_model ?? '—'}</InfoRow>
+    <InfoRow label="Cores">{$info?.cores ?? '—'}</InfoRow>
+    <InfoRow label="MAC" mono>{$info?.mac ?? '—'}</InfoRow>
+    <InfoRow label="BSSID" mono>{$info?.network?.bssid ?? '—'}</InfoRow>
+    <InfoRow label="Display">{displayLabel}</InfoRow>
+    <InfoRow label="LED">{ledLabel}</InfoRow>
+  </InfoCard>
 
-  <section class="card">
-    <h3>Actions</h3>
-    <div class="action-row">
-      <button class="btn danger sm" onclick={() => { showResetDialog = true }} disabled={resetting}>
-        {resetting ? 'Resetting…' : 'Reset stats'}
-      </button>
-    </div>
-    {#if resetErr}<div class="action-err">{resetErr}</div>{/if}
-  </section>
+  <InfoCard title="Firmware">
+    <InfoRow label="Project" mono>{$info?.project_name ?? '—'}</InfoRow>
+    <InfoRow label="Version">{$info?.version ?? '—'}</InfoRow>
+    <InfoRow label="Built">{fmtBuildTime($info?.build_date, $info?.build_time)}</InfoRow>
+    <InfoRow label="IDF">{$info?.idf_version ?? '—'}</InfoRow>
+  </InfoCard>
+
+  <InfoCard title="Runtime">
+    <InfoRow label="Reset reason">{$info?.reset_reason ?? '—'}</InfoRow>
+    <InfoRow label="WDT resets">{$info?.wdt_resets ?? '—'}</InfoRow>
+    <InfoRow label="Last boot">{fmtUnixTs($info?.boot_time)}</InfoRow>
+  </InfoCard>
+
+
 </div>
 
-<ConfirmDialog
-  bind:open={showResetDialog}
-  title="Reset stats?"
-  message="This will clear all session and lifetime mining statistics. This action cannot be undone."
-  confirmLabel="Reset"
-  danger
-  onconfirm={doResetStats}
-/>
-
 <style>
+  .resource-card {
+    margin-bottom: 14px;
+  }
+
   .visual-row {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 16px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 20px 16px;
-    margin-bottom: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 14px;
     align-items: center;
     justify-items: center;
   }
@@ -211,33 +259,95 @@
     width: 100%;
   }
 
-  .viz.uptime {
-    flex-direction: column;
+  .status-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    margin-bottom: 14px;
+  }
+
+  .sb-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    flex: 1;
+  }
+
+  .sb-soc-temp {
+    display: inline-flex;
+    align-items: center;
     gap: 6px;
-  }
-
-  .uptime-val {
-    font-size: 28px;
     font-weight: 600;
-    color: var(--accent);
+    font-size: 13px;
+    color: var(--muted);
     font-variant-numeric: tabular-nums;
-    line-height: 1;
   }
 
-  .uptime-label {
-    font-size: 10px;
+  .sb-soc-temp svg {
+    color: var(--muted);
+  }
+
+  /* device-subsystem icons (display / LED) — neutral on/off, never error-red.
+     State is conveyed by colour + the hover tooltip. */
+  .sb-ico {
+    display: inline-flex;
+    align-items: center;
+    color: var(--success);
+  }
+  .sb-ico.sb-off { color: var(--muted); }
+
+  .sb-uptime {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sb-uptime svg {
+    color: var(--accent);
+  }
+
+  .net-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 12px 28px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    margin-bottom: 14px;
+  }
+
+  .net-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .net-label {
+    color: var(--muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: var(--label);
+    font-size: 10px;
     font-weight: 600;
   }
 
-  .viz.health {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 6px;
-    min-width: 140px;
-    max-width: 180px;
+  .net-val {
+    color: var(--text);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
   }
 
   .h-row {
@@ -274,59 +384,6 @@
   /* card h3 typography lives in ui-kit utilities.css. */
   h3 { margin-bottom: 12px; }
 
-  dl { margin: 0; }
-
-  dl > div {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 12px;
-    align-items: baseline;
-    min-width: 0;
-    font-size: 12px;
-    border-bottom: 1px dotted var(--border);
-    padding: 6px 0;
-  }
-
-  dl > div:last-child { border-bottom: none; }
-
-  dt {
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-size: 10px;
-  }
-
-  dd {
-    margin: 0;
-    color: var(--text);
-    font-variant-numeric: tabular-nums;
-    text-align: right;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mono {
-    font-family: ui-monospace, Menlo, monospace;
-    font-size: 11px;
-  }
-
-  .small { font-size: 11px; }
-
   .dim { color: var(--muted); }
-  dd.bad { color: var(--warning); }
   .bars { color: var(--accent); margin-left: 3px; }
-
-  .action-row {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-
-  .action-err {
-    margin-top: 8px;
-    font-size: 12px;
-    color: var(--danger);
-  }
 </style>

@@ -853,13 +853,26 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
             // inside the Tier 2 block (every 1M nonces ≈ 4.5s), which was right at the edge and
             // failed under scheduling jitter — letting OTA run with mining still at full load.
             sha256_hw_release();
-            if (mining_pause_check()) {
-                sha256_hw_acquire();
-                backend->prepare_job(backend, work, block2);
-                start_us = (int64_t)bb_timer_now_us();
-                hashes = 0;
-                nonce = params->nonce_start - 1;
-                continue;
+            if (mining_pause_pending()) {
+                // Drop WDT subscription while parked: a deliberately-idle task must
+                // not be WDT-monitored. The bracket is on the blocking call, not a
+                // separate pre-check, so it is race-free — a pause that arrives between
+                // mining_pause_pending() and mining_pause_check() is still bracketed on
+                // the very next tier-1 cycle (a few ms later, well within the 5s ACK
+                // window). Dual-core boards share this latent bug (mining parks on core 1
+                // during pull-OTA too), so the fix is unconditional, not C3-only.
+                esp_task_wdt_delete(NULL);
+                bool paused = mining_pause_check();
+                esp_task_wdt_add(NULL);
+                esp_task_wdt_reset();
+                if (paused) {
+                    sha256_hw_acquire();
+                    backend->prepare_job(backend, work, block2);
+                    start_us = (int64_t)bb_timer_now_us();
+                    hashes = 0;
+                    nonce = params->nonce_start - 1;
+                    continue;
+                }
             }
 #if CONFIG_FREERTOS_UNICORE
             // Single-core: the miner shares core 0 with WiFi/lwIP/IDLE. This

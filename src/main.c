@@ -72,6 +72,10 @@ TaskHandle_t mining_hw_task_handle = NULL;
 static bb_periodic_timer_t s_stats_timer = NULL;
 static TaskHandle_t s_stats_save_task = NULL;
 
+// Set while an OTA transfer (push/pull) holds the device: the display status
+// task stops blitting (frees the SPI bus) and the panel is blanked.
+static volatile bool s_display_quiesced = false;
+
 static void stats_save_task(void *arg)
 {
     (void)arg;
@@ -108,6 +112,25 @@ static const bb_ota_led_ops_t s_tm_ota_led_ops = {
     .success  = tm_ota_led_success,
     .restore  = tm_ota_led_restore,
 };
+
+// OTA work+display pause hook (wired into bb_ota_push/pull). The consumer decides
+// WHAT to pause: mining (free heap/CPU for the transfer + erase) AND the display
+// (stop SPI blits, go dark). Returns mining_pause()'s result so bb_ota_push only
+// resumes if we actually paused.
+static bool tm_ota_pause(void)
+{
+    bool paused = mining_pause();
+    s_display_quiesced = true;
+    ui_display_off();
+    return paused;
+}
+
+static void tm_ota_resume(void)
+{
+    s_display_quiesced = false;
+    ui_display_on();
+    mining_resume();
+}
 
 static void start_mining(void)
 {
@@ -174,6 +197,8 @@ static void display_status_task(void *arg)
 
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(50));
+
+        if (s_display_quiesced) continue;  // OTA in progress: stop blitting, panel is dark
 
         if (tick % 100 == 0) {
             if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -572,7 +597,7 @@ void app_main(void)
 #endif
 
         bb_ota_pull_set_releases_url("https://api.github.com/repos/dangernoodle-io/TaipanMiner/releases/latest");
-        bb_ota_pull_set_hooks(mining_pause, mining_resume);
+        bb_ota_pull_set_hooks(tm_ota_pause, tm_ota_resume);
         bb_ota_pull_set_skip_check_cb(bb_nv_config_ota_skip_check);
         bb_ota_pull_set_http_timeout_ms(60000);
         // LED feedback during the in-place pull + push OTA paths (shared
@@ -604,7 +629,7 @@ bench_quiet_skip_net:;
     // so task_core/task_priority take effect at worker-task creation time.
 
     // Initialize OTA push with breadboard component
-    bb_ota_push_set_hooks(mining_pause, mining_resume);
+    bb_ota_push_set_hooks(tm_ota_pause, tm_ota_resume);
     bb_ota_push_set_skip_check_cb(bb_nv_config_ota_skip_check);
 
     // Wire production OTA validator ops before stratum starts

@@ -27,5 +27,6 @@ void ui_show_splash(void);
 void ui_show_prov(const char *ssid, const char *password);
 void ui_show_status(const display_status_t *status);
 void ui_display_off(void);
+void ui_display_on(void);
 
 #endif

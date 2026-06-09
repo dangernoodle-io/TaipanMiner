@@ -410,10 +410,19 @@ void asic_mining_task(void *arg)
         switch (action) {
         case ASIC_PAUSE_ACTION_QUIESCE_AND_ACK:
             g_chip_ops->chip_quiesce();
+            // Drop WDT while parked in done_take (~30–60s OTA window). Re-add and
+            // reset immediately on return so the loop's unconditional reset at the
+            // top covers the resumed case. Matches the SW-mining fix in mining.c.
+            esp_task_wdt_delete(NULL);
             mining_pause_check();
+            esp_task_wdt_add(NULL);
+            esp_task_wdt_reset();
             break;
         case ASIC_PAUSE_ACTION_ACK_ONLY:
+            esp_task_wdt_delete(NULL);
             mining_pause_check();
+            esp_task_wdt_add(NULL);
+            esp_task_wdt_reset();
             break;
         case ASIC_PAUSE_ACTION_RESUME:
             g_chip_ops->chip_resume();

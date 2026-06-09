@@ -29,6 +29,7 @@
 #include "bb_ota_push.h"
 #include "bb_ota_boot.h"
 #include "bb_ota_led.h"
+#include "bb_ota_hooks.h"
 #include "bb_update_check.h"
 #include "bb_manifest.h"
 #include "bb_registry.h"
@@ -312,7 +313,7 @@ void app_main(void)
     // armed; returns immediately otherwise. WiFi STA was started by
     // bb_registry_init_early(); bb_ota_boot waits for the link + NTP internally
     // and broadcasts its trace over the bb_log UDP sink (headless observability).
-    bb_ota_boot_set_progress_cb(bb_ota_led_progress);
+    bb_ota_set_progress_cb(bb_ota_led_progress);
     // Advertise the same mDNS identity the device uses in normal mining mode so
     // the fleet-update UI can find it during the boot-OTA download window.
     // config_init() has already run; config_hostname() is available here.
@@ -597,13 +598,13 @@ void app_main(void)
 #endif
 
         bb_ota_pull_set_releases_url("https://api.github.com/repos/dangernoodle-io/TaipanMiner/releases/latest");
-        bb_ota_pull_set_hooks(tm_ota_pause, tm_ota_resume);
-        bb_ota_pull_set_skip_check_cb(bb_nv_config_ota_skip_check);
         bb_ota_pull_set_http_timeout_ms(60000);
-        // LED feedback during the in-place pull + push OTA paths (shared
-        // bb_ota_progress_cb_t). No-op on boards whose led component stubs (S2).
-        bb_ota_pull_set_progress_cb(bb_ota_led_progress);
-        bb_ota_push_set_progress_cb(bb_ota_led_progress);
+        // Unified OTA hooks (B1-255): one set of pause/resume + skip-check +
+        // progress callbacks shared by the push, pull, and boot paths. Progress
+        // is a no-op on boards whose led component stubs (S2).
+        bb_ota_set_hooks(tm_ota_pause, tm_ota_resume);
+        bb_ota_set_skip_check_cb(bb_nv_config_ota_skip_check);
+        bb_ota_set_progress_cb(bb_ota_led_progress);
         // Register mDNS keys (manifest auto-registered by registry)
         {
             static const bb_manifest_mdns_t taipan_mdns_keys[] = {
@@ -628,9 +629,8 @@ bench_quiet_skip_net:;
     // bb_update_check + bb_ota_pull setters moved earlier (before bb_registry_init)
     // so task_core/task_priority take effect at worker-task creation time.
 
-    // Initialize OTA push with breadboard component
-    bb_ota_push_set_hooks(tm_ota_pause, tm_ota_resume);
-    bb_ota_push_set_skip_check_cb(bb_nv_config_ota_skip_check);
+    // OTA push pause/resume + skip-check come from the unified bb_ota_set_*
+    // hooks wired above (B1-255).
 
     // Wire production OTA validator ops before stratum starts
     ota_validator_init(&g_ota_timer_ops_default, &g_ota_mark_valid_ops_default);

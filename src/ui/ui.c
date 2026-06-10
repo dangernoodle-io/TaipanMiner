@@ -152,6 +152,11 @@ void ui_display_off(void)
     bb_display_off();
 }
 
+void ui_display_on(void)
+{
+    bb_display_on();
+}
+
 // ---- show_status per-board implementations ----
 
 #ifdef BOARD_DISPLAY_PANEL_ST77XX

@@ -28,6 +28,8 @@
 #include "bb_ota_pull.h"
 #include "bb_ota_push.h"
 #include "bb_ota_boot.h"
+#include "bb_ota_led.h"
+#include "bb_ota_hooks.h"
 #include "bb_update_check.h"
 #include "bb_manifest.h"
 #include "bb_registry.h"
@@ -71,6 +73,10 @@ TaskHandle_t mining_hw_task_handle = NULL;
 static bb_periodic_timer_t s_stats_timer = NULL;
 static TaskHandle_t s_stats_save_task = NULL;
 
+// Set while an OTA transfer (push/pull) holds the device: the display status
+// task stops blitting (frees the SPI bus) and the panel is blanked.
+static volatile bool s_display_quiesced = false;
+
 static void stats_save_task(void *arg)
 {
     (void)arg;
@@ -88,18 +94,43 @@ static void stats_save_timer_cb(void *arg)
     }
 }
 
-// LED feedback for any OTA path (pull / push / boot-mode). Wired to bb_ota_*
-// via set_progress_cb. No-op on boards whose led component stubs (S2 has no LED).
-static void tm_ota_progress_led(bb_ota_phase_t phase, int pct)
+// OTA LED actions for any path (pull / push / boot-mode). bb_ota_led owns the
+// lifecycle and guarantees `restore` runs on every terminal-non-reboot outcome
+// (FAIL/abort), so the heartbeat is never left latched on a fail color while the
+// miner keeps running. Rendering is ours (board-specific bb_led); the revert
+// contract is breadboard's. No-op on boards whose led component stubs.
+static void tm_ota_led_updating(void *ctx, int pct) { (void)ctx; (void)pct; led_blink(25, 500); }   // blink: updating
+static void tm_ota_led_success(void *ctx)           { (void)ctx; led_set_color(0, 38, 0); }          // green: done (reboot imminent)
+static void tm_ota_led_restore(void *ctx)
 {
-    (void)pct;
-    switch (phase) {
-        case BB_OTA_PHASE_START:
-        case BB_OTA_PHASE_PROGRESS: led_blink(25, 500); break;       // flash 25%: updating
-        case BB_OTA_PHASE_SUCCESS:  led_set_color(0, 38, 0); break;  // green: done (reboot imminent)
-        case BB_OTA_PHASE_FAIL:     led_set_color(38, 0, 0); break;  // red: failed
-        default: led_off(); break;
-    }
+    (void)ctx;
+    // OTA ended without a reboot: return to the steady mining heartbeat (or off if disabled).
+    if (config_led_heartbeat_enabled()) led_set_mining(true);
+    else led_off();
+}
+static const bb_ota_led_ops_t s_tm_ota_led_ops = {
+    .updating = tm_ota_led_updating,
+    .success  = tm_ota_led_success,
+    .restore  = tm_ota_led_restore,
+};
+
+// OTA work+display pause hook (wired into bb_ota_push/pull). The consumer decides
+// WHAT to pause: mining (free heap/CPU for the transfer + erase) AND the display
+// (stop SPI blits, go dark). Returns mining_pause()'s result so bb_ota_push only
+// resumes if we actually paused.
+static bool tm_ota_pause(void)
+{
+    bool paused = mining_pause();
+    s_display_quiesced = true;
+    ui_display_off();
+    return paused;
+}
+
+static void tm_ota_resume(void)
+{
+    s_display_quiesced = false;
+    ui_display_on();
+    mining_resume();
 }
 
 static void start_mining(void)
@@ -167,6 +198,8 @@ static void display_status_task(void *arg)
 
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(50));
+
+        if (s_display_quiesced) continue;  // OTA in progress: stop blitting, panel is dark
 
         if (tick % 100 == 0) {
             if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -270,6 +303,9 @@ void app_main(void)
     BB_ERROR_CHECK(led_init());
     bb_led_register_info();
 
+    // Register OTA LED actions before any OTA path can fire (boot-mode / pull / push).
+    bb_ota_led_init(&s_tm_ota_led_ops, NULL);
+
 #ifdef BOARD_OTA_BOOT_MODE
     // OTA-only boot mode (tight/serial-less boards, e.g. S2): if armed via
     // POST /api/update/apply, pull the new firmware at FULL early-boot heap
@@ -277,7 +313,7 @@ void app_main(void)
     // armed; returns immediately otherwise. WiFi STA was started by
     // bb_registry_init_early(); bb_ota_boot waits for the link + NTP internally
     // and broadcasts its trace over the bb_log UDP sink (headless observability).
-    bb_ota_boot_set_progress_cb(tm_ota_progress_led);
+    bb_ota_set_progress_cb(bb_ota_led_progress);
     // Advertise the same mDNS identity the device uses in normal mining mode so
     // the fleet-update UI can find it during the boot-OTA download window.
     // config_init() has already run; config_hostname() is available here.
@@ -562,13 +598,13 @@ void app_main(void)
 #endif
 
         bb_ota_pull_set_releases_url("https://api.github.com/repos/dangernoodle-io/TaipanMiner/releases/latest");
-        bb_ota_pull_set_hooks(mining_pause, mining_resume);
-        bb_ota_pull_set_skip_check_cb(bb_nv_config_ota_skip_check);
         bb_ota_pull_set_http_timeout_ms(60000);
-        // LED feedback during the in-place pull + push OTA paths (shared
-        // bb_ota_progress_cb_t). No-op on boards whose led component stubs (S2).
-        bb_ota_pull_set_progress_cb(tm_ota_progress_led);
-        bb_ota_push_set_progress_cb(tm_ota_progress_led);
+        // Unified OTA hooks (B1-255): one set of pause/resume + skip-check +
+        // progress callbacks shared by the push, pull, and boot paths. Progress
+        // is a no-op on boards whose led component stubs (S2).
+        bb_ota_set_hooks(tm_ota_pause, tm_ota_resume);
+        bb_ota_set_skip_check_cb(bb_nv_config_ota_skip_check);
+        bb_ota_set_progress_cb(bb_ota_led_progress);
         // Register mDNS keys (manifest auto-registered by registry)
         {
             static const bb_manifest_mdns_t taipan_mdns_keys[] = {
@@ -593,9 +629,8 @@ bench_quiet_skip_net:;
     // bb_update_check + bb_ota_pull setters moved earlier (before bb_registry_init)
     // so task_core/task_priority take effect at worker-task creation time.
 
-    // Initialize OTA push with breadboard component
-    bb_ota_push_set_hooks(mining_pause, mining_resume);
-    bb_ota_push_set_skip_check_cb(bb_nv_config_ota_skip_check);
+    // OTA push pause/resume + skip-check come from the unified bb_ota_set_*
+    // hooks wired above (B1-255).
 
     // Wire production OTA validator ops before stratum starts
     ota_validator_init(&g_ota_timer_ops_default, &g_ota_mark_valid_ops_default);

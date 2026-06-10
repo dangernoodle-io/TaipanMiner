@@ -2,6 +2,7 @@
 #include "mining_pause_io.h"
 #include "mining_pause_state.h"
 #include "bb_log.h"
+#include "bb_wdt.h"
 #include <inttypes.h>
 
 #ifdef ESP_PLATFORM
@@ -52,6 +53,13 @@ bool mining_pause_pending(void)
     return s_pause_state.pause_requested;
 }
 
+// try_wait callback for bb_wdt_park_wait: wraps done_take with the sync-ops ptr.
+static bool s_done_try_wait(void *ctx, uint32_t ms)
+{
+    const mining_pause_sync_ops_t *ops = (const mining_pause_sync_ops_t *)ctx;
+    return ops->done_take(ms);
+}
+
 bool mining_pause_check(void)
 {
     if (!mining_pause_state_on_check(&s_pause_state)) return false;
@@ -63,7 +71,12 @@ bool mining_pause_check(void)
     // Tier-1 hop and cycled until OTA finally called mining_resume(). See
     // TA-277. on_done_timeout clears both flags as belt-and-suspenders so a
     // future watchdog event does not regress to cycling.
-    if (!s_ops->done_take(300000)) {
+    //
+    // bb_wdt_park_wait slices the 5 min wait into 5 s chunks, feeding the
+    // Task WDT after each slice. The task stays subscribed throughout so
+    // there is no subscribe/unsubscribe bracket needed at the call site.
+    // Slice of 5000 ms is comfortably under the 60 s TWDT timeout.
+    if (!bb_wdt_park_wait(s_done_try_wait, (void *)s_ops, 300000, 5000)) {
         bb_log_e(TAG, "mining resume timeout, resuming anyway");
         mining_pause_state_on_done_timeout(&s_pause_state);
     } else {

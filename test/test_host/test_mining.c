@@ -705,3 +705,24 @@ void test_sw_hash_nonce_rejects_over_target(void)
     hash_result_t result_b = sw_hash_nonce(&backend, 0x00000000, hash_out);
     TEST_ASSERT_EQUAL_INT(HASH_MISS, result_b);
 }
+
+// TA-529: block-found callback seam tests
+
+static int s_cb_count = 0;
+static void count_cb(void) { s_cb_count++; }
+
+void test_block_found_cb_fires(void)
+{
+    s_cb_count = 0;
+    mining_set_block_found_cb(count_cb);
+    mining_notify_block_found();
+    TEST_ASSERT_EQUAL_INT(1, s_cb_count);
+    mining_set_block_found_cb(NULL);
+}
+
+void test_block_found_cb_null_safe(void)
+{
+    mining_set_block_found_cb(NULL);
+    mining_notify_block_found(); // must not crash
+    TEST_ASSERT_TRUE(true);
+}

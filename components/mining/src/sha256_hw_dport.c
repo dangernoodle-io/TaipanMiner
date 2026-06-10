@@ -310,7 +310,7 @@ bb_err_t sha256_hw_dport_self_test_lockstep(void)
         header[i] = (uint8_t)((i * 0x5a) ^ 0xa5);
     }
 
-    bb_log_i(TAG, "lockstep self-test: %d nonces", DPORT_LOCKSTEP_ITERS);
+    bb_log_d(TAG, "lockstep self-test: %d nonces", DPORT_LOCKSTEP_ITERS);
 
     for (int iter = 0; iter < DPORT_LOCKSTEP_ITERS; iter++) {
         uint32_t nonce = (uint32_t)(0x10000000 + iter);
@@ -354,7 +354,7 @@ bb_err_t sha256_hw_dport_self_test_lockstep(void)
         }
     }
 
-    bb_log_i(TAG, "lockstep self-test: PASS (%d nonces)", DPORT_LOCKSTEP_ITERS);
+    bb_log_d(TAG, "lockstep self-test: PASS (%d nonces)", DPORT_LOCKSTEP_ITERS);
     return BB_OK;
 }
 
@@ -566,9 +566,9 @@ static bool sha256_hw_dport_overlap_canary(void)
     }
 
     if (safe) {
-        bb_log_i(TAG, "SHA TEXT-overlap canary (DPORT): SAFE — peripheral snapshots TEXT at trigger; overlap-during-busy-wait possible");
+        bb_log_d(TAG, "SHA TEXT-overlap canary (DPORT): SAFE — peripheral snapshots TEXT at trigger; overlap-during-busy-wait possible");
     } else {
-        bb_log_i(TAG, "SHA TEXT-overlap canary (DPORT): UNSAFE — peripheral reads TEXT during compute; cannot overlap");
+        bb_log_w(TAG, "SHA TEXT-overlap canary (DPORT): UNSAFE — peripheral reads TEXT during compute; cannot overlap");
     }
 
     mining_set_sha_overlap_safe(safe);
@@ -605,7 +605,7 @@ static bool sha256_hw_dport_hwrite_canary(void)
      * The H-write-during-compute failure mode does not exist on this path;
      * report SAFE to distinguish "probed and confirmed absent" from UNKNOWN
      * ("probe never ran"). */
-    bb_log_i(TAG, "SHA H-write canary (DPORT): SAFE — no separate H register on classic ESP32; "
+    bb_log_d(TAG, "SHA H-write canary (DPORT): SAFE — no separate H register on classic ESP32; "
              "digest in TEXT[0..7] after LOAD; kernel never writes TEXT[0..7] during compute");
     mining_set_sha_hwrite_safe(true);
     return true;

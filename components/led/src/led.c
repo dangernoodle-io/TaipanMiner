@@ -170,4 +170,22 @@ bb_err_t led_blink(uint8_t level_pct, uint32_t period_ms) {
     return bb_led_anim_set(s_anim, &pat);
 }
 
+// Fire-and-forget gold flash on block found. Sets a PULSE pattern that fires
+// once and decays; the next led_set_mining(true) call restores the heartbeat.
+// On RGB LEDs the flash is gold (255,200,0); on single-channel PWM it's a
+// bright pulse. The long period_ms (1 h) prevents the pulse from repeating
+// before the mining heartbeat is restored by the normal state machine.
+bb_err_t led_flash_block_found(void) {
+    if (!s_anim) return BB_OK;
+    bb_led_anim_resume(s_anim);
+    if (bb_led_caps(s_led) & BB_LED_CAP_RGB) {
+        bb_led_set_color(s_led, 0, 255, 200, 0);  // gold
+    }
+    bb_led_anim_pattern_t pat = {
+        .kind  = BB_ANIM_PULSE,
+        .pulse = { .period_ms = 3600000, .peak_pct = 30, .decay_ms = 800 },
+    };
+    return bb_led_anim_set(s_anim, &pat);
+}
+
 #endif /* ESP_PLATFORM */

@@ -136,6 +136,13 @@ static void tm_ota_resume(void)
     mining_resume();
 }
 
+// TA-122: gold LED flash on block found. Fire-and-forget via led_flash_block_found()
+// (sets a one-shot PULSE; heartbeat resumes on the next led_set_mining() call).
+static void on_block_found(void)
+{
+    led_flash_block_found();
+}
+
 static void start_mining(void)
 {
     // Create inter-task queues
@@ -147,6 +154,9 @@ static void start_mining(void)
     mining_pool_stats_init();
 
     mining_pause_init(&g_mining_pause_sync_ops_default);
+
+    // TA-122: fire a gold LED flash when a block is found (fire-and-forget).
+    mining_set_block_found_cb(on_block_found);
 
     // Create task for NVS stats save (low priority, blocks on notification)
     xTaskCreate(stats_save_task, "nvs_save", 4096, NULL, 1, &s_stats_save_task);
@@ -269,6 +279,9 @@ void app_main(void)
     bb_log_level_set("esp_netif_handlers", BB_LOG_LEVEL_WARN);
     bb_log_level_set("esp_netif_lwip", BB_LOG_LEVEL_WARN);
     bb_log_level_set("esp-x509-crt-bundle", BB_LOG_LEVEL_WARN);
+    bb_log_level_set("httpd_uri", BB_LOG_LEVEL_WARN);
+    bb_log_level_set("httpd_txrx", BB_LOG_LEVEL_WARN);
+    bb_log_level_set("httpd", BB_LOG_LEVEL_WARN);
 
     // Register TM-owned tags so they appear in GET /api/log/level discovery
     bb_log_tag_register("taipanminer", BB_LOG_LEVEL_INFO);

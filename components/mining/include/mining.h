@@ -107,6 +107,15 @@ bool mining_pause_check(void);
 // Non-blocking query: returns true if a pause has been requested
 bool mining_pause_pending(void);
 
+// Block-found callback hook (TA-122). Register a zero-argument callback to be
+// invoked when a share meets the network target. Keeps the mining component
+// decoupled from LED/UI — caller supplies the action. NULL disables the hook.
+void mining_set_block_found_cb(void (*cb)(void));
+
+// Testable seam: the mining task loop calls this on every block-found event.
+// Invokes the registered callback (if any). Safe to call with no callback set.
+void mining_notify_block_found(void);
+
 // SHA self-test failure flag (set by mining task or asic_init on FAIL)
 bool mining_sha_self_test_failed(void);
 void mining_set_sha_self_test_failed(void);

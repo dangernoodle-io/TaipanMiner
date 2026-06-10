@@ -585,30 +585,47 @@ export async function markOtaValid(): Promise<void> {
 }
 
 // Upload firmware binary to /api/update/push with progress callback.
+// The device aborts a slow/stalled upload with 408 ("Upload too slow") via its
+// transfer-deadline (bb_ota_push). A slow start — e.g. the first attempt right
+// after a reboot on a single-core board — can trip it even though the bytes
+// upload fine, so retry once on 408 before surfacing the failure.
 export function uploadOta(
   file: File,
   onProgress: (pct: number) => void
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open('POST', `${baseUrl}/api/update/push`)
-    xhr.setRequestHeader('Content-Type', 'application/octet-stream')
+  const attempt = (): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', `${baseUrl}/api/update/push`)
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream')
 
-    xhr.upload.addEventListener('progress', (e) => {
-      if (e.lengthComputable) onProgress((e.loaded / e.total) * 100)
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) onProgress((e.loaded / e.total) * 100)
+      })
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(xhr.responseText || 'ok')
+        } else {
+          const err = new Error(`upload failed: ${xhr.status} ${xhr.responseText}`) as Error & {
+            status?: number
+          }
+          err.status = xhr.status
+          reject(err)
+        }
+      })
+
+      xhr.addEventListener('error', () => reject(new Error('network error during upload')))
+      xhr.addEventListener('abort', () => reject(new Error('upload aborted')))
+
+      xhr.send(file)
     })
 
-    xhr.addEventListener('load', () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(xhr.responseText || 'ok')
-      } else {
-        reject(new Error(`upload failed: ${xhr.status} ${xhr.responseText}`))
-      }
-    })
-
-    xhr.addEventListener('error', () => reject(new Error('network error during upload')))
-    xhr.addEventListener('abort', () => reject(new Error('upload aborted')))
-
-    xhr.send(file)
+  return attempt().catch((err: Error & { status?: number }) => {
+    if (err.status === 408) {
+      onProgress(0) // reset the progress bar for the retry
+      return attempt()
+    }
+    throw err
   })
 }

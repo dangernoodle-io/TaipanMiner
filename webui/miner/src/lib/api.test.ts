@@ -634,6 +634,44 @@ function makeXhrShim(opts: {
   }
 }
 
+// Shim that returns a different status per send() call (clamps to the last
+// entry) — for exercising the upload's retry-on-408 path across attempts.
+function makeSequenceXhrShim(seq: { status: number; responseText?: string }[]) {
+  let i = 0
+  return class MockXHR {
+    open = vi.fn()
+    setRequestHeader = vi.fn()
+    send = vi.fn(() => {
+      this.upload.dispatchEvent('progress', { lengthComputable: true, loaded: 50, total: 100 })
+      const cur = seq[Math.min(i, seq.length - 1)]
+      i++
+      ;(this as any).status = cur.status
+      ;(this as any).responseText = cur.responseText ?? ''
+      this.dispatchEvent('load', {})
+    })
+    status = 0
+    responseText = ''
+    _listeners: Record<string, ((e: any) => void)[]> = {}
+    upload = {
+      _listeners: {} as Record<string, ((e: any) => void)[]>,
+      addEventListener(type: string, cb: (e: any) => void) {
+        if (!this._listeners[type]) this._listeners[type] = []
+        this._listeners[type].push(cb)
+      },
+      dispatchEvent(type: string, e: any) {
+        ;(this._listeners[type] ?? []).forEach(cb => cb(e))
+      }
+    }
+    addEventListener(type: string, cb: (e: any) => void) {
+      if (!this._listeners[type]) this._listeners[type] = []
+      this._listeners[type].push(cb)
+    }
+    dispatchEvent(type: string, e: any) {
+      ;(this._listeners[type] ?? []).forEach(cb => cb(e))
+    }
+  }
+}
+
 describe('uploadOta', () => {
   afterEach(() => {
     vi.restoreAllMocks()
@@ -664,6 +702,28 @@ describe('uploadOta', () => {
     ;(globalThis as any).XMLHttpRequest = makeXhrShim({ status: 0, failAbort: true })
     const file = new File(['data'], 'fw.bin')
     await expect(uploadOta(file, vi.fn())).rejects.toThrow('upload aborted')
+  })
+
+  it('retries once on 408 then succeeds', async () => {
+    ;(globalThis as any).XMLHttpRequest = makeSequenceXhrShim([
+      { status: 408, responseText: 'Upload too slow' },
+      { status: 200, responseText: 'ok' }
+    ])
+    const file = new File(['data'], 'fw.bin')
+    const onProgress = vi.fn()
+    const result = await uploadOta(file, onProgress)
+    expect(result).toBe('ok')
+    // progress bar reset to 0 before the retry
+    expect(onProgress).toHaveBeenCalledWith(0)
+  })
+
+  it('rejects if 408 persists after the one retry', async () => {
+    ;(globalThis as any).XMLHttpRequest = makeSequenceXhrShim([
+      { status: 408, responseText: 'Upload too slow' },
+      { status: 408, responseText: 'Upload too slow' }
+    ])
+    const file = new File(['data'], 'fw.bin')
+    await expect(uploadOta(file, vi.fn())).rejects.toThrow('upload failed: 408')
   })
 })
 

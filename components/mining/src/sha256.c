@@ -12,7 +12,8 @@
 #include "esp_timer.h"
 #else
 #define IRAM_ATTR
-#define bb_log_i(tag, fmt, ...) printf("[%s] " fmt "\n", tag, ##__VA_ARGS__)
+// bb_log_i for the host build is provided by bb_log.h (maps to fprintf); no
+// local redefinition needed (it conflicts: -Wmacro-redefined).
 #endif
 
 // Initial hash values (H0 - H7)

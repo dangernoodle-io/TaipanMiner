@@ -21,20 +21,24 @@ if(NOT DEFINED FIRMWARE_BOARD)
     endif()
 endif()
 
-# bb_display_ek79007 (esp32p4-only) and bb_display_ili9341 are excluded to
-# prevent IDF Component Manager from resolving their platform-specific deps
-# on bitaxe/tdongle-s3 targets. Per-board excludes also drop the unused
-# panel backend so its constructor doesn't race the right one in
-# bb_display_init's first-success-wins loop (st77xx has no probe and
-# accepts junk pins, masquerading as the active backend on bitaxe boards).
+# bb_display_ek79007 (esp32p4-only) is always excluded to prevent IDF Component
+# Manager from resolving its platform-specific deps on non-P4 targets.
+# Per-board excludes drop unused panel backends so their constructors don't race
+# the active one in bb_display_init's first-success-wins loop (st77xx has no probe
+# and accepts junk pins, masquerading as the active backend on bitaxe boards).
 set(EXCLUDE_COMPONENTS
     bb_display_ek79007
-    bb_display_ili9341
 )
 if(FIRMWARE_BOARD MATCHES "^bitaxe-")
-    list(APPEND EXCLUDE_COMPONENTS bb_display_st77xx)
+    list(APPEND EXCLUDE_COMPONENTS bb_display_st77xx bb_display_ili9341)
 elseif(FIRMWARE_BOARD MATCHES "^tdongle-")
-    list(APPEND EXCLUDE_COMPONENTS bb_display_ssd1306)
+    list(APPEND EXCLUDE_COMPONENTS bb_display_ssd1306 bb_display_ili9341)
+elseif(FIRMWARE_BOARD STREQUAL "esp32-wroom32-cyd")
+    list(APPEND EXCLUDE_COMPONENTS bb_display_st77xx bb_display_ssd1306)
+else()
+    # esp32-wroom32, esp32-s2-mini, esp32-c3-supermini, unknown: no display;
+    # include ssd1306 as a no-op (probe fails gracefully with -1 pins).
+    list(APPEND EXCLUDE_COMPONENTS bb_display_st77xx bb_display_ili9341)
 endif()
 
 add_compile_definitions(FIRMWARE_BOARD="${FIRMWARE_BOARD}")

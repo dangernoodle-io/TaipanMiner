@@ -20,6 +20,9 @@
 #ifdef BOARD_DISPLAY_PANEL_SSD1306
 #include "bb_display_ssd1306.h"
 #endif
+#ifdef BOARD_DISPLAY_PANEL_ILI9341
+#include "bb_display_ili9341.h"
+#endif
 #include "led.h"
 #include "esp_ota_ops.h"
 #include "bb_timer.h"
@@ -369,9 +372,15 @@ void app_main(void)
 #if defined(BOARD_DISPLAY_SHARES_ASIC_I2C) && defined(ASIC_CHIP)
     bb_display_ssd1306_set_i2c_bus(asic_get_i2c_bus());
 #endif
-    BB_ERROR_CHECK(bb_display_init());
-    ui_show_splash();
-    vTaskDelay(pdMS_TO_TICKS(2000));
+    // Display is optional hardware: a probe/init failure must never brick a
+    // serial-less miner. Degrade to headless (matches bb_display_register_info's
+    // present:false fallback) instead of aborting at boot.
+    if (bb_display_init() == BB_OK) {
+        ui_show_splash();
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    } else {
+        bb_log_w(TAG, "display init failed; continuing headless");
+    }
 #endif
 #ifdef TM_BENCH_QUIET
     bb_log_w(TAG, "TM_BENCH_QUIET: display disabled");

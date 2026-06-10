@@ -159,7 +159,10 @@ void ui_display_on(void)
 
 // ---- show_status per-board implementations ----
 
-#ifdef BOARD_DISPLAY_PANEL_ST77XX
+// Shared pixel-blit helpers used by ST77XX and ILI9341 backends.
+// Both are SPI panel-agnostic via bb_display_blit; only the line-buffer width
+// differs (160 px for ST7735, 320 px for ILI9341).
+#if defined(BOARD_DISPLAY_PANEL_ST77XX) || defined(BOARD_DISPLAY_PANEL_ILI9341)
 
 // Per-row text rasterizer using bb_display_font_8x16.
 // Renders one pixel row (font_row) of text at x-offset into line[].
@@ -194,6 +197,10 @@ static void render_logo_row_into_line(uint16_t *line, int logo_x, int logo_row)
         line[logo_x + col] = on ? LOGO_FG_COLOR : COLOR_BLACK;
     }
 }
+
+#endif /* ST77XX || ILI9341 */
+
+#ifdef BOARD_DISPLAY_PANEL_ST77XX
 
 // Virtual strip: page0=splash(h px), page1=stats(h px), page2=network(h px).
 // State 0: hold splash 5s (100 ticks @ 50ms). State 1: scroll 1px/3 ticks.
@@ -319,7 +326,133 @@ static void show_status_st7735(const display_status_t *status)
     }
 }
 
-#elif defined(BOARD_DISPLAY_PANEL_SSD1306)
+#endif /* BOARD_DISPLAY_PANEL_ST77XX */
+
+#ifdef BOARD_DISPLAY_PANEL_ILI9341
+
+// ILI9341 320x240: same scroll-pages logic as ST7735 but wider (320 px).
+// Three virtual pages (splash/stats/network), each LCD_HEIGHT rows, scrolling
+// vertically at 1 px per 3 ticks.
+static void show_status_ili9341(const display_status_t *status)
+{
+    static int s_state;
+    static int s_tick;
+    static int s_offset;
+
+    uint16_t w = bb_display_width();
+    uint16_t h = bb_display_height();
+    int total = (int)h * 3;
+
+    char stat_text[4][21];
+    fmt_hashrate(status->hashrate, stat_text[0], 21);
+    snprintf(stat_text[1], 21, "Shares: %" PRIu32 "/%" PRIu32,
+             status->shares, status->rejected);
+    snprintf(stat_text[2], 21, "Temp: %.1fC", status->temp_c);
+    {
+        char up[16];
+        fmt_uptime(status->uptime_us, up, sizeof(up));
+        snprintf(stat_text[3], 21, "Up: %s", up);
+    }
+
+    char net_text[5][21];
+    const char *net_state;
+    if (status->stratum_ok && status->mdns_ok)                    net_state = "NET ok";
+    else if (status->wifi_retry_count > 0 || !status->stratum_ok) net_state = "NET rcon";
+    else                                                           net_state = "NET off";
+    snprintf(net_text[0], 21, "%s", net_state);
+    const char *ssid = bb_nv_config_wifi_ssid();
+    snprintf(net_text[1], 21, "%-13.13s%4ddBm", ssid ? ssid : "?", status->rssi);
+    snprintf(net_text[2], 21, "%s", status->ip);
+    uint32_t disc_mins = status->wifi_disc_age_s / 60;
+    snprintf(net_text[3], 21, "D:%-3u %-4um r:%d",
+             status->wifi_disc_reason, (unsigned)disc_mins, status->wifi_retry_count);
+    snprintf(net_text[4], 21, "MDNS:%s S:%s",
+             status->mdns_ok ? "ok" : "--",
+             status->stratum_ok ? "ok" : "r");
+
+    int render_offset = (s_state == 0) ? 0 : s_offset;
+
+    if (s_state == 0 && s_tick > 0) {
+        s_tick++;
+        if (s_tick >= 100) { s_state = 1; s_tick = 0; s_offset = 0; }
+        return;
+    }
+
+    if (s_state == 1 && s_offset % 3 != 0) {
+        s_offset++;
+        if (s_offset >= total) { s_state = 0; s_tick = 0; }
+        return;
+    }
+
+    int logo_x = 2;
+    int logo_y_base = ((int)h - LOGO_H) / 2;
+    int text_y_base = ((int)h - 16) / 2;
+    int text_x = logo_x + LOGO_W + 4;
+
+    // Stack-allocated scan line — ILI9341 is 320 px wide
+    uint16_t line[320];
+
+    for (int sy = 0; sy < (int)h; sy++) {
+        int content_y = (sy + render_offset) % total;
+
+        int page, page_y;
+        if (content_y < (int)h) {
+            page = 0; page_y = content_y;
+        } else if (content_y < (int)h * 2) {
+            page = 1; page_y = content_y - (int)h;
+        } else {
+            page = 2; page_y = content_y - (int)h * 2;
+        }
+
+        for (int x = 0; x < (int)w; x++) line[x] = COLOR_BLACK;
+
+        if (page == 0) {
+            if (page_y >= logo_y_base && page_y < logo_y_base + LOGO_H) {
+                render_logo_row_into_line(line, logo_x, page_y - logo_y_base);
+            }
+            if (page_y >= text_y_base && page_y < text_y_base + 16) {
+                render_text_row_into_line(line, text_x, "TaipanMiner",
+                                          page_y - text_y_base,
+                                          COLOR_AMBER, COLOR_BLACK, (int)w);
+            }
+        } else if (page == 1) {
+            int text_idx = page_y / 16;
+            int font_row = page_y % 16;
+            if (text_idx < 4) {
+                uint16_t fg = (text_idx == 0) ? COLOR_AMBER : COLOR_WHITE;
+                render_text_row_into_line(line, 0, stat_text[text_idx],
+                                          font_row, fg, COLOR_BLACK, (int)w);
+            }
+        } else {
+            int text_idx = page_y / 16;
+            int font_row = page_y % 16;
+            if (text_idx < 5) {
+                uint16_t fg = (text_idx == 0) ? COLOR_AMBER : COLOR_WHITE;
+                render_text_row_into_line(line, 0, net_text[text_idx],
+                                          font_row, fg, COLOR_BLACK, (int)w);
+            }
+        }
+
+        bb_display_blit(0, (int16_t)sy, w, 1, line);
+    }
+
+    bb_display_flush();
+
+    switch (s_state) {
+    case 0:
+        s_tick++;
+        if (s_tick >= 100) { s_state = 1; s_tick = 0; s_offset = 0; }
+        break;
+    case 1:
+        s_offset++;
+        if (s_offset >= total) { s_state = 0; s_tick = 0; }
+        break;
+    }
+}
+
+#endif /* BOARD_DISPLAY_PANEL_ILI9341 */
+
+#ifdef BOARD_DISPLAY_PANEL_SSD1306
 
 static void show_status_ssd1306(const display_status_t *status)
 {
@@ -378,6 +511,8 @@ void ui_show_status(const display_status_t *status)
 
 #if defined(BOARD_DISPLAY_PANEL_ST77XX)
     show_status_st7735(status);
+#elif defined(BOARD_DISPLAY_PANEL_ILI9341)
+    show_status_ili9341(status);
 #elif defined(BOARD_DISPLAY_PANEL_SSD1306)
     show_status_ssd1306(status);
 #else

@@ -174,7 +174,7 @@ jobs:
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
     strategy:
       matrix:
-        env: [tdongle-s3, esp32-wroom32, esp32-s2-mini, esp32-c3-supermini, bitaxe-403, bitaxe-601, bitaxe-650]
+        env: [tdongle-s3, esp32-wroom32, esp32-s2-mini, esp32-c3-supermini, bitaxe-403, bitaxe-601, bitaxe-650, esp32-wroom32-cyd]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -240,7 +240,7 @@ jobs:
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
     strategy:
       matrix:
-        env: [tdongle-s3-debug, esp32-wroom32-debug, esp32-s2-mini-debug, esp32-c3-supermini-debug, bitaxe-403-debug, bitaxe-601-debug, bitaxe-650-debug]
+        env: [tdongle-s3-debug, esp32-wroom32-debug, esp32-s2-mini-debug, esp32-c3-supermini-debug, bitaxe-403-debug, bitaxe-601-debug, bitaxe-650-debug, esp32-wroom32-cyd-debug]
     steps:
       - uses: actions/checkout@v6
         with:

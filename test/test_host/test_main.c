@@ -237,6 +237,9 @@ void test_pack_target_word0_exact_byte_order(void);
 void test_sw_hash_nonce_rejects_over_target(void);
 void test_share_reverify_block1_nonce(void);
 void test_share_reverify_version_rolling(void);
+// TA-529: block-found callback seam tests
+void test_block_found_cb_fires(void);
+void test_block_found_cb_null_safe(void);
 
 // Forward declarations from test_mining_hotloop_sync.c
 void test_mining_hotloop_finds_known_share(void);
@@ -964,6 +967,9 @@ int main(void) {
     RUN_TEST(test_sw_hash_nonce_rejects_over_target);
     RUN_TEST(test_share_reverify_block1_nonce);
     RUN_TEST(test_share_reverify_version_rolling);
+    // TA-529: block-found callback seam tests
+    RUN_TEST(test_block_found_cb_fires);
+    RUN_TEST(test_block_found_cb_null_safe);
     RUN_TEST(test_mining_hotloop_finds_known_share);
     RUN_TEST(test_mining_hotloop_rejects_non_matching_nonce);
 

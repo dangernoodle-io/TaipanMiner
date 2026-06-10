@@ -265,7 +265,7 @@ bb_err_t sha256_hw_ahb_self_test_lockstep(uint32_t iters)
      * + bit-length, handled by sha256_hw_mine_nonce internally. */
     const uint32_t block2_words[3] = { 0xdeadbeef, 0x12345678, 0xcafebabe };
 
-    bb_log_i(TAG, "lockstep self-test: %lu nonces", (unsigned long)iters);
+    bb_log_d(TAG, "lockstep self-test: %lu nonces", (unsigned long)iters);
 
     sha256_hw_pipeline_prep();
     for (uint32_t nonce = 0x10000000; nonce < 0x10000000 + iters; nonce++) {
@@ -337,7 +337,7 @@ bb_err_t sha256_hw_ahb_self_test_lockstep(uint32_t iters)
         }
     }
 
-    bb_log_i(TAG, "lockstep self-test: PASS (%lu nonces)", (unsigned long)iters);
+    bb_log_d(TAG, "lockstep self-test: PASS (%lu nonces)", (unsigned long)iters);
     return BB_OK;
 }
 
@@ -372,9 +372,9 @@ bool sha256_hw_verify_text_preserved(void)
     }
 
     if (preserved) {
-        bb_log_i(TAG, "SHA_TEXT preserved after SHA_START — pad-write reduction possible");
+        bb_log_d(TAG, "SHA_TEXT preserved after SHA_START — pad-write reduction possible");
     } else {
-        bb_log_i(TAG, "SHA_TEXT NOT preserved (first mismatch at M[%d]) — per-nonce pad-write required",
+        bb_log_w(TAG, "SHA_TEXT NOT preserved (first mismatch at M[%d]) — per-nonce pad-write required",
                  first_modified);
     }
 
@@ -426,9 +426,9 @@ bool sha256_hw_overlap_canary(void)
     }
 
     if (safe) {
-        bb_log_i(TAG, "SHA TEXT-overlap canary: SAFE — peripheral snapshots TEXT at trigger; overlap-during-busy-wait possible");
+        bb_log_d(TAG, "SHA TEXT-overlap canary: SAFE — peripheral snapshots TEXT at trigger; overlap-during-busy-wait possible");
     } else {
-        bb_log_i(TAG, "SHA TEXT-overlap canary: UNSAFE — peripheral reads TEXT during compute; cannot overlap");
+        bb_log_w(TAG, "SHA TEXT-overlap canary: UNSAFE — peripheral reads TEXT during compute; cannot overlap");
     }
 
     mining_set_sha_overlap_safe(safe);
@@ -470,9 +470,9 @@ bool sha256_hw_hwrite_canary(void)
     }
 
     if (safe) {
-        bb_log_i(TAG, "SHA H-write canary: SAFE — H reload during compute does not corrupt digest");
+        bb_log_d(TAG, "SHA H-write canary: SAFE — H reload during compute does not corrupt digest");
     } else {
-        bb_log_i(TAG, "SHA H-write canary: UNSAFE — H reload during compute corrupts digest");
+        bb_log_w(TAG, "SHA H-write canary: UNSAFE — H reload during compute corrupts digest");
     }
 
     mining_set_sha_hwrite_safe(safe);

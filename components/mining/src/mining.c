@@ -93,6 +93,17 @@ double mining_get_pool_effective_10m(void) { return 0.0; }
 double mining_get_pool_effective_1h(void) { return 0.0; }
 #endif
 
+// TA-122: block-found callback hook (keeps mining decoupled from LED/UI).
+static void (*s_block_found_cb)(void) = NULL;
+
+void mining_set_block_found_cb(void (*cb)(void)) {
+    s_block_found_cb = cb;
+}
+
+void mining_notify_block_found(void) {
+    if (s_block_found_cb) s_block_found_cb();
+}
+
 // SHA self-test flag (process-static, exposed for host tests)
 static bool s_sha_self_test_failed = false;
 
@@ -779,6 +790,7 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                             bhost, (unsigned)bport, share_diff, (long long)now_ts);
                         bb_event_post(btopic, 0, payload, strlen(payload));
                     }
+                    mining_notify_block_found();
                 }
 
                 if (result_out) {

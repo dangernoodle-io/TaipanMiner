@@ -9,6 +9,8 @@ if(FIRMWARE_BOARD MATCHES "^tdongle")
     set(_display_backend bb_display_st77xx)
 elseif(FIRMWARE_BOARD MATCHES "^bitaxe")
     set(_display_backend bb_display_ssd1306)
+elseif(FIRMWARE_BOARD STREQUAL "esp32-wroom32-cyd")
+    set(_display_backend bb_display_ili9341)
 else()
     # esp32-wroom32 and unknown boards: no display; include ssd1306 as a no-op
     # (probe will fail gracefully with -1 pins).

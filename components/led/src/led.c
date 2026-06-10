@@ -7,6 +7,7 @@
 #include "bb_led.h"
 #include "bb_led_apa102.h"
 #include "bb_led_pwm.h"
+#include "bb_led_rgb_pwm.h"
 #include "bb_led_anim.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -43,6 +44,19 @@ static bb_err_t led_backend_open(bb_led_handle_t *out) {
         .active_low = true,   // C3 SuperMini onboard LED (GPIO8) is active-low
     };
     return bb_led_pwm_open(&cfg, out);
+#elif defined(BOARD_ESP32_WROOM32_CYD)
+    // CYD common-anode (active-low) RGB LED — Elegoo 2432S028R '-32E':
+    // R=GPIO22, G=GPIO16, B=GPIO17. Full 3-channel RGB via bb_led_rgb_pwm so the
+    // status colors (boot/prov/mining/OTA) render instead of collapsing to red.
+    bb_led_rgb_pwm_cfg_t cfg = {
+        .gpio_r = PIN_LED_R,
+        .gpio_g = PIN_LED_G,
+        .gpio_b = PIN_LED_B,
+        .freq_hz = 5000,
+        .resolution_bits = 13,
+        .active_low = true,
+    };
+    return bb_led_rgb_pwm_open(&cfg, out);
 #else
     (void)out;
     return BB_ERR_UNSUPPORTED;  // bitaxe: no status LED

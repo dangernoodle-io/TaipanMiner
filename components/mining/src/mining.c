@@ -164,7 +164,7 @@ sha_overlap_state_t mining_get_sha_hwrite_state(void) {
 #ifdef ESP_PLATFORM
 #include "esp_log.h"
 #include "bb_timer.h"
-#include "esp_task_wdt.h"
+#include "bb_wdt.h"
 #include "esp_cpu.h"
 #include "mining_avg.h"
 #if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32C3
@@ -854,17 +854,11 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
             // failed under scheduling jitter — letting OTA run with mining still at full load.
             sha256_hw_release();
             if (mining_pause_pending()) {
-                // Drop WDT subscription while parked: a deliberately-idle task must
-                // not be WDT-monitored. The bracket is on the blocking call, not a
-                // separate pre-check, so it is race-free — a pause that arrives between
-                // mining_pause_pending() and mining_pause_check() is still bracketed on
-                // the very next tier-1 cycle (a few ms later, well within the 5s ACK
-                // window). Dual-core boards share this latent bug (mining parks on core 1
-                // during pull-OTA too), so the fix is unconditional, not C3-only.
-                esp_task_wdt_delete(NULL);
+                // mining_pause_check() now self-feeds the Task WDT via
+                // bb_wdt_park_wait inside mining_pause.c — no delete/add bracket
+                // needed here. The task stays subscribed and fed throughout the
+                // parked window.
                 bool paused = mining_pause_check();
-                esp_task_wdt_add(NULL);
-                esp_task_wdt_reset();
                 if (paused) {
                     sha256_hw_acquire();
                     backend->prepare_job(backend, work, block2);
@@ -967,7 +961,7 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
 
                 // Release SHA lock so mbedTLS can use HW SHA during TLS/OTA
                 sha256_hw_release();
-                esp_task_wdt_reset();
+                bb_wdt_task_feed();
                 vTaskDelay(pdMS_TO_TICKS(5));
                 sha256_hw_acquire();
             }
@@ -1013,7 +1007,7 @@ void mining_task(void *arg)
 
     // Subscribe mining task to TWDT — IDLE1 monitoring is disabled because
     // this task is CPU-bound on core 1 by design. Feed at each yield point.
-    esp_task_wdt_add(NULL);
+    bb_wdt_task_subscribe();
 
     sha256_hw_acquire();
 
@@ -1023,7 +1017,7 @@ void mining_task(void *arg)
         BaseType_t got = xQueuePeek(work_queue, &work, pdMS_TO_TICKS(5000));
         sha256_hw_acquire();
         if (got != pdTRUE) {
-            esp_task_wdt_reset();
+            bb_wdt_task_feed();
             continue;
         }
 

@@ -196,6 +196,8 @@ void test_pause_check_no_request_returns_false(void)
 }
 
 // Full check cycle: pause → check(done_take=true) → on_resumed clears active.
+// bb_wdt_park_wait unsubscribes the task, calls done_take(total=300000) once, then
+// resubscribes — so the mock sees a single call with the full 300000 ms budget.
 void test_pause_check_request_normal_resume(void)
 {
     fixture_init();
@@ -203,6 +205,7 @@ void test_pause_check_request_normal_resume(void)
     bool checked = mining_pause_check();
     TEST_ASSERT_TRUE(checked);
     TEST_ASSERT_EQUAL_INT(1, s_mock.ack_give_calls);
+    // bb_wdt_park_wait calls done_take(total=300000) once and gets true → returns.
     TEST_ASSERT_EQUAL_INT(1, s_mock.done_take_calls);
     TEST_ASSERT_EQUAL_UINT32(300000, s_mock.last_done_timeout);
     // on_resumed() clears pause_active but not pause_requested — caller must call
@@ -211,6 +214,7 @@ void test_pause_check_request_normal_resume(void)
 }
 
 // TA-277 regression: done_take timeout clears BOTH flags so next on_check does not re-pause.
+// bb_wdt_park_wait calls done_take(total=300000) once; it returns false → total timeout.
 void test_pause_check_done_timeout_TA277(void)
 {
     fixture_init();
@@ -218,6 +222,7 @@ void test_pause_check_done_timeout_TA277(void)
     mining_pause();
     bool checked = mining_pause_check();
     TEST_ASSERT_TRUE(checked);
+    // bb_wdt_park_wait: single done_take(300000) returning false → timeout.
     TEST_ASSERT_EQUAL_INT(1, s_mock.done_take_calls);
     // Both flags cleared by on_done_timeout — next check must not re-pause.
     TEST_ASSERT_FALSE(mining_pause_pending());

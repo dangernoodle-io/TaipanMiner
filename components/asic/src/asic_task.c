@@ -30,6 +30,7 @@
 #include "bb_log.h"
 #include "bb_event.h"
 #include "bb_byte_order.h"
+#include "bb_wdt.h"
 #include "esp_check.h"
 #include "bb_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -39,7 +40,6 @@
 #include "driver/uart.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
-#include "esp_task_wdt.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -384,7 +384,7 @@ bb_err_t asic_init(void)
 void asic_mining_task(void *arg)
 {
     bb_log_i(TAG, "ASIC mining task started");
-    esp_task_wdt_add(NULL);
+    bb_wdt_task_subscribe();
     asic_drop_log_reset(&s_drop_log);
 
     mining_work_t work;
@@ -399,7 +399,7 @@ void asic_mining_task(void *arg)
         // stratum disconnect) don't starve the WDT and trigger a task_wdt reboot.
         // xQueuePeek uses a 100ms timeout, so this fires at least every 100ms —
         // well within the 5s WDT window.
-        esp_task_wdt_reset();
+        bb_wdt_task_feed();
 
         // Pause/resume coalescing. bb_ota_pull triggers a check-phase pause/resume
         // immediately followed by an install-phase pause — during the ~8s freq
@@ -410,19 +410,14 @@ void asic_mining_task(void *arg)
         switch (action) {
         case ASIC_PAUSE_ACTION_QUIESCE_AND_ACK:
             g_chip_ops->chip_quiesce();
-            // Drop WDT while parked in done_take (~30–60s OTA window). Re-add and
-            // reset immediately on return so the loop's unconditional reset at the
-            // top covers the resumed case. Matches the SW-mining fix in mining.c.
-            esp_task_wdt_delete(NULL);
+            // mining_pause_check() self-feeds the Task WDT via bb_wdt_park_wait
+            // inside mining_pause.c — no delete/add bracket needed here.
             mining_pause_check();
-            esp_task_wdt_add(NULL);
-            esp_task_wdt_reset();
             break;
         case ASIC_PAUSE_ACTION_ACK_ONLY:
-            esp_task_wdt_delete(NULL);
+            // mining_pause_check() self-feeds the Task WDT via bb_wdt_park_wait
+            // inside mining_pause.c — no delete/add bracket needed here.
             mining_pause_check();
-            esp_task_wdt_add(NULL);
-            esp_task_wdt_reset();
             break;
         case ASIC_PAUSE_ACTION_RESUME:
             g_chip_ops->chip_resume();
@@ -977,7 +972,7 @@ void asic_mining_task(void *arg)
             last_hashrate_tick = now;
         }
 
-        esp_task_wdt_reset();
+        bb_wdt_task_feed();
     }
 }
 

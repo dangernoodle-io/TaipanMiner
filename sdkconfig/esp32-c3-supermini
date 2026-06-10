@@ -52,6 +52,10 @@ CONFIG_BB_LOG_STREAM_BUF_BYTES=2048
 # needs the event replay headroom (the S2 disables the UI via CONFIG_WEBUI_MINING_UI=n).
 # mDNS batch size: bss batch arrays, 16→4 recovers ~12 KB; replayed next refresh.
 CONFIG_BB_MDNS_BATCH_MAX=4
+# mDNS dispatch/query task priority: single core shares one core with the
+# priority-20 miner; raise from the default 3 so the dispatch task drains
+# coalesced browse-notify bursts and does not drop peers (knot discovery).
+CONFIG_BB_MDNS_TASK_PRIORITY=10
 
 # OTA pull: 2 KB Range chunks (vs 4 KB default). No-PSRAM single-core in-place
 # pull — halves the per-TLS-record mbedTLS alloc (~4.4 KB→~2.2 KB) so the

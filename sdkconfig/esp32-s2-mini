@@ -124,3 +124,7 @@ CONFIG_BB_EVENT_QUEUE_DEPTH=8
 # mDNS batch size: default 16 (8 KB each array = 16 KB BSS). The 14-peer network is
 # covered by 4 per burst (recovered next refresh); ~12.4 KB BSS reclaim.
 CONFIG_BB_MDNS_BATCH_MAX=4
+# mDNS dispatch/query task priority: single core shares one core with the
+# priority-20 miner; raise from the default 3 so the dispatch task drains
+# coalesced browse-notify bursts and does not drop peers (knot discovery).
+CONFIG_BB_MDNS_TASK_PRIORITY=10

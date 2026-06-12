@@ -1,6 +1,7 @@
 #include "webui.h"
 #include "bb_http.h"
 #include "bb_info.h"
+#include "bb_health.h"
 #include "bb_json.h"
 #include "esp_ota_ops.h"
 #include "esp_app_format.h"

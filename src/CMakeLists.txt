@@ -21,9 +21,9 @@ idf_component_register(
     SRCS "main.c" "tm_pre_http.c" "partition_fixup.c" "partition_fixup_decision.c" "${CMAKE_BINARY_DIR}/partition_fixup_data.c"
           "ui/ui.c"
     INCLUDE_DIRS "." "ui"
-    REQUIRES mining stratum bb_wifi bb_prov bb_mdns bb_http bb_nv config asic board spi_flash
+    REQUIRES mining stratum bb_wifi bb_prov bb_mdns bb_http bb_nv config asic board spi_flash app_update
              bb_display ${_display_backend}
-             led bb_log bb_ntp bb_system bb_timer bb_ota_pull bb_ota_push bb_ota_boot bb_ota_led bb_ota_hooks bb_openapi bb_manifest
+             led bb_log bb_ntp bb_system bb_timer bb_ota_pull bb_ota_push bb_ota_boot bb_ota_hooks bb_openapi bb_manifest
              bb_registry webui bb_update_check
              bb_display_info bb_led_info bb_temp
 )

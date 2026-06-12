@@ -50,6 +50,9 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 # bb_mdns/bb_wifi/etc. (in breadboard) can pick them up when expanding bb_hw.h.
 idf_build_set_property(COMPILE_OPTIONS "-I${CMAKE_SOURCE_DIR}/components/board/include" APPEND)
 
+# Set PROJECT_VER using bb_version logic (BB_FW_VERSION override > exact tag > dev sha).
+# In CI, git describe --tags --always --dirty is still the preferred version source
+# (produces the tag or a tag-relative ref), so keep that path.
 if(DEFINED ENV{CI})
     execute_process(
         COMMAND git describe --tags --always --dirty
@@ -62,8 +65,8 @@ if(DEFINED ENV{CI})
         set(PROJECT_VER "dev")
     endif()
 else()
-    string(TIMESTAMP BUILD_TS "%Y%m%d%H%M%S" UTC)
-    set(PROJECT_VER "dev-${BUILD_TS}")
+    # Use bb_version.cmake: BB_FW_VERSION env var > exact tag > dev-g<sha>-bb-g<sha>
+    include("${CMAKE_CURRENT_SOURCE_DIR}/.breadboard/cmake/bb_version.cmake")
 endif()
 
 # Board-specific project name for OTA validation

@@ -43,8 +43,10 @@ static const bb_power_tps546_protect_t s_protect = {
     .vout_ov_warn_factor  = 1.16f,
     .vout_margin_high     = 1.10f,
     .vout_margin_low      = 0.90f,
-    .vout_uv_warn_factor  = 0.90f,
-    .vout_uv_fault_factor = 0.75f,
+    .vout_uv_warn_factor      = 0.90f,
+    .vout_uv_fault_factor     = 0.75f,
+    // hiccup on UV fault (auto-restart) instead of latch-off — transient dip self-recovers w/o power-cycle
+    .vout_uv_fault_response   = 0xBF,
     // IOUT
     .iout_oc_warn_a       = 25.0f,  // oc_limit_a=30 (fault) set in outer cfg
     // Over-temperature

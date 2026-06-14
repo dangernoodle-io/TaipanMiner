@@ -31,7 +31,7 @@ are the dev fleet; edit them for your devices.
 |--------|-------|---------|
 | `fleetsoak.py` | `fleetsoak.py <host> <hosttag> <dwell_min> <path...>` | Per-board soak rotation: cycle a board through transport paths (`mqtt_plain` `mqtt_stls` `mqtt_mtls` `http_plain` `http_tls`), config→reboot→verify, dwell polling heap/reset/publisher, fire an update-check mid-dwell. Run one per board in parallel. |
 | `fleetmon.py` | `fleetmon.py [cycles] [interval_s]` | Fleet health snapshot per cycle: `reset_reason`, free heap, active transport+TLS, publisher state. Flags abnormal resets / down boards. |
-| `otaflash.py` | `otaflash.py <host> <firmware.bin>` | OTA-push a firmware image (`POST /api/update/push`) and wait for reboot onto the new version. |
+| `otaflash.py` | `otaflash.py <host> <firmware.bin> [--mark-valid]` | OTA-push a firmware image (`POST /api/update/push`) and wait for reboot onto the new version. `--mark-valid` POSTs `/api/update/mark-valid` after boot to cancel rollback; a `409 not pending` response means the image already self-validated (success). |
 | `updatecheck.py` | `updatecheck.py` | Sweep: `POST /api/update/check` across the fleet, record heap before/after + status, flag crash-on-update-check. |
 | `tlsrow.py` | `tlsrow.py <device_host> <step>` | Single transport path via config→reboot→verify (`step` = one of the five paths). Confirms cert upload (`*_set` flags) and InfluxDB ingestion. |
 

@@ -1,0 +1,19 @@
+# TLS-enabled sink profile for transport-matrix VALIDATION (not the release config).
+# Enables MQTT TLS, HTTP TLS, and mutual TLS (client cert+key via bb_tls_creds).
+# CONFIG_BB_* gate names from bb_tls_creds Kconfig (breadboard main).
+#
+# IMPORTANT: CONFIG_MBEDTLS_HARDWARE_SHA=n is required on bitaxe boards to prevent
+# mid-handshake collisions between mbedTLS and the ASIC's MMIO SHA engine.
+# Re-enable the HTTP telemetry sink (disabled by default in the mqtt-only release
+# config) so the http_plain / http_tls transport-matrix rows have a sink.
+CONFIG_BB_SINK_HTTP_TELEMETRY_AUTOREGISTER=y
+CONFIG_BB_MQTT_TLS_ENABLE=y
+CONFIG_BB_HTTP_TLS_ENABLE=y
+CONFIG_BB_TLS_MUTUAL_ENABLE=y
+CONFIG_MBEDTLS_HARDWARE_SHA=n
+CONFIG_MQTT_TASK_STACK_SIZE=8192
+CONFIG_MQTT_BUFFER_SIZE=1024
+CONFIG_MQTT_OUTBOX_SIZE_BYTE=4096
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=8192
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y

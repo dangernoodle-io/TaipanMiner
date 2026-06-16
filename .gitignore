@@ -23,6 +23,11 @@ sdkconfig.esp32-c3-supermini
 sdkconfig.esp32-c3-supermini-debug
 sdkconfig.esp32-wroom32-cyd
 sdkconfig.esp32-wroom32-cyd-debug
+sdkconfig.esp32-wroom32-tls
+sdkconfig.esp32-s2-mini-tls
+sdkconfig.esp32-c3-supermini-tls
+sdkconfig.tdongle-s3-tls
+sdkconfig.bitaxe-601-tls
 components/http_server/src/*_gz.c
 .code-graph/
 /compile_commands.json

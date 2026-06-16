@@ -40,10 +40,10 @@
 #include "knot.h"
 #endif
 #include "routes_json.h"
-#include "bb_http_extender.h"
 #include "bb_fan_routes.h"
 #include "bb_fan.h"
 #include "bb_power.h"
+#include "bb_sensors.h"
 #include "mining_pool_stats.h"
 #include "sha256.h"
 #if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32C3
@@ -896,8 +896,9 @@ static bb_err_t pool_delete_primary_handler(bb_http_request_t *req)
 // Efficiency/vin_low remain as-is.
 // ---------------------------------------------------------------------------
 
-static void taipan_power_extender(bb_json_t root)
+static void taipan_power_extender(bb_json_t root, void *ctx)
 {
+    (void)ctx;
     int    pcore_mw             = -1;
     double asic_hashrate        = 0.0;
     float  pcore_1m             = -1.0f;
@@ -1075,50 +1076,57 @@ static bb_err_t knot_handler(bb_http_request_t *req)
 }
 #endif // CONFIG_KNOT_ENABLED
 
-static void taipan_info_extender(bb_json_t root)
+// B1-269: migrated from bb_info_register_extender (flat merge into root) to
+// bb_info_register_section (writes into a "taipan" child object).
+// The "network" and "asic" sub-objects are kept as nested objects within the
+// "taipan" section rather than merging into BB's own sections.
+static void taipan_info_section_get(bb_json_t section, void *ctx)
 {
-    bb_json_obj_set_string(root, "worker_name", config_worker_name());
-    bb_json_obj_set_string(root, "hostname", config_hostname());
+    (void)ctx;
+    bb_json_obj_set_string(section, "worker_name", config_worker_name());
+    bb_json_obj_set_string(section, "hostname", config_hostname());
 
     const char *ssid = bb_nv_config_wifi_ssid();
-    if (ssid) bb_json_obj_set_string(root, "ssid", ssid);
+    if (ssid) bb_json_obj_set_string(section, "ssid", ssid);
 
-    bb_json_obj_set_bool(root, "validated", !bb_ota_is_pending());
-    bb_json_obj_set_number(root, "wdt_resets", (double)bb_diag_abnormal_reset_count());
+    bb_json_obj_set_bool(section, "validated", !bb_ota_is_pending());
+    // wdt_resets removed: bb_diag now owns it in the diag section of /api/info (B1-269)
 
     // TA-339: per-device HW SHA peripheral ceiling (boot microbench).
     // Absent on boards without HW SHA microbench (e.g. D0/DPORT).
     double sha_us, sha_khs;
     if (mining_get_sha_microbench(&sha_us, &sha_khs)) {
-        bb_json_obj_set_number(root, "sha_us_per_op", sha_us);
-        bb_json_obj_set_number(root, "sha_khs_ceiling", sha_khs);
+        bb_json_obj_set_number(section, "sha_us_per_op", sha_us);
+        bb_json_obj_set_number(section, "sha_khs_ceiling", sha_khs);
     }
 
     // TA-320a: SHA TEXT-overlap canary result. Drives the decision to
     // overlap next-pass TEXT writes during current busy-wait.
     sha_overlap_state_t ov = mining_get_sha_overlap_state();
     if (ov != SHA_OVERLAP_UNKNOWN) {
-        bb_json_obj_set_string(root, "sha_overlap",
+        bb_json_obj_set_string(section, "sha_overlap",
                                ov == SHA_OVERLAP_SAFE ? "safe" : "unsafe");
     }
     sha_overlap_state_t hw = mining_get_sha_hwrite_state();
     if (hw != SHA_OVERLAP_UNKNOWN) {
-        bb_json_obj_set_string(root, "sha_hwrite",
+        bb_json_obj_set_string(section, "sha_hwrite",
                                hw == SHA_OVERLAP_SAFE ? "safe" : "unsafe");
     }
 
     time_t now = time(NULL);
     if (now > 1700000000) {
         int64_t uptime_s = (int64_t)bb_timer_now_us() / 1000000LL;
-        bb_json_obj_set_number(root, "boot_time", (double)(now - uptime_s));
+        bb_json_obj_set_number(section, "boot_time", (double)(now - uptime_s));
     }
 
-    bb_json_t network = bb_json_obj_get_item(root, "network");
-    if (network) {
+    // Network sub-object: TM-domain stratum status fields.
+    {
+        bb_json_t network = bb_json_obj_new();
         bb_json_obj_set_bool(network, "mdns", bb_mdns_started());
         bb_json_obj_set_bool(network, "stratum", stratum_is_connected());
         bb_json_obj_set_number(network, "stratum_reconnect_ms", stratum_get_reconnect_delay_ms());
         bb_json_obj_set_number(network, "stratum_fail_count", stratum_get_connect_fail_count());
+        bb_json_obj_set_obj(section, "network", network);
     }
 
 #ifdef ASIC_CHIP
@@ -1138,33 +1146,40 @@ static void taipan_info_extender(bb_json_t root)
         bb_json_obj_set_number(asic, "chips", BOARD_ASIC_COUNT);
         bb_json_obj_set_number(asic, "small_cores_per_chip",
                                BOARD_SMALL_CORES / BOARD_ASIC_COUNT);
-        bb_json_obj_set_obj(root, "asic", asic);
+        bb_json_obj_set_obj(section, "asic", asic);
     }
 #endif /* ASIC_CHIP */
 }
 
-static void taipan_health_extender(bb_json_t root)
+// B1-269: migrated from bb_health_register_extender (flat merge into root) to
+// bb_health_register_section (writes into a "taipan_mining" child object).
+static void taipan_health_section_get(bb_json_t section, void *ctx)
 {
+    (void)ctx;
     /* Live liveness signals for the System page. /api/info still owns the
      * one-shot fields (board, MAC, IP, reset_reason, etc.) — anything that
      * changes during the session belongs here. */
-    bb_json_obj_set_bool(root, "sha_self_test_failed", mining_sha_self_test_failed());
-    bb_json_t network = bb_json_obj_get_item(root, "network");
-    if (network) {
+    bb_json_obj_set_bool(section, "sha_self_test_failed", mining_sha_self_test_failed());
+
+    // Network sub-object: TM-domain stratum liveness fields.
+    {
+        bb_json_t network = bb_json_obj_new();
         bb_json_obj_set_bool(network, "stratum", stratum_is_connected());
         bb_json_obj_set_number(network, "stratum_fail_count",
                                stratum_get_connect_fail_count());
 #if CONFIG_KNOT_ENABLED
         bb_json_obj_set_bool(network, "knot", knot_is_running());
 #endif
+        bb_json_obj_set_obj(section, "network", network);
     }
 }
 
 bb_err_t webui_register_info_extender(void)
 {
-    bb_err_t err = bb_info_register_extender(taipan_info_extender);
+    // B1-269: extender API deleted; use bb_info_register_section / bb_health_register_section.
+    bb_err_t err = bb_info_register_section("taipan", taipan_info_section_get, NULL, NULL);
     if (err != BB_OK) return err;
-    err = bb_health_register_extender(taipan_health_extender);
+    err = bb_health_register_section("taipan_mining", taipan_health_section_get, NULL, NULL);
     if (err != BB_OK) return err;
 
     // Capability flags: advertise which optional hardware/features this build has.
@@ -1187,7 +1202,10 @@ bb_err_t webui_register_info_extender(void)
     return BB_OK;
 }
 
-// Register TM-specific extender for BB-owned /api/power route (order 0).
+// Register TM-specific "miner" section into /api/sensors (via bb_sensors_register_section).
+// The deleted bb_http_register_route_extender("power",...) API is replaced by this sectioned
+// registration (B1-269 migration). Section name "miner" avoids collision with bb_sensors
+// built-in sections ("fan", "power", "thermal").
 // BB's autofan (CONFIG_BB_FAN_AUTOFAN) now fully owns /api/fan GET+POST including
 // all autofan telemetry and config fields — no TM fan extender needed.
 // Register the persist callback so POST /api/fan changes survive reboot.
@@ -1195,7 +1213,7 @@ bb_err_t webui_register_power_fan_extenders(void)
 {
 #ifdef ASIC_CHIP
     bb_err_t err;
-    err = bb_http_register_route_extender("power", taipan_power_extender, k_power_extender_schema);
+    err = bb_sensors_register_section("miner", taipan_power_extender, NULL, NULL, k_power_extender_schema);
     if (err != BB_OK) return err;
 #ifdef CONFIG_BB_FAN_AUTOFAN
     bb_fan_routes_set_autofan_persist_cb(taipan_autofan_persist_cb, NULL);

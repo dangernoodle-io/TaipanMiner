@@ -9,6 +9,9 @@ list(APPEND EXTRA_COMPONENT_DIRS
     # Without these, link fails with "undefined reference to bb_event_ring_now_us".
     "${CMAKE_CURRENT_SOURCE_DIR}/.breadboard/platform/espidf/bb_event_ring_espidf"
     "${CMAKE_CURRENT_SOURCE_DIR}/.breadboard/platform/espidf/bb_event_routes_espidf"
+    # bb_ring_espidf: SPIRAM-preferred ring allocator; required by bb_event_ring_espidf
+    # since breadboard main added bb_ring as a standalone component (B1-269 follow-on).
+    "${CMAKE_CURRENT_SOURCE_DIR}/.breadboard/platform/espidf/bb_ring_espidf"
 )
 
 # Resolve FIRMWARE_BOARD early so per-board EXCLUDE_COMPONENTS can branch on it.

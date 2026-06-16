@@ -184,7 +184,8 @@ static void start_mining(void)
 #if CONFIG_FREERTOS_UNICORE
         const uint32_t stratum_stack = 6144;
 #else
-        const uint32_t stratum_stack = 8192;
+        // 6144 keeps >=2560 B margin (HWM showed ~3300 B free at 8192); recouped 2048 B.
+        const uint32_t stratum_stack = 6144;
 #endif
         xTaskCreatePinnedToCore(stratum_task, "stratum", stratum_stack, NULL, 5, NULL, 0);
 
@@ -674,7 +675,8 @@ bench_quiet_skip_net:;
     }
 
 #if defined(BOARD_HAS_DISPLAY) && !defined(TM_BENCH_QUIET)
-    // Start display status task on Core 0
-    xTaskCreatePinnedToCore(display_status_task, "display", 6144, NULL, 2, NULL, 0);
+    // Start display status task on Core 0. Stack 4608: HWM showed ~4264 B free
+    // (1880 used) at 6144; 4608 keeps >=2560 B margin (recouped 1536 B).
+    xTaskCreatePinnedToCore(display_status_task, "display", 4608, NULL, 2, NULL, 0);
 #endif
 }

@@ -157,3 +157,28 @@ CONFIG_BB_THERMAL_AUTOREGISTER=y
 # BB autofan: BB fully owns fan duty and autofan PID when enabled.
 # TM wires cfg from NVS, feeds VR aux temp, and registers persist callback.
 CONFIG_BB_FAN_AUTOFAN=y
+
+# Telemetry transport: MQTT plaintext only (release). The HTTP sink is
+# validation-only; disabling its autoregister drops the sink + the
+# /api/telemetry "http" section so the fleet ships mqtt-only. Sink-TLS gates
+# stay at the breadboard opt-in default (n). The -tls validation envs re-enable
+# the http sink via sdkconfig/tls-server.
+CONFIG_BB_SINK_HTTP_TELEMETRY_AUTOREGISTER=n
+
+# Store-and-forward: ALWAYS-ON ring (uniform queue) fleet-wide. Small ring on
+# the no-PSRAM default (256 B payload drops the large "info" topic but captures
+# every time-series source; 6 entries ~= one tick ~= a sub-tick broker blip).
+# Ring = (192+1+256)*6 ~= 2.7 KB. PSRAM boards (bitaxe) override to a larger ring
+# in SPIRAM. The buffer only realistically rescues a brief outage -- depth past a
+# tick is wasted (any longer outage overflows every ring), so small is correct.
+CONFIG_BB_PUB_BUFFER_ENABLE=y
+CONFIG_BB_PUB_BUFFER_ALWAYS=y
+CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES=256
+CONFIG_BB_PUB_BUFFER_MAX_ENTRIES=6
+
+# Stack recoup (valid trim): esp-mqtt internal task 6144->5120 (worst observed
+# use ~2372 B -> ~2748 B margin). bb_pub stays at the 4096 plaintext default
+# (the gate-keyed Kconfig default; do NOT raise it). Raise MQTT_TASK_STACK_SIZE
+# back to 8192 in any MQTT-TLS overlay.
+CONFIG_MQTT_USE_CUSTOM_CONFIG=y
+CONFIG_MQTT_TASK_STACK_SIZE=5120

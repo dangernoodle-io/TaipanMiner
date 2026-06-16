@@ -1093,7 +1093,8 @@ const miner_config_t g_miner_config = {
     // some hashrate when the network is busy, but keeps the device usable.
     .priority = 4,
 #else
-    .stack_size = 8192,
+    // 6144 keeps >=2560 B margin (HWM showed ~3300 B free at 8192); recouped 2048 B.
+    .stack_size = 6144,
     .priority = 20,
 #endif
     .core = MINER_TASK_CORE,

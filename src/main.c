@@ -81,6 +81,36 @@ static TaskHandle_t s_stats_save_task = NULL;
 // task stops blitting (frees the SPI bus) and the panel is blanked.
 static volatile bool s_display_quiesced = false;
 
+// ---------------------------------------------------------------------------
+// Telemetry sampler — publishes mining stats via bb_pub on the "mining" topic
+// ---------------------------------------------------------------------------
+
+static bool tm_mining_sample(bb_json_t obj, void *ctx)
+{
+    (void)ctx;
+
+    // Snapshot under mutex; do NOT hold it across bb_json calls.
+    double   hashrate = 0.0;
+    uint32_t shares   = 0;
+    uint32_t rejected = 0;
+
+    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+#ifdef ASIC_CHIP
+        hashrate = mining_stats.asic_ema.value;
+#else
+        hashrate = mining_stats.hw_ema.value;
+#endif
+        shares   = mining_stats.session.shares;
+        rejected = mining_stats.session.rejected;
+        xSemaphoreGive(mining_stats.mutex);
+    }
+
+    bb_json_obj_set_number(obj, "hashrate_hs", hashrate);
+    bb_json_obj_set_number(obj, "shares",      (double)shares);
+    bb_json_obj_set_number(obj, "rejected",    (double)rejected);
+    return true;
+}
+
 static void stats_save_task(void *arg)
 {
     (void)arg;
@@ -606,6 +636,10 @@ void app_main(void)
         // (auto-registers all breadboard routes and endpoints). Creates the
         // bb_update_check + bb_ota_pull worker tasks using the affinity/priority above.
         BB_ERROR_CHECK(bb_registry_init());
+
+        // Register mining telemetry source — publishes hashrate/shares/rejected
+        // on the "mining" MQTT topic each bb_pub tick.
+        bb_pub_register_source("mining", tm_mining_sample, NULL);
 
         // Register "block.found" SSE topic and hand the handle to mining_pool_stats
         // so record_block() can post events. Must run after bb_registry_init() so

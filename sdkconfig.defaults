@@ -134,10 +134,18 @@ CONFIG_MBEDTLS_SSL_RENEGOTIATION=n
 CONFIG_MBEDTLS_SSL_KEEP_PEER_CERTIFICATE=n
 
 # mbedTLS record sizes paired with bb_ota_pull partial_http_download (4 KB GETs).
-# Drops peak mbedtls IN-buffer alloc from ~17 KB to ~9 KB, unblocking OTA pull
-# on no-PSRAM boards (tdongle-s3, esp32-wroom32) with fragmented internal heap.
+# Dropped 16 KB->8 KB->4 KB to shrink the peak mbedtls IN-buffer alloc (~5 KB) so the
+# OTA-pull/update-check TLS handshake fits the fragmented internal heap on no-PSRAM
+# boards (esp32-wroom32, tdongle-s3) even with the always-on telemetry ring resident.
+# RISK: if GitHub/Fastly sends a handshake record >4 KB the handshake will fail
+# (they ignore max-fragment-length) — revert to 8192 if the OTA TLS breaks.
 # OUT lowered to 1 KB — we never send TLS payloads larger than HTTP request headers.
-CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=8192
+# THIS IS THE SINGLE OTA-HEAP KNOB: bb_ota's pre-flight largest-free-block guard
+# auto-derives its floor from SSL_IN (= SSL_IN + ~1 KB record overhead), so tune
+# SSL_IN alone — do NOT add a CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES override
+# (bb default 0 = auto-derive). Lowering SSL_IN moves the guard down with it,
+# which is what lets the heap-tight no-PSRAM s2 (largest ~7.7 KB) clear the floor.
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=4096
 CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=1024
 
 # /api/events SSE client cap. Restored to BB default 2: cap=4 reserved ~27KB
@@ -164,15 +172,16 @@ CONFIG_BB_FAN_AUTOFAN=y
 CONFIG_BB_SINK_HTTP_TELEMETRY_AUTOREGISTER=n
 
 # Store-and-forward: ALWAYS-ON ring (uniform queue) fleet-wide. Small ring on
-# the no-PSRAM default (256 B payload drops the large "info" topic but captures
-# every time-series source; 6 entries ~= one tick ~= a sub-tick broker blip).
-# Ring = (192+1+256)*6 ~= 2.7 KB. PSRAM boards (bitaxe) override to a larger ring
-# in SPIRAM. The buffer only realistically rescues a brief outage -- depth past a
-# tick is wasted (any longer outage overflows every ring), so small is correct.
+# the no-PSRAM default. Payload 512 B fits the oversized ~535 B "info" entry in a
+# ring slot (so it is buffered/replayed, not just direct-published via the bb_pub
+# oversize fallback); the other time-series topics are far smaller. Entries trimmed
+# 6->4 to stay heap-neutral. Ring = (192+1+512)*4 ~= 2.8 KB (was (192+1+256)*6 ~=
+# 2.7 KB). PSRAM boards (bitaxe) override to a larger ring in SPIRAM. The buffer only
+# realistically rescues a brief outage -- depth past a tick is wasted, so shallow is fine.
 CONFIG_BB_PUB_BUFFER_ENABLE=y
 CONFIG_BB_PUB_BUFFER_ALWAYS=y
-CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES=256
-CONFIG_BB_PUB_BUFFER_MAX_ENTRIES=6
+CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES=512
+CONFIG_BB_PUB_BUFFER_MAX_ENTRIES=4
 
 # Stack recoup (valid trim): esp-mqtt internal task 6144->5120 (worst observed
 # use ~2372 B -> ~2748 B margin). bb_pub stays at the 4096 plaintext default

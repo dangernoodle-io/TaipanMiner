@@ -34,6 +34,8 @@
 #include "bb_ota_led.h"
 #include "bb_ota_hooks.h"
 #include "bb_update_check.h"
+#include "bb_pub.h"
+#include "bb_mqtt.h"
 #include "bb_manifest.h"
 #include "bb_registry.h"
 #include "bb_event.h"
@@ -123,6 +125,9 @@ static const bb_ota_led_ops_t s_tm_ota_led_ops = {
 static bool tm_ota_pause(void)
 {
     bool paused = mining_pause();
+    bb_pub_pause();
+    bb_mqtt_suspend_default();   // drop the mqtt connection: frees ~11KB heap + socket
+                                 // the TLS handshake needs (B1-281). reconnects on resume.
     s_display_quiesced = true;
     ui_display_off();
     return paused;
@@ -132,8 +137,29 @@ static void tm_ota_resume(void)
 {
     s_display_quiesced = false;
     ui_display_on();
+    bb_mqtt_resume_default();
+    bb_pub_resume();
     mining_resume();
 }
+
+#ifndef ASIC_CHIP
+// Update-check pause hook: suspend mining + telemetry publishing to free heap
+// for the manifest-fetch TLS handshake (B1-280/281). No display-off (brief check).
+static bool tm_update_pause(void)
+{
+    bool paused = mining_pause();
+    bb_pub_pause();
+    bb_mqtt_suspend_default();   // drop the mqtt connection so the GitHub update-check
+                                 // TLS handshake has the heap it had pre-telemetry (B1-281)
+    return paused;
+}
+static void tm_update_resume(void)
+{
+    bb_mqtt_resume_default();
+    bb_pub_resume();
+    mining_resume();
+}
+#endif
 
 // TA-122: gold LED flash on block found. Fire-and-forget via led_flash_block_found()
 // (sets a one-shot PULSE; heartbeat resumes on the next led_set_mining() call).
@@ -615,7 +641,7 @@ void app_main(void)
         // Tdongle: USE the pause hook. Mining on Core 1 needs to be suspended for
         // the TLS handshake. (Bitaxe: NO pause hook — bm1370 quiesce/resume churns
         // heap; mining keeps running through the check.)
-        bb_update_check_set_hooks(mining_pause, mining_resume);
+        bb_update_check_set_hooks(tm_update_pause, tm_update_resume);
 #endif
 
         bb_ota_pull_set_releases_url("https://api.github.com/repos/dangernoodle-io/TaipanMiner/releases/latest");

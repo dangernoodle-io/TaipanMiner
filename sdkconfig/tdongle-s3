@@ -1,1 +1,2 @@
 # LilyGo T-Dongle S3 — delta from sdkconfig.defaults
+CONFIG_BB_OTA_PULL_HTTP_CHUNK_SIZE=1024

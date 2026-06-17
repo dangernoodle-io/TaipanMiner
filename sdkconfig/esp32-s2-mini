@@ -135,3 +135,14 @@ CONFIG_BB_MDNS_BATCH_MAX=4
 # priority-20 miner; raise from the default 3 so the dispatch task drains
 # coalesced browse-notify bursts and does not drop peers (knot discovery).
 CONFIG_BB_MDNS_TASK_PRIORITY=10
+
+# OTA update-check pre-flight (B1-280 follow-on): the S2 is too heap-tight to run a
+# steady-state GitHub TLS handshake — ~20 KB transient against ~25 KB free OOM-panics
+# mid-check even with the MQTT pause hook and the ring disabled. It clears bb_ota's
+# contiguous-block guard but not the *total-free* budget, so set the total-free floor
+# above what it can offer: POST /api/update/check then returns check_on_apply cleanly
+# and the manifest check runs at apply time (boot-OTA, full early-boot heap). 30720 =
+# GitHub-TLS transient + margin (it panicked at ~25.5 KB free). Buffering + sockets
+# stay at the fleet default — the check no longer runs in steady state, so the ~2.8 KB
+# always-on ring is affordable and store-and-forward replay is kept.
+CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES=30720

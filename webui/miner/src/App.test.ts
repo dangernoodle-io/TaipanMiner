@@ -124,7 +124,7 @@ describe('App', () => {
   })
 
   it('shows SHA self-test alert', () => {
-    health.set({ ok: false, free_heap: 100000, validated: false, network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: 'miner.local', stratum: true, stratum_fail_count: 0 }, sha_self_test_failed: true })
+    health.set({ ok: false, free_heap: 100000, validated: false, network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: 'miner.local' }, mining: { sha_self_test_failed: true }, pool: { stratum: true, fail_count: 0, reconnect_ms: 0 } })
     const result = render(App)
     expect(result.component).toBeDefined()
   })

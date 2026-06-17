@@ -56,9 +56,12 @@ import Update from './Update.svelte'
 const baseInfo = {
   board: 'bitaxe-601', project_name: 'TaipanMiner', version: 'v1.0.0', idf_version: '5.5.3',
   build_date: '2024-01-15', build_time: '14:30:00', chip_model: 'esp32-s3', cores: 2,
-  mac: '00:11:22:33:44:55', ssid: 'TestNetwork', flash_size: 16777216, app_size: 1048576,
-  total_heap: 262144, free_heap: 131072, reset_reason: 'Unknown', wdt_resets: 0,
-  boot_time: 1705333200, worker_name: 'testworker', hostname: 'taipan.local', validated: true
+  mac: '00:11:22:33:44:55', flash_size: 16777216, app_size: 1048576,
+  total_heap: 262144, free_heap: 131072, reset_reason: 'Unknown',
+  hostname: 'taipan.local',
+  boot_epoch: 1705333200,
+  mining: { worker_name: 'testworker' },
+  diag: { wdt_resets: 0 },
 }
 
 describe('Update', () => {

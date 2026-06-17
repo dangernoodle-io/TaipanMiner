@@ -5,19 +5,25 @@ import { fan, fanEditOpen } from '../lib/stores'
 vi.mock('../lib/api', () => ({
   fetchStats: vi.fn(),
   fetchInfo: vi.fn(),
-  fetchPower: vi.fn(),
-  fetchFan: vi.fn().mockResolvedValue({
-    autofan: false,
-    die_target_c: 65,
-    vr_target_c: 80,
-    min_pct: 35,
-    manual_pct: 80,
-    duty_pct: 80,
-    rpm: 3200,
-    pid_input_src: null,
-    pid_input_c: null
+  fetchSensors: vi.fn().mockResolvedValue({
+    fan: {
+      autofan: false,
+      die_target_c: 65,
+      vr_target_c: 80,
+      min_pct: 35,
+      manual_pct: 80,
+      duty_pct: 80,
+      rpm: 3200,
+      pid_input_src: null,
+      pid_input_c: null,
+      die_ema_c: null,
+      vr_ema_c: null,
+    },
+    power: { present: true, vin_mv: 5000 },
+    thermal: { soc: { present: false, c: null }, vr: { present: false, c: null }, asic: { present: false, c: null }, board: { present: false, c: null } },
+    miner: { vcore_mv: 1180, icore_ma: 14000, pcore_mw: 16520, vr_temp_c: 60, efficiency_jth: 34, efficiency_jth_1m: null, efficiency_jth_10m: null, efficiency_jth_1h: null, expected_efficiency_jth: null, vin_low: false },
   }),
-  patchFan: vi.fn().mockResolvedValue({}),
+  patchFan: vi.fn().mockResolvedValue(undefined),
   fetchSettings: vi.fn(),
   fetchPool: vi.fn(),
   fetchHealth: vi.fn(),
@@ -154,15 +160,20 @@ describe('FanEditDialog', () => {
   })
 
   it('submits form and shows Saved on success', async () => {
-    const { patchFan, fetchFan } = await import('../lib/api')
+    const { patchFan, fetchSensors } = await import('../lib/api')
     vi.mocked(patchFan).mockResolvedValue(undefined)
-    vi.mocked(fetchFan).mockResolvedValue({ ...fakeFan, manual_pct: 90 })
+    vi.mocked(fetchSensors).mockResolvedValue({
+      fan: { ...fakeFan, manual_pct: 90 },
+      power: { present: true, vin_mv: 5000 },
+      thermal: { soc: { present: false, c: null }, vr: { present: false, c: null }, asic: { present: false, c: null }, board: { present: false, c: null } },
+      miner: { vcore_mv: 1180, icore_ma: 14000, pcore_mw: 16520, vr_temp_c: 60, efficiency_jth: 34, efficiency_jth_1m: null, efficiency_jth_10m: null, efficiency_jth_1h: null, expected_efficiency_jth: null, vin_low: false },
+    })
     fan.set(fakeFan)
     fanEditOpen.set(true)
     render(FanEditDialog)
     const saveBtn = screen.getByRole('button', { name: 'Save' })
     await fireEvent.submit(saveBtn.closest('form')!)
-    // Flush microtasks so patchFan/fetchFan promises resolve, then advance
+    // Flush microtasks so patchFan/fetchSensors promises resolve, then advance
     // past the component's 400ms close timer so no real timer lingers.
     await vi.runAllTimersAsync()
     expect(vi.mocked(patchFan)).toHaveBeenCalled()
@@ -184,10 +195,15 @@ describe('FanEditDialog', () => {
     // When saving=true, close() is a no-op
     fan.set(fakeFan)
     fanEditOpen.set(true)
-    const { patchFan, fetchFan } = await import('../lib/api')
+    const { patchFan, fetchSensors } = await import('../lib/api')
     // Make patchFan never resolve so dialog stays in saving=true
     vi.mocked(patchFan).mockImplementation(() => new Promise(() => {}))
-    vi.mocked(fetchFan).mockResolvedValue(fakeFan)
+    vi.mocked(fetchSensors).mockResolvedValue({
+      fan: fakeFan,
+      power: { present: true, vin_mv: 5000 },
+      thermal: { soc: { present: false, c: null }, vr: { present: false, c: null }, asic: { present: false, c: null }, board: { present: false, c: null } },
+      miner: { vcore_mv: 1180, icore_ma: 14000, pcore_mw: 16520, vr_temp_c: 60, efficiency_jth: 34, efficiency_jth_1m: null, efficiency_jth_10m: null, efficiency_jth_1h: null, expected_efficiency_jth: null, vin_low: false },
+    })
     render(FanEditDialog)
     const form = document.querySelector('form')!
     fireEvent.submit(form) // do NOT await — leave it in-flight

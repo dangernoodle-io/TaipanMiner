@@ -7,14 +7,12 @@ vi.mock('./api', () => ({
   fetchStats: vi.fn(),
   fetchInfo: vi.fn(),
   fetchHealth: vi.fn(),
-  fetchPower: vi.fn(),
-  fetchFan: vi.fn(),
-  fetchThermal: vi.fn(),
+  fetchSensors: vi.fn(),
   fetchSettings: vi.fn(),
   fetchPool: vi.fn(),
 }))
 
-import { ping as apiPing, fetchStats, fetchInfo, fetchHealth, fetchPower, fetchFan, fetchThermal, fetchSettings, fetchPool } from './api'
+import { ping as apiPing, fetchStats, fetchInfo, fetchHealth, fetchSensors, fetchSettings, fetchPool } from './api'
 
 // ---------------------------------------------------------------------------
 // Shared poll mock setup
@@ -59,11 +57,21 @@ const STUB_STATS = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyFn = (...args: any[]) => any
 
+const STUB_SENSORS = {
+  fan: { rpm: 4200, duty_pct: 75, autofan: true, die_target_c: 65, vr_target_c: 80, manual_pct: 80, min_pct: 35, die_ema_c: null, vr_ema_c: null, pid_input_c: null, pid_input_src: 'die' as const },
+  power: { present: true, vin_mv: 5050, pout_mw: 17000 },
+  thermal: {
+    soc: { present: true, c: 42 },
+    vr: { present: true, c: 62 },
+    asic: { present: true, c: 68 },
+    board: { present: true, c: 38 },
+  },
+  miner: { vcore_mv: 1180, icore_ma: 14500, pcore_mw: 17110, vr_temp_c: 62.4, efficiency_jth: 35.3, efficiency_jth_1m: null, efficiency_jth_10m: null, efficiency_jth_1h: null, expected_efficiency_jth: null, vin_low: false },
+}
+
 function setupPollMocks(overrides: {
   stats?: Partial<typeof STUB_STATS> | AnyFn
-  power?: object | null
-  fan?: object | null
-  thermal?: object | null
+  sensors?: typeof STUB_SENSORS | null
   pool?: object | null
   health?: object | null
   info?: object | null
@@ -76,28 +84,12 @@ function setupPollMocks(overrides: {
     vi.mocked(fetchStats).mockResolvedValue({ ...STUB_STATS, ...(overrides.stats ?? {}) } as any)
   }
 
-  const powerVal = overrides.power === undefined ? null : overrides.power
-  if (powerVal === null) {
-    vi.mocked(fetchPower).mockRejectedValue(new Error('no power'))
+  const sensorsVal = overrides.sensors === undefined ? STUB_SENSORS : overrides.sensors
+  if (sensorsVal === null) {
+    vi.mocked(fetchSensors).mockRejectedValue(new Error('no sensors'))
   } else {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    vi.mocked(fetchPower).mockResolvedValue(powerVal as any)
-  }
-
-  const fanVal = overrides.fan === undefined ? null : overrides.fan
-  if (fanVal === null) {
-    vi.mocked(fetchFan).mockRejectedValue(new Error('no fan'))
-  } else {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    vi.mocked(fetchFan).mockResolvedValue(fanVal as any)
-  }
-
-  const thermalVal = overrides.thermal === undefined ? null : overrides.thermal
-  if (thermalVal === null) {
-    vi.mocked(fetchThermal).mockRejectedValue(new Error('no thermal'))
-  } else {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    vi.mocked(fetchThermal).mockResolvedValue(thermalVal as any)
+    vi.mocked(fetchSensors).mockResolvedValue(sensorsVal as any)
   }
 
   const poolVal = overrides.pool === undefined ? { connected: true, current_difficulty: 512 } : overrides.pool
@@ -113,7 +105,7 @@ function setupPollMocks(overrides: {
     (overrides.health ?? { ok: true, free_heap: 100000, validated: true, network: { connected: true, rssi: -60, disc_age_s: 0, retry_count: 0, mdns: null } }) as any
   )
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  vi.mocked(fetchInfo).mockResolvedValue((overrides.info ?? { board: 'test' }) as any)
+  vi.mocked(fetchInfo).mockResolvedValue((overrides.info ?? { board: 'test', capabilities: [] }) as any)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   vi.mocked(fetchSettings).mockResolvedValue((overrides.settings ?? { hostname: 'taipan' }) as any)
 }
@@ -333,24 +325,66 @@ describe('start()', () => {
     expect(get(history)).toHaveLength(2)
   })
 
-  it('probes ASIC capability once via fetchPower', async () => {
-    setupPollMocks({ power: null })
+  it('hasAsic=false when sensors.power.present=false and no info capabilities', async () => {
+    setupPollMocks({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sensors: { ...STUB_SENSORS, power: { present: false, vin_mv: null } } as any,
+      info: { board: 'tdongle-s3', capabilities: [] },
+    })
     start()
     await vi.advanceTimersByTimeAsync(0)
-    await vi.advanceTimersByTimeAsync(5000)
-    // First poll probes; subsequent polls skip since asicAvailable=false
-    expect(fetchPower).toHaveBeenCalledTimes(1)
     expect(get(hasAsic)).toBe(false)
   })
 
-  it('fetches fan data on ASIC boards each poll', async () => {
-    setupPollMocks({ power: { present: true, vcore_mv: 1200, icore_ma: 3000, pcore_mw: 3600, efficiency_jth: null, vin_mv: null, vin_low: null, board_temp_c: 40, vr_temp_c: 50 }, fan: { rpm: 2400, duty_pct: 50, autofan: true, die_target_c: 65, vr_target_c: 80, manual_pct: 0, min_pct: 20, die_ema_c: null, vr_ema_c: null, pid_input_c: null, pid_input_src: 'die' } })
+  it('hasAsic=true when info.capabilities includes asic', async () => {
+    setupPollMocks({ info: { board: 'bitaxe-601', capabilities: ['asic', 'fan', 'power'] } })
     start()
     await vi.advanceTimersByTimeAsync(0)
     expect(get(hasAsic)).toBe(true)
-    expect(fetchFan).toHaveBeenCalledTimes(1)
+  })
+
+  it('hasAsic=false when info.capabilities does not include asic', async () => {
+    setupPollMocks({ info: { board: 'tdongle-s3', capabilities: ['ui'] } })
+    start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(get(hasAsic)).toBe(false)
+  })
+
+  it('fetches sensors every poll', async () => {
+    setupPollMocks()
+    start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fetchSensors).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(5000)
-    expect(fetchFan).toHaveBeenCalledTimes(2)
+    expect(fetchSensors).toHaveBeenCalledTimes(2)
+  })
+
+  it('power store reconstructs vcore_mv from miner and vin_mv from power', async () => {
+    setupPollMocks()
+    start()
+    await vi.advanceTimersByTimeAsync(0)
+    const p = get(power)
+    expect(p?.vcore_mv).toBe(1180)          // from miner
+    expect(p?.vin_mv).toBe(5050)            // from power
+    expect(p?.present).toBe(true)           // from power.present
+  })
+
+  it('thermal store populated from sensors', async () => {
+    setupPollMocks()
+    start()
+    await vi.advanceTimersByTimeAsync(0)
+    const t = get(thermal)
+    expect(t?.asic.present).toBe(true)
+    expect(t?.asic.c).toBe(68)
+  })
+
+  it('fan store populated from sensors', async () => {
+    setupPollMocks()
+    start()
+    await vi.advanceTimersByTimeAsync(0)
+    const f = get(fan)
+    expect(f?.rpm).toBe(4200)
+    expect(f?.duty_pct).toBe(75)
   })
 })
 
@@ -402,11 +436,10 @@ describe('poll() reboot detection', () => {
       callCount++
       return { ...STUB_STATS, uptime_s: callCount === 1 ? 100 : 5 } as Awaited<ReturnType<typeof fetchStats>>
     })
-    vi.mocked(fetchPower).mockRejectedValue(new Error('no power'))
-    vi.mocked(fetchFan).mockRejectedValue(new Error('no fan'))
+    vi.mocked(fetchSensors).mockRejectedValue(new Error('no sensors'))
     vi.mocked(fetchPool).mockResolvedValue({ connected: true } as Awaited<ReturnType<typeof fetchPool>>)
     vi.mocked(fetchHealth).mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof fetchHealth>>)
-    vi.mocked(fetchInfo).mockResolvedValue({ board: 'test' } as Awaited<ReturnType<typeof fetchInfo>>)
+    vi.mocked(fetchInfo).mockResolvedValue({ board: 'test', capabilities: [] } as unknown as Awaited<ReturnType<typeof fetchInfo>>)
     vi.mocked(fetchSettings).mockResolvedValue({ hostname: 'test' } as Awaited<ReturnType<typeof fetchSettings>>)
 
     start()

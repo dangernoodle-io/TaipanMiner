@@ -68,32 +68,32 @@ describe('patchFan', () => {
     vi.restoreAllMocks()
   })
 
-  it('POSTs JSON to /api/fan', async () => {
+  it('PATCHes JSON to /api/sensors with fan wrapper (B1-269)', async () => {
     await patchFan({ die_target_c: 65 })
     expect(fetchSpy).toHaveBeenCalledTimes(1)
     const [url, init] = fetchSpy.mock.calls[0]
-    expect(url).toBe('/api/fan')
-    expect(init.method).toBe('POST')
+    expect(url).toBe('/api/sensors')
+    expect(init.method).toBe('PATCH')
     expect(init.headers['Content-Type']).toBe('application/json')
-    expect(JSON.parse(init.body as string)).toEqual({ die_target_c: 65 })
+    expect(JSON.parse(init.body as string)).toEqual({ fan: { die_target_c: 65 } })
   })
 
   it('encodes autofan as boolean true / false', async () => {
     await patchFan({ autofan: true })
-    expect(JSON.parse(fetchSpy.mock.calls[0][1].body)).toEqual({ autofan: true })
+    expect(JSON.parse(fetchSpy.mock.calls[0][1].body)).toEqual({ fan: { autofan: true } })
 
     await patchFan({ autofan: false })
-    expect(JSON.parse(fetchSpy.mock.calls[1][1].body)).toEqual({ autofan: false })
+    expect(JSON.parse(fetchSpy.mock.calls[1][1].body)).toEqual({ fan: { autofan: false } })
   })
 
   it('serializes multiple fields and skips undefined', async () => {
     await patchFan({ autofan: true, die_target_c: 65, vr_target_c: 80, min_pct: 40, manual_pct: undefined })
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string)
-    expect(body.autofan).toBe(true)
-    expect(body.die_target_c).toBe(65)
-    expect(body.vr_target_c).toBe(80)
-    expect(body.min_pct).toBe(40)
-    expect('manual_pct' in body).toBe(false)
+    expect(body.fan.autofan).toBe(true)
+    expect(body.fan.die_target_c).toBe(65)
+    expect(body.fan.vr_target_c).toBe(80)
+    expect(body.fan.min_pct).toBe(40)
+    expect('manual_pct' in body.fan).toBe(false)
   })
 
   it('throws on non-OK response', async () => {
@@ -104,8 +104,8 @@ describe('patchFan', () => {
   it('sends both die and vr targets', async () => {
     await patchFan({ die_target_c: 65, vr_target_c: 80 })
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string)
-    expect(body.die_target_c).toBe(65)
-    expect(body.vr_target_c).toBe(80)
+    expect(body.fan.die_target_c).toBe(65)
+    expect(body.fan.vr_target_c).toBe(80)
   })
 })
 
@@ -289,18 +289,18 @@ describe('patchSettings', () => {
   })
 })
 
-describe('fetchHealth — knot field', () => {
-  it('returns health with network.knot when present', async () => {
-    const spy = setFetch(200, { ok: true, free_heap: 100000, validated: true, network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: null, knot: true } })
+describe('fetchHealth — knot.running field', () => {
+  it('returns health with knot.running when present', async () => {
+    const spy = setFetch(200, { ok: true, free_heap: 100000, validated: true, network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: null }, knot: { running: true } })
     const result = await fetchHealth()
     expect(spy.mock.calls[0][0]).toBe('/api/health')
-    expect(result.network.knot).toBe(true)
+    expect(result.knot?.running).toBe(true)
   })
 
-  it('returns health with network.knot=false', async () => {
-    const spy = setFetch(200, { ok: true, free_heap: 100000, validated: true, network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: null, knot: false } })
+  it('returns health with knot.running=false', async () => {
+    setFetch(200, { ok: true, free_heap: 100000, validated: true, network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: null }, knot: { running: false } })
     const result = await fetchHealth()
-    expect(result.network.knot).toBe(false)
+    expect(result.knot?.running).toBe(false)
   })
 })
 

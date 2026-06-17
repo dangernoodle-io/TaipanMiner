@@ -27,17 +27,13 @@ const baseInfo = {
   chip_model: 'esp32-s3',
   cores: 2,
   mac: '00:11:22:33:44:55',
-  ssid: 'TestNetwork',
   flash_size: 16777216,
   app_size: 1048576,
   total_heap: 262144,
   free_heap: 131072,
   reset_reason: 'Unknown',
-  wdt_resets: 0,
-  boot_time: 1705333200,
-  worker_name: 'testworker',
   hostname: 'taipan.local',
-  validated: true,
+  boot_epoch: 1705333200,
   network: {
     ssid: 'TestNetwork',
     bssid: 'AA:BB:CC:DD:EE:FF',
@@ -51,7 +47,11 @@ const baseInfo = {
     stratum: true,
     stratum_reconnect_ms: 0,
     stratum_fail_count: 0
-  }
+  },
+  mining: {
+    worker_name: 'testworker',
+  },
+  diag: { wdt_resets: 0 },
 }
 
 const baseHealth = {
@@ -63,9 +63,15 @@ const baseHealth = {
     rssi: -50,
     disc_age_s: 0,
     retry_count: 0,
-    mdns: 'miner.local',
+    mdns: 'miner.local'
+  },
+  mining: {
+    sha_self_test_failed: false
+  },
+  pool: {
     stratum: true,
-    stratum_fail_count: 0
+    fail_count: 0,
+    reconnect_ms: 0
   }
 }
 
@@ -140,7 +146,7 @@ describe('System', () => {
   it('shows Stratum status when available', () => {
     health.set({
       ...baseHealth,
-      network: { ...baseHealth.network, stratum: true }
+      pool: { stratum: true, fail_count: 0, reconnect_ms: 0 }
     } as any)
     const { component } = render(System)
     expect(component).toBeDefined()
@@ -149,7 +155,7 @@ describe('System', () => {
   it('shows Stratum as unavailable when false', () => {
     health.set({
       ...baseHealth,
-      network: { ...baseHealth.network, stratum: false }
+      pool: { stratum: false, fail_count: 0, reconnect_ms: 0 }
     } as any)
     const { component } = render(System)
     expect(component).toBeDefined()
@@ -238,7 +244,7 @@ describe('System — chip detection driven by info.asic', () => {
   })
 
   it('flags chipsBad when detectedChips < info.asic.chips', () => {
-    info.set({ ...baseInfo, capabilities: ['asic'], asic: { model: 'BM1370', chips: 2, small_cores_per_chip: 256 } } as any)
+    info.set({ ...baseInfo, capabilities: ['asic'], mining: { asic: { model: 'BM1370', chips: 2, small_cores_per_chip: 256 } } } as any)
     stats.set({ asic_chips: [{}], asic_count: 2, asic_small_cores: 256 } as any)
     const { container } = render(System)
     const badDds = container.querySelectorAll('dd.bad')
@@ -246,7 +252,7 @@ describe('System — chip detection driven by info.asic', () => {
   })
 
   it('does not flag chipsBad when detectedChips == info.asic.chips', () => {
-    info.set({ ...baseInfo, capabilities: ['asic'], asic: { model: 'BM1370', chips: 1, small_cores_per_chip: 256 } } as any)
+    info.set({ ...baseInfo, capabilities: ['asic'], mining: { asic: { model: 'BM1370', chips: 1, small_cores_per_chip: 256 } } } as any)
     stats.set({ asic_chips: [{}], asic_count: 1, asic_small_cores: 256 } as any)
     const { container } = render(System)
     const badDds = container.querySelectorAll('dd.bad')
@@ -262,7 +268,7 @@ describe('System — chip detection driven by info.asic', () => {
   })
 
   it('does not flag chipsBad when stats is null', () => {
-    info.set({ ...baseInfo, capabilities: ['asic'], asic: { model: 'BM1370', chips: 1, small_cores_per_chip: 256 } } as any)
+    info.set({ ...baseInfo, capabilities: ['asic'], mining: { asic: { model: 'BM1370', chips: 1, small_cores_per_chip: 256 } } } as any)
     stats.set(null)
     const { component } = render(System)
     expect(component).toBeDefined()
@@ -277,19 +283,19 @@ describe('System — stratumFails row', () => {
     health.set(null)
   })
 
-  it('renders stratum-fail count row when stratum_fail_count > 0', () => {
+  it('renders stratum-fail count row when fail_count > 0', () => {
     health.set({
       ...baseHealth,
-      network: { ...baseHealth.network, stratum_fail_count: 3 }
+      pool: { stratum: true, fail_count: 3, reconnect_ms: 0 }
     } as any)
     const { container } = render(System)
     expect(container.textContent).toContain('3 fails')
   })
 
-  it('does not render stratum-fail row when stratum_fail_count is 0', () => {
+  it('does not render stratum-fail row when fail_count is 0', () => {
     health.set({
       ...baseHealth,
-      network: { ...baseHealth.network, stratum_fail_count: 0 }
+      pool: { stratum: true, fail_count: 0, reconnect_ms: 0 }
     } as any)
     const { container } = render(System)
     expect(container.textContent).not.toContain('fails')
@@ -392,55 +398,6 @@ describe('System — LED row', () => {
   })
 })
 
-describe('System — SoC temp chip', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    stats.set(null)
-    info.set(null)
-    health.set(null)
-  })
-
-  it('shows SoC temp when temp.present=true and board lacks power capability', () => {
-    info.set({ ...baseInfo, capabilities: [] } as any)
-    health.set({ ...baseHealth, temp: { present: true, soc_c: 42 } } as any)
-    const { container } = render(System)
-    expect(container.textContent).toContain('42°C')
-  })
-
-  it('hides SoC temp when temp.present=true but board has power capability', () => {
-    info.set({ ...baseInfo, capabilities: ['power'] } as any)
-    health.set({ ...baseHealth, temp: { present: true, soc_c: 42 } } as any)
-    const { container } = render(System)
-    expect(container.textContent).not.toContain('42°C')
-  })
-
-  it('hides SoC temp when temp.present=false', () => {
-    health.set({ ...baseHealth, temp: { present: false } } as any)
-    const { container } = render(System)
-    expect(container.textContent).not.toContain('°C')
-  })
-
-  it('hides SoC temp when temp field is absent', () => {
-    health.set({ ...baseHealth } as any)
-    const { container } = render(System)
-    expect(container.textContent).not.toContain('°C')
-  })
-
-  it('rounds soc_c to whole number when visible', () => {
-    info.set({ ...baseInfo, capabilities: [] } as any)
-    health.set({ ...baseHealth, temp: { present: true, soc_c: 41.7 } } as any)
-    const { container } = render(System)
-    expect(container.textContent).toContain('42°C')
-  })
-
-  it('hides SoC temp when power capability is in a multi-element capabilities array', () => {
-    info.set({ ...baseInfo, capabilities: ['asic', 'power', 'fan'] } as any)
-    health.set({ ...baseHealth, temp: { present: true, soc_c: 42 } } as any)
-    const { container } = render(System)
-    expect(container.textContent).not.toContain('42°C')
-  })
-})
-
 describe('System — ASIC from info.asic (not hardcoded map)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -453,7 +410,7 @@ describe('System — ASIC from info.asic (not hardcoded map)', () => {
     info.set({
       ...baseInfo,
       capabilities: ['asic', 'fan'],
-      asic: { model: 'BM1370', chips: 1, small_cores_per_chip: 256 }
+      mining: { asic: { model: 'BM1370', chips: 1, small_cores_per_chip: 256 } }
     } as any)
     const { container } = render(System)
     expect(container.textContent).toContain('ASIC')
@@ -463,7 +420,7 @@ describe('System — ASIC from info.asic (not hardcoded map)', () => {
   it('shows ASIC card when asic field is present (no capabilities)', () => {
     info.set({
       ...baseInfo,
-      asic: { model: 'BM1368', chips: 1, small_cores_per_chip: 128 }
+      mining: { asic: { model: 'BM1368', chips: 1, small_cores_per_chip: 128 } }
     } as any)
     const { container } = render(System)
     expect(container.textContent).toContain('BM1368')
@@ -473,7 +430,7 @@ describe('System — ASIC from info.asic (not hardcoded map)', () => {
     info.set({
       ...baseInfo,
       capabilities: ['asic'],
-      asic: { model: 'BM1370', chips: 2, small_cores_per_chip: 256 }
+      mining: { asic: { model: 'BM1370', chips: 2, small_cores_per_chip: 256 } }
     } as any)
     const { container } = render(System)
     expect(container.textContent).toContain('BM1370 ×2')
@@ -485,24 +442,24 @@ describe('System — ASIC from info.asic (not hardcoded map)', () => {
     expect(container.textContent).not.toContain('ASIC')
   })
 
-  it('derives expectedChips from info.asic.chips', () => {
+  it('derives expectedChips from info.mining.asic.chips', () => {
     info.set({
       ...baseInfo,
       capabilities: ['asic'],
-      asic: { model: 'BM1370', chips: 2, small_cores_per_chip: 256 }
+      mining: { asic: { model: 'BM1370', chips: 2, small_cores_per_chip: 256 } }
     } as any)
     stats.set({ asic_chips: [{}], asic_count: 2, asic_small_cores: 256 } as any)
     const { container } = render(System)
-    // expectedChips=2 from info.asic.chips, detectedChips=1 → chipsBad → dd.bad
+    // expectedChips=2 from info.mining.asic.chips, detectedChips=1 → chipsBad → dd.bad
     const badDds = container.querySelectorAll('dd.bad')
     expect(badDds.length).toBeGreaterThan(0)
   })
 
-  it('derives expectedCores from info.asic.chips * small_cores_per_chip', () => {
+  it('derives expectedCores from info.mining.asic.chips * small_cores_per_chip', () => {
     info.set({
       ...baseInfo,
       capabilities: ['asic'],
-      asic: { model: 'BM1370', chips: 1, small_cores_per_chip: 256 }
+      mining: { asic: { model: 'BM1370', chips: 1, small_cores_per_chip: 256 } }
     } as any)
     stats.set({ asic_chips: [{}], asic_count: 1, asic_small_cores: 256 } as any)
     const { container } = render(System)
@@ -581,10 +538,10 @@ describe('System — RTC donut', () => {
 })
 
 describe('System — Knot row', () => {
-  it('renders Knot row with ok state when network.knot=true', () => {
+  it('renders Knot row with ok state when knot.running=true', () => {
     health.set({
       ...baseHealth,
-      network: { ...baseHealth.network, knot: true }
+      knot: { running: true }
     } as any)
     const { container } = render(System)
     const knotRow = container.querySelector('.h-row[data-state="ok"]')
@@ -592,10 +549,10 @@ describe('System — Knot row', () => {
     expect(container.textContent).toContain('Knot')
   })
 
-  it('renders Knot row with idle state when network.knot=false', () => {
+  it('renders Knot row with idle state when knot.running=false', () => {
     health.set({
       ...baseHealth,
-      network: { ...baseHealth.network, knot: false }
+      knot: { running: false }
     } as any)
     const { container } = render(System)
     expect(container.textContent).toContain('Knot')
@@ -611,7 +568,7 @@ describe('System — Knot row', () => {
     expect(knotFound).toBe(true)
   })
 
-  it('renders Knot row with idle state when network.knot is undefined', () => {
+  it('renders Knot row with idle state when knot field is undefined', () => {
     health.set({
       ok: true,
       free_heap: 131072,
@@ -622,8 +579,8 @@ describe('System — Knot row', () => {
         disc_age_s: 0,
         retry_count: 0,
         mdns: null
-        // knot field omitted/undefined
       }
+      // mining field omitted/undefined
     } as any)
     const { container } = render(System)
     expect(container.textContent).toContain('Knot')

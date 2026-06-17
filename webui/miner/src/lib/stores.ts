@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store'
-import { fetchStats, fetchInfo, fetchPower, fetchFan, fetchThermal, fetchSettings, fetchPool, fetchHealth, type Stats, type Info, type Power, type Fan, type Thermal, type Settings, type Pool, type Health, type OtaCheckResult } from './api'
+import { fetchStats, fetchInfo, fetchSensors, fetchSettings, fetchPool, fetchHealth, type Stats, type Info, type Power, type Fan, type Thermal, type Settings, type Pool, type Health, type OtaCheckResult } from './api'
 
 export interface HistorySample {
   ts: number              // epoch seconds (client-side)
@@ -119,8 +119,6 @@ let pollInterval: ReturnType<typeof setInterval> | null = null
 let failCount = 0
 let infoLoaded = false
 let settingsLoaded = false
-let asicProbed = false
-let asicAvailable = false
 
 /* Drop the cached /api/info + /api/settings so the next poll re-fetches them.
  * Call after a settings mutation so live config changes (display/LED on-off,
@@ -156,39 +154,46 @@ async function poll() {
     }
     lastUptimeS = statsData.uptime_s
 
-    // Probe /api/power once to detect ASIC capability. Subsequent polls only
-    // hit /api/power, /api/fan, and /api/thermal on ASIC boards — keeps tdongle
-    // firmware logs clean of 405 warnings from missing handlers.
-    let powerData: Power | null = null
-    let fanData: Fan | null = null
-    let thermalData: Thermal | null = null
-    if (!asicProbed) {
-      powerData = await fetchPower().catch(() => null)
-      // BB serves /api/power on every board post-P4 (returns {present:false} on
-      // boards with no VR), so a non-null response no longer implies an ASIC —
-      // gate on the present flag.
-      asicAvailable = powerData?.present === true
-      asicProbed = true
-      hasAsic.set(asicAvailable)
-      if (asicAvailable) {
-        ;[fanData, thermalData] = await Promise.all([
-          fetchFan().catch(() => null),
-          fetchThermal().catch(() => null)
-        ])
-      }
-    } else if (asicAvailable) {
-      ;[powerData, fanData, thermalData] = await Promise.all([
-        fetchPower().catch(() => null),
-        fetchFan().catch(() => null),
-        fetchThermal().catch(() => null)
-      ])
+    // /api/sensors — unified fan/power/thermal/miner data (breadboard B1-269).
+    // Transient failures leave stores at last value so UI sections don't flicker.
+    let sensorsData: Awaited<ReturnType<typeof fetchSensors>> | null = null
+    try {
+      sensorsData = await fetchSensors()
+    } catch {
+      // keep prior store values on transient failure
     }
-    // Transient fetch failures leave power/fan/thermal at last value (matches
-    // pool semantics below) — otherwise a single dropped poll makes UI sections
-    // gated on $fan/$power/$thermal vanish for 5s until the next tick.
-    if (powerData !== null) power.set(powerData)
-    if (fanData !== null) fan.set(fanData)
-    if (thermalData !== null) thermal.set(thermalData)
+    if (sensorsData !== null) {
+      const s = sensorsData
+      // hasAsic: authoritative from /api/info capabilities (fetched below).
+      // Derive from the info store once loaded; on first poll info may not be
+      // loaded yet, so fall back to power.present from the sensors response.
+      const infoVal = get(info)
+      if (infoVal !== null) {
+        hasAsic.set(infoVal.capabilities?.includes('asic') ?? false)
+      } else {
+        hasAsic.set(s.power?.present === true)
+      }
+
+      // Reconstruct the Power store shape: TM-relevant fields from miner;
+      // vin_mv/present from power. All $power.* consumers keep working.
+      const powerData: Power = {
+        present: s.power?.present ?? undefined,
+        vcore_mv: s.miner?.vcore_mv ?? null,
+        icore_ma: s.miner?.icore_ma ?? null,
+        pcore_mw: s.miner?.pcore_mw ?? null,
+        efficiency_jth: s.miner?.efficiency_jth ?? null,
+        efficiency_jth_1m: s.miner?.efficiency_jth_1m ?? null,
+        efficiency_jth_10m: s.miner?.efficiency_jth_10m ?? null,
+        efficiency_jth_1h: s.miner?.efficiency_jth_1h ?? null,
+        expected_efficiency_jth: s.miner?.expected_efficiency_jth ?? null,
+        vin_mv: s.power?.vin_mv ?? null,
+        vin_low: s.miner?.vin_low ?? null,
+        vr_temp_c: s.miner?.vr_temp_c ?? null,
+      }
+      power.set(powerData)
+      fan.set(s.fan)
+      thermal.set(s.thermal)
+    }
 
     // /api/pool — TA-281; transient failures leave the store at last value.
     try {
@@ -198,19 +203,20 @@ async function poll() {
     }
 
     // Append to rolling history buffer (session-local).
+    const s = sensorsData
     const sample: HistorySample = {
       ts: Math.floor(Date.now() / 1000),
       total_ghs: statsData.asic_total_ghs ?? (statsData.hashrate ? statsData.hashrate / 1e9 : null),
       hw_err_pct: statsData.asic_hw_error_pct ?? null,
-      temp_c: (thermalData?.asic.present ? thermalData.asic.c : null) ?? statsData.temp_c ?? null,
-      vr_temp_c: powerData?.vr_temp_c ?? null,
-      board_temp_c: (thermalData?.board.present ? thermalData.board.c : null) ?? null,
-      pcore_w: powerData?.pcore_mw != null ? powerData.pcore_mw / 1000 : null,
-      vcore_v: powerData?.vcore_mv != null ? powerData.vcore_mv / 1000 : null,
-      efficiency_jth: powerData?.efficiency_jth ?? null,
+      temp_c: (s?.thermal?.asic.present ? s.thermal.asic.c : null) ?? statsData.temp_c ?? null,
+      vr_temp_c: s?.miner?.vr_temp_c ?? null,
+      board_temp_c: (s?.thermal?.board.present ? s.thermal.board.c : null) ?? null,
+      pcore_w: s?.miner?.pcore_mw != null ? s.miner.pcore_mw / 1000 : null,
+      vcore_v: s?.miner?.vcore_mv != null ? s.miner.vcore_mv / 1000 : null,
+      efficiency_jth: s?.miner?.efficiency_jth ?? null,
       asic_freq_mhz: statsData.asic_freq_effective_mhz ?? null,
-      rpm: fanData?.rpm ?? null,
-      fan_duty: fanData?.duty_pct ?? null
+      rpm: s?.fan?.rpm ?? null,
+      fan_duty: s?.fan?.duty_pct ?? null
     }
     history.update((buf) => {
       const next = buf.concat(sample)
@@ -223,8 +229,12 @@ async function poll() {
 
     if (!infoLoaded) {
       try {
-        info.set(await fetchInfo())
+        const infoData = await fetchInfo()
+        info.set(infoData)
         infoLoaded = true
+        // Update hasAsic now that info is available — authoritative over the
+        // power.present fallback used on the first poll.
+        hasAsic.set(infoData.capabilities?.includes('asic') ?? false)
       } catch { /* transient; retry next cycle */ }
     }
 
@@ -253,7 +263,5 @@ export function stop() {
   }
   infoLoaded = false
   settingsLoaded = false
-  asicProbed = false
-  asicAvailable = false
   thermal.set(null)
 }

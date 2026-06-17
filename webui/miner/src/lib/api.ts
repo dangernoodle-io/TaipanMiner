@@ -103,7 +103,6 @@ export interface Info {
   chip_model: string
   cores: number
   mac: string
-  ssid: string | null
   flash_size: number
   app_size: number
   total_heap: number
@@ -114,16 +113,24 @@ export interface Info {
   heap_psram?: { free: number; total: number }
   rtc?: { used: number; total: number }
   reset_reason: string | null
-  wdt_resets: number | null
-  boot_time: number | null
-  worker_name: string
   hostname: string
-  validated: boolean
   network?: InfoNetwork
   display?: { present: boolean; panel?: 'st77xx' | 'ssd1306'; width?: number; height?: number; enabled?: boolean }
   led?: { present: boolean; type?: 'apa102' | 'pwm'; count?: number; rgb?: boolean }
   capabilities?: string[]
-  asic?: { model: string; chips: number; small_cores_per_chip: number }
+  /** Unix epoch seconds of last boot (breadboard top-level field, bb_info.c). */
+  boot_epoch?: number
+  /** TaipanMiner-owned fields, nested under the mining key. Present on all TM boards. */
+  mining?: {
+    worker_name?: string
+    sha?: { us_per_op?: number; khs_ceiling?: number; overlap?: string; hwrite?: string }
+    asic?: { model: string; chips: number; small_cores_per_chip: number }
+  }
+  /** Diagnostic counters from breadboard. Present on all BB v0.x+ boards. */
+  diag?: {
+    wdt_resets?: number
+    panic?: { available: boolean; coredump?: boolean; boots_since?: number }
+  }
 }
 
 /**
@@ -139,9 +146,6 @@ export interface HealthNetwork {
   disc_age_s: number
   retry_count: number
   mdns: string | null
-  stratum?: boolean              // TaipanMiner extender
-  stratum_fail_count?: number    // TaipanMiner extender
-  knot?: boolean                 // TaipanMiner extender
 }
 
 export interface Health {
@@ -149,8 +153,9 @@ export interface Health {
   free_heap: number
   validated: boolean
   network: HealthNetwork
-  sha_self_test_failed?: boolean
-  temp?: { present: boolean; soc_c?: number }
+  mining?: { sha_self_test_failed?: boolean }
+  pool?: { stratum?: boolean; fail_count?: number; reconnect_ms?: number }
+  knot?: { running?: boolean }
 }
 
 export interface ThermalSensor {
@@ -207,20 +212,6 @@ export interface FanPatch {
   min_pct?: number
 }
 
-// POST /api/fan — JSON, partial. BB-owned autofan route; strict server-side
-// parsing rejects malformed values with 400.
-export async function patchFan(body: FanPatch): Promise<void> {
-  const payload: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(body)) {
-    if (v !== undefined) payload[k] = v
-  }
-  const res = await fetch(`${baseUrl}/api/fan`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  })
-  if (!res.ok) throw new Error(`fan patch failed: ${res.status}`)
-}
 
 export interface KnotPeer {
   instance: string
@@ -412,11 +403,66 @@ export interface Settings {
   led_heartbeat_en?: boolean
 }
 
+// /api/sensors — unified sensor endpoint (breadboard B1-269, v0.62.0+).
+// Replaces the deleted /api/power, /api/fan, /api/thermal endpoints.
+export interface SensorsFan extends Fan {
+  present?: boolean
+}
+
+export interface SensorsPower {
+  present?: boolean
+  vout_mv?: number | null
+  iout_ma?: number | null
+  pout_mw?: number | null
+  vin_mv?: number | null
+  temp_c?: number | null
+}
+
+export interface SensorsMiner {
+  vcore_mv: number | null
+  icore_ma: number | null
+  pcore_mw: number | null
+  vr_temp_c: number | null
+  efficiency_jth: number | null
+  efficiency_jth_1m: number | null
+  efficiency_jth_10m: number | null
+  efficiency_jth_1h: number | null
+  expected_efficiency_jth: number | null
+  vin_low: boolean | null
+}
+
+export interface Sensors {
+  fan: SensorsFan
+  power: SensorsPower
+  thermal: Thermal
+  miner: SensorsMiner
+}
+
+export const fetchSensors = () => getJson<Sensors>('/api/sensors')
+
+// POST /api/sensors (PATCH method) — partial fan config update.
+// Wraps the new consolidated /api/sensors PATCH; callers keep using patchFan.
+export async function patchFan(body: FanPatch): Promise<void> {
+  const fan: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(body)) {
+    if (v !== undefined) fan[k] = v
+  }
+  const res = await fetch(`${baseUrl}/api/sensors`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fan })
+  })
+  if (!res.ok) throw new Error(`fan patch failed: ${res.status}`)
+}
+
 export const fetchStats    = () => getJson<Stats>('/api/stats')
 export const fetchInfo     = () => getJson<Info>('/api/info')
 export const fetchHealth   = () => getJson<Health>('/api/health')
+/** @deprecated Deleted in breadboard B1-269. Use fetchSensors() instead. */
 export const fetchPower    = () => getJson<Power>('/api/power')
+/** @deprecated Deleted in breadboard B1-269. Use fetchSensors() instead. */
 export const fetchFan      = () => getJson<Fan>('/api/fan')
+/** @deprecated Deleted in breadboard B1-269. Use fetchSensors() instead. */
 export const fetchThermal  = () => getJson<Thermal>('/api/thermal')
 export const fetchSettings = () => getJson<Settings>('/api/settings')
 export const fetchKnot = () => getJson<KnotPeer[]>('/api/knot')

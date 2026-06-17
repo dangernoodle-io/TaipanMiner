@@ -97,6 +97,10 @@ export const infoFixture = {
   worker_name: 'miner-1',
   hostname: 'taipanminer-test',
   validated: true,
+  capabilities: ['asic', 'fan', 'power', 'ui', 'knot'],
+  mining: {
+    asic: { model: 'BM1370', chips: 1, small_cores_per_chip: 894 },
+  },
   network: {
     ssid: 'example-wifi',
     bssid: '11:22:33:44:55:66',
@@ -152,6 +156,50 @@ export const fanFixture = {
   vr_ema_c: 62.1,
   pid_input_c: 68.4,
   pid_input_src: 'die' as const,
+}
+
+// /api/sensors — consolidated sensor endpoint (breadboard B1-269, v0.62.0+).
+export const sensorsFixture = {
+  fan: {
+    present: true,
+    rpm: 4200,
+    duty_pct: 75,
+    autofan: true,
+    die_target_c: 65,
+    vr_target_c: 80,
+    manual_pct: 80,
+    min_pct: 35,
+    die_ema_c: 68.4,
+    vr_ema_c: 62.1,
+    pid_input_c: 68.4,
+    pid_input_src: 'die' as const,
+  },
+  power: {
+    present: true,
+    vout_mv: 1180,
+    iout_ma: 14500,
+    pout_mw: 17110,
+    vin_mv: 5050,
+    temp_c: 38.2,
+  },
+  thermal: {
+    soc: { present: true, c: 42.1 },
+    vr: { present: true, c: 62.4 },
+    asic: { present: true, c: 68.5 },
+    board: { present: true, c: 38.2 },
+  },
+  miner: {
+    vcore_mv: 1180,
+    icore_ma: 14500,
+    pcore_mw: 17110,
+    vr_temp_c: 62.4,
+    efficiency_jth: 35.3,
+    efficiency_jth_1m: null,
+    efficiency_jth_10m: null,
+    efficiency_jth_1h: null,
+    expected_efficiency_jth: null,
+    vin_low: false,
+  },
 }
 
 export const settingsFixture = {
@@ -240,8 +288,7 @@ export type EndpointMap = Partial<{
   '/api/stats': unknown
   '/api/info': unknown
   '/api/health': unknown
-  '/api/power': unknown
-  '/api/fan': unknown
+  '/api/sensors': unknown
   '/api/settings': unknown
   '/api/pool': unknown
   '/api/knot': unknown
@@ -256,8 +303,7 @@ const defaults: EndpointMap = {
   '/api/stats': statsFixture,
   '/api/info': infoFixture,
   '/api/health': healthFixture,
-  '/api/power': powerFixture,
-  '/api/fan': fanFixture,
+  '/api/sensors': sensorsFixture,
   '/api/settings': settingsFixture,
   '/api/pool': poolFixture,
   '/api/knot': knotFixture,

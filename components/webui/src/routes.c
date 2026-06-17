@@ -1,4 +1,5 @@
 #include "webui.h"
+#include "webui_ids.h"
 #include "bb_http.h"
 #include "bb_info.h"
 #include "bb_health.h"
@@ -1077,56 +1078,47 @@ static bb_err_t knot_handler(bb_http_request_t *req)
 #endif // CONFIG_KNOT_ENABLED
 
 // B1-269: migrated from bb_info_register_extender (flat merge into root) to
-// bb_info_register_section (writes into a "taipan" child object).
+// bb_info_register_section (writes into a "mining" child object).
 // The "network" and "asic" sub-objects are kept as nested objects within the
-// "taipan" section rather than merging into BB's own sections.
-static void taipan_info_section_get(bb_json_t section, void *ctx)
+// "mining" section rather than merging into BB's own sections.
+static void mining_info_section_get(bb_json_t section, void *ctx)
 {
     (void)ctx;
     bb_json_obj_set_string(section, "worker_name", config_worker_name());
-    bb_json_obj_set_string(section, "hostname", config_hostname());
-
-    const char *ssid = bb_nv_config_wifi_ssid();
-    if (ssid) bb_json_obj_set_string(section, "ssid", ssid);
-
-    bb_json_obj_set_bool(section, "validated", !bb_ota_is_pending());
     // wdt_resets removed: bb_diag now owns it in the diag section of /api/info (B1-269)
+    // hostname/ssid/validated/boot_time removed: bb owns these at top-level /api/info
 
-    // TA-339: per-device HW SHA peripheral ceiling (boot microbench).
-    // Absent on boards without HW SHA microbench (e.g. D0/DPORT).
-    double sha_us, sha_khs;
-    if (mining_get_sha_microbench(&sha_us, &sha_khs)) {
-        bb_json_obj_set_number(section, "sha_us_per_op", sha_us);
-        bb_json_obj_set_number(section, "sha_khs_ceiling", sha_khs);
-    }
-
-    // TA-320a: SHA TEXT-overlap canary result. Drives the decision to
-    // overlap next-pass TEXT writes during current busy-wait.
-    sha_overlap_state_t ov = mining_get_sha_overlap_state();
-    if (ov != SHA_OVERLAP_UNKNOWN) {
-        bb_json_obj_set_string(section, "sha_overlap",
-                               ov == SHA_OVERLAP_SAFE ? "safe" : "unsafe");
-    }
-    sha_overlap_state_t hw = mining_get_sha_hwrite_state();
-    if (hw != SHA_OVERLAP_UNKNOWN) {
-        bb_json_obj_set_string(section, "sha_hwrite",
-                               hw == SHA_OVERLAP_SAFE ? "safe" : "unsafe");
-    }
-
-    time_t now = time(NULL);
-    if (now > 1700000000) {
-        int64_t uptime_s = (int64_t)bb_timer_now_us() / 1000000LL;
-        bb_json_obj_set_number(section, "boot_time", (double)(now - uptime_s));
-    }
-
-    // Network sub-object: TM-domain stratum status fields.
+    // TA-339 / TA-320a: SHA microbench and overlap canary results.
+    // Grouped under "sha" sub-object; absent on boards without HW SHA microbench.
     {
-        bb_json_t network = bb_json_obj_new();
-        bb_json_obj_set_bool(network, "mdns", bb_mdns_started());
-        bb_json_obj_set_bool(network, "stratum", stratum_is_connected());
-        bb_json_obj_set_number(network, "stratum_reconnect_ms", stratum_get_reconnect_delay_ms());
-        bb_json_obj_set_number(network, "stratum_fail_count", stratum_get_connect_fail_count());
-        bb_json_obj_set_obj(section, "network", network);
+        bb_json_t sha = bb_json_obj_new();
+        bool sha_has_fields = false;
+
+        double sha_us, sha_khs;
+        if (mining_get_sha_microbench(&sha_us, &sha_khs)) {
+            bb_json_obj_set_number(sha, "us_per_op", sha_us);
+            bb_json_obj_set_number(sha, "khs_ceiling", sha_khs);
+            sha_has_fields = true;
+        }
+
+        sha_overlap_state_t ov = mining_get_sha_overlap_state();
+        if (ov != SHA_OVERLAP_UNKNOWN) {
+            bb_json_obj_set_string(sha, "overlap",
+                                   ov == SHA_OVERLAP_SAFE ? "safe" : "unsafe");
+            sha_has_fields = true;
+        }
+        sha_overlap_state_t hw = mining_get_sha_hwrite_state();
+        if (hw != SHA_OVERLAP_UNKNOWN) {
+            bb_json_obj_set_string(sha, "hwrite",
+                                   hw == SHA_OVERLAP_SAFE ? "safe" : "unsafe");
+            sha_has_fields = true;
+        }
+
+        if (sha_has_fields) {
+            bb_json_obj_set_obj(section, "sha", sha);
+        } else {
+            bb_json_free(sha);
+        }
     }
 
 #ifdef ASIC_CHIP
@@ -1152,51 +1144,63 @@ static void taipan_info_section_get(bb_json_t section, void *ctx)
 }
 
 // B1-269: migrated from bb_health_register_extender (flat merge into root) to
-// bb_health_register_section (writes into a "taipan_mining" child object).
-static void taipan_health_section_get(bb_json_t section, void *ctx)
+// bb_health_register_section (writes into a "mining" child object).
+static void mining_health_section_get(bb_json_t section, void *ctx)
 {
     (void)ctx;
     /* Live liveness signals for the System page. /api/info still owns the
      * one-shot fields (board, MAC, IP, reset_reason, etc.) — anything that
      * changes during the session belongs here. */
     bb_json_obj_set_bool(section, "sha_self_test_failed", mining_sha_self_test_failed());
-
-    // Network sub-object: TM-domain stratum liveness fields.
-    {
-        bb_json_t network = bb_json_obj_new();
-        bb_json_obj_set_bool(network, "stratum", stratum_is_connected());
-        bb_json_obj_set_number(network, "stratum_fail_count",
-                               stratum_get_connect_fail_count());
-#if CONFIG_KNOT_ENABLED
-        bb_json_obj_set_bool(network, "knot", knot_is_running());
-#endif
-        bb_json_obj_set_obj(section, "network", network);
-    }
 }
+
+static void pool_health_section_get(bb_json_t section, void *ctx)
+{
+    (void)ctx;
+    bb_json_obj_set_bool(section, "stratum", stratum_is_connected());
+    bb_json_obj_set_number(section, "fail_count",
+                           stratum_get_connect_fail_count());
+    bb_json_obj_set_number(section, "reconnect_ms",
+                           stratum_get_reconnect_delay_ms());
+}
+
+#if CONFIG_KNOT_ENABLED
+static void knot_health_section_get(bb_json_t section, void *ctx)
+{
+    (void)ctx;
+    bb_json_obj_set_bool(section, "running", knot_is_running());
+}
+#endif /* CONFIG_KNOT_ENABLED */
 
 bb_err_t webui_register_info_extender(void)
 {
     // B1-269: extender API deleted; use bb_info_register_section / bb_health_register_section.
-    bb_err_t err = bb_info_register_section("taipan", taipan_info_section_get, NULL, NULL);
+    bb_err_t err = bb_info_register_section(WEBUI_SECTION_MINING, mining_info_section_get, NULL, NULL);
     if (err != BB_OK) return err;
-    err = bb_health_register_section("taipan_mining", taipan_health_section_get, NULL, NULL);
+    err = bb_health_register_section(WEBUI_SECTION_MINING, mining_health_section_get, NULL, NULL);
     if (err != BB_OK) return err;
+    err = bb_health_register_section(WEBUI_SECTION_POOL, pool_health_section_get, NULL, NULL);
+    if (err != BB_OK) return err;
+#if CONFIG_KNOT_ENABLED
+    err = bb_health_register_section(WEBUI_SECTION_KNOT, knot_health_section_get, NULL, NULL);
+    if (err != BB_OK) return err;
+#endif
 
     // Capability flags: advertise which optional hardware/features this build has.
     // Gating mirrors the existing route-registration conditions so the frontend
     // can infer which API endpoints are present without probing 404s.
 #ifdef ASIC_CHIP
-    bb_info_register_capability("asic");
+    bb_info_register_capability(WEBUI_CAP_ASIC);
 #endif
 #if defined(ASIC_BM1370) || defined(ASIC_BM1368)
-    bb_info_register_capability("fan");
-    bb_info_register_capability("power");
+    bb_info_register_capability(WEBUI_CAP_FAN);
+    bb_info_register_capability(WEBUI_CAP_POWER);
 #endif
 #if CONFIG_WEBUI_MINING_UI
-    bb_info_register_capability("mining_ui");
+    bb_info_register_capability(WEBUI_CAP_UI);
 #endif
 #if CONFIG_KNOT_ENABLED
-    bb_info_register_capability("knot");
+    bb_info_register_capability(WEBUI_CAP_KNOT);
 #endif
 
     return BB_OK;

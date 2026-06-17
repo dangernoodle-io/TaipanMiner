@@ -37,7 +37,7 @@
 
   const alerts = $derived.by(() => {
     const list: Alert[] = []
-    if ($health?.sha_self_test_failed) {
+    if ($health?.mining?.sha_self_test_failed) {
       list.push({
         key: 'sha_self_test_failed',
         severity: 'danger',

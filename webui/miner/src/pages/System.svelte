@@ -16,8 +16,8 @@
   const healthRows = $derived([
     { label: 'WiFi',     dot: ($health?.network?.connected ? 'ok' : 'err') as Dot },
     { label: 'mDNS',     dot: ($health?.network?.mdns ? 'ok' : 'idle') as Dot },
-    { label: 'Knot',     dot: ($health?.network?.knot ? 'ok' : 'idle') as Dot },
-    { label: 'Stratum',  dot: ($health?.network?.stratum ? 'ok' : 'err') as Dot },
+    { label: 'Knot',     dot: ($health?.knot?.running ? 'ok' : 'idle') as Dot },
+    { label: 'Stratum',  dot: ($health?.pool?.stratum ? 'ok' : 'err') as Dot },
     { label: 'Firmware', dot: ($health?.validated === true ? 'ok'
                            : $health?.validated === false ? 'warn'
                            : 'idle') as Dot }
@@ -30,7 +30,7 @@
       : null
   )
   const rssi = $derived($health?.network?.rssi ?? null)
-  const stratumFails = $derived($health?.network?.stratum_fail_count ?? 0)
+  const stratumFails = $derived($health?.pool?.fail_count ?? 0)
 
   // Per-region memory (breadboard v0.52+, BB-248). PSRAM hidden when absent.
   const memInternal = $derived($info?.heap_internal ?? null)
@@ -39,20 +39,20 @@
 
   // ASIC topology: sourced from /api/info fields.
   const hasAsic = $derived(
-    $info?.capabilities?.includes('asic') ?? ($info?.asic != null)
+    $info?.capabilities?.includes('asic') ?? ($info?.mining?.asic != null)
   )
   const asicModel = $derived(
-    $info?.asic
-      ? ($info.asic.chips > 1 ? `${$info.asic.model} ×${$info.asic.chips}` : $info.asic.model)
+    $info?.mining?.asic
+      ? ($info.mining.asic.chips > 1 ? `${$info.mining.asic.model} ×${$info.mining.asic.chips}` : $info.mining.asic.model)
       : undefined
   )
   const detectedChips = $derived($stats?.asic_chips?.length ?? null)
-  const expectedChips = $derived($info?.asic?.chips ?? null)
+  const expectedChips = $derived($info?.mining?.asic?.chips ?? null)
   const smallCoresPerChip = $derived($stats?.asic_small_cores ?? null)  // per-chip from stats
   const detectedCores = $derived((detectedChips != null && smallCoresPerChip != null) ? detectedChips * smallCoresPerChip : null)
   const expectedCores = $derived(
-    ($info?.asic != null)
-      ? $info.asic.chips * $info.asic.small_cores_per_chip
+    ($info?.mining?.asic != null)
+      ? $info.mining.asic.chips * $info.mining.asic.small_cores_per_chip
       : (expectedChips != null && smallCoresPerChip != null) ? expectedChips * smallCoresPerChip : null
   )
   const chipsBad = $derived(expectedChips != null && detectedChips != null && detectedChips < expectedChips)
@@ -85,10 +85,6 @@
       : 'None'
   )
 
-  // SoC temperature from /api/health.
-  const socTemp = $derived($health?.temp?.present ? ($health.temp.soc_c ?? null) : null)
-  // Show SoC temp only when board lacks dedicated power telemetry (bitaxe boards with power capability hide it).
-  const showSocTemp = $derived(socTemp != null && !($info?.capabilities?.includes('power') ?? false))
 </script>
 
 <div class="status-bar">
@@ -120,15 +116,6 @@
       </span>
     {/if}
   </div>
-  {#if showSocTemp && socTemp != null}
-    <span class="sb-soc-temp" title="SoC temperature">
-      <svg viewBox="0 0 20 20" class="h-icon" aria-hidden="true">
-        <path d="M10 3 L10 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-        <circle cx="10" cy="15" r="3" fill="currentColor" />
-      </svg>
-      {Math.round(socTemp)}°C
-    </span>
-  {/if}
   {#if $info?.display?.present}
     <Tooltip text="Display {$info.display.enabled ? 'on' : 'off'}">
       <span class="sb-ico" class:sb-off={!$info.display.enabled}>
@@ -169,7 +156,7 @@
   </span>
   <span class="net-item">
     <span class="net-label">SSID</span>
-    <span class="net-val">{$info?.network?.ssid ?? $info?.ssid ?? '—'}</span>
+    <span class="net-val">{$info?.network?.ssid ?? '—'}</span>
   </span>
   <span class="net-item">
     <span class="net-label">Signal</span>
@@ -232,8 +219,8 @@
 
   <InfoCard title="Runtime">
     <InfoRow label="Reset reason">{$info?.reset_reason ?? '—'}</InfoRow>
-    <InfoRow label="WDT resets">{$info?.wdt_resets ?? '—'}</InfoRow>
-    <InfoRow label="Last boot">{fmtUnixTs($info?.boot_time)}</InfoRow>
+    <InfoRow label="WDT resets">{$info?.diag?.wdt_resets ?? '—'}</InfoRow>
+    <InfoRow label="Last boot">{fmtUnixTs($info?.boot_epoch)}</InfoRow>
   </InfoCard>
 
 
@@ -276,20 +263,6 @@
     flex-wrap: wrap;
     gap: 16px;
     flex: 1;
-  }
-
-  .sb-soc-temp {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-weight: 600;
-    font-size: 13px;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .sb-soc-temp svg {
-    color: var(--muted);
   }
 
   /* device-subsystem icons (display / LED) — neutral on/off, never error-red.

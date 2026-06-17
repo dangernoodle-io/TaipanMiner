@@ -47,7 +47,8 @@ test.describe('System page · degraded states', () => {
           ok: true,
           free_heap: 180000,
           validated: true,
-          network: { connected: false, rssi: -90, disc_age_s: 5, retry_count: 3, mdns: null, stratum: false, stratum_fail_count: 7 },
+          network: { connected: false, rssi: -90, disc_age_s: 5, retry_count: 3, mdns: null },
+          pool: { stratum: false, fail_count: 7, reconnect_ms: 0 },
         },
       },
     })
@@ -62,14 +63,15 @@ test.describe('System page · degraded states', () => {
 })
 
 test.describe('System page · Knot status', () => {
-  test('renders Knot row with ok state when network.knot=true', async ({ page }) => {
+  test('renders Knot row with ok state when knot.running=true', async ({ page }) => {
     await mockMinerApi(page, {
       overrides: {
         '/api/health': {
           ok: true,
           free_heap: 180000,
           validated: true,
-          network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: 'taipan.local', knot: true },
+          network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: 'taipan.local' },
+          knot: { running: true },
         },
       },
     })
@@ -79,14 +81,15 @@ test.describe('System page · Knot status', () => {
     await expect(knotRow).toBeVisible()
   })
 
-  test('renders Knot row with idle state when network.knot=false', async ({ page }) => {
+  test('renders Knot row with idle state when knot.running=false', async ({ page }) => {
     await mockMinerApi(page, {
       overrides: {
         '/api/health': {
           ok: true,
           free_heap: 180000,
           validated: true,
-          network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: 'taipan.local', knot: false },
+          network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: 'taipan.local' },
+          knot: { running: false },
         },
       },
     })
@@ -104,6 +107,7 @@ test.describe('System page · Knot status', () => {
           free_heap: 180000,
           validated: true,
           network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: 'taipan.local' },
+          // knot field intentionally omitted to test undefined handling
         },
       },
     })

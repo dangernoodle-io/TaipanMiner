@@ -148,11 +148,9 @@ CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=1024
 # at BB default (8).
 CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS=2
 
-# BB power/fan/thermal routes (P4b): BB owns /api/power, /api/fan, /api/thermal;
-# TM registers extenders at order 0 before these init at order 1.
-CONFIG_BB_POWER_ROUTES_AUTOREGISTER=y
-CONFIG_BB_FAN_ROUTES_AUTOREGISTER=y
-CONFIG_BB_THERMAL_AUTOREGISTER=y
+# BB sensors route (B1-269, v0.62.0+): /api/sensors serves fan/power/thermal/miner
+# as a consolidated endpoint. CONFIG_BB_SENSORS_AUTOREGISTER defaults y — no override needed.
+# The old /api/power, /api/fan, /api/thermal routes are deleted; their bb_*_init are no-op stubs.
 
 # BB autofan: BB fully owns fan duty and autofan PID when enabled.
 # TM wires cfg from NVS, feeds VR aux temp, and registers persist callback.

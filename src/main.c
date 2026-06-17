@@ -56,7 +56,6 @@
 #endif
 #include "bb_display_info.h"
 #include "bb_led_info.h"
-#include "bb_temp.h"
 
 #if CONFIG_WEBUI_MINING_UI
 #define MINER_UI_TXT "1"
@@ -404,7 +403,6 @@ void app_main(void)
     // no LED on bitaxe, no SoC temp sensor on classic ESP32). Must run before
     // bb_registry_init() which starts the HTTP server and freezes the extender table.
     bb_display_register_info();
-    bb_temp_register_info();
 
     if (!bb_nv_config_is_provisioned()) {
         bb_log_i(TAG, "entering provisioning mode");

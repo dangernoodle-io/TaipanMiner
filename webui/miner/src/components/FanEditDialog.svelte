@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fan, fanEditOpen } from '../lib/stores'
-  import { fetchFan, patchFan, type FanPatch } from '../lib/api'
+  import { fetchSensors, patchFan, type FanPatch } from '../lib/api'
   import Toggle from './Toggle.svelte'
 
   type SliderCfg = {
@@ -67,7 +67,8 @@
     }
     try {
       await patchFan(patch)
-      fan.set(await fetchFan())
+      const sensors = await fetchSensors()
+      fan.set(sensors.fan)
       kind = 'ok'
       msg = 'Saved'
       setTimeout(close, 400)

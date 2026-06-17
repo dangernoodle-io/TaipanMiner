@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { mockMinerApi, infoFixture } from './fixtures/api'
+import { mockMinerApi, infoFixture, sensorsFixture } from './fixtures/api'
 
 test.describe('Dashboard', () => {
   test('renders pool strip, hero, and stat cards on a healthy miner', async ({ page }) => {
@@ -23,11 +23,14 @@ test.describe('Dashboard', () => {
   })
 
   test('hides ASIC-only cards on a tdongle miner', async ({ page }) => {
-    // tdongle: /api/power returns 404 → hasAsic=false → ASIC cards hidden
+    // tdongle: capabilities has no 'asic' → hasAsic=false → ASIC cards hidden
     await mockMinerApi(page, {
-      notFound: ['/api/power', '/api/fan'],
       overrides: {
-        '/api/info': { ...infoFixture, board: 'tdongle-s3' },
+        '/api/info': { ...infoFixture, board: 'tdongle-s3', capabilities: ['ui'] },
+        '/api/sensors': {
+          ...sensorsFixture,
+          power: { ...sensorsFixture.power, present: false },
+        },
       },
     })
     await page.goto('/#/dashboard')
@@ -62,5 +65,31 @@ test.describe('Dashboard', () => {
 
     // Eventually shows the disconnected alert (after 2 failed polls, ~10s)
     await expect(page.getByText('Miner unreachable')).toBeVisible({ timeout: 15_000 })
+  })
+
+  // Regression net: B1-269 deleted /api/power|fan|thermal; dashboard must show
+  // ASIC stat tiles when /api/sensors reports power.present=true + capabilities:['asic'].
+  test('ASIC stat tiles visible when /api/sensors reports power.present=true', async ({ page }) => {
+    await mockMinerApi(page, {
+      overrides: {
+        '/api/info': {
+          ...infoFixture,
+          capabilities: ['asic', 'fan', 'power', 'ui', 'knot'],
+          mining: { asic: { model: 'BM1370', chips: 1, small_cores_per_chip: 894 } },
+        },
+        '/api/sensors': sensorsFixture,
+      },
+    })
+    await page.goto('/#/dashboard')
+
+    // ASIC cards present — this is the core regression: if hasAsic stays false
+    // these headings never render and the dashboard collapses.
+    await expect(page.getByRole('heading', { name: 'Performance' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Cooling' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Fan' })).toBeVisible()
+
+    // StatTile labels confirm the power/thermal sections rendered
+    await expect(page.getByText('Input Voltage')).toBeVisible()
+    await expect(page.getByText('ASIC Voltage')).toBeVisible()
   })
 })

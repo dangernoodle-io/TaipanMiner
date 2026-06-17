@@ -202,7 +202,7 @@
   kind={ps.editingIdx === 0 ? 'Primary' : 'Fallback'}
   saving={ps.saving}
   saveMsg={ps.saveMsg}
-  workerPlaceholder={hostname || $info?.worker_name || 'miner-1'}
+  workerPlaceholder={hostname || $info?.mining?.worker_name || 'miner-1'}
   onsave={ps.handleSave}
   oncancel={ps.cancelEdit}
 />

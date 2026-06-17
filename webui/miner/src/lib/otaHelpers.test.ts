@@ -12,17 +12,17 @@ const baseInfo: Info = {
   chip_model: 'esp32-s3',
   cores: 2,
   mac: '00:11:22:33:44:55',
-  ssid: 'TestNet',
   flash_size: 16777216,
   app_size: 1048576,
   total_heap: 262144,
   free_heap: 131072,
   reset_reason: 'Unknown',
-  wdt_resets: 0,
-  boot_time: 1705333200,
-  worker_name: 'testworker',
   hostname: 'taipan.local',
-  validated: true,
+  boot_epoch: 1705333200,
+  mining: {
+    worker_name: 'testworker',
+  },
+  diag: { wdt_resets: 0 },
 }
 
 describe('firmwareName', () => {

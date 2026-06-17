@@ -85,7 +85,8 @@ describe('Nav', () => {
       ok: true,
       free_heap: 100000,
       validated: true,
-      network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: null, knot: true }
+      network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: null },
+      knot: { running: true }
     } as any)
     render(Nav)
     const routes = ['dashboard', 'diagnostics', 'history', 'knot', 'pool', 'settings', 'system', 'update']
@@ -97,24 +98,26 @@ describe('Nav', () => {
 })
 
 describe('Nav — Knot link visibility', () => {
-  it('renders Knot link when health.network.knot=true', () => {
+  it('renders Knot link when health.knot.running=true', () => {
     health.set({
       ok: true,
       free_heap: 100000,
       validated: true,
-      network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: null, knot: true }
+      network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: null },
+      knot: { running: true }
     } as any)
     render(Nav)
     const knotLink = document.querySelector('a[href="#/knot"]')
     expect(knotLink).not.toBeNull()
   })
 
-  it('does NOT render Knot link when health.network.knot=false', () => {
+  it('does NOT render Knot link when health.knot.running=false', () => {
     health.set({
       ok: true,
       free_heap: 100000,
       validated: true,
-      network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: null, knot: false }
+      network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: null },
+      knot: { running: false }
     } as any)
     render(Nav)
     const knotLink = document.querySelector('a[href="#/knot"]')
@@ -133,7 +136,8 @@ describe('Nav — Knot link visibility', () => {
       ok: true,
       free_heap: 100000,
       validated: true,
-      network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: null, knot: false }
+      network: { connected: true, rssi: -50, disc_age_s: 0, retry_count: 0, mdns: null },
+      knot: { running: false }
     } as any)
     render(Nav)
     expect(screen.getByText('Dashboard')).toBeInTheDocument()

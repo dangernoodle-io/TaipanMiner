@@ -182,6 +182,9 @@ CONFIG_BB_PUB_BUFFER_ENABLE=y
 CONFIG_BB_PUB_BUFFER_ALWAYS=y
 CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES=512
 CONFIG_BB_PUB_BUFFER_MAX_ENTRIES=4
+# bb_pub source cap: 7 breadboard auto-registered sources + mining (this file) = 8;
+# raised to 10 for headroom.
+CONFIG_BB_PUB_MAX_SOURCES=10
 
 # Stack recoup (valid trim): esp-mqtt internal task 6144->5120 (worst observed
 # use ~2372 B -> ~2748 B margin). bb_pub stays at the 4096 plaintext default

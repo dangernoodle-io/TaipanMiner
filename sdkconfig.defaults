@@ -201,3 +201,7 @@ CONFIG_MQTT_TASK_STACK_SIZE=5120
 CONFIG_BB_PUB_WORKER_CORE=0
 CONFIG_MQTT_TASK_CORE_SELECTION_ENABLED=y
 CONFIG_MQTT_USE_CORE_0=y
+
+# Prometheus metric namespace for GET /api/telemetry/metrics: taipanminer_<source>_<field>
+# instead of breadboard's default "bb" prefix (compile-time, no runtime call).
+CONFIG_BB_METRICS_PREFIX="taipanminer"

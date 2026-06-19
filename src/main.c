@@ -166,7 +166,8 @@ static bool tm_ota_pause(void)
 static void tm_ota_resume(void)
 {
     s_display_quiesced = false;
-    ui_display_on();
+    // only re-light the panel if the user hasn't disabled the display
+    if (bb_nv_config_display_enabled()) ui_display_on();
     bb_mqtt_resume_default();
     bb_pub_resume();
     mining_resume();

@@ -1,0 +1,23 @@
+menu "TPS546 VIN UVLO thresholds"
+
+    config TM_TPS546_VIN_ON_MV
+        int "TPS546 VIN_ON threshold (mV)"
+        range 3500 18000
+        default 4400
+        help
+            TPS546 VIN_ON (turn-on) threshold in mV. The regulator enables when VIN rises above
+            this. Relaxed from AxeOS 4800 to tolerate non-OEM/sagging supplies (ESP-Miner #1188).
+            Set just above VIN_OFF for hysteresis. Note the TPS546's rated minimum input is ~4.5V;
+            values below that trade spec-margin for transient-sag tolerance.
+
+    config TM_TPS546_VIN_OFF_MV
+        int "TPS546 VIN_OFF threshold (mV)"
+        range 3500 18000
+        default 4200
+        help
+            TPS546 VIN_OFF (turn-off / UVLO) threshold in mV. The regulator shuts off when VIN
+            sags below this. Relaxed from AxeOS 4500, which false-trips and latches on supplies
+            that droop under load (#1188). Tune ~0.3-0.5V below the rail voltage measured at the
+            miner under full load.
+
+endmenu

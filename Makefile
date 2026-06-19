@@ -20,7 +20,9 @@ test: ## Run host unit tests (ASIC and non-ASIC envs)
 	$(PIO) test -e native-noasic
 
 coverage: test ## Coverage report (gcovr)
-	gcovr --root . --filter 'components/' --print-summary --coveralls gcovr-coveralls.json
+	# Exclude the vendored breadboard (.breadboard) — bb covers its own code; counting it
+# here couples TM's gate to bb so every bb pin bump perturbs TM coverage.
+	gcovr --root . --filter 'components/' --exclude '\.breadboard' --print-summary --coveralls gcovr-coveralls.json
 
 build: ## Build default envs (tdongle-s3 + bitaxe-601)
 	$(PIO) run

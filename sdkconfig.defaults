@@ -171,17 +171,19 @@ CONFIG_BB_FAN_AUTOFAN=y
 # the http sink via sdkconfig/tls-server.
 CONFIG_BB_SINK_HTTP_TELEMETRY_AUTOREGISTER=n
 
-# Store-and-forward: ALWAYS-ON ring (uniform queue) fleet-wide. Small ring on
-# the no-PSRAM default. Payload 512 B fits the oversized ~535 B "info" entry in a
-# ring slot (so it is buffered/replayed, not just direct-published via the bb_pub
-# oversize fallback); the other time-series topics are far smaller. Entries trimmed
-# 6->4 to stay heap-neutral. Ring = (192+1+512)*4 ~= 2.8 KB (was (192+1+256)*6 ~=
-# 2.7 KB). PSRAM boards (bitaxe) override to a larger ring in SPIRAM. The buffer only
-# realistically rescues a brief outage -- depth past a tick is wasted, so shallow is fine.
+# Store-and-forward: ALWAYS-ON ring (uniform queue) fleet-wide. In always-on mode
+# EVERY active source enqueues into the ring each tick and the ring is drained only
+# after the whole source loop -- so MAX_ENTRIES must be >= the number of sources that
+# enqueue in one tick, or the first-enqueued sources are evicted before the drain
+# (silent live-data loss; buffer_dropped climbs in steady state). No-PSRAM boards have
+# ~5 active sources/tick (fan/power/thermal skip with no HAL) so 8 holds a full tick
+# plus a little outage headroom. PSRAM boards (bitaxe) have ~8 active sources/tick (all
+# HALs present) and override to 16 in SPIRAM (see sdkconfig/bitaxe-*). Payload 512 B
+# fits the oversized ~535 B "info" entry. Ring = (192+1+512)*8 ~= 5.6 KB internal.
 CONFIG_BB_PUB_BUFFER_ENABLE=y
 CONFIG_BB_PUB_BUFFER_ALWAYS=y
 CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES=512
-CONFIG_BB_PUB_BUFFER_MAX_ENTRIES=4
+CONFIG_BB_PUB_BUFFER_MAX_ENTRIES=8
 # bb_pub source cap: 7 breadboard auto-registered sources + mining (this file) = 8;
 # raised to 10 for headroom.
 CONFIG_BB_PUB_MAX_SOURCES=10

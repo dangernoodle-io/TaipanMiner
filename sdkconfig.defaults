@@ -38,7 +38,11 @@ CONFIG_LWIP_TCP_FIN_WAIT_TIMEOUT=2000
 # OTA pull) under dashboard load — reproduced as bitaxe-650 panic during
 # concurrent /api/* fan-out (TA-385). mDNS uses a separate MEMP_NUM_UDP_PCB
 # pool, but TCP stratum reconnects + DNS still share the lwip socket pool.
-CONFIG_BB_HTTP_LWIP_RESERVE=3
+# Bumped 3->5: held-SSE + concurrent /api/* exhausted the 12-socket pool and
+# starved MQTT/stratum (write-timeout -> reconnect churn -> pool-offline).
+# Heap-neutral re-split of the existing pool: httpd capped at 7, 5 reserved for
+# MQTT/stratum/DNS so web load can't drop the miner's own connections.
+CONFIG_BB_HTTP_LWIP_RESERVE=5
 
 # NVS
 CONFIG_NVS_ENCRYPTION=n

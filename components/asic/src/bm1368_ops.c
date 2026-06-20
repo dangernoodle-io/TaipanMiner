@@ -45,8 +45,11 @@ static const bb_power_tps546_protect_t s_protect = {
     .vout_margin_low      = 0.90f,
     .vout_uv_warn_factor      = 0.90f,
     .vout_uv_fault_factor     = 0.75f,
-    // hiccup on UV fault (auto-restart) instead of latch-off — transient dip self-recovers w/o power-cycle
-    .vout_uv_fault_response   = 0xBF,
+    // Match AxeOS: write the VOUT_UV *limit* but NOT the response — leave it at the chip
+    // default. Writing 0xBF (shutdown+hiccup, added #391, first shipped v0.29.0) made every
+    // bitaxe trip VCORE off on normal load transients; AxeOS never shuts down on a transient
+    // VOUT_UV and doesn't have this failure. (0 = skip the 0x45 write.)  [TA-431 follow-up]
+    .vout_uv_fault_response   = 0,
     // IOUT
     .iout_oc_warn_a       = 25.0f,  // oc_limit_a=30 (fault) set in outer cfg
     // Over-temperature
@@ -58,8 +61,10 @@ static const bb_power_tps546_protect_t s_protect = {
     .ton_rise_ms          = 3,
     .ton_max_fault_ms     = 0,      // skip
     .ton_max_fault_response = 0x3B,
-    // SYNC disabled (single-phase, no external clock)
-    .sync_config          = 0x10,
+    // Match AxeOS single-phase standalone SYNC_CONFIG = 0xD0. TM previously wrote 0x10
+    // ("SYNC disabled"), an undocumented divergence from the AxeOS reference; a wrong
+    // switching-clock config can worsen VCORE ripple/regulation.
+    .sync_config          = 0xD0,
 };
 
 static bb_err_t tps546_vreg_init(i2c_master_bus_handle_t bus, uint16_t target_mv)

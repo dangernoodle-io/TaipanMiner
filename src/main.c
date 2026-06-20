@@ -221,9 +221,6 @@ static void start_mining(void)
     BB_ERROR_CHECK(bb_timer_periodic_create(stats_save_timer_cb, NULL, "stats_save", &s_stats_timer));
     BB_ERROR_CHECK(bb_timer_periodic_start(s_stats_timer, 10ULL * 60 * 1000000));
 
-    // Register WiFi kick callback for zombie-state recovery
-    stratum_set_wifi_kick_cb(bb_wifi_force_reassociate);
-
     // TA-341: run SHA self-tests synchronously before any task starts
     // so the failure flag is committed before stratum / mining can read it.
     mining_run_self_tests();

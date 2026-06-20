@@ -55,7 +55,6 @@ static stratum_backoff_t s_backoff = {
 };
 static volatile bool s_stratum_connected = false;
 static volatile bool s_reconnect_requested = false;
-static stratum_wifi_kick_cb_t s_wifi_kick_cb = NULL;
 
 // Pool RTT tracking (TA-118)
 #define STRATUM_INFLIGHT_MAX 32
@@ -130,11 +129,6 @@ bool stratum_is_connected(void)
 void stratum_request_reconnect(void)
 {
     s_reconnect_requested = true;
-}
-
-void stratum_set_wifi_kick_cb(stratum_wifi_kick_cb_t cb)
-{
-    s_wifi_kick_cb = cb;
 }
 
 bb_err_t stratum_request_switch_pool(int idx)
@@ -680,13 +674,8 @@ void stratum_task(void *arg)
         // Connect
         if (stratum_connect(pool_host, pool_port) != 0) {
             stratum_backoff_step_t step = stratum_backoff_on_fail(&s_backoff);
-            bb_log_w(TAG, "connect failed (%d/%d), reconnecting in %" PRIu32 "ms",
-                     s_backoff.fail_count, STRATUM_BACKOFF_KICK_THRESHOLD, step.sleep_ms);
-            if (step.outcome == STRATUM_BACKOFF_OUTCOME_KICK && s_wifi_kick_cb) {
-                bb_log_w(TAG, "forcing WiFi reassociation after %d consecutive failures",
-                         STRATUM_BACKOFF_KICK_THRESHOLD);
-                s_wifi_kick_cb();
-            }
+            bb_log_w(TAG, "connect failed (%d), reconnecting in %" PRIu32 "ms",
+                     s_backoff.fail_count, step.sleep_ms);
             vTaskDelay(pdMS_TO_TICKS(step.sleep_ms));
             continue;
         }
@@ -940,11 +929,6 @@ reconnect:
         }
         stratum_backoff_step_t step = stratum_backoff_on_fail(&s_backoff);
         bb_log_w(TAG, "reconnecting in %" PRIu32 "ms", step.sleep_ms);
-        if (step.outcome == STRATUM_BACKOFF_OUTCOME_KICK && s_wifi_kick_cb) {
-            bb_log_w(TAG, "forcing WiFi reassociation after %d consecutive failures",
-                     STRATUM_BACKOFF_KICK_THRESHOLD);
-            s_wifi_kick_cb();
-        }
         vTaskDelay(pdMS_TO_TICKS(step.sleep_ms));
     }
 }

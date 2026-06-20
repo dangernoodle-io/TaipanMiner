@@ -16,6 +16,7 @@ CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=8
 CONFIG_ESP_WIFI_STATIC_TX_BUFFER=y
 CONFIG_ESP_WIFI_TX_BUFFER_TYPE=0
 CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=4
+CONFIG_ESP_WIFI_RX_BA_WIN=4
 
 # LwIP (trimmed)
 CONFIG_LWIP_TCP_SND_BUF_DEFAULT=5840
@@ -159,6 +160,13 @@ CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=1024
 # ~15s stale-client reap window covers tab-reload churn. Queue depth stays
 # at BB default (8).
 CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS=2
+
+# heap reclaim (no-PSRAM fragmentation) — see heap audit
+# (esp-mqtt outbox is a dynamic list, empty under QoS0 — no fixed-size knob to tune)
+CONFIG_BB_EVENT_ROUTES_RING_CAPACITY=8
+CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY=128
+CONFIG_BB_LOG_STREAM_BUF_BYTES=3072
+CONFIG_BB_LOG_STREAM_WRITER_QUEUE_LEN=8
 
 # BB sensors route (B1-269, v0.62.0+): /api/sensors serves fan/power/thermal/miner
 # as a consolidated endpoint. CONFIG_BB_SENSORS_AUTOREGISTER defaults y — no override needed.

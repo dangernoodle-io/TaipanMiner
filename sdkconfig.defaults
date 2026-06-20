@@ -161,6 +161,12 @@ CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=1024
 # at BB default (8).
 CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS=2
 
+# link-health: adaptive telemetry backoff on weak RSSI (bb_net_health)
+CONFIG_BB_PUB_ADAPTIVE_BACKOFF=y
+CONFIG_BB_PUB_ADAPTIVE_RSSI_THRESH=-75
+CONFIG_BB_PUB_ADAPTIVE_SLOW_MS=30000
+CONFIG_BB_PUB_ADAPTIVE_SAMPLES=3
+
 # heap reclaim (no-PSRAM fragmentation) — see heap audit
 # (esp-mqtt outbox is a dynamic list, empty under QoS0 — no fixed-size knob to tune)
 CONFIG_BB_EVENT_ROUTES_RING_CAPACITY=8

@@ -559,10 +559,10 @@ void test_mining_pool_eff_tick_sum_decrease_clamps_to_zero(void);
 // TA-234: stratum_backoff
 void test_stratum_backoff_init(void);
 void test_stratum_backoff_first_fail_sleeps_initial_then_doubles(void);
-void test_stratum_backoff_progression_to_kick(void);
+void test_stratum_backoff_progression_doubles_to_cap(void);
 void test_stratum_backoff_caps_at_60s(void);
 void test_stratum_backoff_reset_on_success(void);
-void test_stratum_backoff_post_kick_restarts_clean(void);
+void test_stratum_backoff_reset_restarts_doubling(void);
 
 #ifdef ASIC_CHIP
 // TA-234: asic_drop_detect
@@ -1299,10 +1299,10 @@ int main(void) {
     // TA-234: stratum_backoff tests
     RUN_TEST(test_stratum_backoff_init);
     RUN_TEST(test_stratum_backoff_first_fail_sleeps_initial_then_doubles);
-    RUN_TEST(test_stratum_backoff_progression_to_kick);
+    RUN_TEST(test_stratum_backoff_progression_doubles_to_cap);
     RUN_TEST(test_stratum_backoff_caps_at_60s);
     RUN_TEST(test_stratum_backoff_reset_on_success);
-    RUN_TEST(test_stratum_backoff_post_kick_restarts_clean);
+    RUN_TEST(test_stratum_backoff_reset_restarts_doubling);
 
 #ifdef ASIC_CHIP
     // TA-234: asic_drop_detect tests

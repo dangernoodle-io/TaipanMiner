@@ -5,15 +5,8 @@
 
 #define STRATUM_BACKOFF_INITIAL_MS    5000U
 #define STRATUM_BACKOFF_CAP_MS        60000U
-#define STRATUM_BACKOFF_KICK_THRESHOLD  5
-
-typedef enum {
-    STRATUM_BACKOFF_OUTCOME_BUMP = 0,  // bump fail_count, double delay (capped)
-    STRATUM_BACKOFF_OUTCOME_KICK,      // threshold reached → reset + caller should kick WiFi
-} stratum_backoff_outcome_t;
 
 typedef struct {
-    stratum_backoff_outcome_t outcome;
     uint32_t sleep_ms;     // how long the caller should sleep before retry
 } stratum_backoff_step_t;
 

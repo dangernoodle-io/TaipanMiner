@@ -18,3 +18,7 @@ CONFIG_MINING_PIN_HOTLOOP_DATA=n
 # the per-TLS-record mbedTLS alloc (~4.4 KB→~2.2 KB) so the download survives a
 # heap fragmented under concurrent httpd/SSE load. See bb_ota_pull Kconfig.
 CONFIG_BB_OTA_PULL_HTTP_CHUNK_SIZE=1024
+
+# heap: smaller TCP window on no-PSRAM (OTA moves to boot-mode)
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=2920
+CONFIG_LWIP_TCP_WND_DEFAULT=2920

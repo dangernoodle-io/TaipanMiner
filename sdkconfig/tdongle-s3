@@ -1,2 +1,6 @@
 # LilyGo T-Dongle S3 — delta from sdkconfig.defaults
 CONFIG_BB_OTA_PULL_HTTP_CHUNK_SIZE=1024
+
+# heap: smaller TCP window on no-PSRAM (OTA moves to boot-mode)
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=2920
+CONFIG_LWIP_TCP_WND_DEFAULT=2920

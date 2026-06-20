@@ -58,6 +58,7 @@
 #endif
 #include "bb_display_info.h"
 #include "bb_led_info.h"
+#include "bb_net_health.h"
 
 #if CONFIG_WEBUI_MINING_UI
 #define MINER_UI_TXT "1"
@@ -457,6 +458,7 @@ void app_main(void)
     // no LED on bitaxe, no SoC temp sensor on classic ESP32). Must run before
     // bb_registry_init() which starts the HTTP server and freezes the extender table.
     bb_display_register_info();
+    bb_net_health_register_health();
 
     if (!bb_nv_config_is_provisioned()) {
         bb_log_i(TAG, "entering provisioning mode");
@@ -660,6 +662,17 @@ void app_main(void)
             } else {
                 bb_log_w(TAG, "block.found SSE unavailable (err %d): continuing without "
                               "live block events (CONFIG_BB_EVENT_AUTOREGISTER on?)", evt_err);
+            }
+        }
+
+        // Attach "net.health" retained SSE topic and start 5-second link-health
+        // evaluator. Must run after bb_registry_init() so bb_event_routes is up.
+        // Non-fatal: degrades gracefully (no SSE topic) rather than aborting.
+        {
+            bb_err_t net_err = bb_net_health_attach_sse();
+            if (net_err != BB_OK) {
+                bb_log_w(TAG, "bb_net_health_attach_sse failed (err %d): "
+                              "net.health SSE unavailable", net_err);
             }
         }
 

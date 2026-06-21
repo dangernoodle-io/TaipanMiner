@@ -353,5 +353,9 @@ typedef struct {
 // Returns number of entries filled.
 int asic_task_get_chip_telemetry(asic_chip_telemetry_t *out, int max_chips);
 
+// TA-318: vcore-collapse watchdog — NVS-persisted restart count for telemetry.
+// Returns 0 when CONFIG_TM_VCORE_WATCHDOG is disabled.
+uint32_t asic_task_get_vcore_restart_count(void);
+
 // TA-238: snapshot of recent telemetry-drop events declared in asic_drop_log.h.
 #endif

@@ -75,9 +75,8 @@ static const bb_power_tps546_protect_t s_protect = {
     .on_off_config        = 0x1B,
 };
 
-static bb_err_t tps546_vreg_init(i2c_master_bus_handle_t bus, uint16_t target_mv)
+static bb_power_tps546_cfg_t tps546_build_cfg(i2c_master_bus_handle_t bus, uint16_t target_mv)
 {
-    bb_power_handle_t h;
     bb_power_tps546_cfg_t cfg = {
         .bus             = bus,
         .addr            = TPS546_I2C_ADDR,
@@ -87,6 +86,13 @@ static bb_err_t tps546_vreg_init(i2c_master_bus_handle_t bus, uint16_t target_mv
         .oc_response     = 0xC0,
         .protect         = s_protect,
     };
+    return cfg;
+}
+
+static bb_err_t tps546_vreg_init(i2c_master_bus_handle_t bus, uint16_t target_mv)
+{
+    bb_power_handle_t h;
+    bb_power_tps546_cfg_t cfg = tps546_build_cfg(bus, target_mv);
     bb_err_t err = bb_power_tps546_open(&cfg, &h);
     if (err == BB_OK) {
         bb_power_set_primary(h);
@@ -94,11 +100,20 @@ static bb_err_t tps546_vreg_init(i2c_master_bus_handle_t bus, uint16_t target_mv
     return err;
 }
 
+static bb_err_t tps546_vreg_recover(i2c_master_bus_handle_t bus, uint16_t target_mv)
+{
+    bb_power_handle_t h = bb_power_primary();
+    if (h == NULL) return BB_ERR_INVALID_STATE;
+    bb_power_tps546_cfg_t cfg = tps546_build_cfg(bus, target_mv);
+    return bb_power_tps546_recover(h, &cfg);
+}
+
 static const asic_chip_ops_t s_bm1370_ops = {
     .chip_init        = chip_init,
     .chip_quiesce     = chip_quiesce,
     .chip_resume      = chip_resume,
     .vreg_init        = tps546_vreg_init,
+    .vreg_recover     = tps546_vreg_recover,
     .fb_min           = BM1370_FB_MIN,
     .fb_max           = BM1370_FB_MAX,
     .default_mv       = BM1370_DEFAULT_MV,

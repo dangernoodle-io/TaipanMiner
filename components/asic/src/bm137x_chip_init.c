@@ -61,6 +61,13 @@ static void do_baud_switch(const bm137x_regs_t *r)
 
 bb_err_t bm137x_chip_init(const bm137x_regs_t *r, float target_freq_mhz, int max_chips)
 {
+    // Chip detection must run at the chips' power-on default baud. A reboot re-inits the UART
+    // at ASIC_BAUD_INIT, but in-place recovery reuses the port still at ASIC_BAUD_FAST from the
+    // prior init's do_baud_switch — after a rail-cycle the chips reset to default baud, so
+    // without this reset detection reads nothing ("no chips detected"). Idempotent on cold boot.
+    BB_ERROR_CHECK(uart_set_baudrate(ASIC_UART_NUM, ASIC_BAUD_INIT));
+    uart_flush(ASIC_UART_NUM);
+
     // Step 1: version mask x3
     for (int i = 0; i < 3; i++) {
         write_reg(REG_VERSION, 0x90, 0x00, 0xFF, 0xFF);

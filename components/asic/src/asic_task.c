@@ -14,6 +14,7 @@
 #include "mining_pool_stats.h"
 #include "crc.h"
 #include "bb_power.h"
+#include "bb_power_health.h"
 #include "bb_fan.h"
 #include "bb_fan_emc2101.h"
 #include "config.h"
@@ -27,7 +28,9 @@
 #include "bm1370.h"
 
 #include "esp_log.h"
+#include "esp_system.h"
 #include "bb_log.h"
+#include "bb_nv.h"
 #include "bb_event.h"
 #include "bb_byte_order.h"
 #include "bb_wdt.h"
@@ -48,6 +51,21 @@
 #include <time.h>
 
 static const char *TAG = "asic";
+
+// TA-318: vcore-collapse watchdog (bb_power_health, gated by CONFIG_TM_VCORE_WATCHDOG)
+#ifdef CONFIG_TM_VCORE_WATCHDOG
+#define VCORE_WD_NVS_NS  "taipanminer"
+#define VCORE_WD_NVS_KEY "vcore_restart_count"
+
+static bb_vcore_wd_state_t s_vcore_wd;       // zero-init valid per bb_power_health.h
+static uint32_t s_vcore_restart_count;        // NVS-persisted burst counter (runtime mirror)
+static bool s_vcore_backoff_logged;           // rate-limit the "budget exhausted" log line
+
+// Expose restart count for telemetry extender in routes.c.
+uint32_t asic_task_get_vcore_restart_count(void) { return s_vcore_restart_count; }
+#else
+uint32_t asic_task_get_vcore_restart_count(void) { return 0; }
+#endif /* CONFIG_TM_VCORE_WATCHDOG */
 
 // Clock source for bb_fan autofan PID — millisecond timestamp via bb_timer.
 // Injected via bb_fan_autofan_set_clock() rather than bb_fan_autofan_inject_clock()
@@ -251,6 +269,50 @@ static void init_avg_buffers(void)
     s_pcore_1h_prev = NAN;
 }
 
+// Abandon all in-flight work: invalidate every job slot and clear the nonce dedup. Shared by
+// the full re-init reset and the stratum "clean job" (new block) path so stale work and dedup
+// state are dropped identically wherever active work is discarded.
+static void asic_invalidate_jobs(void)
+{
+    memset(s_job_table,   0, sizeof(s_job_table));
+    memset(s_job_gen,     0, sizeof(s_job_gen));
+    memset(s_job_id_seen, 0, sizeof(s_job_id_seen));
+    asic_nonce_dedup_reset(&s_dedup);
+}
+
+// Single source of truth for a full work-dispatch re-init (cold-boot init + in-place
+// recovery): abandon all work AND re-arm the dispatch gate (s_current_work_seq) and job-id
+// counter so the next stratum work is dispatched fresh. After a warm recovery these are stale,
+// so without this the re-inited chip gets NO new work (0 GH/s).
+static void asic_reset_work_state(void)
+{
+    asic_invalidate_jobs();
+    s_current_work_seq = 0;
+    s_next_job_id = 0;
+}
+
+// Off-first rail cycle: drive ASIC_EN low to fully cut VCORE before re-enabling, then
+// reset the ASIC. The TPS546 enable is the ASIC_EN pin (not PMBus OPERATION), so
+// re-asserting EN high without first driving it low never clears a latched fault
+// (OC_RESPONSE 0xC0 = latch-off) — previously only a mains power-cycle recovered the board.
+// AxeOS cycles the enable on every boot. Shared by startup and in-place watchdog recovery.
+static void asic_rail_cycle(void)
+{
+    gpio_set_direction(PIN_ASIC_EN, GPIO_MODE_OUTPUT);
+    gpio_set_level(PIN_ASIC_EN, 0);
+    vTaskDelay(pdMS_TO_TICKS(300));
+    gpio_set_level(PIN_ASIC_EN, 1);
+    bb_log_i(TAG, "ASIC EN: off->on rail cycle (power on)");
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    gpio_set_direction(PIN_ASIC_RST, GPIO_MODE_OUTPUT);
+    gpio_set_level(PIN_ASIC_RST, 0);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    gpio_set_level(PIN_ASIC_RST, 1);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    bb_log_i(TAG, "ASIC reset complete");
+}
+
 // --- asic_init ---
 bb_err_t asic_init(void)
 {
@@ -278,17 +340,8 @@ bb_err_t asic_init(void)
     ESP_RETURN_ON_ERROR(uart_driver_install(ASIC_UART_NUM, 2048, 2048, 0, NULL, 0), TAG, "uart install");
     bb_log_i(TAG, "UART%d ready at %d baud", ASIC_UART_NUM, ASIC_BAUD_INIT);
 
-    // 2. GPIO: power enable + reset
-    gpio_set_direction(PIN_ASIC_EN, GPIO_MODE_OUTPUT);
-    gpio_set_level(PIN_ASIC_EN, 1);
-    bb_log_i(TAG, "ASIC EN=1 (power on)");
-
-    gpio_set_direction(PIN_ASIC_RST, GPIO_MODE_OUTPUT);
-    gpio_set_level(PIN_ASIC_RST, 0);
-    vTaskDelay(pdMS_TO_TICKS(100));
-    gpio_set_level(PIN_ASIC_RST, 1);
-    vTaskDelay(pdMS_TO_TICKS(100));
-    bb_log_i(TAG, "ASIC reset complete");
+    // 2. GPIO: power enable + reset (off-first rail cycle — see asic_rail_cycle)
+    asic_rail_cycle();
 
     // 3. I2C bus
 #ifdef HAS_I2C
@@ -370,15 +423,47 @@ bb_err_t asic_init(void)
     ESP_RETURN_ON_ERROR(g_chip_ops->chip_init(), TAG, "chip init");
 
     // Initialize state
-    s_next_job_id = 0;
-    memset(s_job_table,    0, sizeof(s_job_table));
-    memset(s_job_gen,      0, sizeof(s_job_gen));
-    memset(s_job_id_seen,  0, sizeof(s_job_id_seen));
+    asic_reset_work_state();
     init_avg_buffers();
+
+#ifdef CONFIG_TM_VCORE_WATCHDOG
+    // TA-318: Load persisted burst counter from NVS so the budget survives reboots.
+    // Seed s_vcore_wd.burst_count so BB policy stays authoritative across restarts.
+    s_vcore_restart_count = 0;
+    bb_nv_get_u32(VCORE_WD_NVS_NS, VCORE_WD_NVS_KEY, &s_vcore_restart_count, 0);
+    s_vcore_wd.burst_count = (int)s_vcore_restart_count;
+    s_vcore_backoff_logged = false;
+    bb_log_i(TAG, "vcore watchdog: loaded burst_count=%u from NVS", s_vcore_restart_count);
+#endif
 
     bb_log_i(TAG, "ASIC subsystem ready");
     return BB_OK;
 }
+
+#ifdef CONFIG_TM_VCORE_WATCHDOG
+// In-place vcore recovery: physical rail-cycle (clears a latched TPS546 fault that a
+// PMBus-only reset can't, since the rail enable is the ASIC_EN pin) → TPS546 reprogram
+// (it powers up at factory defaults after the EN cut) → ASIC PLL re-ramp. No reboot.
+static bb_err_t asic_vcore_recover_inplace(void)
+{
+    // 1. Rail cycle via ASIC_EN (shared with startup)
+    asic_rail_cycle();
+    // 2. Reprogram the TPS546 (factory defaults after the EN cut)
+    if (g_chip_ops->vreg_recover != NULL) {
+        bb_err_t e = g_chip_ops->vreg_recover(s_i2c_bus, g_chip_ops->default_mv);
+        if (e != BB_OK) return e;
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    // 4. Re-ramp the ASIC PLL to operating frequency
+    bb_err_t e = g_chip_ops->chip_resume();
+    if (e != BB_OK) return e;
+
+    // 5. Reset work-dispatch state (work_seq gate, job table, nonce dedup) so dispatch and
+    //    nonce validation resume cleanly — without the work_seq reset the chip gets no work.
+    asic_reset_work_state();
+    return BB_OK;
+}
+#endif /* CONFIG_TM_VCORE_WATCHDOG */
 
 // --- Mining task ---
 void asic_mining_task(void *arg)
@@ -445,13 +530,12 @@ void asic_mining_task(void *arg)
 
         // 2. Dispatch new job if work changed (new pool job or extranonce2 roll)
         if (work.work_seq != s_current_work_seq) {
-            // Clean job: invalidate all active slots
+            // Clean job (new block): abandon all active work; otherwise just clear dedup.
             if (work.clean) {
-                memset(s_job_table,   0, sizeof(s_job_table));
-                memset(s_job_gen,     0, sizeof(s_job_gen));
-                memset(s_job_id_seen, 0, sizeof(s_job_id_seen));
+                asic_invalidate_jobs();
+            } else {
+                asic_nonce_dedup_reset(&s_dedup);
             }
-            asic_nonce_dedup_reset(&s_dedup);
 
             // Cycle job ID
             s_next_job_id = (s_next_job_id + ASIC_JOB_ID_STEP) % ASIC_JOB_ID_MOD;
@@ -844,6 +928,46 @@ void asic_mining_task(void *arg)
                     s_pcore_poll_count++;
                     xSemaphoreGive(mining_stats.mutex);
                 }
+
+#ifdef CONFIG_TM_VCORE_WATCHDOG
+                // TA-318: vcore-collapse watchdog — eval on every 5s power tick.
+                // v = ps.vout_mv (vcore in mV); in scope from power snapshot above.
+                {
+                    bb_vcore_wd_input_t wd_in = {
+                        .vcore_mv     = v,
+                        .rail_enabled = true,  // ASIC_EN asserted; mining active post-init
+                        .uptime_ms    = (uint64_t)(bb_timer_now_us() / 1000ULL),
+                    };
+                    bb_vcore_wd_action_t wd_act = bb_vcore_wd_eval(&s_vcore_wd, &wd_in);
+
+                    if (wd_act == BB_VCORE_WD_RECOVER) {
+                        s_vcore_restart_count++;
+                        bb_nv_set_u32(VCORE_WD_NVS_NS, VCORE_WD_NVS_KEY, s_vcore_restart_count);
+                        bb_log_e(TAG, "vcore collapsed to %d mV — in-place rail-cycle recovery (attempt %" PRIu32 ")",
+                                 v, s_vcore_restart_count);
+                        bb_err_t rec = asic_vcore_recover_inplace();
+                        if (rec != BB_OK) {
+                            bb_log_e(TAG, "in-place recovery failed (%d) — falling back to restart", rec);
+                            esp_restart();
+                        }
+                    } else if (wd_act == BB_VCORE_WD_BACKOFF) {
+                        // Burst exhausted — log once per backoff entry, do NOT restart.
+                        if (!s_vcore_backoff_logged) {
+                            bb_log_e(TAG, "vcore collapsed but auto-restart budget exhausted — holding (check power)");
+                            s_vcore_backoff_logged = true;
+                        }
+                    } else {
+                        // Healthy or warmup — clear backoff flag; clear NVS count when BB
+                        // burst counter resets (sustained 300s healthy streak).
+                        s_vcore_backoff_logged = false;
+                        if (s_vcore_restart_count > 0 && s_vcore_wd.burst_count == 0) {
+                            s_vcore_restart_count = 0;
+                            bb_nv_set_u32(VCORE_WD_NVS_NS, VCORE_WD_NVS_KEY, 0);
+                            bb_log_i(TAG, "vcore healthy for 300s — cleared restart count");
+                        }
+                    }
+                }
+#endif /* CONFIG_TM_VCORE_WATCHDOG */
             }
 
             last_temp_tick = now;

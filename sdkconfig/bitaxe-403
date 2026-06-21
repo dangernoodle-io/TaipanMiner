@@ -1,4 +1,6 @@
 # Bitaxe 403 — delta from sdkconfig.defaults
+# TA-318: vcore-collapse watchdog (default n in Kconfig; ASIC boards opt in here).
+CONFIG_TM_VCORE_WATCHDOG=y
 CONFIG_UART_ISR_IN_IRAM=y
 CONFIG_VFS_SELECT_IN_RAM=y
 CONFIG_BB_DISPLAY_SSD1306_HEIGHT=32

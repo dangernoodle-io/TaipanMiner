@@ -999,6 +999,12 @@ static void taipan_power_extender(bb_json_t root, void *ctx)
     } else {
         bb_json_obj_set_null(root, "vin_low");
     }
+
+    /* TA-318: vcore_restart_count — NVS-persisted count of vcore-collapse
+     * auto-restarts. Useful for diagnosing power supply issues after the fact.
+     * Always 0 when CONFIG_TM_VCORE_WATCHDOG is not set. */
+    bb_json_obj_set_number(root, "vcore_restart_count",
+                           (double)asic_task_get_vcore_restart_count());
 }
 
 // Schema property fragments for OpenAPI (comma-separated properties, no braces)
@@ -1018,7 +1024,9 @@ static const char k_power_extender_schema[] =
     "\"efficiency_jth_1h\":{\"type\":[\"number\",\"null\"]},"
     "\"expected_efficiency_jth\":{\"type\":[\"number\",\"null\"]},"
     "\"vin_low\":{\"type\":[\"boolean\",\"null\"],"
-    "\"description\":\"true when VIN is below 87% of (nominal+500mV) threshold\"}";
+    "\"description\":\"true when VIN is below 87% of (nominal+500mV) threshold\"},"
+    "\"vcore_restart_count\":{\"type\":\"number\","
+    "\"description\":\"NVS-persisted count of vcore-collapse auto-restarts (TA-318); resets after 300s healthy\"}";
 
 #endif /* ASIC_CHIP */
 
@@ -1940,6 +1948,68 @@ static const bb_route_t s_pool_delete_primary_route = {
     .handler      = pool_delete_primary_handler,
 };
 
+#ifdef TAIPANMINER_DEBUG
+// ---------------------------------------------------------------------------
+// /api/diag/vcore-drop — POST (TA-318 test hook, DEBUG ONLY)
+// Forces OPERATION=OFF on the TPS546 to collapse vcore to ~0V so the
+// vcore watchdog end-to-end path can be validated on real hardware.
+// NEVER compiled into production firmware — gated by TAIPANMINER_DEBUG.
+// ---------------------------------------------------------------------------
+#include "bb_power_tps546.h"
+
+static bb_err_t diag_vcore_drop_handler(bb_http_request_t *req)
+{
+    set_common_headers(req);
+
+    bb_log_w(TAG, "DEBUG: forcing vcore drop (OPERATION=OFF)");
+
+    bb_power_handle_t h = bb_power_primary();
+    if (!h) {
+        bb_http_resp_set_status(req, 503);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "no primary power handle");
+        bb_http_resp_json_obj_end(&e);
+        return BB_ERR_INVALID_STATE;
+    }
+
+    bb_err_t rc = bb_power_tps546_debug_force_off(h);
+    if (rc != BB_OK) {
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "OPERATION_OFF failed");
+        bb_http_resp_json_obj_end(&e);
+        return rc;
+    }
+
+    bb_http_json_obj_stream_t obj;
+    rc = bb_http_resp_json_obj_begin(req, &obj);
+    if (rc != BB_OK) return rc;
+    bb_http_resp_json_obj_set_str(&obj, "status", "vcore dropped");
+    return bb_http_resp_json_obj_end(&obj);
+}
+
+static const bb_route_response_t s_diag_vcore_drop_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{\"status\":{\"type\":\"string\"}},"
+      "\"required\":[\"status\"]}",
+      "vcore dropped (OPERATION=OFF written)" },
+    { 503, "application/json", NULL, "no primary power handle" },
+    { 500, "application/json", NULL, "PMBus write failed" },
+    { 0 },
+};
+
+static const bb_route_t s_diag_vcore_drop_route = {
+    .method       = BB_HTTP_POST,
+    .path         = "/api/diag/vcore-drop",
+    .tag          = "diag",
+    .summary      = "DEBUG: force TPS546 OPERATION=OFF to collapse vcore (TA-318 test hook)",
+    .operation_id = "postDiagVcoreDrop",
+    .responses    = s_diag_vcore_drop_responses,
+    .handler      = diag_vcore_drop_handler,
+};
+#endif /* TAIPANMINER_DEBUG */
+
 #ifdef ASIC_CHIP
 // ---------------------------------------------------------------------------
 // /api/diag/asic — GET (TA-282, TA-287)
@@ -2314,6 +2384,9 @@ static const bb_route_t * const s_mining_routes[] = {
     &s_diag_benchmark_route,
 #ifdef ASIC_CHIP
     &s_diag_asic_route,
+#endif
+#ifdef TAIPANMINER_DEBUG
+    &s_diag_vcore_drop_route,
 #endif
 #if CONFIG_KNOT_ENABLED
     &s_knot_route,

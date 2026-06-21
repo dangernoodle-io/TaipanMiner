@@ -1,3 +1,24 @@
+menu "Vcore-collapse watchdog (TA-318)"
+
+    config TM_VCORE_WATCHDOG
+        bool "Enable vcore-collapse watchdog (bb_power_health)"
+        default n
+        help
+            Monitor the TPS546 vcore rail every 5 s using bb_vcore_wd_eval().
+            On BB_VCORE_WD_RECOVER: increment NVS burst counter and esp_restart()
+            to clear a latched OC/UV fault without a physical power-cycle.
+            On BB_VCORE_WD_BACKOFF: log and hold (burst limit reached).
+            Bitaxe (ASIC) boards only — enabled via sdkconfig/bitaxe-*. The
+            asic_task.c watchdog glue is additionally gated by #ifdef ASIC_CHIP,
+            so it is a no-op on non-ASIC builds even if this is forced on.
+            NOTE: ASIC_BM1368/ASIC_BM1370 are C preprocessor build-flag defines,
+            not Kconfig symbols, so a `depends on` cannot gate on them (Kconfig
+            treats undefined symbols as n, which silently compiled the watchdog
+            OUT on every board — the original TA-318 bug). Gate per-board in
+            sdkconfig instead.
+
+endmenu
+
 menu "TPS546 VIN UVLO thresholds"
 
     config TM_TPS546_VIN_ON_MV

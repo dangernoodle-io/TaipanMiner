@@ -2,8 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render } from '@testing-library/svelte'
 
 vi.mock('../lib/api', () => ({
-  fetchStats: vi.fn(), fetchInfo: vi.fn(), fetchPower: vi.fn(), fetchFan: vi.fn(),
-  fetchSettings: vi.fn(), fetchPool: vi.fn(), fetchHealth: vi.fn(), ping: vi.fn()
+  fetchStats: vi.fn(), fetchInfo: vi.fn(), fetchSettings: vi.fn(), fetchPool: vi.fn(), fetchHealth: vi.fn(), ping: vi.fn()
 }))
 
 // Use vi.hoisted() so stubHs is available at module-evaluation time (avoids TDZ).

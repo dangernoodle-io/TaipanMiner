@@ -125,8 +125,7 @@ vi.mock('../lib/diagnosticsState.svelte', () => ({
 
 // Still mock api to avoid real fetch in case anything leaks
 vi.mock('../lib/api', () => ({
-  fetchStats: vi.fn(), fetchInfo: vi.fn(), fetchPower: vi.fn(), fetchFan: vi.fn(),
-  fetchSettings: vi.fn(), fetchPool: vi.fn(), fetchHealth: vi.fn(), ping: vi.fn(),
+  fetchStats: vi.fn(), fetchInfo: vi.fn(), fetchSettings: vi.fn(), fetchPool: vi.fn(), fetchHealth: vi.fn(), ping: vi.fn(),
   postReboot: vi.fn(), setLogLevel: vi.fn(), fetchLogLevels: vi.fn(), fetchDiagAsic: vi.fn(),
 }))
 

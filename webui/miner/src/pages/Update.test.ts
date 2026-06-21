@@ -3,8 +3,7 @@ import { render, fireEvent } from '@testing-library/svelte'
 import { info, otaCheck, otaInstall, otaUpload, rebooting } from '../lib/stores'
 
 vi.mock('../lib/api', () => ({
-  fetchStats: vi.fn(), fetchInfo: vi.fn(), fetchPower: vi.fn(), fetchFan: vi.fn(),
-  fetchSettings: vi.fn(), fetchPool: vi.fn(), fetchHealth: vi.fn(), ping: vi.fn(),
+  fetchStats: vi.fn(), fetchInfo: vi.fn(), fetchSettings: vi.fn(), fetchPool: vi.fn(), fetchHealth: vi.fn(), ping: vi.fn(),
   fetchOtaCheck: vi.fn(), triggerOtaUpdate: vi.fn(), fetchOtaStatus: vi.fn(), uploadOta: vi.fn()
 }))
 

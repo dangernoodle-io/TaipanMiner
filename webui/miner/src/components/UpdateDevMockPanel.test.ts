@@ -6,8 +6,7 @@ import UpdateDevMockPanel from './UpdateDevMockPanel.svelte'
 import { createOtaState } from '../lib/otaState.svelte'
 
 vi.mock('../lib/api', () => ({
-  fetchStats: vi.fn(), fetchInfo: vi.fn(), fetchPower: vi.fn(), fetchFan: vi.fn(),
-  fetchSettings: vi.fn(), fetchPool: vi.fn(), fetchHealth: vi.fn(), ping: vi.fn(),
+  fetchStats: vi.fn(), fetchInfo: vi.fn(), fetchSettings: vi.fn(), fetchPool: vi.fn(), fetchHealth: vi.fn(), ping: vi.fn(),
   fetchOtaCheck: vi.fn(), triggerOtaUpdate: vi.fn(), fetchOtaStatus: vi.fn(), uploadOta: vi.fn(),
 }))
 

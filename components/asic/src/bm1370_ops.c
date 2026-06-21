@@ -66,6 +66,13 @@ static const bb_power_tps546_protect_t s_protect = {
     // and was applied fleet-wide in error (#548) — confirmed against ESP-Miner vcore.c
     // get_tps546_config(); reverted to 0x10.
     .sync_config          = 0x10,
+    // ON_OFF_CONFIG = 0x1B (CMD|PU|POLARITY|DELAY) — OPERATION-command control, matching AxeOS.
+    // We were SKIPPING this (chip default = CONTROL/EN-pin governed), so OPERATION_ON was
+    // ignored and the rail could only be re-enabled by cycling VIN. An inrush-induced clean-off
+    // (STATUS 0x0840, no fault) therefore survived reboot/in-place recovery. With 0x1B the
+    // firmware's OPERATION_ON re-enables the rail in software — recovery without a VIN cycle,
+    // which is how AxeOS recovers (CP/control-pin bit deliberately NOT set).
+    .on_off_config        = 0x1B,
 };
 
 static bb_err_t tps546_vreg_init(i2c_master_bus_handle_t bus, uint16_t target_mv)

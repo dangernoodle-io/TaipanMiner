@@ -23,16 +23,16 @@
                            : 'idle') as Dot }
   ])
 
-  const freeHeap = $derived($health?.free_heap ?? $info?.free_heap ?? null)
+  const freeHeap = $derived($health?.free_heap ?? null)
   const heapUsed = $derived(
-    $info?.total_heap != null && freeHeap != null
-      ? $info.total_heap - freeHeap
+    $info?.heap_internal != null && freeHeap != null
+      ? $info.heap_internal.total - freeHeap
       : null
   )
   const rssi = $derived($health?.network?.rssi ?? null)
   const stratumFails = $derived($health?.pool?.fail_count ?? 0)
 
-  // Per-region memory (breadboard v0.52+, BB-248). PSRAM hidden when absent.
+  // Per-region memory (breadboard B1-310). PSRAM hidden when absent.
   const memInternal = $derived($info?.heap_internal ?? null)
   const memPsram = $derived($info?.heap_psram ?? null)
   const memRtc = $derived($info?.rtc ?? null)
@@ -169,7 +169,7 @@
   <div class="visual-row">
     <div class="viz">
       <Donut used={memInternal ? memInternal.total - memInternal.free : heapUsed}
-             total={memInternal?.total ?? $info?.total_heap} label="SRAM" size={108}
+             total={memInternal?.total ?? null} label="SRAM" size={108}
              hint="On-chip static RAM — the chip's internal RAM heap used for stacks, buffers, and allocations. The primary memory budget for firmware (distinct from external PSRAM)." />
     </div>
     {#if memPsram && memPsram.total > 0}

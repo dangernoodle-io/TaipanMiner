@@ -8,6 +8,14 @@ CONFIG_ESP32S3_DATA_CACHE_32KB=n
 CONFIG_FREERTOS_UNICORE=y
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
 
+# WiFi power-save: keep NONE on the S2 specifically. The fleet default is now
+# MIN_MODEM (breadboard Kconfig default); the fleet-wide PS_NONE was reverted in
+# TA-438 because it raised tdongle-s3 die temps with no stratum benefit. The S2
+# still needs PS_NONE: modem-sleep starves the WiFi task under the single-core
+# scheduler, causing idle disconnects — a single-core reason, distinct from the
+# (separately-resolved) mesh-roaming weak-signal issue.
+CONFIG_BB_WIFI_PS_NONE=y
+
 # Flash size: S2 Mini has 4MB
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=n

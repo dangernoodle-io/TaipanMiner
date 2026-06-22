@@ -105,11 +105,11 @@ export interface Info {
   mac: string
   flash_size: number
   app_size: number
-  total_heap: number
-  free_heap: number
-  // breadboard v0.52+ (BB-248): per-region memory. heap_psram is 0/0 on no-PSRAM
-  // boards; rtc is the static RTC-slow region (used/reserved, not a heap).
-  heap_internal?: { free: number; total: number }
+  // breadboard structured heap (BB-248 / B1-310): per-region memory.
+  // heap_internal uses MALLOC_CAP_INTERNAL accessors — more accurate than the
+  // former flat free_heap/total_heap (which used MALLOC_CAP_DEFAULT).
+  // heap_psram is 0/0 on no-PSRAM boards; rtc is the static RTC-slow region.
+  heap_internal: { free: number; total: number; min_free: number; largest_block: number }
   heap_psram?: { free: number; total: number }
   rtc?: { used: number; total: number }
   reset_reason: string | null

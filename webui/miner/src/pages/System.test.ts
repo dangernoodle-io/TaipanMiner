@@ -29,8 +29,7 @@ const baseInfo = {
   mac: '00:11:22:33:44:55',
   flash_size: 16777216,
   app_size: 1048576,
-  total_heap: 262144,
-  free_heap: 131072,
+  heap_internal: { free: 131072, total: 262144, min_free: 98304, largest_block: 65536 },
   reset_reason: 'Unknown',
   hostname: 'taipan.local',
   boot_epoch: 1705333200,
@@ -101,7 +100,7 @@ describe('System', () => {
   })
 
   it('renders Heap card with memory info', () => {
-    info.set({ ...baseInfo, total_heap: 262144, free_heap: 131072 } as any)
+    info.set({ ...baseInfo } as any)
     health.set({ ...baseHealth, free_heap: 131072 } as any)
     const { component } = render(System)
     expect(component).toBeDefined()
@@ -211,7 +210,7 @@ describe('System', () => {
   })
 
   it('displays Donut chart for heap usage', () => {
-    info.set({ ...baseInfo, total_heap: 262144, free_heap: 131072 } as any)
+    info.set({ ...baseInfo } as any)
     health.set({ ...baseHealth, free_heap: 131072 } as any)
     const { component } = render(System)
     expect(component).toBeDefined()

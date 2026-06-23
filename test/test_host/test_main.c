@@ -690,6 +690,11 @@ void test_set_knot_enabled_to_true(void);
 void test_set_knot_enabled_to_false(void);
 void test_led_heartbeat_enabled_default_true(void);
 void test_set_led_heartbeat_enabled_round_trip(void);
+// TA-435: vcore fault-hold latch config tests
+void test_vcore_fault_held_default_false(void);
+void test_set_vcore_fault_held_round_trip(void);
+void test_set_vcore_fault_held_to_true(void);
+void test_set_vcore_fault_held_to_false(void);
 
 // TA-141: autofan thermal aggregation
 void test_autofan_die_greater_than_vr(void);
@@ -1455,6 +1460,12 @@ int main(void) {
     RUN_TEST(test_set_knot_enabled_to_false);
     RUN_TEST(test_led_heartbeat_enabled_default_true);
     RUN_TEST(test_set_led_heartbeat_enabled_round_trip);
+
+    // TA-435: vcore fault-hold latch config tests
+    RUN_TEST(test_vcore_fault_held_default_false);
+    RUN_TEST(test_set_vcore_fault_held_round_trip);
+    RUN_TEST(test_set_vcore_fault_held_to_true);
+    RUN_TEST(test_set_vcore_fault_held_to_false);
 
     // TA-141: autofan thermal aggregation tests
     RUN_TEST(test_autofan_die_greater_than_vr);

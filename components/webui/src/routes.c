@@ -1008,6 +1008,9 @@ static void taipan_power_extender(bb_json_t root, void *ctx)
      * Always 0 when CONFIG_TM_VCORE_WATCHDOG is not set. */
     bb_json_obj_set_number(root, "vcore_restart_count",
                            (double)asic_task_get_vcore_restart_count());
+    /* TA-435: vcore_fault_held — true when the watchdog has latched FAULT_HOLD
+     * due to an OC hardware fault. Cleared only by explicit UI action (TA-436). */
+    bb_json_obj_set_bool(root, "vcore_fault_held", asic_task_get_vcore_fault_held());
 }
 
 // Schema property fragments for OpenAPI (comma-separated properties, no braces)
@@ -1163,6 +1166,8 @@ static void mining_health_section_get(bb_json_t section, void *ctx)
      * one-shot fields (board, MAC, IP, reset_reason, etc.) — anything that
      * changes during the session belongs here. */
     bb_json_obj_set_bool(section, "sha_self_test_failed", mining_sha_self_test_failed());
+    /* TA-435: OC hardware fault latch — true when vcore watchdog is in FAULT_HOLD. */
+    bb_json_obj_set_bool(section, "vcore_fault_held", asic_task_get_vcore_fault_held());
 }
 
 static void pool_health_section_get(bb_json_t section, void *ctx)

@@ -75,3 +75,9 @@ bb_err_t config_set_knot_enabled(bool enabled);
 /* Mining-heartbeat status LED (the dim breathe while hashing). Default on. */
 bool config_led_heartbeat_enabled(void);
 bb_err_t config_set_led_heartbeat_enabled(bool enabled);
+
+/* TA-435: vcore OC fault-hold latch — persisted so it survives reboots.
+ * True when a hardware OC fault has been detected and the watchdog has
+ * entered FAULT_HOLD. Cleared only by asic_task_clear_vcore_fault(). */
+bool config_vcore_fault_held(void);
+bb_err_t config_set_vcore_fault_held(bool held);

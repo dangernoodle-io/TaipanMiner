@@ -15,6 +15,8 @@
 #include "crc.h"
 #include "bb_power.h"
 #include "bb_power_health.h"
+#include "bb_power_tps546.h"
+#include "tps546_decode.h"
 #include "bb_fan.h"
 #include "bb_fan_emc2101.h"
 #include "config.h"
@@ -60,11 +62,23 @@ static const char *TAG = "asic";
 static bb_vcore_wd_state_t s_vcore_wd;       // zero-init valid per bb_power_health.h
 static uint32_t s_vcore_restart_count;        // NVS-persisted burst counter (runtime mirror)
 static bool s_vcore_backoff_logged;           // rate-limit the "budget exhausted" log line
+static bool s_vcore_fault_held;               // TA-435: runtime mirror of FAULT_HOLD latch
 
 // Expose restart count for telemetry extender in routes.c.
 uint32_t asic_task_get_vcore_restart_count(void) { return s_vcore_restart_count; }
+
+// TA-435: fault-held accessor and clear (exposed for TA-436 UI clear).
+bool asic_task_get_vcore_fault_held(void) { return s_vcore_fault_held; }
+void asic_task_clear_vcore_fault(void)
+{
+    bb_vcore_wd_clear_hold(&s_vcore_wd);
+    s_vcore_fault_held = false;
+    config_set_vcore_fault_held(false);
+}
 #else
 uint32_t asic_task_get_vcore_restart_count(void) { return 0; }
+bool asic_task_get_vcore_fault_held(void) { return false; }
+void asic_task_clear_vcore_fault(void) {}
 #endif /* CONFIG_TM_VCORE_WATCHDOG */
 
 // Clock source for bb_fan autofan PID — millisecond timestamp via bb_timer.
@@ -433,6 +447,12 @@ bb_err_t asic_init(void)
     bb_nv_get_u32(VCORE_WD_NVS_NS, VCORE_WD_NVS_KEY, &s_vcore_restart_count, 0);
     s_vcore_wd.burst_count = (int)s_vcore_restart_count;
     s_vcore_backoff_logged = false;
+    // TA-435: restore fault-hold latch so FAULT_HOLD persists across reboots.
+    if (config_vcore_fault_held()) {
+        s_vcore_wd.fault_held = true;
+        s_vcore_fault_held = true;
+        bb_log_e(TAG, "vcore fault-hold latch active from NVS — mining inhibited until cleared");
+    }
     bb_log_i(TAG, "vcore watchdog: loaded burst_count=%u from NVS", s_vcore_restart_count);
 #endif
 
@@ -930,17 +950,35 @@ void asic_mining_task(void *arg)
                 }
 
 #ifdef CONFIG_TM_VCORE_WATCHDOG
-                // TA-318: vcore-collapse watchdog — eval on every 5s power tick.
+                // TA-318/TA-435: vcore-collapse watchdog — eval on every 5s power tick.
                 // v = ps.vout_mv (vcore in mV); in scope from power snapshot above.
                 {
+                    // TA-435: read TPS546 OC fault bit before building wd_in.
+                    bool oc = false;
+                    bb_power_handle_t ph = bb_power_primary();
+                    if (ph) {
+                        bb_power_tps546_status_t pst;
+                        if (bb_power_tps546_read_status(ph, &pst) == BB_OK)
+                            oc = (pst.fault_bits & TPS546_FAULT_IOUT_OC) != 0;
+                    }
+
                     bb_vcore_wd_input_t wd_in = {
                         .vcore_mv     = v,
                         .rail_enabled = true,  // ASIC_EN asserted; mining active post-init
                         .uptime_ms    = (uint64_t)(bb_timer_now_us() / 1000ULL),
+                        .oc_fault     = oc,
                     };
                     bb_vcore_wd_action_t wd_act = bb_vcore_wd_eval(&s_vcore_wd, &wd_in);
 
-                    if (wd_act == BB_VCORE_WD_RECOVER) {
+                    if (wd_act == BB_VCORE_WD_FAULT_HOLD) {
+                        // TA-435: OC hardware fault — do NOT restart; latch and log once.
+                        if (!s_vcore_fault_held) {
+                            config_set_vcore_fault_held(true);
+                            bb_log_e(TAG, "vcore collapsed on overcurrent — hardware fault suspected "
+                                     "(check cooling/thermal paste/board); NOT resuming");
+                        }
+                        s_vcore_fault_held = true;
+                    } else if (wd_act == BB_VCORE_WD_RECOVER) {
                         s_vcore_restart_count++;
                         bb_nv_set_u32(VCORE_WD_NVS_NS, VCORE_WD_NVS_KEY, s_vcore_restart_count);
                         bb_log_e(TAG, "vcore collapsed to %d mV — in-place rail-cycle recovery (attempt %" PRIu32 ")",
@@ -959,6 +997,7 @@ void asic_mining_task(void *arg)
                     } else {
                         // Healthy or warmup — clear backoff flag; clear NVS count when BB
                         // burst counter resets (sustained 300s healthy streak).
+                        // Do NOT auto-clear s_vcore_fault_held here; only asic_task_clear_vcore_fault() does that.
                         s_vcore_backoff_logged = false;
                         if (s_vcore_restart_count > 0 && s_vcore_wd.burst_count == 0) {
                             s_vcore_restart_count = 0;
@@ -1162,4 +1201,13 @@ size_t asic_task_get_drop_log(asic_drop_event_t *out, size_t max_out)
     return asic_drop_log_snapshot(&s_drop_log, out, max_out);
 }
 
-#endif // ASIC_BM1370 || ASIC_BM1368
+#endif // ASIC_BM1370 || ASIC_BM1368 (i.e. ASIC_CHIP)
+
+#ifndef ASIC_CHIP
+// TA-435: stubs for non-ASIC boards (wroom32, s2-mini, c3, tdongle-s3).
+// asic_task_get_vcore_fault_held is called unconditionally from
+// mining_health_section_get in routes.c for all build targets.
+#include <stdbool.h>
+bool asic_task_get_vcore_fault_held(void) { return false; }
+void asic_task_clear_vcore_fault(void) {}
+#endif /* !ASIC_CHIP */

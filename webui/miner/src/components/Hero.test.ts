@@ -5,8 +5,6 @@ import { stats, connected, hasAsic, pool } from '../lib/stores'
 vi.mock('../lib/api', () => ({
   fetchStats: vi.fn(),
   fetchInfo: vi.fn(),
-  fetchPower: vi.fn(),
-  fetchFan: vi.fn(),
   fetchSettings: vi.fn(),
   fetchPool: vi.fn(),
   fetchHealth: vi.fn(),

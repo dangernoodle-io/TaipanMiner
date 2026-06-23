@@ -2,8 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render } from '@testing-library/svelte'
 
 vi.mock('../lib/api', () => ({
-  fetchStats: vi.fn(), fetchInfo: vi.fn(), fetchPower: vi.fn(), fetchFan: vi.fn(),
-  fetchSettings: vi.fn(), fetchPool: vi.fn(), fetchHealth: vi.fn(), ping: vi.fn(), fetchKnot: vi.fn()
+  fetchStats: vi.fn(), fetchInfo: vi.fn(), fetchSettings: vi.fn(), fetchPool: vi.fn(), fetchHealth: vi.fn(), ping: vi.fn(), fetchKnot: vi.fn()
 }))
 
 import Knot from './Knot.svelte'

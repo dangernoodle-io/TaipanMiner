@@ -174,7 +174,7 @@ TaipanMiner consumes shared infrastructure components from the breadboard librar
 
 **To add a web asset to the SPA**: edit the Svelte source. Assets bundled by Vite are included automatically in `dist/`. Only provisioning-mode static files need manual `bb_embed_assets` entries.
 
-**API routes**: `/api/stats` (polled every 5s), `/api/info` (device details), update/OTA via `/api/update/{check,status,apply,push,progress,mark}` (push = HTTP-upload OTA; apply = pull-OTA trigger; check/status = manifest poll), `/api/power` (bitaxe-only — 404 on tdongle), `/api/fan` (bitaxe-only — 404 on tdongle; `duty_pct` reflects actual curve-controlled setting, null until first 5s telemetry tick), `/api/logs/status`, `/api/logs`.
+**API routes**: `/api/stats` (polled every 5s), `/api/info` (device details), `/api/sensors` GET+PATCH (unified fan/power/thermal/miner data; replaces the deleted standalone `/api/power`, `/api/fan`, `/api/thermal` routes), update/OTA via `/api/update/{check,status,apply,push,progress,mark}` (push = HTTP-upload OTA; apply = pull-OTA trigger; check/status = manifest poll), `/api/logs/status`, `/api/logs`.
 
 **OTA check** suspends mining task to free heap for TLS handshake (~29 KB stack).
 

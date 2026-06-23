@@ -4,8 +4,7 @@ import { stats, connected, hasAsic, pool, health, power, fan, thermal } from './
 import { route } from './lib/router'
 
 vi.mock('./lib/api', () => ({
-  fetchStats: vi.fn(), fetchInfo: vi.fn(), fetchPower: vi.fn(), fetchFan: vi.fn(),
-  fetchThermal: vi.fn(), fetchSettings: vi.fn(), fetchPool: vi.fn(), fetchHealth: vi.fn(), ping: vi.fn(),
+  fetchStats: vi.fn(), fetchInfo: vi.fn(), fetchSettings: vi.fn(), fetchPool: vi.fn(), fetchHealth: vi.fn(), ping: vi.fn(),
   fetchDiagHeap: vi.fn(), checkDiagHeap: vi.fn(), fetchDiagTasks: vi.fn(),
   fetchDiagPanic: vi.fn(), clearAbnormalResets: vi.fn(), clearDiagPanic: vi.fn(),
   coredumpUrl: '/api/diag/coredump'

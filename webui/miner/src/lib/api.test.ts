@@ -6,8 +6,6 @@ import {
   fetchStats,
   fetchInfo,
   fetchHealth,
-  fetchPower,
-  fetchFan,
   fetchSettings,
   fetchKnot,
   patchSettings,
@@ -152,34 +150,6 @@ describe('fetchHealth', () => {
   it('throws on error', async () => {
     setFetch(503)
     await expect(fetchHealth()).rejects.toThrow('/api/health')
-  })
-})
-
-describe('fetchPower', () => {
-  it('GETs /api/power', async () => {
-    const spy = setFetch(200, { vcore_mv: 1200 })
-    const result = await fetchPower()
-    expect(spy.mock.calls[0][0]).toBe('/api/power')
-    expect(result).toMatchObject({ vcore_mv: 1200 })
-  })
-
-  it('throws on error', async () => {
-    setFetch(405)
-    await expect(fetchPower()).rejects.toThrow('/api/power')
-  })
-})
-
-describe('fetchFan', () => {
-  it('GETs /api/fan', async () => {
-    const spy = setFetch(200, { rpm: 2400, duty_pct: 50, autofan: true })
-    const result = await fetchFan()
-    expect(spy.mock.calls[0][0]).toBe('/api/fan')
-    expect(result).toMatchObject({ rpm: 2400 })
-  })
-
-  it('throws on error', async () => {
-    setFetch(405)
-    await expect(fetchFan()).rejects.toThrow('/api/fan')
   })
 })
 

@@ -184,7 +184,7 @@ export interface Power {
   expected_efficiency_jth: number | null
   vin_mv: number | null
   vin_low: boolean | null
-  /** @deprecated Not emitted by /api/power since P4b. Read board temp from /api/thermal board sensor. */
+  /** @deprecated Not emitted since P4b. Read board temp from /api/sensors thermal.board sensor. */
   board_temp_c?: number | null
   vr_temp_c: number | null
 }
@@ -458,12 +458,6 @@ export async function patchFan(body: FanPatch): Promise<void> {
 export const fetchStats    = () => getJson<Stats>('/api/stats')
 export const fetchInfo     = () => getJson<Info>('/api/info')
 export const fetchHealth   = () => getJson<Health>('/api/health')
-/** @deprecated Deleted in breadboard B1-269. Use fetchSensors() instead. */
-export const fetchPower    = () => getJson<Power>('/api/power')
-/** @deprecated Deleted in breadboard B1-269. Use fetchSensors() instead. */
-export const fetchFan      = () => getJson<Fan>('/api/fan')
-/** @deprecated Deleted in breadboard B1-269. Use fetchSensors() instead. */
-export const fetchThermal  = () => getJson<Thermal>('/api/thermal')
 export const fetchSettings = () => getJson<Settings>('/api/settings')
 export const fetchKnot = () => getJson<KnotPeer[]>('/api/knot')
 

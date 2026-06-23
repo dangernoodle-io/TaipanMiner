@@ -877,8 +877,11 @@ static bb_err_t pool_delete_primary_handler(bb_http_request_t *req)
 
 // ============================================================================
 // BB ROUTE EXTENDERS (P4b)
-// /api/power and /api/fan are now owned by BB. TM injects mining-specific
-// fields via extenders registered at order 0 (before BB routes init at order 1).
+// /api/sensors (GET+PATCH) is owned by BB. TM injects mining-specific fields
+// into the "miner" section via extenders registered at order 0 (before BB
+// routes init at order 1). There are no standalone /api/power, /api/fan, or
+// /api/thermal routes; all power/fan/thermal data is consolidated under
+// /api/sensors.
 // ============================================================================
 
 #ifdef ASIC_CHIP
@@ -1031,8 +1034,8 @@ static const char k_power_extender_schema[] =
 #endif /* ASIC_CHIP */
 
 // ---------------------------------------------------------------------------
-// Autofan persist callback — invoked by BB's POST /api/fan handler after a
-// successful config change. Writes the new cfg to TM NVS so it survives reboot.
+// Autofan persist callback — invoked by BB's PATCH /api/sensors handler after a
+// successful fan config change. Writes the new cfg to TM NVS so it survives reboot.
 // Registered via bb_fan_routes_set_autofan_persist_cb() in webui_register_power_fan_extenders.
 // ---------------------------------------------------------------------------
 #if defined(ASIC_CHIP) && defined(CONFIG_BB_FAN_AUTOFAN)
@@ -1218,9 +1221,9 @@ bb_err_t webui_register_info_extender(void)
 // The deleted bb_http_register_route_extender("power",...) API is replaced by this sectioned
 // registration (B1-269 migration). Section name "miner" avoids collision with bb_sensors
 // built-in sections ("fan", "power", "thermal").
-// BB's autofan (CONFIG_BB_FAN_AUTOFAN) now fully owns /api/fan GET+POST including
-// all autofan telemetry and config fields — no TM fan extender needed.
-// Register the persist callback so POST /api/fan changes survive reboot.
+// BB's autofan (CONFIG_BB_FAN_AUTOFAN) owns fan telemetry and config via
+// /api/sensors — no TM fan extender needed.
+// Register the persist callback so PATCH /api/sensors fan changes survive reboot.
 bb_err_t webui_register_power_fan_extenders(void)
 {
 #ifdef ASIC_CHIP
@@ -2210,9 +2213,8 @@ static const bb_route_t s_settings_patch_route = {
     .handler              = settings_patch_handler,
 };
 
-// /api/power GET and /api/fan GET+POST are now fully owned by BB (bb_power_routes,
-// bb_fan_routes with CONFIG_BB_FAN_AUTOFAN). TM registers a persist callback so
-// POST /api/fan config changes are written to NVS for reboot survival.
+// Fan config changes (via PATCH /api/sensors) are persisted to NVS via the
+// autofan persist callback registered below so settings survive reboot.
 
 // ============================================================================
 // /api/diag/benchmark — POST (TA-33)

@@ -31,7 +31,7 @@ static const bb_power_tps546_protect_t s_protect = {
     // VIN — thresholds tunable via Kconfig (ESP-Miner #1188); defaults relaxed from AxeOS 4800/4500
     .vin_on_v             = (float)CONFIG_TM_TPS546_VIN_ON_MV  / 1000.0f,
     .vin_off_v            = (float)CONFIG_TM_TPS546_VIN_OFF_MV / 1000.0f,
-    .vin_uv_warn_v        = 0.0f,   // skip
+    .vin_uv_warn_v        = 4.6f,   // B1-308: arm VIN-UV_WARN latch for sag detection
     .vin_ov_fault_v       = 6.5f,
     .vin_ov_fault_response = 0xB7,
     // VOUT absolute clamps

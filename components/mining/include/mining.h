@@ -359,3 +359,10 @@ uint32_t asic_task_get_vcore_restart_count(void);
 
 // TA-238: snapshot of recent telemetry-drop events declared in asic_drop_log.h.
 #endif
+
+// TA-435: fault-aware vcore watchdog FAULT_HOLD consumer.
+// Available on all boards; returns false when CONFIG_TM_VCORE_WATCHDOG is
+// disabled or the board has no ASIC. Used by the health section for all builds.
+bool asic_task_get_vcore_fault_held(void);
+// Clear the FAULT_HOLD latch (for TA-436 UI-triggered reset).
+void asic_task_clear_vcore_fault(void);

@@ -19,6 +19,8 @@ static struct {
     bool     knot_enabled;
     /* Mining-heartbeat status LED enable/disable */
     bool     led_heartbeat_enabled;
+    /* TA-435: vcore OC fault-hold latch (persisted) */
+    bool     vcore_fault_held;
 } s_config;
 
 static const char *TAG = "config";
@@ -173,6 +175,13 @@ bb_err_t config_init(void)
         s_config.led_heartbeat_enabled = (v != 0);
     }
 
+    /* TA-435: vcore OC fault-hold latch (default false). */
+    {
+        uint8_t v = 0;
+        bb_nv_get_u8(NV_NS, "vcore_fault_held", &v, 0);
+        s_config.vcore_fault_held = (v != 0);
+    }
+
     bb_log_i(TAG, "pool config loaded (pool=%s:%u worker=%s.%s)",
              s_config.pools[0].host, s_config.pools[0].port,
              s_config.pools[0].wallet, s_config.pools[0].worker);
@@ -197,6 +206,8 @@ bb_err_t config_init(void)
     s_config.knot_enabled = true;
     /* Mining-heartbeat LED default for host */
     s_config.led_heartbeat_enabled = true;
+    /* TA-435: vcore fault-hold default for host */
+    s_config.vcore_fault_held = false;
     return 0;
 #endif
 }
@@ -469,6 +480,21 @@ bb_err_t config_set_led_heartbeat_enabled(bool enabled)
     if (err != BB_OK) return err;
 #endif
     s_config.led_heartbeat_enabled = enabled;
+    return BB_OK;
+}
+
+bool config_vcore_fault_held(void)
+{
+    return s_config.vcore_fault_held;
+}
+
+bb_err_t config_set_vcore_fault_held(bool held)
+{
+#ifdef ESP_PLATFORM
+    bb_err_t err = bb_nv_set_u8(NV_NS, "vcore_fault_held", held ? 1 : 0);
+    if (err != BB_OK) return err;
+#endif
+    s_config.vcore_fault_held = held;
     return BB_OK;
 }
 

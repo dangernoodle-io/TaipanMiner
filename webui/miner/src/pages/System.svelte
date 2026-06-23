@@ -220,7 +220,7 @@
   <InfoCard title="Runtime">
     <InfoRow label="Reset reason">{$info?.reset_reason ?? '—'}</InfoRow>
     <InfoRow label="WDT resets">{$info?.diag?.wdt_resets ?? '—'}</InfoRow>
-    <InfoRow label="Last boot">{fmtUnixTs($info?.boot_epoch)}</InfoRow>
+    <InfoRow label="Last boot">{fmtUnixTs($info?.boot_epoch_s)}</InfoRow>
   </InfoCard>
 
 

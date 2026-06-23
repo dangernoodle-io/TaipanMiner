@@ -203,15 +203,35 @@ CONFIG_BB_PUB_BUFFER_ALWAYS=y
 CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES=512
 CONFIG_BB_PUB_BUFFER_MAX_ENTRIES=8
 # bb_pub source cap: 7 breadboard auto-registered sources + mining (this file) = 8;
-# raised to 10 for headroom.
-CONFIG_BB_PUB_MAX_SOURCES=10
+# raised to 14 for B1-352 (mining_rates + pool + sensors_miner) + headroom.
+CONFIG_BB_PUB_MAX_SOURCES=14
+
+# B1-352 event-topic caps: 14 topics non-ASIC / 15 ASIC attach to bb_event_routes at
+# runtime (block.found + pool.notify + health.alerts + net.health + 7 bb_sink_event
+# periodic topics + update.available + diag.boot + health.stack; +sensors_miner on ASIC).
+# Default BB_EVENT_ROUTES_MAX_TOPICS=8 and BB_EVENT_MAX_TOPICS=8 were already saturated
+# by pre-existing topics, causing bb_sink_event_register_topic to return NO_SPACE and the
+# new periodic SSE topics to silently not appear on /api/diag/events (HW-soak confirmed).
+# BB_SINK_EVENT_MAX_TOPICS defaults to 16 — already covers our 8 periodic topics; no change.
+# Set to 20 (not 16) for headroom: 15 ASIC topics would sit 1 slot from the same silent
+# NO_SPACE overflow that caused this bug, so 5 slots of slack guard the next added SSE topic.
+# BSS delta from the default 8: ~216 B/topic (routes table + client subs + event registry +
+# sub pool) x 12 = ~2.6 KB total; acceptable on all no-PSRAM boards (ring storage is
+# heap/SPIRAM-preferred, unchanged). No per-board ring-size override required.
+CONFIG_BB_EVENT_ROUTES_MAX_TOPICS=20
+CONFIG_BB_EVENT_MAX_TOPICS=20
 
 # Stack recoup (valid trim): esp-mqtt internal task 6144->5120 (worst observed
-# use ~2372 B -> ~2748 B margin). bb_pub stays at the 4096 plaintext default
-# (the gate-keyed Kconfig default; do NOT raise it). Raise MQTT_TASK_STACK_SIZE
-# back to 8192 in any MQTT-TLS overlay.
+# use ~2372 B -> ~2748 B margin). Raise MQTT_TASK_STACK_SIZE back to 8192 in any
+# MQTT-TLS overlay.
 CONFIG_MQTT_USE_CUSTOM_CONFIG=y
 CONFIG_MQTT_TASK_STACK_SIZE=5120
+
+# B1-352: bb_pub worker raised 4096->8192. The new mining_rates/pool/sensors_miner
+# sources build snapshot structs + JSON on the worker stack each tick; the 4096
+# plaintext default stack-overflowed (HW-confirmed on tdongle-s3 bb_pub task).
+# 8192 matches the TLS-overlay size and clears it with margin (~+4 KB heap).
+CONFIG_BB_PUB_WORKER_STACK=8192
 
 # TA-432: dual-core bb_pub/esp-mqtt race — pin both tasks to core 0 (network
 # core) so they serialize. Mining runs on core 1 (see Architecture in CLAUDE.md).

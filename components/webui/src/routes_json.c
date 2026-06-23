@@ -10,6 +10,7 @@
 #include "bb_http.h"
 #include "bb_core.h"
 #include "work.h"       /* bytes_to_hex */
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -435,3 +436,153 @@ void emit_diag_bench_json(bb_http_json_obj_stream_t *obj, const diag_bench_snaps
         bb_http_resp_json_obj_set_bool(obj, "asic_active", s->asic_active);
     }
 }
+
+// ---------------------------------------------------------------------------
+// B1-352: mining_rates emit builder
+// ---------------------------------------------------------------------------
+void emit_mining_rates_json(bb_json_t obj, const mining_rates_snapshot_t *snap)
+{
+    if (snap->hashrate_hs >= 0.0)
+        bb_json_obj_set_number(obj, "hashrate_hs", snap->hashrate_hs);
+    else
+        bb_json_obj_set_null(obj, "hashrate_hs");
+
+    if (snap->shares >= 0.0)
+        bb_json_obj_set_number(obj, "shares", snap->shares);
+    else
+        bb_json_obj_set_null(obj, "shares");
+
+    if (snap->rejected >= 0.0)
+        bb_json_obj_set_number(obj, "rejected", snap->rejected);
+    else
+        bb_json_obj_set_null(obj, "rejected");
+
+    if (snap->pool_effective_hs >= 0.0)
+        bb_json_obj_set_number(obj, "pool_effective_hs", snap->pool_effective_hs);
+    else
+        bb_json_obj_set_null(obj, "pool_effective_hs");
+
+#ifdef ASIC_CHIP
+    if (snap->asic_hashrate_hs >= 0.0)
+        bb_json_obj_set_number(obj, "asic_hashrate_hs", snap->asic_hashrate_hs);
+    else
+        bb_json_obj_set_null(obj, "asic_hashrate_hs");
+
+    if (snap->asic_total_ghs >= 0.0)
+        bb_json_obj_set_number(obj, "asic_total_ghs", snap->asic_total_ghs);
+    else
+        bb_json_obj_set_null(obj, "asic_total_ghs");
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// B1-352: pool_pub emit builder
+// ---------------------------------------------------------------------------
+void emit_pool_pub_json(bb_json_t obj, const pool_pub_snapshot_t *snap)
+{
+    bb_json_obj_set_bool(obj, "connected", snap->connected);
+
+    if (snap->current_difficulty >= 0.0)
+        bb_json_obj_set_number(obj, "current_difficulty", snap->current_difficulty);
+    else
+        bb_json_obj_set_null(obj, "current_difficulty");
+
+    if (snap->latency_ms >= 0.0)
+        bb_json_obj_set_number(obj, "latency_ms", snap->latency_ms);
+    else
+        bb_json_obj_set_null(obj, "latency_ms");
+
+    if (snap->active_pool_idx >= 0)
+        bb_json_obj_set_number(obj, "active_pool_idx", (double)snap->active_pool_idx);
+    else
+        bb_json_obj_set_null(obj, "active_pool_idx");
+
+    if (snap->pool_effective_hs >= 0.0)
+        bb_json_obj_set_number(obj, "pool_effective_hs", snap->pool_effective_hs);
+    else
+        bb_json_obj_set_null(obj, "pool_effective_hs");
+
+    if (snap->pool_effective_hs_1m >= 0.0)
+        bb_json_obj_set_number(obj, "pool_effective_hs_1m", snap->pool_effective_hs_1m);
+    else
+        bb_json_obj_set_null(obj, "pool_effective_hs_1m");
+
+    if (snap->pool_effective_hs_10m >= 0.0)
+        bb_json_obj_set_number(obj, "pool_effective_hs_10m", snap->pool_effective_hs_10m);
+    else
+        bb_json_obj_set_null(obj, "pool_effective_hs_10m");
+
+    if (snap->pool_effective_hs_1h >= 0.0)
+        bb_json_obj_set_number(obj, "pool_effective_hs_1h", snap->pool_effective_hs_1h);
+    else
+        bb_json_obj_set_null(obj, "pool_effective_hs_1h");
+}
+
+// ---------------------------------------------------------------------------
+// B1-352: sensors_miner emit builder (ASIC_CHIP only)
+// ---------------------------------------------------------------------------
+#ifdef ASIC_CHIP
+void emit_sensors_miner_json(bb_json_t obj, const sensors_miner_snapshot_t *snap)
+{
+    if (snap->vcore_mv >= 0.0)
+        bb_json_obj_set_number(obj, "vcore_mv", snap->vcore_mv);
+    else
+        bb_json_obj_set_null(obj, "vcore_mv");
+
+    if (snap->icore_ma >= 0.0)
+        bb_json_obj_set_number(obj, "icore_ma", snap->icore_ma);
+    else
+        bb_json_obj_set_null(obj, "icore_ma");
+
+    if (snap->pcore_mw >= 0.0)
+        bb_json_obj_set_number(obj, "pcore_mw", snap->pcore_mw);
+    else
+        bb_json_obj_set_null(obj, "pcore_mw");
+
+    if (snap->vr_temp_c >= 0.0)
+        bb_json_obj_set_number(obj, "vr_temp_c", snap->vr_temp_c);
+    else
+        bb_json_obj_set_null(obj, "vr_temp_c");
+
+    if (snap->efficiency_jth >= 0.0)
+        bb_json_obj_set_number(obj, "efficiency_jth", snap->efficiency_jth);
+    else
+        bb_json_obj_set_null(obj, "efficiency_jth");
+
+    if (snap->efficiency_jth_1m >= 0.0)
+        bb_json_obj_set_number(obj, "efficiency_jth_1m", snap->efficiency_jth_1m);
+    else
+        bb_json_obj_set_null(obj, "efficiency_jth_1m");
+
+    if (snap->efficiency_jth_10m >= 0.0)
+        bb_json_obj_set_number(obj, "efficiency_jth_10m", snap->efficiency_jth_10m);
+    else
+        bb_json_obj_set_null(obj, "efficiency_jth_10m");
+
+    if (snap->efficiency_jth_1h >= 0.0)
+        bb_json_obj_set_number(obj, "efficiency_jth_1h", snap->efficiency_jth_1h);
+    else
+        bb_json_obj_set_null(obj, "efficiency_jth_1h");
+
+    if (snap->vin_low_valid)
+        bb_json_obj_set_bool(obj, "vin_low", snap->vin_low);
+    else
+        bb_json_obj_set_null(obj, "vin_low");
+
+    // VIN-sag fields
+    bb_json_obj_set_number(obj, "sag_count", (double)snap->sag_count);
+    if (snap->vin_min_mv != INT_MAX && snap->vin_min_mv >= 0)
+        bb_json_obj_set_number(obj, "vin_min_mv", (double)snap->vin_min_mv);
+    else
+        bb_json_obj_set_null(obj, "vin_min_mv");
+    bb_json_obj_set_bool(obj, "vin_uv_latched", snap->vin_uv_latched);
+    if (snap->last_sag_ms > 0)
+        bb_json_obj_set_number(obj, "last_sag_ms", (double)snap->last_sag_ms);
+    else
+        bb_json_obj_set_null(obj, "last_sag_ms");
+    if (snap->vcore_last_restart_ms > 0)
+        bb_json_obj_set_number(obj, "vcore_last_restart_ms", (double)snap->vcore_last_restart_ms);
+    else
+        bb_json_obj_set_null(obj, "vcore_last_restart_ms");
+}
+#endif /* ASIC_CHIP */

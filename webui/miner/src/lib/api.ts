@@ -119,7 +119,7 @@ export interface Info {
   led?: { present: boolean; type?: 'apa102' | 'pwm'; count?: number; rgb?: boolean }
   capabilities?: string[]
   /** Unix epoch seconds of last boot (breadboard top-level field, bb_info.c). */
-  boot_epoch?: number
+  boot_epoch_s?: number
   /** TaipanMiner-owned fields, nested under the mining key. Present on all TM boards. */
   mining?: {
     worker_name?: string

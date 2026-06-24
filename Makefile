@@ -34,8 +34,11 @@ build: ## Build default envs (tdongle-s3 + bitaxe-601)
 # the S2 for weeks: its generated config had bb_event autoregister stale-off.)
 # Deleting the generated file forces a clean rebuild from sdkconfig.defaults +
 # sdkconfig/<board>. mtime-gated: only deletes when an input is newer, so normal
-# incremental builds stay fast.
-sdkconfig.%: sdkconfig.defaults sdkconfig/%
+# incremental builds stay fast. The breadboard pin (scripts/fetch_breadboard.py) is
+# a prerequisite too, because a pin bump changes the breadboard Kconfig defaults
+# without touching the local delta files — exactly the case that shipped an inert
+# opt-in build last night.
+sdkconfig.%: sdkconfig.defaults sdkconfig/% scripts/fetch_breadboard.py
 	rm -f $@
 
 build-%: sdkconfig.% ## Build specific env (e.g. make build-tdongle-s3)

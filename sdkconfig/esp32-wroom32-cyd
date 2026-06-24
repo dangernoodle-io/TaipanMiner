@@ -37,3 +37,6 @@ CONFIG_BB_OTA_PULL_HTTP_CHUNK_SIZE=1024
 # heap: smaller TCP window on no-PSRAM (OTA moves to boot-mode)
 CONFIG_LWIP_TCP_SND_BUF_DEFAULT=2920
 CONFIG_LWIP_TCP_WND_DEFAULT=2920
+
+# B1-352 opt-in telemetry (breadboard v0.70.0): attach only hardware this board has.
+CONFIG_BB_DISPLAY_INFO_AUTO_ATTACH=y

@@ -131,6 +131,21 @@ CONFIG_BB_EVENT_ROUTES_RING_CAPACITY=4
 # bb_event dispatcher queue depth: default 16; 8 is sufficient for low-rate mining events.
 CONFIG_BB_EVENT_QUEUE_DEPTH=8
 
+# B1-352 heap: the new SSE telemetry sources/topics pushed the S2 over its budget
+# (OOM on boot, .107). The always-on store-and-forward ring (kept as "affordable"
+# pre-B1-352, see the OTA pre-flight note below) is no longer affordable.
+# S2-ONLY: disable always-on store-and-forward ring (BUFFER_ALWAYS=n = lazy/on-failure mode).
+# In always-on mode (default) the ring holds MAX_ENTRIES slots permanently in internal heap:
+# (192+1+512)*8 ~= 5.6 KB standing cost at idle. With BUFFER_ALWAYS=n the ring is only
+# populated when the MQTT broker is unreachable — zero standing heap cost in steady-state.
+# Tradeoff: lose the uniform ordered queue guarantee in normal operation; keep on-failure
+# buffering so no data is lost during transient disconnects. Right call for a board where
+# steady-state heap is the crisis and the broker is almost always reachable.
+# Also drop MAX_ENTRIES 8→4: limits heap consumption even during failure episodes.
+# Together: 0 KB standing cost (was 5.6 KB) + max ~2.8 KB transient during broker outage.
+CONFIG_BB_PUB_BUFFER_ALWAYS=n
+CONFIG_BB_PUB_BUFFER_MAX_ENTRIES=4
+
 # mDNS batch size: default 16 (8 KB each array = 16 KB BSS). The 14-peer network is
 # covered by 4 per burst (recovered next refresh); ~12.4 KB BSS reclaim.
 CONFIG_BB_MDNS_BATCH_MAX=4
@@ -149,3 +164,6 @@ CONFIG_BB_MDNS_TASK_PRIORITY=10
 # stay at the fleet default — the check no longer runs in steady state, so the ~2.8 KB
 # always-on ring is affordable and store-and-forward replay is kept.
 CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES=30720
+
+# B1-352 opt-in telemetry (breadboard v0.70.0): attach only hardware this board has.
+CONFIG_BB_PUB_THERMAL_AUTO_ATTACH=y

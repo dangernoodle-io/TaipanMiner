@@ -128,6 +128,9 @@ CONFIG_MINING_UNICORE_YIELD_MASK=0x1FFF
 # S2 heap reclaim — HWM-measured, safe to trim on the heap-critical S2:
 # bb_event_routes replay ring: default 16, sized for rare block.found events; 4 is sufficient.
 CONFIG_BB_EVENT_ROUTES_RING_CAPACITY=4
+# SSE replay ring entry size: S2 is heap-tightest; 192 fits its ~146B info/pool payloads while
+# saving ring heap vs the fleet default 256 (the S2 has no 240B sensors_miner, so 256 not needed).
+CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY=192
 # bb_event dispatcher queue depth: default 16; 8 is sufficient for low-rate mining events.
 CONFIG_BB_EVENT_QUEUE_DEPTH=8
 

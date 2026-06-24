@@ -170,7 +170,10 @@ CONFIG_BB_PUB_ADAPTIVE_SAMPLES=3
 # heap reclaim (no-PSRAM fragmentation) — see heap audit
 # (esp-mqtt outbox is a dynamic list, empty under QoS0 — no fixed-size knob to tune)
 CONFIG_BB_EVENT_ROUTES_RING_CAPACITY=8
-CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY=128
+# 256 = the breadboard default. The bitaxe sensors_miner payload (~240B) + pool/info
+# (~146B) outgrew the old 128 cap, so SSE replay dropped them and live clients got
+# corrupt 128-byte-truncated JSON ("post 'pool' failed: 258"). 256 fits the largest.
+CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY=256
 CONFIG_BB_LOG_STREAM_BUF_BYTES=3072
 CONFIG_BB_LOG_STREAM_WRITER_QUEUE_LEN=8
 

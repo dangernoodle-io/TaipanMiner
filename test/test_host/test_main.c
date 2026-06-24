@@ -744,6 +744,31 @@ void test_stratum_watchdog_keepalive_at_threshold(void);
 void test_stratum_watchdog_keepalive_above_threshold(void);
 void test_stratum_watchdog_keepalive_wraparound(void);
 
+// Forward declarations from test_bb_pub_mining_emit.c (B1-352)
+void test_emit_mining_rates_all_fields_present(void);
+void test_emit_mining_rates_hashrate_null_when_unavailable(void);
+void test_emit_mining_rates_shares_zero_emits_as_number(void);
+void test_emit_mining_rates_all_null(void);
+void test_emit_pool_pub_connected(void);
+void test_emit_pool_pub_disconnected_null_fields(void);
+void test_emit_pool_pub_rolling_windows(void);
+
+#ifdef ASIC_CHIP
+// Forward declarations from test_sensors_miner_sag.c (B1-352 VIN-sag observability)
+void test_sensors_miner_sag_count_zero(void);
+void test_sensors_miner_sag_count_nonzero(void);
+void test_sensors_miner_vin_min_mv_null_when_int_max(void);
+void test_sensors_miner_vin_min_mv_emits_value(void);
+void test_sensors_miner_vin_uv_latched_false(void);
+void test_sensors_miner_vin_uv_latched_true(void);
+void test_sensors_miner_last_sag_ms_null_when_zero(void);
+void test_sensors_miner_last_sag_ms_emits_value(void);
+void test_sensors_miner_vcore_last_restart_ms_null_when_zero(void);
+void test_sensors_miner_vcore_last_restart_ms_emits_value(void);
+void test_sensors_miner_sag_all_fields_populated(void);
+void test_sensors_miner_all_value_fields(void);
+#endif /* ASIC_CHIP */
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -1493,6 +1518,31 @@ int main(void) {
     RUN_TEST(test_stratum_watchdog_keepalive_at_threshold);
     RUN_TEST(test_stratum_watchdog_keepalive_above_threshold);
     RUN_TEST(test_stratum_watchdog_keepalive_wraparound);
+
+    // B1-352: bb_pub emit builder tests (mining_rates + pool_pub)
+    RUN_TEST(test_emit_mining_rates_all_fields_present);
+    RUN_TEST(test_emit_mining_rates_hashrate_null_when_unavailable);
+    RUN_TEST(test_emit_mining_rates_shares_zero_emits_as_number);
+    RUN_TEST(test_emit_mining_rates_all_null);
+    RUN_TEST(test_emit_pool_pub_connected);
+    RUN_TEST(test_emit_pool_pub_disconnected_null_fields);
+    RUN_TEST(test_emit_pool_pub_rolling_windows);
+
+#ifdef ASIC_CHIP
+    // B1-352: VIN-sag observability fields in sensors_miner emit builder
+    RUN_TEST(test_sensors_miner_sag_count_zero);
+    RUN_TEST(test_sensors_miner_sag_count_nonzero);
+    RUN_TEST(test_sensors_miner_vin_min_mv_null_when_int_max);
+    RUN_TEST(test_sensors_miner_vin_min_mv_emits_value);
+    RUN_TEST(test_sensors_miner_vin_uv_latched_false);
+    RUN_TEST(test_sensors_miner_vin_uv_latched_true);
+    RUN_TEST(test_sensors_miner_last_sag_ms_null_when_zero);
+    RUN_TEST(test_sensors_miner_last_sag_ms_emits_value);
+    RUN_TEST(test_sensors_miner_vcore_last_restart_ms_null_when_zero);
+    RUN_TEST(test_sensors_miner_vcore_last_restart_ms_emits_value);
+    RUN_TEST(test_sensors_miner_sag_all_fields_populated);
+    RUN_TEST(test_sensors_miner_all_value_fields);
+#endif /* ASIC_CHIP */
 
     return UNITY_END();
 }

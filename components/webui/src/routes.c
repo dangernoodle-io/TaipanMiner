@@ -885,6 +885,9 @@ static bb_err_t pool_delete_primary_handler(bb_http_request_t *req)
 // ============================================================================
 
 #ifdef ASIC_CHIP
+#include "bb_power_tps546.h"
+#include "tps546_decode.h"
+#include <limits.h>
 
 // ---------------------------------------------------------------------------
 // Power extender: TM-domain fields + efficiency/vin_low
@@ -1011,6 +1014,35 @@ static void taipan_power_extender(bb_json_t root, void *ctx)
     /* TA-435: vcore_fault_held — true when the watchdog has latched FAULT_HOLD
      * due to an OC hardware fault. Cleared only by explicit UI action (TA-436). */
     bb_json_obj_set_bool(root, "vcore_fault_held", asic_task_get_vcore_fault_held());
+
+    /* VIN-sag observability: cumulative sag count, min VIN seen, UV latch bit,
+     * last-sag timestamp, and vcore WD recovery timestamp. */
+    {
+        bb_power_tps546_status_t st;
+        if (bb_power_tps546_read_status(bb_power_primary(), &st) == BB_OK) {
+            bb_json_obj_set_number(root, "sag_count", (double)st.sag_count);
+            if (st.vin_min_mv != INT_MAX && st.vin_min_mv >= 0)
+                bb_json_obj_set_number(root, "vin_min_mv", (double)st.vin_min_mv);
+            else
+                bb_json_obj_set_null(root, "vin_min_mv");
+            bb_json_obj_set_bool(root, "vin_uv_latched",
+                                 (st.fault_bits & TPS546_FAULT_VIN_UV) != 0);
+            if (st.last_sag_ms > 0)
+                bb_json_obj_set_number(root, "last_sag_ms", (double)st.last_sag_ms);
+            else
+                bb_json_obj_set_null(root, "last_sag_ms");
+        } else {
+            bb_json_obj_set_null(root, "sag_count");
+            bb_json_obj_set_null(root, "vin_min_mv");
+            bb_json_obj_set_null(root, "vin_uv_latched");
+            bb_json_obj_set_null(root, "last_sag_ms");
+        }
+        uint64_t lrms = asic_task_get_vcore_last_restart_ms();
+        if (lrms > 0)
+            bb_json_obj_set_number(root, "vcore_last_restart_ms", (double)lrms);
+        else
+            bb_json_obj_set_null(root, "vcore_last_restart_ms");
+    }
 }
 
 // Schema property fragments for OpenAPI (comma-separated properties, no braces)
@@ -1032,7 +1064,17 @@ static const char k_power_extender_schema[] =
     "\"vin_low\":{\"type\":[\"boolean\",\"null\"],"
     "\"description\":\"true when VIN is below 87% of (nominal+500mV) threshold\"},"
     "\"vcore_restart_count\":{\"type\":\"number\","
-    "\"description\":\"NVS-persisted count of vcore-collapse auto-restarts (TA-318); resets after 300s healthy\"}";
+    "\"description\":\"NVS-persisted count of vcore-collapse auto-restarts (TA-318); resets after 300s healthy\"},"
+    "\"sag_count\":{\"type\":[\"number\",\"null\"],"
+    "\"description\":\"cumulative VIN-sag event count (TPS546 latch)\"},"
+    "\"vin_min_mv\":{\"type\":[\"number\",\"null\"],"
+    "\"description\":\"lowest VIN observed since boot in mV; null until first poll\"},"
+    "\"vin_uv_latched\":{\"type\":[\"boolean\",\"null\"],"
+    "\"description\":\"true when TPS546 VIN_UV fault bit is set\"},"
+    "\"last_sag_ms\":{\"type\":[\"number\",\"null\"],"
+    "\"description\":\"uptime-ms of most-recent VIN sag; null if none\"},"
+    "\"vcore_last_restart_ms\":{\"type\":[\"number\",\"null\"],"
+    "\"description\":\"uptime-ms of most-recent vcore WD recovery; null if none\"}";
 
 #endif /* ASIC_CHIP */
 

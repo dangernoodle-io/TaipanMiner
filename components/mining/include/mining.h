@@ -5,6 +5,9 @@
 #include "asic_chip.h"
 #include "work.h"
 #include "mining_pause_io.h"
+#ifdef ASIC_CHIP
+#include "bb_event.h"
+#endif
 
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
@@ -357,6 +360,10 @@ int asic_task_get_chip_telemetry(asic_chip_telemetry_t *out, int max_chips);
 // Returns 0 when CONFIG_TM_VCORE_WATCHDOG is disabled.
 uint32_t asic_task_get_vcore_restart_count(void);
 
+// VIN-sag: uptime-ms of last vcore WD in-place recovery. 0 = none.
+// Returns 0 when CONFIG_TM_VCORE_WATCHDOG is disabled.
+uint64_t asic_task_get_vcore_last_restart_ms(void);
+
 // TA-238: snapshot of recent telemetry-drop events declared in asic_drop_log.h.
 #endif
 
@@ -366,3 +373,9 @@ uint32_t asic_task_get_vcore_restart_count(void);
 bool asic_task_get_vcore_fault_held(void);
 // Clear the FAULT_HOLD latch (for TA-436 UI-triggered reset).
 void asic_task_clear_vcore_fault(void);
+
+#ifdef ASIC_CHIP
+// B1-352: health.alerts event topic — registered by main, posted by asic_task.
+// Returns NULL until main has registered the topic (safe to call at any time).
+bb_event_topic_t tm_health_alerts_topic(void);
+#endif /* ASIC_CHIP */

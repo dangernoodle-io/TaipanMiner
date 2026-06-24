@@ -226,6 +226,73 @@ void emit_pool_json(bb_http_json_obj_stream_t *obj,
                     const pool_stat_snapshot_t *stats,
                     size_t stats_count);
 
+// ---------------------------------------------------------------------------
+// mining_rates -- periodic hashrate + shares snapshot (B1-352 bb_pub source)
+// All fields: double, sentinel -1.0 = unavailable/null.
+// ---------------------------------------------------------------------------
+typedef struct {
+    double hashrate_hs;            // EMA hashrate in H/s
+    double shares;                 // accepted shares this session
+    double rejected;               // rejected shares this session
+    double pool_effective_hs;      // pool-effective hashrate in H/s (-1 = unavailable)
+#ifdef ASIC_CHIP
+    double asic_hashrate_hs;       // ASIC-reported hashrate in H/s (-1 = unavailable)
+    double asic_total_ghs;         // ASIC total GH/s from reg (-1 = unavailable)
+#endif
+} mining_rates_snapshot_t;
+
+void emit_mining_rates_json(bb_json_t obj, const mining_rates_snapshot_t *snap);
+
+// ---------------------------------------------------------------------------
+// pool_pub -- periodic pool connection state snapshot (B1-352 bb_pub source)
+// Fields: low-churn connection state + difficulty + extranonce negotiation.
+// Intentionally excludes per-pool stats array (those are low-churn config data
+// served only via REST /api/pool). sentinel: int -1 = null, bool/string as-is.
+// ---------------------------------------------------------------------------
+typedef struct {
+    bool    connected;
+    double  current_difficulty;    // -1.0 = unavailable
+    double  latency_ms;            // -1.0 = unavailable
+    int     active_pool_idx;       // -1 = none
+    double  pool_effective_hs;     // -1.0 = unavailable
+    double  pool_effective_hs_1m;  // -1.0 = unavailable
+    double  pool_effective_hs_10m; // -1.0 = unavailable
+    double  pool_effective_hs_1h;  // -1.0 = unavailable
+} pool_pub_snapshot_t;
+
+void emit_pool_pub_json(bb_json_t obj, const pool_pub_snapshot_t *snap);
+
+// ---------------------------------------------------------------------------
+// sensors_miner -- periodic ASIC power-extender live fields (B1-352 bb_pub source)
+// ASIC_CHIP only. Mirrors the taipan_power_extender fields that change on every
+// bb_pub tick: vcore/icore/pcore/vr_temp + efficiency. Excludes capability
+// flags (vcore_restart_count, vcore_fault_held) -- those are in health.alerts.
+// sentinel: -1.0 = null
+// ---------------------------------------------------------------------------
+#ifdef ASIC_CHIP
+typedef struct {
+    double vcore_mv;              // VR output voltage in mV (-1 = null)
+    double icore_ma;              // VR output current in mA (-1 = null)
+    double pcore_mw;              // Total board power in mW (-1 = null)
+    double vr_temp_c;             // VR temperature in degrees C (-1 = null)
+    double efficiency_jth;        // instantaneous efficiency J/TH (-1 = null)
+    double efficiency_jth_1m;     // 1m rolling average (-1 = null)
+    double efficiency_jth_10m;    // 10m rolling average (-1 = null)
+    double efficiency_jth_1h;     // 1h rolling average (-1 = null)
+    double   vin_mv;              // Input voltage in mV (-1 = null)
+    bool     vin_low;             // true when VIN below threshold
+    bool     vin_low_valid;       // false when vin_mv is -1
+    // VIN-sag observability (ASIC_CHIP only; from bb_power_tps546_read_status)
+    uint16_t sag_count;           // cumulative sag event count
+    int      vin_min_mv;          // lowest VIN seen in mV (INT_MAX = none seen)
+    bool     vin_uv_latched;      // true when TPS546_FAULT_VIN_UV bit is set
+    uint64_t last_sag_ms;         // uptime-ms of last sag (0 = none)
+    uint64_t vcore_last_restart_ms; // uptime-ms of last vcore WD recovery (0 = none)
+} sensors_miner_snapshot_t;
+
+void emit_sensors_miner_json(bb_json_t obj, const sensors_miner_snapshot_t *snap);
+#endif /* ASIC_CHIP */
+
 /* ============================================================================
  * /api/diag/asic  (ASIC_CHIP only)
  * ========================================================================= */

@@ -38,6 +38,7 @@
 #include "bb_wdt.h"
 #include "esp_check.h"
 #include "bb_timer.h"
+#include "bb_clock.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -61,11 +62,13 @@ static const char *TAG = "asic";
 
 static bb_vcore_wd_state_t s_vcore_wd;       // zero-init valid per bb_power_health.h
 static uint32_t s_vcore_restart_count;        // NVS-persisted burst counter (runtime mirror)
+static uint64_t s_vcore_last_restart_ms;      // uptime-ms of last in-place recovery (0 = none)
 static bool s_vcore_backoff_logged;           // rate-limit the "budget exhausted" log line
 static bool s_vcore_fault_held;               // TA-435: runtime mirror of FAULT_HOLD latch
 
 // Expose restart count for telemetry extender in routes.c.
 uint32_t asic_task_get_vcore_restart_count(void) { return s_vcore_restart_count; }
+uint64_t asic_task_get_vcore_last_restart_ms(void) { return s_vcore_last_restart_ms; }
 
 // TA-435: fault-held accessor and clear (exposed for TA-436 UI clear).
 bool asic_task_get_vcore_fault_held(void) { return s_vcore_fault_held; }
@@ -77,9 +80,14 @@ void asic_task_clear_vcore_fault(void)
 }
 #else
 uint32_t asic_task_get_vcore_restart_count(void) { return 0; }
+uint64_t asic_task_get_vcore_last_restart_ms(void) { return 0; }
 bool asic_task_get_vcore_fault_held(void) { return false; }
 void asic_task_clear_vcore_fault(void) {}
 #endif /* CONFIG_TM_VCORE_WATCHDOG */
+
+// B1-352: VIN-sag alert tracking — last sag_count seen by the 5s poll.
+// Updated when a new sag is detected to drive health.alerts events.
+static uint16_t s_last_sag_count;
 
 // Clock source for bb_fan autofan PID — millisecond timestamp via bb_timer.
 // Injected via bb_fan_autofan_set_clock() rather than bb_fan_autofan_inject_clock()
@@ -980,6 +988,7 @@ void asic_mining_task(void *arg)
                         s_vcore_fault_held = true;
                     } else if (wd_act == BB_VCORE_WD_RECOVER) {
                         s_vcore_restart_count++;
+                        s_vcore_last_restart_ms = bb_clock_now_ms64();  // same source as last_sag_ms (consistent timestamp base)
                         bb_nv_set_u32(VCORE_WD_NVS_NS, VCORE_WD_NVS_KEY, s_vcore_restart_count);
                         bb_log_e(TAG, "vcore collapsed to %d mV — in-place rail-cycle recovery (attempt %" PRIu32 ")",
                                  v, s_vcore_restart_count);
@@ -1007,6 +1016,28 @@ void asic_mining_task(void *arg)
                     }
                 }
 #endif /* CONFIG_TM_VCORE_WATCHDOG */
+
+                // B1-352: VIN-sag health.alerts — post on each newly detected sag.
+                {
+                    bb_power_tps546_status_t sst;
+                    bb_power_handle_t sph = bb_power_primary();
+                    if (sph && bb_power_tps546_read_status(sph, &sst) == BB_OK) {
+                        if (sst.sag_count > s_last_sag_count) {
+                            bb_event_topic_t ha_topic = tm_health_alerts_topic();
+                            if (ha_topic) {
+                                char ha_payload[128];
+                                snprintf(ha_payload, sizeof(ha_payload),
+                                    "{\"kind\":\"vin_sag\",\"sag_count\":%u"
+                                    ",\"vin_min_mv\":%d,\"last_sag_mv\":%d}",
+                                    (unsigned)sst.sag_count,
+                                    sst.vin_min_mv,
+                                    sst.last_sag_mv);
+                                bb_event_post(ha_topic, 0, ha_payload, strlen(ha_payload));
+                            }
+                            s_last_sag_count = sst.sag_count;
+                        }
+                    }
+                }
             }
 
             last_temp_tick = now;

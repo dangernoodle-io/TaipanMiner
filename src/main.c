@@ -14,6 +14,7 @@
 #include "bb_nv.h"
 #include "config.h"
 #include "webui.h"
+#include "routes_json.h"
 #include "ui.h"
 #include "bb_display.h"
 #include "bb_hw.h"  // pulls in board header → defines BOARD_HAS_DISPLAY + panel/bus flags
@@ -40,6 +41,7 @@
 #include "bb_registry.h"
 #include "bb_event.h"
 #include "bb_event_routes.h"
+#include "bb_sink_event.h"
 #if CONFIG_KNOT_ENABLED
 #include "knot.h"
 #endif
@@ -55,10 +57,14 @@
 #include "asic_chip.h"
 #ifdef ASIC_CHIP
 #include "asic.h"
+#include "bb_power_tps546.h"
+#include "tps546_decode.h"
+#include <limits.h>
 #endif
 #include "bb_display_info.h"
 #include "bb_led_info.h"
 #include "bb_net_health.h"
+#include "bb_power.h"
 
 #if CONFIG_WEBUI_MINING_UI
 #define MINER_UI_TXT "1"
@@ -78,9 +84,18 @@ TaskHandle_t mining_hw_task_handle = NULL;
 static bb_periodic_timer_t s_stats_timer = NULL;
 static TaskHandle_t s_stats_save_task = NULL;
 
+// B1-352: health.alerts topic handle — file-scope so asic_task can post via getter.
+static bb_event_topic_t s_health_alerts_topic = NULL;
+
+bb_event_topic_t tm_health_alerts_topic(void) { return s_health_alerts_topic; }
+
 // Set while an OTA transfer (push/pull) holds the device: the display status
 // task stops blitting (frees the SPI bus) and the panel is blanked.
 static volatile bool s_display_quiesced = false;
+
+// Gate: bb_sink_event_seed_all() runs before start_mining(), so sample_fns must
+// emit sentinel values until all mining/pool/stratum state is initialized.
+static volatile bool s_telemetry_ready = false;
 
 // ---------------------------------------------------------------------------
 // Telemetry sampler — publishes mining stats via bb_pub on the "mining" topic
@@ -90,12 +105,20 @@ static bool tm_mining_sample(bb_json_t obj, void *ctx)
 {
     (void)ctx;
 
+    // Gate: seed runs before start_mining(); emit sentinels until telemetry is ready.
+    if (!s_telemetry_ready) {
+        bb_json_obj_set_number(obj, "hashrate_hs", 0.0);
+        bb_json_obj_set_number(obj, "shares",      0.0);
+        bb_json_obj_set_number(obj, "rejected",    0.0);
+        return true;
+    }
+
     // Snapshot under mutex; do NOT hold it across bb_json calls.
     double   hashrate = 0.0;
     uint32_t shares   = 0;
     uint32_t rejected = 0;
 
-    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (mining_stats.mutex != NULL && xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
 #ifdef ASIC_CHIP
         hashrate = mining_stats.asic_ema.value;
 #else
@@ -111,6 +134,201 @@ static bool tm_mining_sample(bb_json_t obj, void *ctx)
     bb_json_obj_set_number(obj, "rejected",    (double)rejected);
     return true;
 }
+
+// ---------------------------------------------------------------------------
+// B1-352: mining_rates bb_pub source
+// Periodic EMA hashrate + shares snapshot (both ASIC and SW mining).
+// ---------------------------------------------------------------------------
+static bool tm_mining_rates_sample(bb_json_t obj, void *ctx)
+{
+    (void)ctx;
+    mining_rates_snapshot_t snap = {
+        .hashrate_hs       = -1.0,
+        .shares            = -1.0,
+        .rejected          = -1.0,
+        .pool_effective_hs = -1.0,
+#ifdef ASIC_CHIP
+        .asic_hashrate_hs  = -1.0,
+        .asic_total_ghs    = -1.0,
+#endif
+    };
+
+    // Gate: seed runs before start_mining(); emit sentinels until telemetry is ready.
+    if (!s_telemetry_ready) { emit_mining_rates_json(obj, &snap); return true; }
+
+    if (mining_stats.mutex != NULL && xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+#ifdef ASIC_CHIP
+        snap.hashrate_hs      = mining_stats.asic_ema.value;
+        snap.asic_hashrate_hs = mining_stats.asic_hashrate;
+        snap.asic_total_ghs   = (double)mining_stats.asic_total_ghs;
+#else
+        snap.hashrate_hs = mining_stats.hw_ema.value;
+#endif
+        snap.shares   = (double)mining_stats.session.shares;
+        snap.rejected = (double)mining_stats.session.rejected;
+        xSemaphoreGive(mining_stats.mutex);
+    }
+
+    double pool_eff = mining_get_pool_effective_hashrate();
+    snap.pool_effective_hs = (pool_eff > 0.0) ? pool_eff : -1.0;
+
+    emit_mining_rates_json(obj, &snap);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// B1-352: pool bb_pub source
+// Periodic pool connection state snapshot (connection + difficulty + latency).
+// ---------------------------------------------------------------------------
+static bool tm_pool_pub_sample(bb_json_t obj, void *ctx)
+{
+    (void)ctx;
+    pool_pub_snapshot_t snap = {
+        .connected             = false,
+        .current_difficulty    = -1.0,
+        .latency_ms            = -1.0,
+        .active_pool_idx       = -1,
+        .pool_effective_hs     = -1.0,
+        .pool_effective_hs_1m  = -1.0,
+        .pool_effective_hs_10m = -1.0,
+        .pool_effective_hs_1h  = -1.0,
+    };
+
+    // Gate: seed runs before start_mining(); emit sentinels until telemetry is ready.
+    if (!s_telemetry_ready) { emit_pool_pub_json(obj, &snap); return true; }
+
+    snap.connected          = stratum_is_connected();
+    snap.current_difficulty = stratum_get_difficulty();
+    {
+        int rtt = stratum_get_pool_rtt_ms();
+        snap.latency_ms = (rtt >= 0) ? (double)rtt : -1.0;
+    }
+    snap.active_pool_idx = stratum_get_active_pool_idx();
+
+    double pool_eff = mining_get_pool_effective_hashrate();
+    snap.pool_effective_hs = (pool_eff > 0.0) ? pool_eff : -1.0;
+
+    {
+        double v;
+        v = mining_get_pool_effective_1m();
+        snap.pool_effective_hs_1m  = (v > 0.0) ? v : -1.0;
+        v = mining_get_pool_effective_10m();
+        snap.pool_effective_hs_10m = (v > 0.0) ? v : -1.0;
+        v = mining_get_pool_effective_1h();
+        snap.pool_effective_hs_1h  = (v > 0.0) ? v : -1.0;
+    }
+
+    emit_pool_pub_json(obj, &snap);
+    return true;
+}
+
+#ifdef ASIC_CHIP
+// ---------------------------------------------------------------------------
+// B1-352: sensors_miner bb_pub source
+// Periodic ASIC power-extender live fields (vcore/icore/pcore/efficiency).
+// ---------------------------------------------------------------------------
+static bool tm_sensors_miner_sample(bb_json_t obj, void *ctx)
+{
+    (void)ctx;
+    sensors_miner_snapshot_t snap = {
+        .vcore_mv              = -1.0,
+        .icore_ma              = -1.0,
+        .pcore_mw              = -1.0,
+        .vr_temp_c             = -1.0,
+        .efficiency_jth        = -1.0,
+        .efficiency_jth_1m     = -1.0,
+        .efficiency_jth_10m    = -1.0,
+        .efficiency_jth_1h     = -1.0,
+        .vin_mv                = -1.0,
+        .vin_low               = false,
+        .vin_low_valid         = false,
+        .sag_count             = 0,
+        .vin_min_mv            = INT_MAX,
+        .vin_uv_latched        = false,
+        .last_sag_ms           = 0,
+        .vcore_last_restart_ms = 0,
+    };
+
+    // Gate: seed runs before start_mining(); emit sentinels until telemetry is ready.
+    if (!s_telemetry_ready) { emit_sensors_miner_json(obj, &snap); return true; }
+
+    int    pcore_mw  = -1;
+    double asic_hs   = 0.0;
+    float  pcore_1m  = -1.0f;
+    float  pcore_10m = -1.0f;
+    float  pcore_1h  = -1.0f;
+    float  ghs_1m    = -1.0f;
+    float  ghs_10m   = -1.0f;
+    float  ghs_1h    = -1.0f;
+    float  asic_freq = 0.0f;
+    int    vin_mv    = -1;
+
+    if (mining_stats.mutex != NULL && xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        pcore_mw    = mining_stats.pcore_mw;
+        asic_hs     = mining_stats.asic_hashrate;
+        pcore_1m    = mining_stats.pcore_mw_1m;
+        pcore_10m   = mining_stats.pcore_mw_10m;
+        pcore_1h    = mining_stats.pcore_mw_1h;
+        ghs_1m      = mining_stats.asic_total_ghs_1m;
+        ghs_10m     = mining_stats.asic_total_ghs_10m;
+        ghs_1h      = mining_stats.asic_total_ghs_1h;
+        asic_freq   = mining_stats.asic_freq_configured_mhz;
+        vin_mv      = mining_stats.vin_mv;
+        xSemaphoreGive(mining_stats.mutex);
+    }
+
+    /* Read bb_power snapshot for vcore/icore/vr_temp (same as REST extender) */
+    {
+        bb_power_snapshot_t psnap;
+        bb_power_snapshot(bb_power_primary(), &psnap);
+        snap.vcore_mv  = (psnap.vout_mv >= 0) ? (double)psnap.vout_mv : -1.0;
+        snap.icore_ma  = (psnap.iout_ma >= 0) ? (double)psnap.iout_ma : -1.0;
+        snap.vr_temp_c = (psnap.temp_c  >= 0) ? (double)psnap.temp_c  : -1.0;
+    }
+
+    if (pcore_mw >= 0) snap.pcore_mw = (double)pcore_mw;
+
+    /* efficiency_jth: instantaneous */
+    if (pcore_mw >= 0 && asic_hs > 0.0) {
+        double eff = mining_efficiency_jth((double)pcore_mw, asic_hs / 1e9);
+        snap.efficiency_jth = (eff >= 0.0) ? eff : -1.0;
+    }
+
+    /* rolling efficiency windows */
+    {
+        double e;
+        e = mining_efficiency_jth((double)pcore_1m, (double)ghs_1m);
+        snap.efficiency_jth_1m  = (e >= 0.0) ? e : -1.0;
+        e = mining_efficiency_jth((double)pcore_10m, (double)ghs_10m);
+        snap.efficiency_jth_10m = (e >= 0.0) ? e : -1.0;
+        e = mining_efficiency_jth((double)pcore_1h, (double)ghs_1h);
+        snap.efficiency_jth_1h  = (e >= 0.0) ? e : -1.0;
+    }
+
+    /* vin_low */
+    if (vin_mv >= 0) {
+        snap.vin_mv        = (double)vin_mv;
+        snap.vin_low       = (vin_mv < (BOARD_NOMINAL_VIN_MV + 500) * 87 / 100);
+        snap.vin_low_valid = true;
+    }
+
+    /* VIN-sag fields from TPS546 status latch */
+    {
+        bb_power_tps546_status_t st;
+        if (bb_power_tps546_read_status(bb_power_primary(), &st) == BB_OK) {
+            snap.sag_count             = st.sag_count;
+            snap.vin_min_mv            = st.vin_min_mv;
+            snap.vin_uv_latched        = (st.fault_bits & TPS546_FAULT_VIN_UV) != 0;
+            snap.last_sag_ms           = st.last_sag_ms;
+        }
+        snap.vcore_last_restart_ms = asic_task_get_vcore_last_restart_ms();
+    }
+
+    (void)asic_freq; /* reserved for expected_efficiency; omitted from this teed topic */
+    emit_sensors_miner_json(obj, &snap);
+    return true;
+}
+#endif /* ASIC_CHIP */
 
 static void stats_save_task(void *arg)
 {
@@ -255,6 +473,9 @@ static void start_mining(void)
     }
 
     bb_log_i(TAG, "all tasks started");
+
+    // All mining/pool/stratum state is initialized; sample_fns may now read live data.
+    s_telemetry_ready = true;
 }
 
 #ifdef BOARD_HAS_DISPLAY
@@ -270,7 +491,7 @@ static void display_status_task(void *arg)
         if (s_display_quiesced) continue;  // OTA in progress: stop blitting, panel is dark
 
         if (tick % 100 == 0) {
-            if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            if (mining_stats.mutex != NULL && xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
 #ifdef ASIC_CHIP
                 status.hashrate = mining_stats.asic_ema.value;
                 status.temp_c = mining_stats.asic_temp_c;
@@ -640,6 +861,15 @@ void app_main(void)
         // Register mining telemetry source — publishes hashrate/shares/rejected
         // on the "mining" MQTT topic each bb_pub tick.
         bb_pub_register_source("mining", tm_mining_sample, NULL);
+        // B1-352: register additional bb_pub sources for SSE fan-out.
+        // mining_rates: periodic EMA + shares (both ASIC and SW mining)
+        // pool: periodic connection state + difficulty + pool-effective hashrate
+        // sensors_miner: periodic ASIC power-extender live fields (ASIC_CHIP only)
+        bb_pub_register_source("mining_rates", tm_mining_rates_sample, NULL);
+        bb_pub_register_source("pool",         tm_pool_pub_sample,     NULL);
+#ifdef ASIC_CHIP
+        bb_pub_register_source("sensors_miner", tm_sensors_miner_sample, NULL);
+#endif
 
         // Register "block.found" SSE topic and hand the handle to mining_pool_stats
         // so record_block() can post events. Must run after bb_registry_init() so
@@ -665,6 +895,33 @@ void app_main(void)
             }
         }
 
+        // B1-352: register pool.notify -- non-retained event topic for new stratum jobs.
+        // Posted from stratum task on each mining.notify received.
+        // Non-fatal: SSE feature is optional.
+        {
+            static bb_event_topic_t s_pool_notify_topic = NULL;
+            bb_err_t evt_err = bb_event_topic_register("pool.notify", &s_pool_notify_topic);
+            if (evt_err == BB_OK) {
+                evt_err = bb_event_routes_attach_ex("pool.notify", false);
+            }
+            if (evt_err != BB_OK) {
+                bb_log_w(TAG, "pool.notify SSE unavailable (err %d)", evt_err);
+            }
+        }
+
+        // B1-352: register health.alerts -- non-retained event topic for
+        // sha-self-test / vcore-fault / vin-low / stratum-state transitions.
+        // Non-fatal: SSE feature is optional.
+        {
+            bb_err_t evt_err = bb_event_topic_register("health.alerts", &s_health_alerts_topic);
+            if (evt_err == BB_OK) {
+                evt_err = bb_event_routes_attach_ex("health.alerts", false);
+            }
+            if (evt_err != BB_OK) {
+                bb_log_w(TAG, "health.alerts SSE unavailable (err %d)", evt_err);
+            }
+        }
+
         // Attach "net.health" retained SSE topic and start 5-second link-health
         // evaluator. Must run after bb_registry_init() so bb_event_routes is up.
         // Non-fatal: degrades gracefully (no SSE topic) rather than aborting.
@@ -673,6 +930,46 @@ void app_main(void)
             if (net_err != BB_OK) {
                 bb_log_w(TAG, "bb_net_health_attach_sse failed (err %d): "
                               "net.health SSE unavailable", net_err);
+            }
+        }
+
+        // B1-352: register bb_sink_event for SSE fan-out of bb_pub periodic sources.
+        // Subscribe EXPLICITLY to the periodic topics we want on SSE (not default-all).
+        // MQTT gets the aggregate periodic sources via its own (default-all) subscription.
+        // Event topics (pool.notify, health.alerts, block.found, net.health) are handled
+        // via bb_event_post directly -- they are NOT teed through bb_pub periodic sources.
+        //
+        // Non-fatal: if bb_sink_event setup fails, MQTT still works normally.
+        {
+            // Register the per-topic SSE endpoints (each calls bb_event_topic_register +
+            // bb_event_routes_attach_ex internally).
+            static const char *const k_sse_topics[] = {
+                "power", "thermal", "fan", "sys.mem", "net.detail",
+                "mining_rates", "pool",
+#ifdef ASIC_CHIP
+                "sensors_miner",
+#endif
+            };
+            bb_err_t sink_err = BB_OK;
+            for (size_t i = 0; i < sizeof(k_sse_topics) / sizeof(k_sse_topics[0]); i++) {
+                sink_err = bb_sink_event_register_topic(k_sse_topics[i], true);
+                if (sink_err != BB_OK) {
+                    bb_log_w(TAG, "bb_sink_event_register_topic(%s) failed (err %d): "
+                                  "continuing without SSE topic", k_sse_topics[i], sink_err);
+                    sink_err = BB_OK; // continue; non-fatal per topic
+                }
+            }
+
+            // Wire the SSE sink into bb_pub fan-out (additive; does not displace MQTT).
+            static bb_pub_sink_t s_sse_sink;
+            bb_sink_event(&s_sse_sink);
+            sink_err = bb_pub_add_sink(&s_sse_sink);
+            if (sink_err == BB_OK) {
+                // Seed all retained topics so SSE clients connecting at boot get current state.
+                bb_sink_event_seed_all();
+            } else {
+                bb_log_w(TAG, "bb_pub_add_sink(SSE) failed (err %d): SSE telemetry unavailable",
+                          sink_err);
             }
         }
 

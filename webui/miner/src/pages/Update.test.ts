@@ -58,7 +58,7 @@ const baseInfo = {
   mac: '00:11:22:33:44:55', flash_size: 16777216, app_size: 1048576,
   heap_internal: { free: 131072, total: 262144, min_free: 98304, largest_block: 65536 }, reset_reason: 'Unknown',
   hostname: 'taipan.local',
-  boot_epoch: 1705333200,
+  boot_epoch_s: 1705333200,
   mining: { worker_name: 'testworker' },
   diag: { wdt_resets: 0 },
 }

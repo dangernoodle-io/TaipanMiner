@@ -114,3 +114,13 @@ typedef enum {
 
 // Classify a stratum error response code into a kind.
 stratum_reject_kind_t stratum_machine_classify_reject(int code);
+
+// ---------------------------------------------------------------------------
+// WiFi zombie-kick decision — pure helper, host-testable (TA-440).
+// Returns true when the stratum connect-fail counter has reached the kick
+// threshold AND the caller reports WiFi has an IP (zombie-connected state).
+// Callers: stratum_io.c connect loop (checks and resets counter on true).
+// ---------------------------------------------------------------------------
+#define STRATUM_WIFI_KICK_THRESHOLD 5
+
+bool stratum_should_kick_wifi(int fail_count, bool has_ip);

@@ -337,3 +337,12 @@ stratum_reject_kind_t stratum_machine_classify_reject(int code)
         default: return STRATUM_REJECT_OTHER;
     }
 }
+
+// TA-440: WiFi zombie-kick decision — pure helper, host-testable.
+// Returns true when fail_count has reached STRATUM_WIFI_KICK_THRESHOLD AND
+// has_ip is true, indicating the WiFi driver believes it is associated but
+// the network path is silently dead (zombie-connected state).
+bool stratum_should_kick_wifi(int fail_count, bool has_ip)
+{
+    return has_ip && (fail_count >= STRATUM_WIFI_KICK_THRESHOLD);
+}

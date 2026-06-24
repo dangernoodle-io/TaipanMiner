@@ -346,6 +346,16 @@ void test_handle_notify_null_state(void);
 void test_handle_notify_null_params(void);
 void test_handle_notify_missing_field_at_index_0(void);
 
+// Forward declarations from test_stratum_wifi_kick.c (TA-440)
+void test_wifi_kick_below_threshold_no_ip(void);
+void test_wifi_kick_below_threshold_has_ip(void);
+void test_wifi_kick_zero_count_no_ip(void);
+void test_wifi_kick_zero_count_has_ip(void);
+void test_wifi_kick_at_threshold_has_ip(void);
+void test_wifi_kick_at_threshold_no_ip(void);
+void test_wifi_kick_above_threshold_has_ip(void);
+void test_wifi_kick_above_threshold_no_ip(void);
+
 // Forward declarations from test_stratum_reject.c
 void test_parse_error_code_array_form_21(void);
 void test_parse_error_code_array_form_23(void);
@@ -1158,6 +1168,15 @@ int main(void) {
     RUN_TEST(test_handle_notify_null_state);
     RUN_TEST(test_handle_notify_null_params);
     RUN_TEST(test_handle_notify_missing_field_at_index_0);
+    // TA-440: WiFi zombie-kick decision tests
+    RUN_TEST(test_wifi_kick_below_threshold_no_ip);
+    RUN_TEST(test_wifi_kick_below_threshold_has_ip);
+    RUN_TEST(test_wifi_kick_zero_count_no_ip);
+    RUN_TEST(test_wifi_kick_zero_count_has_ip);
+    RUN_TEST(test_wifi_kick_at_threshold_has_ip);
+    RUN_TEST(test_wifi_kick_at_threshold_no_ip);
+    RUN_TEST(test_wifi_kick_above_threshold_has_ip);
+    RUN_TEST(test_wifi_kick_above_threshold_no_ip);
 
     // Stratum error code parsing tests
     RUN_TEST(test_parse_error_code_array_form_21);

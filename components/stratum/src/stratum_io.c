@@ -83,6 +83,13 @@ static volatile int s_active_pool_idx = POOL_PRIMARY;
 static int s_consecutive_fail_count = 0;
 #define STRATUM_FAILOVER_THRESHOLD 3
 
+// TA-440: WiFi zombie-recovery — counts consecutive connect-establishment
+// failures (pre-session, not mid-session read errors). When the threshold is
+// reached and WiFi still reports an IP, the path is silently dead (zombie);
+// bb_wifi_force_reassociate() breaks the stale association so the FSM
+// reconnects at the WiFi layer.
+static int s_wifi_kick_fail_count = 0;
+
 /* TA-306: extranonce.subscribe runtime status (per-session, reset on reconnect). */
 static volatile stratum_extranonce_sub_status_t s_extranonce_sub_status = STRATUM_EXNX_SUB_OFF;
 /* esp_timer timestamp when subscribe was sent; 0 when not pending. Some
@@ -129,6 +136,7 @@ bool stratum_is_connected(void)
 void stratum_request_reconnect(void)
 {
     s_reconnect_requested = true;
+    s_wifi_kick_fail_count = 0;
 }
 
 bb_err_t stratum_request_switch_pool(int idx)
@@ -673,12 +681,25 @@ void stratum_task(void *arg)
 
         // Connect
         if (stratum_connect(pool_host, pool_port) != 0) {
+            s_wifi_kick_fail_count++;
+            // TA-440: if WiFi still reports an IP but we keep failing to
+            // connect, the association is zombie-connected (router dropped the
+            // NAT/session without sending a deauth). Force a reassociation so
+            // the wifi_reconn FSM can rebuild a live path. Gate on has_ip so
+            // we never kick when WiFi is legitimately down.
+            if (stratum_should_kick_wifi(s_wifi_kick_fail_count, bb_wifi_has_ip())) {
+                bb_log_w(TAG, "%d consecutive connect failures with IP up — forcing WiFi reassociation",
+                         s_wifi_kick_fail_count);
+                bb_wifi_force_reassociate();
+                s_wifi_kick_fail_count = 0;
+            }
             stratum_backoff_step_t step = stratum_backoff_on_fail(&s_backoff);
             bb_log_w(TAG, "connect failed (%d), reconnecting in %" PRIu32 "ms",
                      s_backoff.fail_count, step.sleep_ms);
             vTaskDelay(pdMS_TO_TICKS(step.sleep_ms));
             continue;
         }
+        s_wifi_kick_fail_count = 0;
         stratum_backoff_reset(&s_backoff);
 
         // Resolve per-pool stats slot for this session.

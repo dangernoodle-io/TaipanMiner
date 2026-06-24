@@ -25,3 +25,9 @@ CONFIG_ESP_WIFI_RX_BA_WIN=6
 # sources (wifi/thermal/rtos/power) are evicted before the drain. 16 = one tick + outage
 # headroom; lives in SPIRAM so the internal-heap cost is nil.
 CONFIG_BB_PUB_BUFFER_MAX_ENTRIES=16
+
+# B1-352 opt-in telemetry (breadboard v0.70.0): attach only hardware this board has.
+CONFIG_BB_PUB_FAN_AUTO_ATTACH=y
+CONFIG_BB_PUB_POWER_AUTO_ATTACH=y
+CONFIG_BB_PUB_THERMAL_AUTO_ATTACH=y
+CONFIG_BB_DISPLAY_INFO_AUTO_ATTACH=y

@@ -944,8 +944,19 @@ void app_main(void)
             // Register the per-topic SSE endpoints (each calls bb_event_topic_register +
             // bb_event_routes_attach_ex internally).
             static const char *const k_sse_topics[] = {
-                "power", "thermal", "fan", "sys.mem", "net.detail",
-                "mining_rates", "pool",
+                "sys.mem", "net.detail", "mining_rates", "pool",
+                // B1-352: fan/power/thermal SSE topics are gated to the same per-board
+                // hardware opt-in as their bb_pub_* sources (breadboard v0.70.0 AUTO_ATTACH).
+                // Without the source there is no data, so don't register an empty SSE topic.
+#ifdef CONFIG_BB_PUB_FAN_AUTO_ATTACH
+                "fan",
+#endif
+#ifdef CONFIG_BB_PUB_POWER_AUTO_ATTACH
+                "power",
+#endif
+#ifdef CONFIG_BB_PUB_THERMAL_AUTO_ATTACH
+                "thermal",
+#endif
 #ifdef ASIC_CHIP
                 "sensors_miner",
 #endif

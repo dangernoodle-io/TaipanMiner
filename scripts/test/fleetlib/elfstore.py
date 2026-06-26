@@ -23,6 +23,34 @@ Panic prefix matching
 
   9 hex chars = 4.5 bytes of SHA256 — collision probability is negligible for
   any realistic build corpus.
+
+esp_app_desc_t parsing (TA-461)
+--------------------------------
+  ESP-IDF embeds an esp_app_desc_t struct in the ELF at a fixed layout
+  (magic 0xABCD5432).  parse_esp_app_desc() extracts project_name and
+  version from the struct so that `fleet elf archive` can populate the
+  sidecar without querying a live device.
+
+  esp_app_desc_t layout (esp_app_desc.h, ESP-IDF ≥ 4.x):
+    offset  0: uint32  magic_word      (0xABCD5432, little-endian)
+    offset  4: uint32  secure_version
+    offset  8: uint8[8] reserv1
+    offset 16: char[32] version         — firmware version string
+    offset 48: char[32] project_name    — build project name
+    offset 80: char[16] time            — build time
+    offset 96: char[16] date            — build date
+    offset 112: char[32] idf_ver
+    offset 144: uint8[32] app_elf_sha256 (zeros in ELF; filled by esptool)
+    offset 176: uint8[20] reserv2
+
+  Note: app_elf_sha256 in the struct is always zeros in the .elf file —
+  esptool fills it during .bin packaging.  The archive key is the SHA256 of
+  the ELF file bytes, which equals what /api/info build.app_sha256 reports.
+
+  Board availability: esp_app_desc_t contains project_name (e.g.
+  "taipanminer-esp32-wroom32") but no explicit board field.  parse_esp_app_desc
+  returns project_name as-is; callers that need a normalized board name can
+  apply their own stripping (e.g. remove "taipanminer-" prefix).
 """
 from __future__ import annotations
 
@@ -30,6 +58,7 @@ import hashlib
 import json
 import logging
 import os
+import struct
 import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -45,6 +74,51 @@ DEFAULT_KEEP = 20
 _HARNESS_DIR = Path(__file__).parent.parent  # scripts/test/
 _REPO_ROOT = _HARNESS_DIR.parent.parent      # repo root
 _ARCHIVE_DEFAULT = _REPO_ROOT / ".elf-archive"
+
+
+_ESP_APP_DESC_MAGIC = 0xABCD5432
+_ESP_APP_DESC_MAGIC_BYTES = struct.pack("<I", _ESP_APP_DESC_MAGIC)
+
+# Offsets within esp_app_desc_t (see module docstring)
+_DESC_OFF_VERSION = 16
+_DESC_OFF_PROJECT_NAME = 48
+_DESC_OFF_TIME = 80
+_DESC_OFF_DATE = 96
+
+
+@dataclass
+class AppDesc:
+    """Fields extracted from esp_app_desc_t embedded in the ELF."""
+    version: str        # firmware version string (char[32])
+    project_name: str   # build project name (char[32])
+    build_time: str     # build time string (char[16])
+    build_date: str     # build date string (char[16])
+
+
+def parse_esp_app_desc(elf_data: bytes) -> Optional[AppDesc]:
+    """Parse the esp_app_desc_t struct embedded in *elf_data*.
+
+    Searches for the magic word 0xABCD5432 in the raw ELF bytes and extracts
+    version, project_name, build_time, and build_date.
+
+    Returns None when the magic is not found (e.g. non-ESP firmware).
+    """
+    idx = elf_data.find(_ESP_APP_DESC_MAGIC_BYTES)
+    if idx < 0:
+        return None
+    chunk = elf_data[idx: idx + 256]
+    if len(chunk) < 112:
+        return None
+
+    def _cstr(data: bytes, off: int, length: int) -> str:
+        return data[off: off + length].rstrip(b"\x00").decode("utf-8", errors="replace")
+
+    return AppDesc(
+        version=_cstr(chunk, _DESC_OFF_VERSION, 32),
+        project_name=_cstr(chunk, _DESC_OFF_PROJECT_NAME, 32),
+        build_time=_cstr(chunk, _DESC_OFF_TIME, 16),
+        build_date=_cstr(chunk, _DESC_OFF_DATE, 16),
+    )
 
 
 @dataclass
@@ -90,6 +164,11 @@ def archive(
 
     Prunes the archive after writing (keep + max_age budget).
     Idempotent: if the same SHA already exists, the sidecar is updated.
+
+    When *board* or *version* are empty, attempts to populate them from the
+    esp_app_desc_t struct embedded in the ELF (TA-461).  *board* is set to
+    esp_app_desc_t.project_name (e.g. "taipanminer-esp32-wroom32"); *version*
+    is set to esp_app_desc_t.version.
     """
     root = _archive_root(store_dir)
     key = sha256_of_elf(elf_path)
@@ -97,12 +176,35 @@ def archive(
     dest_json = root / f"{key}.json"
 
     # Copy ELF (skip if already there — same content by definition)
+    elf_bytes: Optional[bytes] = None
     if not dest_elf.exists():
         import shutil
         shutil.copy2(elf_path, dest_elf)
         logger.debug("elfstore: archived %s -> %s", elf_path, dest_elf)
     else:
         logger.debug("elfstore: %s already archived", key[:16])
+
+    # Auto-populate board/version from esp_app_desc_t when not supplied (TA-461)
+    if not board or not version:
+        try:
+            if elf_bytes is None:
+                with open(elf_path, "rb") as fh:
+                    elf_bytes = fh.read()
+            desc = parse_esp_app_desc(elf_bytes)
+            if desc is not None:
+                if not board:
+                    board = desc.project_name
+                if not version:
+                    version = desc.version
+                if not build_time:
+                    # Combine date + time from desc into a human-readable string
+                    build_time = f"{desc.build_date} {desc.build_time}".strip()
+                logger.debug(
+                    "elfstore: auto-populated from esp_app_desc: board=%r version=%r",
+                    board, version,
+                )
+        except Exception as exc:
+            logger.debug("elfstore: esp_app_desc parse failed: %s", exc)
 
     # Write / overwrite sidecar
     meta = ElfMeta(

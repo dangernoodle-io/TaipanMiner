@@ -2,21 +2,36 @@
 """fleet.py — TaipanMiner fleet test harness CLI (TA-433).
 
 Subcommands:
-  discover   — discover devices via mDNS, print table
-  status     — GET /api/info + /api/health per device, print summary
-  describe   — inspect the served OpenAPI spec (paths, request/response schemas)
-  call       — make an arbitrary API request (safety-gated for mutating methods)
-  logs       — retrieve device kernel log via GET /api/logs (SSE)
-  functional — run functional suite (schema validation per device)
-  soak       — run soak suite (long-running monitor)
-  stress     — run stress suite (concurrent load)
-  faults     — run fault-injection suite
-  telemetry  — run telemetry transport suite
-  ota        — OTA operations (push/pull/mark-valid/recover/status/verify)
-  decode     — decode a panic backtrace from a live device using an archived ELF
-  elf        — ELF archive management (archive/list/prune)
+  discover         — discover devices via mDNS, print table
+  status           — GET /api/info + /api/health per device, print summary
+  probe-endpoints  — spec-driven endpoint crash probe (TA-469)
+  describe         — inspect the served OpenAPI spec (paths, request/response schemas)
+  call             — make an arbitrary API request (safety-gated for mutating methods)
+  logs             — retrieve device kernel log via GET /api/logs (SSE)
+  functional       — run functional suite (schema validation per device)
+  soak             — run soak suite (long-running monitor)
+  stress           — run stress suite (concurrent load)
+  faults           — run fault-injection suite
+  telemetry        — run telemetry transport suite
+  ota              — OTA operations (push/pull/mark-valid/recover/status/verify)
+  decode           — decode a panic backtrace from a live device using an archived ELF
+  elf              — ELF archive management (archive/list/prune)
 """
 from __future__ import annotations
+
+# Python version floor (TA-450): fail fast with a clear message.
+# CI target is 3.11; walrus operator (:=) requires 3.8+ and dataclasses 3.7+,
+# but 3.11 is the tested baseline and matches CI.
+import sys as _sys
+if _sys.version_info < (3, 11):
+    print(
+        f"ERROR: fleet requires Python >= 3.11 "
+        f"(found {_sys.version_info.major}.{_sys.version_info.minor}). "
+        f"Install Python 3.11+ and retry.",
+        file=_sys.stderr,
+    )
+    _sys.exit(1)
+
 import argparse
 import logging
 import os
@@ -209,6 +224,23 @@ def _build_parser() -> argparse.ArgumentParser:
     st = sub.add_parser("status", help="GET /api/info + /api/health per device")
     _add_common_flags(st)
     st.set_defaults(func=cmd_status)
+
+    # probe-endpoints
+    probe_p = sub.add_parser(
+        "probe-endpoints",
+        help="spec-driven endpoint crash probe: hit each GET once and flag uptime regressions",
+    )
+    _add_common_flags(probe_p)
+    probe_p.add_argument(
+        "--include-mutating", dest="include_mutating", action="store_true",
+        help="also probe POST/PUT/PATCH/DELETE endpoints (requires --yes guard)",
+    )
+    probe_p.add_argument(
+        "--include-streaming", dest="include_streaming", action="store_true",
+        help="also probe streaming endpoints (/api/logs, /api/diag/events, /ws) that "
+             "would otherwise hang workers",
+    )
+    probe_p.set_defaults(func=cmd_probe_endpoints)
 
     # functional
     fn = sub.add_parser("functional", help=_suite_help("functional"))
@@ -574,6 +606,130 @@ def cmd_status(args) -> int:
             health_str = "??"
 
         print(f"{d.ip:<20} {board:<20} {version:<16} {uptime_str:>12}  {heap_str:>12}  {health_str}")
+
+    return 0 if all_ok else 1
+
+
+def cmd_probe_endpoints(args) -> int:
+    """Spec-driven endpoint crash probe (TA-469).
+
+    Enumerates GET paths from /api/openapi.json, probes each once, and
+    detects uptime regressions (crash/reboot) after each hit.  Mutating
+    methods (POST/PUT/PATCH/DELETE) and streaming endpoints (/api/logs,
+    /api/diag/events, /ws) are skipped by default.
+    """
+    from fleetlib.client import Client, TIMEOUT_INFO
+    from fleetlib.spec import Spec
+
+    # Endpoints that block indefinitely — skip unless opt-in
+    _STREAMING = {"/api/logs", "/api/diag/events", "/ws"}
+    # Mutating HTTP methods — skip unless --include-mutating
+    _MUTATING = {"post", "put", "patch", "delete"}
+
+    include_mutating = getattr(args, "include_mutating", False)
+    include_streaming = getattr(args, "include_streaming", False)
+
+    result = resolve_devices(args)
+    devices = _unwrap_devices(result)
+    if not devices:
+        print(_no_devices_message(result), file=sys.stderr)
+        return 1
+
+    all_ok = True
+    for d in devices:
+        c = Client(d.ip, getattr(d, "port", 80))
+        print(f"\nProbing {d.ip} ({d.board} {d.version})")
+
+        # Fetch spec
+        spec_doc = c.get_json("/api/openapi.json", timeout=TIMEOUT_INFO)
+        if spec_doc is None:
+            print(f"  ERROR: could not fetch /api/openapi.json — device unreachable?")
+            all_ok = False
+            continue
+        spec = Spec(spec_doc)
+
+        # Collect probe targets: safe GETs only by default
+        targets = []
+        for path in sorted(spec.paths()):
+            methods = spec.methods(path)
+            is_streaming = path in _STREAMING
+            has_get = "get" in methods
+
+            if is_streaming and not include_streaming:
+                continue
+            if not has_get and not include_mutating:
+                continue
+            # Determine method to use
+            if has_get and (not is_streaming or include_streaming):
+                targets.append((path, "GET"))
+            elif include_mutating:
+                for m in methods:
+                    if m in _MUTATING:
+                        targets.append((path, m.upper()))
+                        break
+
+        if not targets:
+            print("  no probeable endpoints found")
+            continue
+
+        # Read baseline uptime
+        def _uptime(client: Client):
+            info = client.get_json("/api/info", timeout=TIMEOUT_INFO)
+            if info is None:
+                return None
+            return info.get("uptime_ms")
+
+        baseline_uptime = _uptime(c)
+        if baseline_uptime is None:
+            print("  ERROR: could not read baseline uptime from /api/info")
+            all_ok = False
+            continue
+
+        print(f"  baseline uptime: {_fmt_uptime(baseline_uptime)}  "
+              f"({len(targets)} endpoints to probe)")
+        print()
+        print(f"  {'ENDPOINT':<40} {'STATUS':>8}  RESULT")
+        print(f"  {'-' * 60}")
+
+        prev_uptime = baseline_uptime
+        for path, method in targets:
+            status_code = None
+            result_str = "ok"
+            if method == "GET":
+                resp = c.get_json(path, timeout=TIMEOUT_INFO)
+                if resp is None:
+                    # Could be a genuine error response (e.g. 404) or unreachable
+                    status_code, _ = c.request("GET", path, timeout=TIMEOUT_INFO)
+                    result_str = "err" if status_code is not None else "unreachable"
+                else:
+                    status_code = 200
+            else:
+                status_code, _ = c.request(method, path, timeout=TIMEOUT_INFO)
+                result_str = "ok" if (status_code is not None and status_code < 500) else "err"
+
+            # Re-read uptime to detect crash
+            new_uptime = _uptime(c)
+            if new_uptime is None:
+                result_str = "CRASH (unreachable after)"
+                all_ok = False
+            elif new_uptime < prev_uptime:
+                result_str = f"CRASH (uptime regressed: {_fmt_uptime(prev_uptime)} -> {_fmt_uptime(new_uptime)})"
+                all_ok = False
+            else:
+                prev_uptime = new_uptime
+
+            status_str = str(status_code) if status_code is not None else "??"
+            print(f"  {path:<40} {status_str:>8}  {result_str}")
+
+        # Final uptime
+        final_uptime = _uptime(c)
+        if final_uptime is not None:
+            print(f"\n  final uptime: {_fmt_uptime(final_uptime)}")
+            if final_uptime < baseline_uptime:
+                print(f"  WARNING: overall uptime regressed — device rebooted during probe")
+                all_ok = False
+            else:
+                print(f"  no crashes detected")
 
     return 0 if all_ok else 1
 
@@ -1713,8 +1869,12 @@ def cmd_decode(args) -> int:
 
 
 def cmd_elf_archive(args) -> int:
-    """Manually archive a firmware ELF into the store."""
-    from fleetlib.elfstore import archive, sha256_of_elf
+    """Manually archive a firmware ELF into the store.
+
+    board and version are populated from esp_app_desc_t when not given (TA-461).
+    """
+    from fleetlib.elfstore import archive, sha256_of_elf, list_entries
+    from pathlib import Path
 
     elf_path = args.elf_path
     board = getattr(args, "board", "")
@@ -1722,10 +1882,21 @@ def cmd_elf_archive(args) -> int:
 
     try:
         key = archive(elf_path, board=board, version=version)
+
+        # Read back sidecar to show final (possibly auto-populated) values
+        from fleetlib.elfstore import _load_meta, _archive_root
+        root = _archive_root()
+        meta = _load_meta(root / f"{key}.json")
+
         print(f"Archived: {elf_path}")
-        print(f"  sha256 : {key}")
-        print(f"  board  : {board or '(unset)'}")
-        print(f"  version: {version or '(unset)'}")
+        print(f"  sha256     : {key}")
+        print(f"  board      : {meta.board or '(unset)'}")
+        print(f"  version    : {meta.version or '(unset)'}")
+        print(f"  build_time : {meta.build_time or '(unset)'}")
+        if not board and meta.board:
+            print(f"  (board auto-populated from esp_app_desc_t)")
+        if not version and meta.version:
+            print(f"  (version auto-populated from esp_app_desc_t)")
         return 0
     except FileNotFoundError:
         print(f"ERROR: ELF not found: {elf_path}")

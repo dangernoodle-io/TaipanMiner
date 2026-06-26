@@ -15,6 +15,14 @@ if ! command -v python3 &>/dev/null; then
     exit 1
 fi
 
+# Minimum Python version floor (TA-450): require >= 3.11
+_PY_MAJOR=$(python3 -c 'import sys; print(sys.version_info.major)')
+_PY_MINOR=$(python3 -c 'import sys; print(sys.version_info.minor)')
+if [[ "$_PY_MAJOR" -lt 3 ]] || [[ "$_PY_MAJOR" -eq 3 && "$_PY_MINOR" -lt 11 ]]; then
+    echo "[fleet] Error: Python 3.11+ required (found ${_PY_MAJOR}.${_PY_MINOR}). Install Python 3.11+ and retry." >&2
+    exit 1
+fi
+
 # Bootstrap venv on first run
 if [[ ! -x "$VENV_PYTHON" ]]; then
     echo "[fleet] Creating venv (first run needs network for pip install)..." >&2

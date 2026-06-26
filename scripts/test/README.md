@@ -3,6 +3,19 @@
 `fleet.py` is the single entry point for all device testing: functional validation,
 long-duration soak, stress, fault injection, transport-matrix, and OTA operations.
 
+## Quick start
+
+```sh
+cd scripts/test
+./fleet discover
+```
+
+`./fleet` is a bash wrapper that auto-creates `.venv` and installs `requirements.txt`
+on first run (needs network once).  Subsequent runs skip pip entirely.  All bootstrap
+output goes to stderr; stdout is clean for harness output and JSON.
+
+---
+
 ## Governance rule
 
 **Extend the harness; never add one-off scripts.**  All device test, soak, stress,
@@ -33,6 +46,10 @@ make test
 .venv/bin/python -m unittest discover tests
 ```
 
+> **Fallback (manual venv):** `make setup` creates `.venv` and installs deps without
+> running the wrapper.  Use this if you need a predictable install step in CI or want
+> to pin the venv separately.
+
 ---
 
 ## Discovery
@@ -41,13 +58,13 @@ Devices advertise under `_taipanminer._tcp.local.` (mDNS / zeroconf).
 
 ```sh
 # discover all devices on the LAN
-.venv/bin/python fleet.py discover
+./fleet discover
 
 # supply an explicit roster instead of mDNS
-.venv/bin/python fleet.py discover --hosts 172.16.1.71,172.16.1.81
+./fleet discover --hosts 172.16.1.71,172.16.1.81
 
 # filter by board class (substring match)
-.venv/bin/python fleet.py discover --board bitaxe
+./fleet discover --board bitaxe
 ```
 
 The `--hosts` flag is accepted by every subcommand and bypasses mDNS.
@@ -61,7 +78,7 @@ The `--hosts` flag is accepted by every subcommand and bypasses mDNS.
 Print a table of discovered devices with board class, version, and uptime.
 
 ```sh
-.venv/bin/python fleet.py discover [--hosts H,H] [--board CLASS] [--discover-timeout SEC]
+./fleet discover [--hosts H,H] [--board CLASS] [--discover-timeout SEC]
 ```
 
 ### `status`
@@ -69,7 +86,7 @@ Print a table of discovered devices with board class, version, and uptime.
 Fetch `/api/info` + `/api/health` per device and print a summary table.
 
 ```sh
-.venv/bin/python fleet.py status [--hosts H,H]
+./fleet status [--hosts H,H]
 ```
 
 ### `functional`
@@ -78,7 +95,7 @@ Validate each device's REST API against its own served OpenAPI spec
 (`GET /api/openapi.json`).  No hardcoded field lists — the device is the SSOT.
 
 ```sh
-.venv/bin/python fleet.py functional [--strict] [--fields F,F] [--gate NAME] [--skip NAME]
+./fleet functional [--strict] [--fields F,F] [--gate NAME] [--skip NAME]
 ```
 
 Flags:
@@ -95,9 +112,9 @@ full detector set (heap floor, heap leak, reboot, reset-reason, WDT, publisher, 
 vcore).  Results include anomalies with detector name and poll index.
 
 ```sh
-.venv/bin/python fleet.py soak [--duration 1h] [--interval 60] [--target VERSION]
-                               [--expected-ghs N] [--settle SEC] [--no-settle]
-                               [--gate NAME] [--skip NAME]
+./fleet soak [--duration 1h] [--interval 60] [--target VERSION]
+             [--expected-ghs N] [--settle SEC] [--no-settle]
+             [--gate NAME] [--skip NAME]
 ```
 
 Duration accepts `30s`, `2m`, `1h`, or bare seconds.
@@ -106,13 +123,13 @@ Examples:
 
 ```sh
 # 1-hour soak of all discovered devices
-.venv/bin/python fleet.py soak
+./fleet soak
 
 # 30-minute soak targeting one board class
-.venv/bin/python fleet.py soak --board bitaxe --duration 30m
+./fleet soak --board bitaxe --duration 30m
 
 # soak with specific version assertion and faster poll
-.venv/bin/python fleet.py soak --hosts 172.16.1.71 --duration 1h --interval 30 --target v0.70.0
+./fleet soak --hosts 172.16.1.71 --duration 1h --interval 30 --target v0.70.0
 ```
 
 Operator-only (long duration, consumes device resources).
@@ -123,7 +140,7 @@ Concurrent HTTP load generator.  Respects `max_concurrent` and `max_rps` from th
 board profile so no board is over-driven.
 
 ```sh
-.venv/bin/python fleet.py stress [--duration DURATION] [--level LEVEL]
+./fleet stress [--duration DURATION] [--level LEVEL]
 ```
 
 Operator-only: can expose heap pressure / panic bugs.
@@ -134,7 +151,7 @@ Fault-injection scenarios: socket exhaustion, broker outage, broker-outage cycle
 (TA-432).
 
 ```sh
-.venv/bin/python fleet.py faults [--scenario NAME] [--yes] [--dry-run]
+./fleet faults [--scenario NAME] [--yes] [--dry-run]
 ```
 
 **Destructive / operator-only.**  Requires `--yes` to execute mutating operations;
@@ -147,8 +164,8 @@ mutual-TLS, HTTP plain/TLS), settle, and verify publish health per the no-false-
 rule.
 
 ```sh
-.venv/bin/python fleet.py matrix [--rows R,R] [--receiver HOST] [--certs DIR]
-                                 [--influx-container NAME] [--yes] [--dry-run]
+./fleet matrix [--rows R,R] [--receiver HOST] [--certs DIR]
+               [--influx-container NAME] [--yes] [--dry-run]
 ```
 
 Environment variables (can be overridden by flags):
@@ -164,23 +181,23 @@ mutating actions.
 
 ```sh
 # push a local .bin to devices
-.venv/bin/python fleet.py ota push --bin .pio/build/bitaxe-601/firmware.bin \
+./fleet ota push --bin .pio/build/bitaxe-601/firmware.bin \
     --target v0.70.0 [--yes] [--dry-run]
 
 # trigger pull-OTA
-.venv/bin/python fleet.py ota pull [--mode auto|pull] [--target VERSION] [--yes]
+./fleet ota pull [--mode auto|pull] [--target VERSION] [--yes]
 
 # mark current image valid (cancel rollback timer)
-.venv/bin/python fleet.py ota mark-valid [--yes]
+./fleet ota mark-valid [--yes]
 
 # rollback to previous image
-.venv/bin/python fleet.py ota recover [--yes]
+./fleet ota recover [--yes]
 
 # read OTA status + progress (read-only)
-.venv/bin/python fleet.py ota status
+./fleet ota status
 
 # verify version + mining state post-settle
-.venv/bin/python fleet.py ota verify --target v0.70.0 [--settle SEC]
+./fleet ota verify --target v0.70.0 [--settle SEC]
 ```
 
 **Destructive / operator-only.**

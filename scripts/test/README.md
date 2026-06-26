@@ -437,20 +437,59 @@ Fault-injection scenarios: socket exhaustion, broker outage, broker-outage cycle
 
 ### `telemetry`
 
-Telemetry transport suite — configure each telemetry transport (MQTT plain/server-TLS/
-mutual-TLS, HTTP plain/TLS), settle, and verify publish health per the no-false-sinks
-rule.
+Telemetry transport suite — configure each telemetry transport, settle, and verify
+publish health per the no-false-sinks rule.
+
+**Default row: `mqtt_plain`** (the deployed plaintext MQTT transport).  Other rows
+(`mqtt_stls`, `mqtt_mtls`, `http_plain`, `http_tls`) are available via `--rows` but
+are not run by default — they require certs, are not deployed in production, and are
+opt-in for targeted testing.
+
+**MQTT validation: broker-subscribe (mosquitto receipt).**  After the device-side
+publisher health check passes, the suite subscribes to the same broker endpoint using
+`paho-mqtt` and waits for a message on `<topic_prefix>/<hostname>/#` (default prefix
+`metrics`; matches any subtopic the device publishes).  A received message is positive
+confirmation.  `paho-mqtt` is a soft dependency — if not installed, the broker-subscribe
+check is skipped with a note and the device-side signal is the only validation.
+
+**HTTP rows: device-side signal only.**  `publisher.last_publish_ok` plus fresh-age
+check.  No broker is reachable for HTTP sink validation.
+
+**InfluxDB docker-exec removed.**  The old `docker exec influx ping` path was removed —
+it assumed a local container and is useless on a separate-server stack.  Network-based
+InfluxDB validation is a follow-up (TA-455-adjacent).
+
+**`paho-mqtt`** is listed in `requirements.txt` and installed by the `fleet` wrapper.
 
 ```sh
-./fleet telemetry [--rows R,R] [--receiver HOST] [--certs DIR]
-                  [--influx-container NAME] [--yes] [--dry-run]
+# default: mqtt_plain only
+./fleet telemetry [--receiver HOST] [--yes] [--dry-run]
+
+# opt-in to other rows
+./fleet telemetry --rows mqtt_plain,mqtt_stls [--receiver HOST] [--certs DIR] [--yes]
+
+# full set
+./fleet telemetry --rows mqtt_plain,mqtt_stls,mqtt_mtls,http_plain,http_tls \
+    [--receiver HOST] [--certs DIR] [--yes] [--dry-run]
 ```
 
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--rows R,R` | `mqtt_plain` | comma-separated transport rows to run |
+| `--receiver HOST` | `BB_TEST_RECEIVER` | broker/receiver host |
+| `--certs DIR` | `BB_TEST_CERTS` | dir with `ca.crt` / `client.crt` / `client.key` |
+| `--broker-timeout SEC` | 15 | seconds to wait for broker message receipt |
+| `--topic-prefix PREFIX` | `metrics` | MQTT topic prefix (`BB_PUB_TOPIC_PREFIX`) |
+
 Environment variables (can be overridden by flags):
-- `BB_TEST_RECEIVER` — telemetry receiver host
+- `BB_TEST_RECEIVER` — telemetry receiver / broker host
 - `BB_TEST_CERTS` — directory with `ca.crt` / `client.crt` / `client.key`
 
-**Mutating (PATCHes /api/telemetry) / operator-only.**
+**Mutating (PATCHes /api/telemetry) / operator-only.**  A real broker round-trip
+requires the device to be pointed at a live broker; use `--dry-run` for intent
+verification without mutating device state.
 
 ### `ota`
 

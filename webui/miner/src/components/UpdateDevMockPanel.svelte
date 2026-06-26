@@ -38,8 +38,8 @@
   function mockCheckAvailable() {
     otaCheck.set({
       checking: false,
-      result: { update_available: true, latest_version: 'v0.99.0-mock', current_version: $info?.version ?? 'v0.14.0' } as any,
-      msg: `Update available: v0.99.0-mock (current ${$info?.version ?? 'v0.14.0'})`,
+      result: { update_available: true, latest_version: 'v0.99.0-mock', current_version: $info?.build.version ?? 'v0.14.0' } as any,
+      msg: `Update available: v0.99.0-mock (current ${$info?.build.version ?? 'v0.14.0'})`,
       kind: 'avail',
     })
   }

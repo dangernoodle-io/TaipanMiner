@@ -7,7 +7,7 @@
 
 <Header
   title="TaipanMiner"
-  subtitle={$info ? `${$info.board} · ${formatVersion($info.version)}` : undefined}
+  subtitle={$info ? `${$info.build.board} · ${formatVersion($info.build.version)}` : undefined}
 >
   {#snippet right()}
     <UpdateBadgeContainer />

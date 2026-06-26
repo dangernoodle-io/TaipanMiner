@@ -53,9 +53,12 @@ vi.mock('../lib/otaState.svelte', () => ({
 import Update from './Update.svelte'
 
 const baseInfo = {
-  board: 'bitaxe-601', project_name: 'TaipanMiner', version: 'v1.0.0', idf_version: '5.5.3',
-  build_date: '2024-01-15', build_time: '14:30:00', chip_model: 'esp32-s3', cores: 2,
-  mac: '00:11:22:33:44:55', flash_size: 16777216, app_size: 1048576,
+  mac: '00:11:22:33:44:55',
+  build: {
+    board: 'bitaxe-601', project_name: 'TaipanMiner', version: 'v1.0.0', idf_version: '5.5.3',
+    build_date: '2024-01-15', build_time: '14:30:00', chip_model: 'esp32-s3', chip_revision: 0,
+    cores: 2, cpu_freq_mhz: 240, flash_size: 16777216, app_size: 1048576, app_sha256: '',
+  },
   heap_internal: { free: 131072, total: 262144, min_free: 98304, largest_block: 65536 }, reset_reason: 'Unknown',
   hostname: 'taipan.local',
   boot_epoch_s: 1705333200,
@@ -96,13 +99,13 @@ describe('Update', () => {
   })
 
   it('renders with firmware info', () => {
-    info.set({ ...baseInfo, version: 'v1.5.2' } as any)
+    info.set({ ...baseInfo, build: { ...baseInfo.build, version: 'v1.5.2' } } as any)
     const { container } = render(Update)
     expect(container.textContent).toContain('v1.5.2')
   })
 
   it('renders with build date', () => {
-    info.set({ ...baseInfo, build_date: '2024-05-01', build_time: '10:30:45' } as any)
+    info.set({ ...baseInfo, build: { ...baseInfo.build, build_date: '2024-05-01', build_time: '10:30:45' } } as any)
     const result = render(Update)
     expect(result.component).toBeDefined()
   })

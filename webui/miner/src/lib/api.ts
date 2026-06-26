@@ -94,22 +94,28 @@ export interface InfoNetwork {
 }
 
 export interface Info {
-  board: string
-  project_name: string
-  version: string
-  idf_version: string
-  build_date: string
-  build_time: string
-  chip_model: string
-  cores: number
   mac: string
-  flash_size: number
-  app_size: number
   // breadboard structured heap (BB-248 / B1-310): per-region memory.
   // heap_internal uses MALLOC_CAP_INTERNAL accessors — more accurate than the
   // former flat free_heap/total_heap (which used MALLOC_CAP_DEFAULT).
   // heap_psram is 0/0 on no-PSRAM boards; rtc is the static RTC-slow region.
   heap_internal: { free: number; total: number; min_free: number; largest_block: number }
+  /** Static build-time fields nested under build (BB B1-360). */
+  build: {
+    version: string
+    idf_version: string
+    build_date: string
+    build_time: string
+    project_name: string
+    chip_model: string
+    chip_revision: number
+    cores: number
+    cpu_freq_mhz: number
+    flash_size: number
+    app_size: number
+    board: string
+    app_sha256: string
+  }
   heap_psram?: { free: number; total: number }
   rtc?: { used: number; total: number }
   reset_reason: string | null

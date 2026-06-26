@@ -281,7 +281,7 @@ describe('UpdateDevMockPanel', () => {
 
   it('Update available uses $info.version in message when info is set', async () => {
     const os = makeOs()
-    info.set({ version: 'v1.2.3' } as any)
+    info.set({ build: { version: 'v1.2.3' } } as any)
     const { getByText } = render(UpdateDevMockPanel, { props: { os } })
     await fireEvent.click(getByText('Update available'))
     const s = get(otaCheck)

@@ -81,6 +81,75 @@ Print a table of discovered devices with board class, version, and uptime.
 ./fleet discover [--hosts H,H] [--board CLASS] [--discover-timeout SEC]
 ```
 
+### `describe`
+
+Inspect the OpenAPI spec served by a device.  Uses `GET /api/openapi.json` as
+the source of truth — the device is the SSOT.
+
+```sh
+# list all endpoints served by the device
+./fleet describe [--hosts H,H] [--board CLASS]
+
+# show request and response schemas for all methods on a path
+./fleet describe PATH [--hosts H,H]
+
+# show schema for a specific method
+./fleet describe PATH METHOD [--hosts H,H]
+
+# dump raw JSON schema instead of the pretty table
+./fleet describe PATH METHOD --json
+```
+
+CI-safe: read-only.
+
+### `call`
+
+Make an arbitrary API request to one or more devices.  GET and other read
+methods execute directly.  Mutating methods (POST / PUT / PATCH / DELETE) are
+safety-gated exactly like other destructive harness operations — they require
+either `--dry-run` or `--yes`.
+
+```sh
+# read-only GET
+./fleet call GET PATH [--fields F,F] [--hosts H,H]
+
+# mutating request — dry-run shows intent, no HTTP sent
+./fleet call PATCH PATH --json '{"key":value}' --dry-run [--hosts H,H]
+
+# mutating request — live execution requires --yes
+./fleet call PATCH PATH --json '{"key":value}' --yes [--hosts H,H]
+
+# body from file
+./fleet call POST PATH --json-file body.json --yes
+
+# skip request-body schema validation
+./fleet call PATCH PATH --json '...' --no-validate --dry-run
+```
+
+Flags specific to `call`:
+
+| Flag | Description |
+|------|-------------|
+| `--json BODY` | inline JSON request body |
+| `--json-file FILE` | request body from a JSON file |
+| `--no-validate` | skip body schema validation |
+
+`call` also accepts all common flags (`--fields`, `--out-json`, `--dry-run`,
+`--yes`, `--hosts`, `--board`, etc.).
+
+**Body validation:** if the served spec declares a `requestBody` schema for the
+target path + method, `call` validates the supplied body against it before
+sending any request.  Validation failures print each error and a hint:
+`run ./fleet describe <PATH> <METHOD> to see the expected shape`.  Pass
+`--no-validate` to bypass.
+
+**Safety gate:** mutating calls follow the same `Guard` logic as OTA and
+fault-injection — identity is re-verified at the target IP before acting, `--dry-run`
+logs the intended operation without sending it, and `--yes` is required for live
+execution.
+
+CI-safe with `--dry-run`.
+
 ### `status`
 
 Fetch `/api/info` + `/api/health` per device and print a summary table.
@@ -204,6 +273,99 @@ mutating actions.
 
 ---
 
+## Ad-hoc API access
+
+`describe` and `call` together provide a workflow for exploring and invoking
+arbitrary API endpoints without writing bespoke scripts.
+
+### Workflow: describe then call
+
+**Step 1 — discover what endpoints exist:**
+
+```sh
+./fleet describe --hosts 172.16.1.81
+```
+
+```
+  PATH                                     METHODS
+  ---------------------------------------------------------------
+  /api/diag/heap                           GET
+  /api/health                              GET
+  /api/info                                GET
+  /api/settings                            GET, PATCH
+  ...
+```
+
+**Step 2 — learn the schema for an endpoint:**
+
+```sh
+./fleet describe /api/settings --hosts 172.16.1.81
+```
+
+```
+PATCH /api/settings  [172.16.1.81]
+
+  Request body:
+    FIELD                            TYPE           REQ  NOTES
+    ----------------------------------------------------------------------
+    led_heartbeat_en                 boolean
+    display_en                       boolean
+    hostname                         string
+    ...
+
+  200 response:
+    FIELD                            TYPE           REQ  NOTES
+    ...
+```
+
+**Step 3 — inspect one method in detail (raw JSON schema):**
+
+```sh
+./fleet describe /api/settings PATCH --json --hosts 172.16.1.81
+```
+
+**Step 4 — read-only GET:**
+
+```sh
+./fleet call GET /api/diag/heap --hosts 172.16.1.81
+# extract just the fields you care about
+./fleet call GET /api/diag/heap --fields internal.free --hosts 172.16.1.81
+```
+
+**Step 5 — mutating request, dry-run first:**
+
+```sh
+# validate the body and log intent, NO HTTP sent
+./fleet call PATCH /api/settings --json '{"led_heartbeat_en":false}' \
+    --hosts 172.16.1.81 --dry-run
+```
+
+```
+[DRY-RUN] 172.16.1.81: PATCH /api/settings body={"led_heartbeat_en": false}
+```
+
+**Step 6 — live mutation with `--yes`:**
+
+```sh
+./fleet call PATCH /api/settings --json '{"led_heartbeat_en":false}' \
+    --hosts 172.16.1.81 --yes
+```
+
+**Validation failure example** (wrong type → caught before sending):
+
+```sh
+./fleet call PATCH /api/settings --json '{"display_en":"notabool"}' \
+    --hosts 172.16.1.81 --dry-run
+```
+
+```
+ERROR [172.16.1.81]: body does not match PATCH /api/settings schema:
+  display_en: 'notabool' is not of type 'boolean'
+  Hint: run ./fleet describe /api/settings PATCH to see the expected shape.
+```
+
+---
+
 ## Common flags
 
 All subcommands accept:
@@ -281,6 +443,9 @@ Board-class capability overrides.  Keys are board-class prefix strings (e.g. `bi
 
 | Suite | CI-safe | Notes |
 |-------|---------|-------|
+| `describe` | yes | read-only; fetches `/api/openapi.json` |
+| `call GET` | yes | read-only |
+| `call PATCH/POST/PUT/DELETE` | no | mutating; requires `--yes` or `--dry-run` |
 | `functional` | yes | read-only; validates OpenAPI responses |
 | `soak` | no | long-duration; operator use |
 | `stress` | no | applies load; may expose instability |

@@ -4,6 +4,8 @@
 Subcommands:
   discover   — discover devices via mDNS, print table
   status     — GET /api/info + /api/health per device, print summary
+  describe   — inspect the served OpenAPI spec (paths, request/response schemas)
+  call       — make an arbitrary API request (safety-gated for mutating methods)
   functional — run functional suite (schema validation per device)
   soak       — run soak suite (long-running monitor)
   stress     — run stress suite (concurrent load)
@@ -29,7 +31,17 @@ from suites import SuiteContext, SettleConfig, resolve_devices
 
 
 def _add_common_flags(p: argparse.ArgumentParser) -> None:
-    """Add shared flags to a parser (main or subcommand)."""
+    """Add shared flags to a parser (main or subcommand).
+
+    --log-level is registered here with default=SUPPRESS so a value given
+    after the subcommand wins, but a value given before (on the root parser)
+    is not silently discarded by the subparser default.
+    """
+    p.add_argument("--log-level",
+                   default=argparse.SUPPRESS,
+                   choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                   help="log level (default: WARNING)")
+
     g = p.add_argument_group("targeting")
     g.add_argument("--hosts", metavar="H,H,…",
                    help="comma-separated IPs/hostnames (skip mDNS discovery)")
@@ -68,9 +80,9 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="fleet",
         description="TaipanMiner fleet test harness",
     )
-    p.add_argument("--log-level", default="WARNING",
-                   choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-                   help="log level (default: WARNING)")
+    # Root parser sets the true default; subparsers register --log-level with
+    # SUPPRESS so a post-subcommand value wins without clobbering this default.
+    p.set_defaults(log_level="WARNING")
     _add_common_flags(p)
 
     sub = p.add_subparsers(dest="subcommand", metavar="SUBCOMMAND")
@@ -115,6 +127,32 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_common_flags(mx)
     _add_suite_arguments(mx, "matrix")
     mx.set_defaults(func=lambda a: cmd_suite(a, "matrix"))
+
+    # describe
+    desc_p = sub.add_parser("describe", help="inspect the served OpenAPI spec")
+    _add_common_flags(desc_p)
+    desc_p.add_argument("path", nargs="?", metavar="PATH",
+                        help="endpoint path to inspect (e.g. /api/settings)")
+    desc_p.add_argument("method", nargs="?", metavar="METHOD",
+                        help="HTTP method to inspect (e.g. PATCH)")
+    desc_p.add_argument("--json", dest="json_raw", action="store_true",
+                        help="dump raw schema JSON instead of pretty table")
+    desc_p.set_defaults(func=cmd_describe)
+
+    # call
+    call_p = sub.add_parser("call", help="make an arbitrary API request (safety-gated for mutating methods)")
+    _add_common_flags(call_p)
+    call_p.add_argument("call_method", metavar="METHOD",
+                        help="HTTP method: GET, POST, PUT, PATCH, DELETE")
+    call_p.add_argument("call_path", metavar="PATH",
+                        help="endpoint path (e.g. /api/settings)")
+    call_p.add_argument("--json", dest="json_body", metavar="JSON",
+                        help="request body as inline JSON string")
+    call_p.add_argument("--json-file", dest="json_file", metavar="FILE",
+                        help="request body from JSON file")
+    call_p.add_argument("--no-validate", dest="no_validate", action="store_true",
+                        help="skip request body schema validation against the served spec")
+    call_p.set_defaults(func=cmd_call)
 
     # ota
     ota_p = sub.add_parser("ota", help="OTA firmware operations")
@@ -367,6 +405,299 @@ def cmd_suite(args, suite_name: str) -> int:
                 print(f"  {reg}")
 
     return 1 if summary["fail"] > 0 else 0
+
+
+def cmd_describe(args) -> int:
+    """Describe the OpenAPI spec served by a device."""
+    import json as _json
+    from fleetlib.client import Client
+    from fleetlib.spec import Spec
+
+    devices = resolve_devices(args)
+    if not devices:
+        print("No devices found.")
+        return 1
+
+    d = devices[0]
+    c = Client(d.ip, getattr(d, "port", 80))
+    spec_doc = c.spec
+    if spec_doc is None:
+        print(f"ERROR: could not fetch OpenAPI spec from {d.ip}")
+        return 1
+
+    spec = Spec(spec_doc)
+
+    # Warn if multiple devices have differing path sets
+    if len(devices) > 1:
+        first_paths = set(spec.paths())
+        for other_d in devices[1:]:
+            oc = Client(other_d.ip, getattr(other_d, "port", 80))
+            other_doc = oc.spec
+            if other_doc is None:
+                continue
+            other_paths = set(Spec(other_doc).paths())
+            if other_paths != first_paths:
+                extra = other_paths - first_paths
+                missing = first_paths - other_paths
+                note = []
+                if extra:
+                    note.append(f"+{sorted(extra)}")
+                if missing:
+                    note.append(f"-{sorted(missing)}")
+                print(f"NOTE: {other_d.ip} has a different path set than {d.ip}: {'; '.join(note)}")
+
+    path = getattr(args, "path", None)
+    method = getattr(args, "method", None)
+    raw_json = getattr(args, "json_raw", False)
+
+    if path is None:
+        # Table of all paths and their methods
+        paths = sorted(spec.paths())
+        if not paths:
+            print(f"Spec from {d.ip} has no paths.")
+            return 0
+        print(f"\nOpenAPI spec from {d.ip}:\n")
+        print(f"  {'PATH':<40} METHODS")
+        print(f"  {'-' * 60}")
+        for p in paths:
+            methods_str = ", ".join(m.upper() for m in spec.methods(p))
+            print(f"  {p:<40} {methods_str}")
+        print(f"\n  {len(paths)} endpoint(s)")
+        return 0
+
+    if not spec.has_path(path):
+        print(f"ERROR: {path!r} is not in the spec served by {d.ip}.")
+        print("Run ./fleet describe to list available endpoints.")
+        return 1
+
+    methods_to_show = [method.lower()] if method else spec.methods(path)
+    if not methods_to_show:
+        print(f"No methods found for {path} in spec from {d.ip}.")
+        return 0
+
+    for m in methods_to_show:
+        print(f"\n{m.upper()} {path}  [{d.ip}]")
+
+        req_schema = spec.request_schema(path, m)
+        if req_schema is not None:
+            print("\n  Request body:")
+            if raw_json:
+                print(_json.dumps(req_schema, indent=4))
+            else:
+                _render_schema(req_schema, indent=4)
+        else:
+            print("  Request body: (none)")
+
+        resp_schema = spec.response_schema(path, m)
+        if resp_schema is not None:
+            print("\n  200 response:")
+            if raw_json:
+                print(_json.dumps(resp_schema, indent=4))
+            else:
+                _render_schema(resp_schema, indent=4)
+        else:
+            print("  200 response: (no schema)")
+
+    return 0
+
+
+def _schema_type_str(schema: dict) -> str:
+    """Return a short type string for a JSON Schema sub-schema."""
+    if "type" in schema:
+        return schema["type"]
+    if "anyOf" in schema:
+        parts = [s.get("type", "any") for s in schema["anyOf"]]
+        non_null = [t for t in parts if t != "null"]
+        nullable = len(parts) != len(non_null)
+        base = " | ".join(non_null) if non_null else "any"
+        return f"{base}?" if nullable else base
+    return "any"
+
+
+def _schema_notes(schema: dict) -> str:
+    """Return a short notes string for a JSON Schema sub-schema (enum, min/max, desc)."""
+    notes = []
+    if "enum" in schema:
+        notes.append(f"enum: {schema['enum']}")
+    if "minimum" in schema:
+        notes.append(f"min: {schema['minimum']}")
+    if "maximum" in schema:
+        notes.append(f"max: {schema['maximum']}")
+    if "description" in schema:
+        desc = schema["description"]
+        if len(desc) > 60:
+            desc = desc[:57] + "…"
+        notes.append(desc)
+    return ", ".join(notes)
+
+
+def _render_schema(schema: dict, indent: int = 0) -> None:
+    """Render a JSON Schema object as a human-readable field table (recursive)."""
+    if schema is None:
+        return
+    props = schema.get("properties", {})
+    required_set = set(schema.get("required", []))
+
+    pad = " " * indent
+
+    if not props:
+        schema_type = schema.get("type", "any")
+        print(f"{pad}(type: {schema_type})")
+        return
+
+    print(f"{pad}{'FIELD':<32} {'TYPE':<14} {'REQ':<4} NOTES")
+    print(f"{pad}{'-' * 70}")
+
+    for field, fschema in props.items():
+        ftype = _schema_type_str(fschema)
+        req_mark = "yes" if field in required_set else ""
+        notes = _schema_notes(fschema)
+        print(f"{pad}{field:<32} {ftype:<14} {req_mark:<4} {notes}")
+        if fschema.get("type") == "object" and fschema.get("properties"):
+            _render_schema(fschema, indent=indent + 2)
+
+
+def cmd_call(args) -> int:
+    """Make an arbitrary API request (safety-gated for mutating methods)."""
+    import json as _json
+    from fleetlib.client import Client, get_field, TIMEOUT_WRITE
+    from fleetlib.spec import Spec
+    from fleetlib.safety import Guard, MUTATING, IdentityMismatch, RefusedWithoutConfirmation
+
+    method = args.call_method.upper()
+    path = args.call_path
+
+    # Parse body early — return before any network I/O on error
+    body = None
+    json_body = getattr(args, "json_body", None)
+    json_file = getattr(args, "json_file", None)
+    if json_body:
+        try:
+            body = _json.loads(json_body)
+        except _json.JSONDecodeError as e:
+            print(f"ERROR: --json body is not valid JSON: {e}")
+            return 1
+    elif json_file:
+        try:
+            with open(json_file) as fh:
+                body = _json.load(fh)
+        except FileNotFoundError:
+            print(f"ERROR: --json-file not found: {json_file}")
+            return 1
+        except _json.JSONDecodeError as e:
+            print(f"ERROR: --json-file is not valid JSON: {e}")
+            return 1
+
+    devices = resolve_devices(args)
+    if not devices:
+        print("No devices found.")
+        return 1
+
+    # Fetch spec from first device for path-warning and body validation
+    d0 = devices[0]
+    c0 = Client(d0.ip, getattr(d0, "port", 80))
+    spec_doc = c0.spec
+    spec = Spec(spec_doc) if spec_doc else None
+
+    # Warn if path unknown to served spec (non-fatal)
+    if spec is not None and not spec.has_path(path):
+        print(f"WARNING: {path!r} not found in served spec. Proceeding anyway.")
+
+    # Pre-validate request body against served schema (unless --no-validate)
+    if body is not None and not getattr(args, "no_validate", False) and spec is not None:
+        req_schema = spec.request_schema(path, method)
+        if req_schema is not None:
+            try:
+                import jsonschema
+                validator = jsonschema.Draft202012Validator(req_schema)
+                errors = list(validator.iter_errors(body))
+                if errors:
+                    print("ERROR: request body fails schema validation:")
+                    for err in errors:
+                        loc = ".".join(str(p) for p in err.absolute_path) or "<root>"
+                        print(f"  {loc}: {err.message}")
+                    print(f"  run ./fleet describe {path} {method} to see the expected shape")
+                    return 1
+            except ImportError:
+                pass  # jsonschema not available; skip validation
+
+    is_mutating = method in MUTATING
+    guard = Guard(
+        dry_run=getattr(args, "dry_run", False),
+        confirm=getattr(args, "yes", False),
+    )
+
+    fields_raw = getattr(args, "fields", None)
+    fields = [f.strip() for f in fields_raw.split(",") if f.strip()] if fields_raw else None
+    out_json_path = getattr(args, "out_json", None)
+
+    results = []
+    all_ok = True
+
+    for d in devices:
+        c = Client(d.ip, getattr(d, "port", 80))
+
+        if is_mutating:
+            try:
+                sentinel = guard.check(d, method, path)
+            except IdentityMismatch as e:
+                print(f"ERROR: {e}")
+                all_ok = False
+                continue
+            except RefusedWithoutConfirmation as e:
+                print(f"ERROR: {e}")
+                all_ok = False
+                continue
+
+            if Guard.is_dry_run_skip(sentinel):
+                print(f"DRY-RUN: would {method} {path} on {d.ip}")
+                if body is not None:
+                    print(f"  body: {_json.dumps(body, indent=2)}")
+                results.append({"host": d.ip, "status": "dry-run", "body": body})
+                continue
+
+            status, resp_bytes = c.request(method, path, body=body)
+            if status is None:
+                msg = resp_bytes.decode(errors="replace")
+                print(f"  {d.ip}: ERROR network error: {msg}")
+                all_ok = False
+                results.append({"host": d.ip, "status": None, "error": msg})
+                continue
+
+            print(f"  {d.ip}: HTTP {status}")
+            try:
+                resp_data = _json.loads(resp_bytes)
+                print(_json.dumps(resp_data, indent=2))
+                results.append({"host": d.ip, "status": status, "response": resp_data})
+            except _json.JSONDecodeError:
+                raw = resp_bytes.decode(errors="replace")
+                print(raw)
+                results.append({"host": d.ip, "status": status, "response": raw})
+
+        else:
+            # GET / HEAD / OPTIONS — no guard required
+            resp_data = c.get_json(path)
+            if resp_data is None:
+                print(f"  {d.ip}: ERROR could not GET {path}")
+                all_ok = False
+                results.append({"host": d.ip, "status": None,
+                                 "error": f"could not GET {path}"})
+                continue
+
+            print(f"  {d.ip}: HTTP 200")
+            if fields:
+                for field in fields:
+                    val = get_field(resp_data, field)
+                    print(f"  {field}: {val}")
+            else:
+                print(_json.dumps(resp_data, indent=2))
+            results.append({"host": d.ip, "status": 200, "response": resp_data})
+
+    if out_json_path:
+        with open(out_json_path, "w") as fh:
+            _json.dump(results, fh, indent=2)
+
+    return 0 if all_ok else 1
 
 
 def _ota_guard(args) -> Guard:

@@ -27,6 +27,10 @@ drop standalone scripts into `scripts/test/`.
 
 ## Setup
 
+**Requires Python >= 3.11** (CI target).  The `./fleet` wrapper, `fleet.py`, and
+`make setup` all check the version at startup and print a clear error if the system
+Python is too old (TA-450).
+
 ```sh
 # Option A — make
 cd scripts/test
@@ -321,6 +325,43 @@ Fetch `/api/info` + `/api/health` per device and print a summary table.
 ```sh
 ./fleet status [--hosts H,H]
 ```
+
+### `probe-endpoints` (TA-469)
+
+Spec-driven endpoint crash probe.  Enumerates every GET path from the device's
+served `/api/openapi.json`, hits each one once, and re-reads `/api/info` uptime
+between hits.  Any endpoint after which uptime regresses (reboot/crash) or the
+device goes unreachable is named and flagged in the output.
+
+```sh
+# probe all safe GET endpoints on one board (healthy board reports no crash)
+./fleet probe-endpoints --hosts 172.16.1.81
+
+# also probe POST/PUT/PATCH/DELETE (requires --yes guard for destructive ops)
+./fleet probe-endpoints --hosts 172.16.1.81 --include-mutating --yes
+
+# also probe streaming endpoints (/api/logs etc.) that would otherwise hang workers
+./fleet probe-endpoints --hosts 172.16.1.81 --include-streaming
+```
+
+By default:
+- Only **safe GET** endpoints are probed.
+- **Streaming** endpoints (`/api/logs`, `/api/diag/events`, `/ws`) are skipped
+  (they'd hold httpd workers — see TA-458).
+- **Mutating** methods (POST/PUT/PATCH/DELETE) are skipped.
+
+Flags specific to `probe-endpoints`:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--include-mutating` | false | also probe POST/PUT/PATCH/DELETE endpoints |
+| `--include-streaming` | false | also probe streaming endpoints |
+
+Output: per-endpoint table (endpoint, HTTP status, ok / CRASH).  Exit 0 when no
+crash detected; exit 1 when any endpoint causes a reboot or the device goes
+unreachable.
+
+CI-safe with default flags (GET-only, read-only).
 
 ### `functional`
 
@@ -698,6 +739,23 @@ Manually archive a firmware ELF (e.g. from a serial flash).
     --board esp32-wroom32 --version v0.71.0
 ```
 
+**Auto-metadata from `esp_app_desc_t` (TA-461):** when `--board` or `--version`
+are omitted, the harness parses the `esp_app_desc_t` struct embedded in the ELF
+(magic `0xABCD5432`) and populates `board` from `project_name` (e.g.
+`taipanminer-esp32-wroom32`) and `version` from the version string.  `build_time`
+is set to the combined `build_date + build_time` from the struct.  Caller-supplied
+`--board`/`--version` always take precedence.
+
+```
+Archived: .pio/build/esp32-wroom32/firmware.elf
+  sha256     : 11321471cfe45e2bf89a03dc7c2c750041081186a301acc1ec142e85b488a997
+  board      : taipanminer-esp32-wroom32
+  version    : dev-main-bb-7043c1e
+  build_time : Jun 26 2026 16:26:09
+  (board auto-populated from esp_app_desc_t)
+  (version auto-populated from esp_app_desc_t)
+```
+
 #### `fleet elf list`
 
 Show all archived ELFs with metadata and an IN-USE column cross-referenced
@@ -981,6 +1039,9 @@ Board-class capability overrides.  Keys are board-class prefix strings (e.g. `bi
 | `call GET` | yes | read-only |
 | `call PATCH/POST/PUT/DELETE` | no | mutating; requires `--yes` or `--dry-run` |
 | `functional` | yes | read-only; validates OpenAPI responses |
+| `probe-endpoints` (default) | yes | read-only; GET-only by default |
+| `probe-endpoints --include-mutating` | no | probes mutating methods; requires `--yes` |
+| `probe-endpoints --include-streaming` | no | holds httpd workers; operator use |
 | `soak` | no | long-duration; operator use |
 | `stress` | no | applies load; may expose instability |
 | `faults` | no | destructive; requires `--yes` |

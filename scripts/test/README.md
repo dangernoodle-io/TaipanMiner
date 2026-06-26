@@ -113,6 +113,26 @@ sink, `fleet logs` prints a clear error message naming the host and exits
 non-zero rather than hanging.  With multiple `--hosts`, an unavailable host is
 reported on stderr but the remaining hosts continue streaming.
 
+**Early-bail on no-data (TA-458):** if no SSE line (including keepalive comments)
+arrives within 10 seconds of opening the stream, `fleet logs` prints a warning to
+stderr and disconnects that host rather than holding the connection for the full
+`--duration` / `--follow` window.  With multiple `--hosts`, only the silent host
+is disconnected; others continue streaming.  This protects boards like the S2 that
+return 200 headers but emit nothing (firmware issue TA-463 tracks the root cause).
+
+**Single-worker `--follow` warning (TA-458):** boards with limited httpd workers
+(esp32-s2, esp32-c3) are flagged with `single_worker: true` in
+`config/profiles.yaml`.  When `--follow` targets one of these boards, `fleet logs`
+prints a prominent warning on stderr before proceeding:
+
+```
+WARNING: 172.16.1.107 (esp32-s2-mini) has limited httpd workers; --follow can
+saturate it and block other endpoints — consider --lines/--duration instead
+```
+
+Use `--lines N` or `--duration T` on low-worker boards to release the httpd worker
+promptly after collecting the desired log data.
+
 **Related (out of scope here):** `GET /api/log/level` and
 `PATCH /api/log/level` allow per-tag log-level control; see `fleet describe
 /api/log/level` for the schema.

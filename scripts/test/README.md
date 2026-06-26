@@ -1000,3 +1000,20 @@ OTA push and other destructive operations call `fleetlib.ota` which re-fetches
 `/api/info` at the target IP immediately before acting and verifies board identity.
 This guards against stale-IP hazards on DHCP churn (a reassigned IP otherwise risks
 flashing the wrong board).
+
+---
+
+## /api/info field layout (B1-360)
+
+B1-360 moved 13 static build fields under `info["build"]`:
+`version`, `idf_version`, `build_date`, `build_time`, `project_name`,
+`chip_model`, `chip_revision`, `cores`, `cpu_freq_mhz`, `flash_size`,
+`app_size`, `board`, `app_sha256`.
+
+Dynamic runtime fields (`mac`, `uptime_ms`, `heap_internal`, `network`,
+`ota_validated`, `reset_reason`, …) remain top-level.
+
+The harness reads all moved fields via `fleetlib.client.info_field(info, key)`,
+which reads `info["build"][key]` exclusively (requires B1-360 firmware).
+Discovery (`board`, `version`), OTA version checks, status columns, and ELF
+IN-USE correlation (`app_sha256`) all go through this accessor.

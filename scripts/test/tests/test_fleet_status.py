@@ -55,8 +55,9 @@ class TestHealthParsing(unittest.TestCase):
     def test_ok_true_shows_ok_exits_0(self):
         """/api/health {"ok": true} → column shows 'ok', exits 0."""
         device = _make_device()
-        info = {"uptime_ms": 60_000, "board": "esp32-wroom32", "version": "v0.99.0",
-                "free_heap": 75_000}
+        # B1-360 shape: board/version under build.*
+        info = {"build": {"board": "esp32-wroom32", "version": "v0.99.0"},
+                "uptime_ms": 60_000, "free_heap": 75_000}
         health = {"ok": True, "validated": True}
         client = _make_client(info=info, health=health)
 
@@ -71,8 +72,8 @@ class TestHealthParsing(unittest.TestCase):
     def test_ok_false_shows_unhealthy_exits_1(self):
         """/api/health {"ok": false} → column shows 'unhealthy', exits 1."""
         device = _make_device()
-        info = {"uptime_ms": 60_000, "board": "esp32-wroom32", "version": "v0.99.0",
-                "free_heap": 75_000}
+        info = {"build": {"board": "esp32-wroom32", "version": "v0.99.0"},
+                "uptime_ms": 60_000, "free_heap": 75_000}
         health = {"ok": False}
         client = _make_client(info=info, health=health)
 
@@ -85,8 +86,8 @@ class TestHealthParsing(unittest.TestCase):
     def test_health_none_shows_question_exits_0(self):
         """/api/health unreachable (None) → column shows '??', exits 0 (host IS reachable)."""
         device = _make_device()
-        info = {"uptime_ms": 60_000, "board": "esp32-wroom32", "version": "v0.99.0",
-                "free_heap": 75_000}
+        info = {"build": {"board": "esp32-wroom32", "version": "v0.99.0"},
+                "uptime_ms": 60_000, "free_heap": 75_000}
         client = _make_client(info=info, health=None)
 
         with patch("fleetlib.client.Client", return_value=client):
@@ -109,8 +110,8 @@ class TestHealthParsing(unittest.TestCase):
     def test_old_status_field_does_not_cause_ok(self):
         """Old firmware returning {'status': 'ok'} (wrong field) shows '??' not 'ok'."""
         device = _make_device()
-        info = {"uptime_ms": 60_000, "board": "esp32-wroom32", "version": "v0.99.0",
-                "free_heap": 75_000}
+        info = {"build": {"board": "esp32-wroom32", "version": "v0.99.0"},
+                "uptime_ms": 60_000, "free_heap": 75_000}
         # Wrong field name — must NOT be treated as ok
         health = {"status": "ok"}
         client = _make_client(info=info, health=health)

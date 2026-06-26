@@ -62,7 +62,8 @@ class MockClient:
 
 
 def _ok_info(version="v0.70.0", reset="power_on"):
-    return {"version": version, "reset_reason": reset, "uptime_ms": 30000}
+    # B1-360 shape: version under build.*, dynamic fields top-level
+    return {"build": {"version": version}, "reset_reason": reset, "uptime_ms": 30000}
 
 
 def _healthy_gets(version="v0.70.0"):
@@ -266,7 +267,7 @@ class TestPullBusyAndNoUpdate(unittest.TestCase):
 
     def test_no_update_available_is_benign(self):
         c = MockClient(
-            gets={"/api/info": _ok_info("v0.70.0")},
+            gets={"/api/info": {"build": {"version": "v0.70.0"}, "uptime_ms": 1000}},
             reqs={("POST", "/api/update/check"): (200, b'{"available": false}')},
         )
         with _patch_identity(True):
@@ -392,7 +393,7 @@ class TestVerify(unittest.TestCase):
 
     def test_fail_on_unhealthy_panic_reset(self):
         gets = _healthy_gets("v0.70.0")
-        gets["/api/info"] = {"version": "v0.70.0", "reset_reason": "panic"}
+        gets["/api/info"] = {"build": {"version": "v0.70.0"}, "reset_reason": "panic"}
         gets["/api/stats"] = {"hashrate_ghs": 0.0}
         c = MockClient(gets=gets)
         r = ota.verify(c, None, self._criteria(), "v0.70.0", settle=0)

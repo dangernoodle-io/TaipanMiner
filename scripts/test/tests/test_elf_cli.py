@@ -119,10 +119,10 @@ class TestCmdElfList(unittest.TestCase):
                 "build_time": "", "git_sha": "", "dirty": False,
                 "archived_at": "2024-01-01T00:00:00Z",
             }))
-            # Mock a device that exposes the short sha
+            # Mock a device that exposes the short sha via build.app_sha256 (B1-360)
             short_sha = sha[:9]
             mock_client = MagicMock()
-            mock_client.get_json.return_value = {"app_sha256": short_sha}
+            mock_client.get_json.return_value = {"build": {"app_sha256": short_sha}}
             device = _fake_device()
             with patch("fleet.resolve_devices", return_value=[device]):
                 with patch("fleetlib.client.Client", return_value=mock_client):
@@ -206,7 +206,7 @@ class TestCmdElfPrune(unittest.TestCase):
             keys = self._populate_store(store, 3)
             running_short = keys[1][:9]
             mock_client = MagicMock()
-            mock_client.get_json.return_value = {"app_sha256": running_short}
+            mock_client.get_json.return_value = {"build": {"app_sha256": running_short}}
             device = _fake_device()
             args = _make_args(keep=1, max_age=None, in_use=True, grace_keep=0,
                               dry_run=False, yes=True)
@@ -226,7 +226,7 @@ class TestCmdElfPrune(unittest.TestCase):
             keys = self._populate_store(store, 5)
             # No device is running any of these
             mock_client = MagicMock()
-            mock_client.get_json.return_value = {"app_sha256": ""}
+            mock_client.get_json.return_value = {"build": {"app_sha256": ""}}
             device = _fake_device()
             args = _make_args(keep=1, max_age=None, in_use=True, grace_keep=3,
                               dry_run=False, yes=True)

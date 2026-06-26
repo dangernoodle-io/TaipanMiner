@@ -5,7 +5,7 @@ import urllib.error
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
-from .client import Client, TIMEOUT_INFO
+from .client import Client, TIMEOUT_INFO, info_field
 
 
 @dataclass
@@ -96,8 +96,8 @@ def _enrich(ip: str, port: int = 80) -> Optional[Device]:
     if info is None:
         return None
     hostname = info.get("hostname") or info.get("host") or ip
-    board = info.get("board") or "unknown"
-    version = info.get("version") or "unknown"
+    board = info_field(info, "board") or "unknown"
+    version = info_field(info, "version") or "unknown"
     return Device(hostname=hostname, ip=ip, port=port, board=board, version=version)
 
 
@@ -111,8 +111,8 @@ def _enrich_with_reason(ip: str, port: int = 80,
         with urllib.request.urlopen(url, timeout=timeout) as r:
             data = json.loads(r.read())
         hostname = data.get("hostname") or data.get("host") or ip
-        board = data.get("board") or "unknown"
-        version = data.get("version") or "unknown"
+        board = info_field(data, "board") or "unknown"
+        version = info_field(data, "version") or "unknown"
         return Device(hostname=hostname, ip=ip, port=port, board=board, version=version), None
     except Exception as exc:
         category, reason = _classify_enrich_exception(exc, timeout)
@@ -239,7 +239,7 @@ def verify_identity(
     info = c.get_json("/api/info", timeout=TIMEOUT_INFO)
     if info is None:
         return False
-    if expect_board is not None and info.get("board") != expect_board:
+    if expect_board is not None and info_field(info, "board") != expect_board:
         return False
     actual_hostname = info.get("hostname") or info.get("host")
     if expect_hostname is not None and actual_hostname != expect_hostname:

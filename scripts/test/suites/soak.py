@@ -411,6 +411,7 @@ def _run_device(device, ctx: "SuiteContext", rs: ResultSet) -> None:
         fields=fields,
         settle_delay=settle_delay,
         on_sample=_on_sample,
+        criteria=criteria if settle_delay > 0 else None,
     )
 
     # Per-run summary metrics

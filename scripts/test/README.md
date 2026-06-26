@@ -123,7 +123,7 @@ Concurrent HTTP load generator.  Respects `max_concurrent` and `max_rps` from th
 board profile so no board is over-driven.
 
 ```sh
-.venv/bin/python fleet.py stress [--duration SEC] [--concurrency N] [--rps N]
+.venv/bin/python fleet.py stress [--duration DURATION] [--level LEVEL]
 ```
 
 Operator-only: can expose heap pressure / panic bugs.

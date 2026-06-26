@@ -1,4 +1,4 @@
-"""Offline unit tests for the transport-matrix suite — config + no-false-sinks logic.
+"""Offline unit tests for the telemetry transport suite — config + no-false-sinks logic.
 
 No device, broker, or InfluxDB is touched: Client/guard/docker are all mocked.
 """
@@ -16,7 +16,7 @@ from fleetlib.results import ResultSet
 from fleetlib.safety import Guard
 from suites import SuiteContext
 
-import suites.transport_matrix as matrix
+import suites.telemetry as matrix
 
 
 # --------------------------------------------------------------------------- helpers
@@ -36,7 +36,7 @@ class FakeSettle:
 def _ctx(devices, guard=None, gates=None, extra=None):
     return SuiteContext(
         devices=devices, criteria=Criteria(settle_delay=0), guard=guard or _ok_guard(),
-        results=ResultSet("matrix"), fields=None, gates=gates or set(),
+        results=ResultSet("telemetry"), fields=None, gates=gates or set(),
         settle=FakeSettle(), out_json=None, out_junit=None, baseline=None,
         extra=extra or {},
     )
@@ -164,7 +164,7 @@ class TestRunDevice(unittest.TestCase):
         dev = _device()
         ctx = _ctx([dev], extra={"rows": "mqtt_plain"})
         with patch.dict(os.environ, {}, clear=True), \
-             patch("suites.transport_matrix.Client", return_value=_mk_client(None)):
+             patch("suites.telemetry.Client", return_value=_mk_client(None)):
             matrix.run(ctx)
         r = ctx.results.results[0]
         self.assertEqual(r.status, "skip")
@@ -174,7 +174,7 @@ class TestRunDevice(unittest.TestCase):
         dev = _device()
         ctx = _ctx([dev], extra={"rows": "mqtt_mtls", "receiver": "rx.example"})
         with patch.dict(os.environ, {}, clear=True), \
-             patch("suites.transport_matrix.Client", return_value=_mk_client(None)):
+             patch("suites.telemetry.Client", return_value=_mk_client(None)):
             matrix.run(ctx)
         r = ctx.results.results[0]
         self.assertEqual(r.status, "skip")
@@ -187,7 +187,7 @@ class TestRunDevice(unittest.TestCase):
         ctx = _ctx([dev], guard=guard, gates={"mqtt_plain"},
                    extra={"rows": "mqtt_plain", "receiver": "rx.example"})
         with patch.dict(os.environ, {}, clear=True), \
-             patch("suites.transport_matrix.Client", return_value=client), \
+             patch("suites.telemetry.Client", return_value=client), \
              patch("fleetlib.discovery.verify_identity", return_value=True):
             matrix.run(ctx)
         self.assertEqual(ctx.results.results[0].status, "skip")
@@ -199,7 +199,7 @@ class TestRunDevice(unittest.TestCase):
         ctx = _ctx([dev], guard=_ok_guard(dev.board), gates={"mqtt_plain"},
                    extra={"rows": "mqtt_plain", "receiver": "rx.example"})
         with patch.dict(os.environ, {}, clear=True), \
-             patch("suites.transport_matrix.Client", return_value=client), \
+             patch("suites.telemetry.Client", return_value=client), \
              patch("fleetlib.discovery.verify_identity", return_value=True):
             matrix.run(ctx)
         self.assertEqual(ctx.results.results[0].status, "pass",
@@ -212,7 +212,7 @@ class TestRunDevice(unittest.TestCase):
         ctx = _ctx([dev], gates={"http_plain"},
                    extra={"rows": "mqtt_plain", "receiver": "rx.example"})
         with patch.dict(os.environ, {}, clear=True), \
-             patch("suites.transport_matrix.Client", return_value=client):
+             patch("suites.telemetry.Client", return_value=client):
             matrix.run(ctx)
         r = ctx.results.results[0]
         self.assertEqual(r.status, "skip")
@@ -227,7 +227,7 @@ class TestRunDevice(unittest.TestCase):
                    extra={"rows": "mqtt_plain", "receiver": "rx.example",
                           "docker_runner": docker})
         with patch.dict(os.environ, {}, clear=True), \
-             patch("suites.transport_matrix.Client", return_value=client), \
+             patch("suites.telemetry.Client", return_value=client), \
              patch("fleetlib.discovery.verify_identity", return_value=True):
             matrix.run(ctx)
         r = ctx.results.results[0]

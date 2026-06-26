@@ -1,0 +1,11 @@
+# no-psram-ota — OTA and TCP settings for no-PSRAM boards (wroom32, cyd, tdongle-s3, c3-supermini).
+# s2-mini intentionally uses 2880 (tighter SRAM budget); see sdkconfig/esp32-s2-mini.
+
+# OTA pull: 2 KB Range chunks (vs 4 KB default). No-PSRAM in-place pull — halves
+# the per-TLS-record mbedTLS alloc (~4.4 KB→~2.2 KB) so the download survives a
+# heap fragmented under concurrent httpd/SSE load. See bb_ota_pull Kconfig.
+CONFIG_BB_OTA_PULL_HTTP_CHUNK_SIZE=1024
+
+# heap: smaller TCP window on no-PSRAM (OTA moves to boot-mode)
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=2920
+CONFIG_LWIP_TCP_WND_DEFAULT=2920

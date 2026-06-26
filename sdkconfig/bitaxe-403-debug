@@ -1,1 +1,1 @@
-# Bitaxe 403 debug overlay (empty — inherits bitaxe-supra + sdkconfig.defaults)
+# Bitaxe 403 debug overlay (level via sdkconfig/debug-common).

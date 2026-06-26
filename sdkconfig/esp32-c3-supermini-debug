@@ -1,4 +1,1 @@
-# ESP32-C3 SuperMini debug overlay — delta from sdkconfig/esp32-c3-supermini
-CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y
-CONFIG_LOG_DEFAULT_LEVEL=4
-CONFIG_LOG_MAXIMUM_LEVEL=4
+# ESP32-C3 SuperMini debug overlay — delta from sdkconfig/esp32-c3-supermini (level via sdkconfig/debug-common).

@@ -1,4 +1,1 @@
-# ESP32-WROOM-32 debug overlay — delta from sdkconfig/esp32-wroom32
-CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y
-CONFIG_LOG_DEFAULT_LEVEL=4
-CONFIG_LOG_MAXIMUM_LEVEL=4
+# ESP32-WROOM-32 debug overlay — delta from sdkconfig/esp32-wroom32 (level via sdkconfig/debug-common).

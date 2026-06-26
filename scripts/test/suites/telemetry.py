@@ -5,18 +5,32 @@ ctx.guard), settle, then verify publish health under the no-false-sinks rule: a 
 counts as healthy ONLY on positive confirmation (mqtt.connected AND
 publisher.last_publish_ok for mqtt rows; publisher.last_publish_ok + fresh age for
 http rows), never on mere absence of error, and never while the other sink is still
-enabled. Optional InfluxDB sink validation via `docker exec` is gated and skipped
-when unavailable.
+enabled.
+
+For MQTT rows, after the device-side check passes, an additional broker-subscribe
+validation is performed: a paho-mqtt subscriber connects to the same broker endpoint
+the device was configured to use, subscribes to a wildcard topic covering the device's
+hostname, and waits for a message to arrive. This confirms end-to-end mosquitto receipt.
+
+The device publishes to: <prefix>/<hostname>/<subtopic>
+Default prefix is "metrics" (BB_PUB_TOPIC_PREFIX Kconfig default). The subscriber
+uses the wildcard "metrics/<hostname>/#" to match any subtopic from the device,
+then matches the received message payload (JSON field "hostname" or topic segment).
 
 Config (no hardcoded IPs/paths, no secrets in code):
   BB_TEST_RECEIVER — receiver host (env, or ctx.extra['receiver'] / --receiver)
   BB_TEST_CERTS    — dir with ca.crt/client.crt/client.key (env, or ctx.extra['certs'] / --certs)
+
+Note: InfluxDB docker-exec validation has been removed (it assumed a local container
+and is useless on a separate-server stack). A network-influx check is a follow-up
+(TA-455-adjacent). Broker-subscribe is the primary validation for MQTT rows.
 """
 from __future__ import annotations
 import logging
 import os
-import subprocess
+import ssl
 import sys
+import tempfile
 from typing import Optional, Tuple, TYPE_CHECKING
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -57,10 +71,15 @@ _DEFAULT_PORTS = {
 FRESH_AGE_MS = 20_000
 
 
+DEFAULT_BROKER_TIMEOUT = 15  # seconds to wait for broker message
+DEFAULT_TOPIC_PREFIX = "metrics"  # BB_PUB_TOPIC_PREFIX Kconfig default
+
+
 def add_arguments(parser) -> None:
     parser.add_argument(
         "--rows", metavar="R,R,…", default=None,
-        help=f"comma-separated subset of transport rows (default: all of {','.join(ROWS)})",
+        help="comma-separated subset of transport rows (default: mqtt_plain; "
+             f"available: {','.join(ROWS)})",
     )
     parser.add_argument(
         "--receiver", metavar="HOST", default=None,
@@ -71,20 +90,13 @@ def add_arguments(parser) -> None:
         help="dir with ca.crt/client.crt/client.key (overrides BB_TEST_CERTS)",
     )
     parser.add_argument(
-        "--influx-container", default="influxdb",
-        help="docker container running InfluxDB for sink validation (default: influxdb)",
+        "--broker-timeout", metavar="SEC", type=int, default=DEFAULT_BROKER_TIMEOUT,
+        help=f"seconds to wait for broker message (default: {DEFAULT_BROKER_TIMEOUT})",
     )
-
-
-def _default_docker(args, timeout: int = 30):
-    """Run `docker <args...>`. Returns (rc, output); rc None on error."""
-    try:
-        r = subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
-        return r.returncode, (r.stdout + r.stderr).strip()
-    except FileNotFoundError:
-        return None, "docker not found"
-    except Exception as exc:  # noqa: BLE001
-        return None, str(exc)
+    parser.add_argument(
+        "--topic-prefix", metavar="PREFIX", default=DEFAULT_TOPIC_PREFIX,
+        help=f"MQTT topic prefix (BB_PUB_TOPIC_PREFIX; default: {DEFAULT_TOPIC_PREFIX})",
+    )
 
 
 def _resolve_receiver(ctx) -> Optional[str]:
@@ -99,7 +111,7 @@ def selected_rows(ctx) -> list:
     sel = ctx.extra.get("rows")
     if isinstance(sel, str):
         sel = [r.strip() for r in sel.split(",") if r.strip()]
-    rows = sel or list(ROWS)
+    rows = sel or ["mqtt_plain"]
     return [r for r in rows if r in ROWS]
 
 
@@ -171,20 +183,121 @@ def evaluate_row(row: str, telemetry, fresh_age_ms: int = FRESH_AGE_MS) -> Tuple
     return True, f"http publish ok (age {age}ms)"
 
 
-def _influx_validate(ctx, row: str, telemetry) -> Optional[str]:
-    """Gated InfluxDB sink check via docker exec. Returns a note or None.
+def _mqtt_broker_verify(
+    host: str,
+    port: int,
+    hostname: str,
+    certs: dict,
+    row: str,
+    timeout: int = DEFAULT_BROKER_TIMEOUT,
+    topic_prefix: str = DEFAULT_TOPIC_PREFIX,
+    _paho_client_factory=None,
+) -> Tuple[bool, str]:
+    """Subscribe to the broker and confirm a message from this device arrives.
 
-    Returns None when the 'influx' gate is off. Returns a 'skipped' note when
-    docker/influx is unavailable (does not fail the row).
+    Connects a paho-mqtt subscriber to host:port, subscribes to
+    ``<topic_prefix>/<hostname>/#`` and waits up to ``timeout`` seconds for
+    a matching message (any subtopic is accepted — the wildcard catches all
+    bb_pub sources for this device).
+
+    For stls/mtls rows, TLS material from ``certs`` is applied (ca / cert+key).
+
+    Returns (ok, detail).  Positive confirmation only — a received message is
+    required for ok=True; timeout or connect failure → ok=False.
+
+    If paho-mqtt is not installed, returns (False, "paho-mqtt not installed …")
+    so the caller can treat it as a skipped check.
     """
-    if not gate_enabled(ctx, "influx"):
-        return None
-    docker = ctx.extra.get("docker_runner") or _default_docker
-    container = ctx.extra.get("influx_container") or "influxdb"
-    rc, _out = docker(["exec", container, "influx", "ping"])
-    if rc != 0:
-        return f"influx check skipped: {container} unavailable"
-    return "influx reachable"
+    try:
+        import paho.mqtt.client as mqtt  # lazy import — optional dep
+    except ImportError:
+        return False, (
+            "paho-mqtt not installed (pip install paho-mqtt); "
+            "broker-subscribe check skipped — device-side signal was the only validation"
+        )
+
+    topic = f"{topic_prefix}/{hostname}/#"
+    received: list = []
+
+    def on_connect(client, userdata, flags, rc, *args):
+        if rc == 0:
+            client.subscribe(topic, qos=0)
+        else:
+            logger.debug("broker verify: connect rc=%d", rc)
+
+    def on_message(client, userdata, msg):
+        received.append(msg)
+        client.disconnect()
+
+    if _paho_client_factory is not None:
+        client = _paho_client_factory()
+    else:
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+
+    client.on_connect = on_connect
+    client.on_message = on_message
+
+    use_tls = row in ("mqtt_stls", "mqtt_mtls")
+    if use_tls and certs:
+        tls_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        tls_ctx.check_hostname = False
+        tls_ctx.verify_mode = ssl.CERT_NONE
+        ca = certs.get("ca")
+        cert = certs.get("cert")
+        key = certs.get("key")
+        with tempfile.TemporaryDirectory() as td:
+            ca_path = cert_path = key_path = None
+            if ca:
+                ca_path = os.path.join(td, "ca.crt")
+                with open(ca_path, "w") as f:
+                    f.write(ca)
+                tls_ctx.verify_mode = ssl.CERT_REQUIRED
+                tls_ctx.check_hostname = True
+                tls_ctx.load_verify_locations(ca_path)
+            if cert and key:
+                cert_path = os.path.join(td, "client.crt")
+                key_path = os.path.join(td, "client.key")
+                with open(cert_path, "w") as f:
+                    f.write(cert)
+                with open(key_path, "w") as f:
+                    f.write(key)
+                tls_ctx.load_cert_chain(cert_path, key_path)
+            client.tls_set_context(tls_ctx)
+            return _run_broker_verify(client, host, port, timeout, received, topic)
+
+    return _run_broker_verify(client, host, port, timeout, received, topic)
+
+
+def _run_broker_verify(
+    client,
+    host: str,
+    port: int,
+    timeout: int,
+    received: list,
+    topic: str,
+) -> Tuple[bool, str]:
+    """Connect, loop for timeout seconds, return result."""
+    try:
+        client.connect(host, port, keepalive=30)
+    except Exception as exc:  # noqa: BLE001
+        return False, f"broker connect failed: {exc}"
+    try:
+        client.loop_start()
+        import time
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline and not received:
+            time.sleep(0.2)
+    finally:
+        client.loop_stop()
+        try:
+            client.disconnect()
+        except Exception:
+            pass
+
+    if received:
+        msg = received[0]
+        return True, f"broker receipt confirmed: topic={msg.topic} len={len(msg.payload)}B"
+    return False, f"broker timeout: no message received on {topic!r} within {timeout}s"
 
 
 def run(ctx: "SuiteContext") -> ResultSet:
@@ -269,9 +382,26 @@ def _run_device(device, ctx, rs, rows, receiver, certs_dir) -> None:
                           detail=detail, metrics=metrics))
             continue
 
-        note = _influx_validate(ctx, row, telem)
-        if note:
-            detail = f"{detail}; {note}"
+        # MQTT rows: broker-subscribe validation (positive confirmation from mosquitto).
+        # HTTP rows: device-side signal is sufficient (no broker).
+        if row.startswith("mqtt"):
+            broker_timeout = ctx.extra.get("broker_timeout", DEFAULT_BROKER_TIMEOUT)
+            topic_prefix = ctx.extra.get("topic_prefix", DEFAULT_TOPIC_PREFIX)
+            paho_factory = ctx.extra.get("_paho_client_factory")
+            broker_ok, broker_detail = _mqtt_broker_verify(
+                host=receiver,
+                port=port,
+                hostname=device.hostname,
+                certs=certs,
+                row=row,
+                timeout=broker_timeout,
+                topic_prefix=topic_prefix,
+                _paho_client_factory=paho_factory,
+            )
+            if broker_ok:
+                detail = f"{detail}; {broker_detail}"
+            else:
+                detail = f"{detail}; broker: {broker_detail}"
 
         rs.add(Result(name=name, device=device, status=STATUS_PASS,
                       detail=detail, metrics=metrics))

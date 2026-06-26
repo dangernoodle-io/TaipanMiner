@@ -1,6 +1,6 @@
 """Offline unit tests for the telemetry transport suite — config + no-false-sinks logic.
 
-No device, broker, or InfluxDB is touched: Client/guard/docker are all mocked.
+No device or broker is touched: Client/guard/paho are all mocked.
 """
 import os
 import sys
@@ -64,6 +64,48 @@ _HEALTHY_MQTT = {
     "http": {"enabled": False},
     "publisher": {"last_publish_ok": True, "last_publish_age_ms": 1200, "sink_count": 1},
 }
+
+
+def _make_paho_factory(deliver_message=True, connect_raises=None):
+    """Return a factory that builds a mock paho client.
+
+    If deliver_message=True, calling loop_start() triggers on_message with a fake
+    message (simulating broker receipt). If connect_raises is set, connect() raises it.
+    """
+    import time
+
+    class FakeMsg:
+        topic = "metrics/host/health"
+        payload = b'{"hostname":"host"}'
+
+    class FakeClient:
+        def __init__(self):
+            self.on_connect = None
+            self.on_message = None
+            self._stopped = False
+
+        def connect(self, host, port, keepalive=30):
+            if connect_raises:
+                raise connect_raises
+            # simulate successful connect + subscribe
+            if self.on_connect:
+                self.on_connect(self, None, None, 0)
+
+        def subscribe(self, topic, qos=0):
+            pass
+
+        def disconnect(self):
+            pass
+
+        def loop_start(self):
+            if deliver_message and self.on_message:
+                # deliver immediately in test context
+                self.on_message(self, None, FakeMsg())
+
+        def loop_stop(self):
+            self._stopped = True
+
+    return FakeClient
 
 
 # --------------------------------------------------------------------------- build_config
@@ -148,13 +190,122 @@ class TestEvaluateRow(unittest.TestCase):
 # --------------------------------------------------------------------------- selected_rows
 
 class TestSelectedRows(unittest.TestCase):
-    def test_default_all(self):
+    def test_default_is_mqtt_plain(self):
         ctx = _ctx([_device()], extra={})
-        self.assertEqual(matrix.selected_rows(ctx), matrix.ROWS)
+        self.assertEqual(matrix.selected_rows(ctx), ["mqtt_plain"])
 
     def test_subset_string(self):
         ctx = _ctx([_device()], extra={"rows": "mqtt_plain, http_tls, bogus"})
         self.assertEqual(matrix.selected_rows(ctx), ["mqtt_plain", "http_tls"])
+
+    def test_all_rows_via_explicit_rows(self):
+        ctx = _ctx([_device()], extra={"rows": ",".join(matrix.ROWS)})
+        self.assertEqual(matrix.selected_rows(ctx), matrix.ROWS)
+
+
+# --------------------------------------------------------------------------- _mqtt_broker_verify
+
+class TestMqttBrokerVerify(unittest.TestCase):
+    def test_message_arrives_passes(self):
+        factory = _make_paho_factory(deliver_message=True)
+        ok, detail = matrix._mqtt_broker_verify(
+            host="broker.example",
+            port=1883,
+            hostname="host",
+            certs={},
+            row="mqtt_plain",
+            timeout=5,
+            topic_prefix="metrics",
+            _paho_client_factory=factory,
+        )
+        self.assertTrue(ok)
+        self.assertIn("broker receipt confirmed", detail)
+
+    def test_timeout_fails(self):
+        factory = _make_paho_factory(deliver_message=False)
+        ok, detail = matrix._mqtt_broker_verify(
+            host="broker.example",
+            port=1883,
+            hostname="host",
+            certs={},
+            row="mqtt_plain",
+            timeout=0,  # immediate timeout
+            topic_prefix="metrics",
+            _paho_client_factory=factory,
+        )
+        self.assertFalse(ok)
+        self.assertIn("timeout", detail)
+
+    def test_connect_failure_fails(self):
+        factory = _make_paho_factory(connect_raises=ConnectionRefusedError("refused"))
+        ok, detail = matrix._mqtt_broker_verify(
+            host="broker.example",
+            port=1883,
+            hostname="host",
+            certs={},
+            row="mqtt_plain",
+            timeout=5,
+            topic_prefix="metrics",
+            _paho_client_factory=factory,
+        )
+        self.assertFalse(ok)
+        self.assertIn("connect failed", detail)
+
+    def test_paho_missing_returns_skip_note(self):
+        import builtins
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "paho.mqtt.client":
+                raise ImportError("no module named paho")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=mock_import):
+            ok, detail = matrix._mqtt_broker_verify(
+                host="broker.example",
+                port=1883,
+                hostname="host",
+                certs={},
+                row="mqtt_plain",
+                timeout=5,
+                topic_prefix="metrics",
+            )
+        self.assertFalse(ok)
+        self.assertIn("paho-mqtt not installed", detail)
+
+    def test_mtls_row_uses_tls(self):
+        """mtls row: verify TLS context is built with ca + cert/key wired correctly."""
+        certs = {"ca": "FAKE_CA", "cert": "FAKE_CERT", "key": "FAKE_KEY"}
+
+        # Build a factory whose FakeClient also has tls_set_context
+        class FakeClientTLS(_make_paho_factory(deliver_message=True)):
+            def __init__(self):
+                super().__init__()
+                self.tls_ctx_set = None
+
+            def tls_set_context(self, ctx):
+                self.tls_ctx_set = ctx
+
+        # patch ssl to avoid real cert parsing; capture the SSLContext calls
+        with patch("suites.telemetry.ssl") as mock_ssl:
+            mock_ctx = MagicMock()
+            mock_ssl.SSLContext.return_value = mock_ctx
+            mock_ssl.PROTOCOL_TLS_CLIENT = 0
+            mock_ssl.CERT_NONE = 0
+            mock_ssl.CERT_REQUIRED = 2
+            ok, detail = matrix._mqtt_broker_verify(
+                host="broker.example",
+                port=8884,
+                hostname="host",
+                certs=certs,
+                row="mqtt_mtls",
+                timeout=5,
+                topic_prefix="metrics",
+                _paho_client_factory=FakeClientTLS,
+            )
+        # ssl.SSLContext was created, ca and cert/key were loaded
+        mock_ctx.load_verify_locations.assert_called_once()
+        mock_ctx.load_cert_chain.assert_called_once()
 
 
 # --------------------------------------------------------------------------- _run_device
@@ -193,18 +344,37 @@ class TestRunDevice(unittest.TestCase):
         self.assertEqual(ctx.results.results[0].status, "skip")
         client.request.assert_not_called()
 
-    def test_row_pass(self):
+    def test_row_pass_with_broker_receipt(self):
+        dev = _device()
+        client = _mk_client(_HEALTHY_MQTT)
+        factory = _make_paho_factory(deliver_message=True)
+        ctx = _ctx([dev], guard=_ok_guard(dev.board), gates={"mqtt_plain"},
+                   extra={"rows": "mqtt_plain", "receiver": "rx.example",
+                          "_paho_client_factory": factory})
+        with patch.dict(os.environ, {}, clear=True), \
+             patch("suites.telemetry.Client", return_value=client), \
+             patch("fleetlib.discovery.verify_identity", return_value=True):
+            matrix.run(ctx)
+        r = ctx.results.results[0]
+        self.assertEqual(r.status, "pass", r.detail)
+        self.assertIn("broker receipt confirmed", r.detail)
+        self.assertEqual(client.request.call_count, 2)  # disable + enable PATCH
+
+    def test_row_pass_paho_missing_note(self):
+        """Row passes even when paho missing; broker check note appended."""
         dev = _device()
         client = _mk_client(_HEALTHY_MQTT)
         ctx = _ctx([dev], guard=_ok_guard(dev.board), gates={"mqtt_plain"},
                    extra={"rows": "mqtt_plain", "receiver": "rx.example"})
         with patch.dict(os.environ, {}, clear=True), \
              patch("suites.telemetry.Client", return_value=client), \
-             patch("fleetlib.discovery.verify_identity", return_value=True):
+             patch("fleetlib.discovery.verify_identity", return_value=True), \
+             patch("suites.telemetry._mqtt_broker_verify",
+                   return_value=(False, "paho-mqtt not installed; broker-subscribe check skipped")):
             matrix.run(ctx)
-        self.assertEqual(ctx.results.results[0].status, "pass",
-                         ctx.results.results[0].detail)
-        self.assertEqual(client.request.call_count, 2)  # disable + enable PATCH
+        r = ctx.results.results[0]
+        self.assertEqual(r.status, "pass", r.detail)
+        self.assertIn("paho-mqtt not installed", r.detail)
 
     def test_row_gated_out_skips(self):
         dev = _device()
@@ -218,21 +388,32 @@ class TestRunDevice(unittest.TestCase):
         self.assertEqual(r.status, "skip")
         self.assertIn("gated", r.detail)
 
-    def test_influx_unavailable_note_does_not_fail(self):
+    def test_http_row_no_broker_verify(self):
+        """HTTP rows pass on device-side signal only; broker verify not called."""
         dev = _device()
-        client = _mk_client(_HEALTHY_MQTT)
-        docker = MagicMock(return_value=(1, "no influx"))
-        # gates empty -> influx gate enabled; docker unavailable -> note only
-        ctx = _ctx([dev], guard=_ok_guard(dev.board), gates=set(),
-                   extra={"rows": "mqtt_plain", "receiver": "rx.example",
-                          "docker_runner": docker})
+        telem_http = {
+            "mqtt": {"enabled": False},
+            "http": {"enabled": True},
+            "publisher": {"last_publish_ok": True, "last_publish_age_ms": 500, "sink_count": 1},
+        }
+        client = _mk_client(telem_http)
+        ctx = _ctx([dev], guard=_ok_guard(dev.board), gates={"http_plain"},
+                   extra={"rows": "http_plain", "receiver": "rx.example"})
         with patch.dict(os.environ, {}, clear=True), \
              patch("suites.telemetry.Client", return_value=client), \
-             patch("fleetlib.discovery.verify_identity", return_value=True):
+             patch("fleetlib.discovery.verify_identity", return_value=True), \
+             patch("suites.telemetry._mqtt_broker_verify") as mock_broker:
             matrix.run(ctx)
+        mock_broker.assert_not_called()
         r = ctx.results.results[0]
-        self.assertEqual(r.status, "pass")
-        self.assertIn("influx check skipped", r.detail)
+        self.assertEqual(r.status, "pass", r.detail)
+
+    def test_no_docker_exec_influx(self):
+        """Confirm no reference to docker or influx in the run path."""
+        import inspect
+        source = inspect.getsource(matrix._run_device)
+        self.assertNotIn("docker", source.lower())
+        self.assertNotIn("influx", source.lower())
 
 
 if __name__ == "__main__":

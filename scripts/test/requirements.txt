@@ -1,3 +1,4 @@
 zeroconf>=0.131,<0.132
 jsonschema>=4.23,<4.24
 pyyaml>=6.0,<6.1
+paho-mqtt>=2.0,<3.0

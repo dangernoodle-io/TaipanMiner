@@ -325,5 +325,208 @@ class TestHashrateGhsNormalization(unittest.TestCase):
         self.assertIsNone(hashrate_ghs(None))
 
 
+def _make_ready_sample(device: Device) -> Sample:
+    """Sample that satisfies the default readiness criteria (heap >= 50k, non-mining)."""
+    return Sample(
+        device=device,
+        timestamp=time.time(),
+        info={"uptime_ms": 60_000, "reset_reason": "normal", "wdt_resets": 0},
+        heap={"internal": {"free": 80_000, "min_free": 75_000}},
+        telemetry=None,
+        sensors=None,
+        stats={"hashrate": 0, "expected_ghs": 0.0},
+        ok=True,
+    )
+
+
+def _make_not_ready_sample(device: Device) -> Sample:
+    """Sample that fails readiness (heap below floor)."""
+    return Sample(
+        device=device,
+        timestamp=time.time(),
+        info={"uptime_ms": 5_000, "reset_reason": "normal", "wdt_resets": 0},
+        heap={"internal": {"free": 10_000, "min_free": 9_000}},
+        telemetry=None,
+        sensors=None,
+        stats={"hashrate": 0, "expected_ghs": 0.0},
+        ok=True,
+    )
+
+
+class TestWarmupEndsOnReadinessPredicate(unittest.TestCase):
+    """When criteria is passed to poll, warmup ends when readiness predicate passes."""
+
+    def test_warmup_suppressed_until_ready_sample(self):
+        """Ticks with heap below floor stay in warmup; once heap is healthy warmup ends."""
+        device = _make_device()
+        call_count = {"n": 0}
+
+        def _fake_sample(dev, fset):
+            call_count["n"] += 1
+            # First 3 ticks: not ready (low heap); remaining: ready
+            if call_count["n"] <= 3:
+                return _make_not_ready_sample(dev)
+            return _make_ready_sample(dev)
+
+        received: list = []
+        criteria = Criteria(
+            settle_delay=0,  # floor is 0, so warmup ends as soon as predicate passes
+            readiness_heap_floor=50_000,
+            heap_floor=50_000,
+        )
+
+        with patch("fleetlib.monitor._sample_device", side_effect=_fake_sample):
+            poll(
+                devices=[device],
+                interval=0.05,
+                duration=0.5,
+                detectors=[],
+                settle_delay=0,
+                on_sample=received.append,
+                criteria=criteria,
+            )
+
+        # With settle_delay=0, no warmup is applied regardless of criteria
+        self.assertTrue(all(not s.warmup for s in received), "settle_delay=0 must mean no warmup")
+
+    def test_warmup_ends_when_ready_and_floor_elapsed(self):
+        """With settle_delay=0 and criteria: warmup is off (floor elapsed immediately)."""
+        device = _make_device()
+
+        def _fake_sample(dev, fset):
+            return _make_ready_sample(dev)
+
+        received: list = []
+        criteria = Criteria(settle_delay=0, readiness_heap_floor=50_000, heap_floor=50_000)
+
+        with patch("fleetlib.monitor._sample_device", side_effect=_fake_sample):
+            poll(
+                devices=[device],
+                interval=0.05,
+                duration=0.3,
+                detectors=[],
+                settle_delay=0,
+                on_sample=received.append,
+                criteria=criteria,
+            )
+
+        self.assertTrue(all(not s.warmup for s in received), "settle_delay=0 never warms up")
+
+    def test_warmup_persists_until_predicate_passes_with_floor(self):
+        """settle_delay=3600 + criteria: warmup persists for full run even if predicate passes."""
+        device = _make_device()
+
+        def _fake_sample(dev, fset):
+            # Always ready by predicate, but floor is 3600s
+            return _make_ready_sample(dev)
+
+        received: list = []
+        criteria = Criteria(settle_delay=3600, readiness_heap_floor=50_000, heap_floor=50_000)
+
+        with patch("fleetlib.monitor._sample_device", side_effect=_fake_sample):
+            poll(
+                devices=[device],
+                interval=0.05,
+                duration=0.3,
+                detectors=[make_heap_floor_detector(criteria)],
+                settle_delay=3600,
+                on_sample=received.append,
+                criteria=criteria,
+            )
+
+        self.assertTrue(all(s.warmup for s in received),
+                        "floor not elapsed → entire run is warmup even when predicate passes")
+
+    def test_warmup_continues_while_predicate_fails_after_floor(self):
+        """settle_delay=0 + criteria: when predicate fails, no warmup (floor already elapsed)."""
+        device = _make_device()
+
+        def _fake_sample(dev, fset):
+            return _make_not_ready_sample(dev)
+
+        received: list = []
+        criteria = Criteria(settle_delay=0, readiness_heap_floor=50_000, heap_floor=50_000)
+
+        with patch("fleetlib.monitor._sample_device", side_effect=_fake_sample):
+            anomalies = poll(
+                devices=[device],
+                interval=0.05,
+                duration=0.3,
+                detectors=[make_heap_floor_detector(criteria)],
+                settle_delay=0,
+                on_sample=received.append,
+                criteria=criteria,
+            )
+
+        # settle_delay=0 → no warmup → anomalies fire immediately
+        self.assertGreater(len(anomalies), 0, "settle_delay=0 means anomalies fire, predicate irrelevant")
+        self.assertTrue(all(not s.warmup for s in received))
+
+    def test_warmup_rearms_on_reboot_with_criteria(self):
+        """Reboot mid-run re-arms warmup; predicate-gated warmup persists after rearm."""
+        device = _make_device()
+        call_count = {"n": 0}
+
+        def _fake_sample(dev, fset):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                # healthy, long uptime
+                return Sample(
+                    device=dev, timestamp=time.time(),
+                    info={"uptime_ms": 600_000, "reset_reason": "normal", "wdt_resets": 0},
+                    heap={"internal": {"free": 80_000, "min_free": 75_000}},
+                    telemetry=None, sensors=None,
+                    stats={"hashrate": 0, "expected_ghs": 0.0},
+                    ok=True,
+                )
+            # reboot: low uptime, heap below floor (not ready)
+            return Sample(
+                device=dev, timestamp=time.time(),
+                info={"uptime_ms": 1_000, "reset_reason": "normal", "wdt_resets": 0},
+                heap={"internal": {"free": 10_000, "min_free": 9_000}},
+                telemetry=None, sensors=None,
+                stats={"hashrate": 0, "expected_ghs": 0.0},
+                ok=True,
+            )
+
+        criteria = Criteria(settle_delay=3600, readiness_heap_floor=50_000, heap_floor=50_000)
+
+        with patch("fleetlib.monitor._sample_device", side_effect=_fake_sample):
+            anomalies = poll(
+                devices=[device],
+                interval=0.05,
+                duration=0.4,
+                detectors=[make_heap_floor_detector(criteria)],
+                settle_delay=3600,
+                criteria=criteria,
+            )
+
+        # Post-reboot ticks are in warmup (re-armed + predicate still fails) → no anomalies
+        self.assertEqual(len(anomalies), 0,
+                         f"post-reboot anomalies should be suppressed; got {anomalies}")
+
+    def test_settle_disabled_no_warmup_with_criteria(self):
+        """settle_delay=0 with criteria passed: no warmup at all (unchanged behavior)."""
+        device = _make_device()
+
+        def _fake_sample(dev, fset):
+            return _make_not_ready_sample(dev)
+
+        criteria = Criteria(settle_delay=0, readiness_heap_floor=50_000, heap_floor=50_000)
+
+        with patch("fleetlib.monitor._sample_device", side_effect=_fake_sample):
+            anomalies = poll(
+                devices=[device],
+                interval=0.05,
+                duration=0.2,
+                detectors=[make_heap_floor_detector(criteria)],
+                settle_delay=0,
+                criteria=criteria,
+            )
+
+        self.assertGreater(len(anomalies), 0,
+                           "settle_delay=0 → detectors active immediately regardless of criteria")
+
+
 if __name__ == "__main__":
     unittest.main()

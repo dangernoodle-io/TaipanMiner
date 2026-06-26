@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from fleetlib.criteria import Criteria
-from fleetlib.readiness import wait_until_ready, Readiness
+from fleetlib.readiness import wait_until_ready, Readiness, is_ready, ReadinessSnapshot
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +305,136 @@ class TestCapabilityScoping(unittest.TestCase):
         r = wait_until_ready(c, None, criteria, timeout=8)
         self.assertFalse(r.ready)
         self.assertIn("hashrate", r.reason.lower())
+
+
+class TestIsReadyPredicate(unittest.TestCase):
+    """Unit tests for the shared is_ready(snapshot, criteria) predicate."""
+
+    def _criteria(self, **kw) -> Criteria:
+        defaults = dict(
+            settle_delay=0,
+            readiness_heap_floor=50_000,
+            readiness_hashrate_min=0.0,
+            readiness_vcore_floor=0,
+        )
+        defaults.update(kw)
+        return Criteria(**defaults)
+
+    # --- heap ---
+
+    def test_heap_below_floor_not_ready(self):
+        snap = ReadinessSnapshot(heap_free=10_000, is_mining=False, hashrate_ghs=None, pool_connected=None)
+        ready, reasons = is_ready(snap, self._criteria(readiness_heap_floor=50_000))
+        self.assertFalse(ready)
+        self.assertTrue(any("heap_free" in r for r in reasons), reasons)
+
+    def test_heap_at_floor_ready(self):
+        snap = ReadinessSnapshot(heap_free=50_000, is_mining=False, hashrate_ghs=None, pool_connected=None)
+        ready, reasons = is_ready(snap, self._criteria(readiness_heap_floor=50_000))
+        self.assertTrue(ready, reasons)
+
+    def test_heap_above_floor_ready(self):
+        snap = ReadinessSnapshot(heap_free=80_000, is_mining=False, hashrate_ghs=None, pool_connected=None)
+        ready, reasons = is_ready(snap, self._criteria(readiness_heap_floor=50_000))
+        self.assertTrue(ready, reasons)
+
+    def test_heap_none_not_ready(self):
+        snap = ReadinessSnapshot(heap_free=None, is_mining=False, hashrate_ghs=None, pool_connected=None)
+        ready, reasons = is_ready(snap, self._criteria())
+        self.assertFalse(ready)
+        self.assertTrue(any("unavailable" in r for r in reasons), reasons)
+
+    # --- non-mining board ---
+
+    def test_non_mining_board_ready_on_heap_alone(self):
+        """Non-mining board: heap met, pool disconnected, low hashrate — still ready."""
+        snap = ReadinessSnapshot(
+            heap_free=80_000,
+            is_mining=False,
+            hashrate_ghs=0.0,
+            pool_connected=False,
+        )
+        ready, reasons = is_ready(snap, self._criteria())
+        self.assertTrue(ready, reasons)
+
+    # --- mining board + pool ---
+
+    def test_mining_board_pool_disconnected_not_ready(self):
+        snap = ReadinessSnapshot(
+            heap_free=80_000,
+            is_mining=True,
+            hashrate_ghs=300.0,
+            pool_connected=False,
+        )
+        ready, reasons = is_ready(snap, self._criteria())
+        self.assertFalse(ready)
+        self.assertTrue(any("pool" in r for r in reasons), reasons)
+
+    def test_mining_board_pool_connected_ready(self):
+        snap = ReadinessSnapshot(
+            heap_free=80_000,
+            is_mining=True,
+            hashrate_ghs=300.0,
+            pool_connected=True,
+        )
+        ready, reasons = is_ready(snap, self._criteria())
+        self.assertTrue(ready, reasons)
+
+    def test_mining_board_pool_connected_none_not_penalised(self):
+        """pool_connected=None (endpoint absent) must not block readiness."""
+        snap = ReadinessSnapshot(
+            heap_free=80_000,
+            is_mining=True,
+            hashrate_ghs=300.0,
+            pool_connected=None,
+        )
+        ready, reasons = is_ready(snap, self._criteria())
+        self.assertTrue(ready, reasons)
+
+    # --- mining board + hashrate ---
+
+    def test_mining_board_low_hashrate_not_ready(self):
+        snap = ReadinessSnapshot(
+            heap_free=80_000,
+            is_mining=True,
+            hashrate_ghs=0.0001,
+            pool_connected=True,
+        )
+        ready, reasons = is_ready(snap, self._criteria(readiness_hashrate_min=1.0))
+        self.assertFalse(ready)
+        self.assertTrue(any("hashrate" in r for r in reasons), reasons)
+
+    def test_mining_board_hashrate_min_zero_skipped(self):
+        """readiness_hashrate_min=0 disables the hashrate check."""
+        snap = ReadinessSnapshot(
+            heap_free=80_000,
+            is_mining=True,
+            hashrate_ghs=0.0,
+            pool_connected=True,
+        )
+        ready, reasons = is_ready(snap, self._criteria(readiness_hashrate_min=0.0))
+        self.assertTrue(ready, reasons)
+
+    def test_reasons_empty_when_ready(self):
+        snap = ReadinessSnapshot(heap_free=80_000, is_mining=False, hashrate_ghs=None, pool_connected=None)
+        ready, reasons = is_ready(snap, self._criteria())
+        self.assertTrue(ready)
+        self.assertEqual(reasons, [])
+
+    def test_multiple_failures_all_reported(self):
+        """When both heap and hashrate fail, both reasons are returned."""
+        snap = ReadinessSnapshot(
+            heap_free=10_000,
+            is_mining=True,
+            hashrate_ghs=0.0,
+            pool_connected=True,
+        )
+        ready, reasons = is_ready(snap, self._criteria(
+            readiness_heap_floor=50_000,
+            readiness_hashrate_min=1.0,
+        ))
+        self.assertFalse(ready)
+        self.assertGreaterEqual(len(reasons), 2)
 
 
 if __name__ == "__main__":

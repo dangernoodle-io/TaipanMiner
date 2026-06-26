@@ -467,5 +467,185 @@ class TestResultLogs(unittest.TestCase):
             os.unlink(path)
 
 
+class TestSoakLiveReporting(unittest.TestCase):
+    """TA-447: live per-tick reporting + --samples-out + --attach-logs."""
+
+    def _run_device(self, board="esp32-wroom32", extra=None, sample_fn=None):
+        from suites import soak
+        device = _make_device(board=board)
+        base_extra = {"duration": 0.2, "interval": 0.05}
+        if extra:
+            base_extra.update(extra)
+        ctx = _make_ctx([device], extra=base_extra)
+        fn = sample_fn or (lambda dev, fset: _make_sample(dev))
+        with patch("fleetlib.monitor._sample_device", side_effect=fn):
+            soak._run_device(device, ctx, ctx.results)
+        return ctx.results.results, device
+
+    def test_quiet_suppresses_output(self):
+        """--quiet: _print_tick_row must not be called."""
+        from suites import soak
+        with patch.object(soak, "_print_tick_row") as mock_print:
+            self._run_device(extra={"quiet": True})
+        mock_print.assert_not_called()
+
+    def test_default_live_reporting_on(self):
+        """No --quiet: _print_tick_row must be called at least once."""
+        from suites import soak
+        with patch.object(soak, "_print_tick_row") as mock_print:
+            self._run_device(extra={"quiet": False})
+        mock_print.assert_called()
+
+    def test_samples_out_json(self):
+        """--samples-out .json: file must exist with at least one NDJSON line."""
+        import json
+        import os
+        path = "/tmp/test_soak_samples_c3.json"
+        try:
+            if os.path.exists(path):
+                os.unlink(path)
+            self._run_device(extra={"quiet": True, "samples_out": path})
+            self.assertTrue(os.path.exists(path))
+            with open(path) as f:
+                lines = [l.strip() for l in f if l.strip()]
+            self.assertGreater(len(lines), 0)
+            obj = json.loads(lines[0])
+            self.assertIn("ts", obj)
+            self.assertIn("host", obj)
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
+
+    def test_samples_out_csv(self):
+        """--samples-out .csv: file must exist with a header row."""
+        import os
+        path = "/tmp/test_soak_samples_c3.csv"
+        try:
+            if os.path.exists(path):
+                os.unlink(path)
+            self._run_device(extra={"quiet": True, "samples_out": path})
+            self.assertTrue(os.path.exists(path))
+            with open(path) as f:
+                header = f.readline().strip()
+            self.assertIn("ts", header)
+            self.assertIn("host", header)
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
+
+    def test_attach_logs_never(self):
+        """--attach-logs never: result.logs must be None."""
+        results, _ = self._run_device(extra={"quiet": True, "attach_logs": "never"})
+        self.assertIsNone(results[0].logs)
+
+    def test_attach_logs_always(self):
+        """--attach-logs always: result.logs must be the tail_lines return value."""
+        with patch("fleetlib.sse.tail_lines", return_value=["line1"]):
+            results, _ = self._run_device(extra={"quiet": True, "attach_logs": "always"})
+        self.assertEqual(results[0].logs, ["line1"])
+
+    def test_attach_logs_anomaly_fires_on_failure(self):
+        """--attach-logs anomaly + WDT anomaly: result.logs must be filled."""
+        call_n = {"n": 0}
+
+        def _wdt_sample(dev, fset):
+            call_n["n"] += 1
+            wdt = 0 if call_n["n"] == 1 else 1
+            return _make_sample(dev, wdt_resets=wdt)
+
+        with patch("fleetlib.sse.tail_lines", return_value=["wdt log"]):
+            results, _ = self._run_device(
+                extra={"quiet": True, "attach_logs": "anomaly", "duration": 0.3, "interval": 0.05},
+                sample_fn=_wdt_sample,
+            )
+        # Result should be FAIL (WDT anomaly) and logs attached
+        self.assertEqual(results[0].status, STATUS_FAIL)
+        self.assertEqual(results[0].logs, ["wdt log"])
+
+    def test_attach_logs_anomaly_skips_on_pass(self):
+        """--attach-logs anomaly + no anomaly: result.logs must be None."""
+        with patch("fleetlib.sse.tail_lines", return_value=["some log"]) as mock_tail:
+            results, _ = self._run_device(extra={"quiet": True, "attach_logs": "anomaly"})
+        self.assertEqual(results[0].status, STATUS_PASS)
+        self.assertIsNone(results[0].logs)
+        mock_tail.assert_not_called()
+
+    def test_attach_logs_sse_unavailable_graceful(self):
+        """SSEUnavailable during log tail must not crash; result.logs must be None."""
+        from fleetlib.sse import SSEUnavailable
+
+        with patch("fleetlib.sse.tail_lines", side_effect=SSEUnavailable("sink busy")):
+            results, _ = self._run_device(extra={"quiet": True, "attach_logs": "always"})
+        self.assertIsNone(results[0].logs)
+
+
+class TestSoakSummaryMetrics(unittest.TestCase):
+    """TA-449: per-run summary metrics populated in Result.metrics."""
+
+    def _run_device(self, board="esp32-wroom32", extra=None, sample_fn=None):
+        from suites import soak
+        device = _make_device(board=board)
+        base_extra = {"duration": 0.2, "interval": 0.05, "quiet": True}
+        if extra:
+            base_extra.update(extra)
+        ctx = _make_ctx([device], extra=base_extra)
+        fn = sample_fn or (lambda dev, fset: _make_sample(dev))
+        with patch("fleetlib.monitor._sample_device", side_effect=fn):
+            soak._run_device(device, ctx, ctx.results)
+        return ctx.results.results[0]
+
+    def test_summary_metrics_populated_on_pass(self):
+        """Healthy soak: result.metrics must contain heap_free_min, duration_s, anomaly_count."""
+        result = self._run_device()
+        self.assertIn("heap_free_min", result.metrics)
+        self.assertIn("duration_s", result.metrics)
+        self.assertIn("anomaly_count", result.metrics)
+        self.assertEqual(result.metrics["anomaly_count"], 0)
+
+    def test_summary_metrics_populated_on_fail(self):
+        """Failed soak (WDT): metrics still present with anomaly_count > 0."""
+        call_n = {"n": 0}
+
+        def _wdt_sample(dev, fset):
+            call_n["n"] += 1
+            return _make_sample(dev, wdt_resets=0 if call_n["n"] == 1 else 1)
+
+        result = self._run_device(
+            extra={"duration": 0.3, "interval": 0.05},
+            sample_fn=_wdt_sample,
+        )
+        self.assertEqual(result.status, STATUS_FAIL)
+        self.assertIn("heap_free_min", result.metrics)
+        self.assertGreater(result.metrics["anomaly_count"], 0)
+
+    def test_reboot_count_in_metrics(self):
+        """Uptime regression mid-run → reboot_count > 0 in metrics."""
+        call_n = {"n": 0}
+
+        def _reboot_sample(dev, fset):
+            call_n["n"] += 1
+            uptime = 300_000 if call_n["n"] == 1 else 5_000
+            return _make_sample(dev, uptime_ms=uptime)
+
+        result = self._run_device(
+            extra={"duration": 0.3, "interval": 0.05},
+            sample_fn=_reboot_sample,
+        )
+        self.assertGreater(result.metrics.get("reboot_count", 0), 0)
+
+    def test_hashrate_metrics(self):
+        """Samples with hashrate and expected_ghs → hashrate_min/avg/pct_expected_min populated."""
+        def _hr_sample(dev, fset):
+            s = _make_sample(dev)
+            s.stats = {"expected_ghs": 1.0, "hashrate_ghs": 0.9}
+            return s
+
+        result = self._run_device(sample_fn=_hr_sample)
+        self.assertIn("hashrate_min", result.metrics)
+        self.assertIn("hashrate_avg", result.metrics)
+        self.assertIn("hashrate_pct_expected_min", result.metrics)
+        self.assertAlmostEqual(result.metrics["hashrate_pct_expected_min"], 90.0, places=1)
+
+
 if __name__ == "__main__":
     unittest.main()

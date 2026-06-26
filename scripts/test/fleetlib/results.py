@@ -106,8 +106,15 @@ class ResultSet:
             r["name"]: r for r in prev.get("results", [])
         }
         regressions: List[str] = []
-        HIGHER_BETTER = {"min_heap", "hashrate", "heap_free_floor", "hashrate_ghs"}
-        LOWER_BETTER = {"missed_polls", "reboots", "wdt_resets"}
+        HIGHER_BETTER = {
+            "min_heap", "hashrate", "heap_free_floor", "hashrate_ghs",
+            "heap_free_min", "heap_min_free_min", "largest_block_min",
+            "hashrate_min", "hashrate_avg", "hashrate_pct_expected_min",
+        }
+        LOWER_BETTER = {
+            "missed_polls", "reboots", "wdt_resets",
+            "temp_max", "reboot_count", "anomaly_count",
+        }
 
         for r in self.results:
             if r.name not in prev_by_name:

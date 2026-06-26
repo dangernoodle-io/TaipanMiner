@@ -5,10 +5,13 @@ anomalies during the warmup/settle window.  TA-426: publisher verdict is
 withheld until mqtt.connected is confirmed at least once.
 """
 from __future__ import annotations
+import csv as _csv_mod
+import datetime
+import json as _json_mod
 import logging
-import sys
 import os
-from typing import TYPE_CHECKING
+import sys
+from typing import TYPE_CHECKING, List, Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -62,6 +65,19 @@ def add_arguments(parser) -> None:
         "--expected-ghs", type=float, default=None, dest="expected_ghs",
         help="hashrate floor override in GH/s (default: read from device /api/stats); 0 disables floor check",
     )
+    parser.add_argument(
+        "--quiet", "--no-progress", dest="quiet", action="store_true", default=False,
+        help="suppress per-tick live reporting (default: reporting on)",
+    )
+    parser.add_argument(
+        "--samples-out", dest="samples_out", metavar="PATH", default=None,
+        help="write per-tick samples to file (.json = NDJSON, .csv with header)",
+    )
+    parser.add_argument(
+        "--attach-logs", dest="attach_logs",
+        choices=["anomaly", "always", "never"], default="anomaly",
+        help="attach device log tail to result: anomaly (default), always, never",
+    )
 
 
 def run(ctx: "SuiteContext") -> ResultSet:
@@ -96,6 +112,166 @@ def _build_publisher_gate_detector(criteria, gate_name: str) -> Detector:
         return inner(sample, state)
 
     return _detect
+
+
+def _print_tick_row(sample: Sample, multi_host: bool) -> None:
+    """Print a single per-tick row to stdout."""
+    ts = datetime.datetime.now().strftime("%H:%M:%S")
+    prefix = "~" if sample.warmup else " "
+    host_tag = f"{sample.device.ip}  " if multi_host else ""
+
+    parts: List[str] = []
+    # heap
+    if sample.heap is not None:
+        internal = sample.heap.get("internal") or {}
+        free = internal.get("free")
+        min_free = internal.get("min_free")
+        if free is not None:
+            parts.append(f"heap={free:,}")
+        if min_free is not None:
+            parts.append(f"min_free={min_free:,}")
+    elif sample.info is not None:
+        free = sample.info.get("free_heap")
+        if free is not None:
+            parts.append(f"heap={free:,}")
+    # uptime
+    if sample.info is not None:
+        uptime = sample.info.get("uptime_ms")
+        if uptime is not None:
+            parts.append(f"uptime={uptime // 1000}s")
+        rr = sample.info.get("reset_reason")
+        if rr and rr != "normal":
+            parts.append(f"reset={rr}")
+    # publisher/mqtt
+    if sample.telemetry is not None:
+        mqtt = sample.telemetry.get("mqtt") or {}
+        pub = sample.telemetry.get("publisher") or {}
+        if mqtt.get("enabled"):
+            conn = "yes" if mqtt.get("connected") else "no"
+            parts.append(f"mqtt={conn}")
+        pub_ok = pub.get("last_publish_ok")
+        if pub_ok is not None:
+            parts.append(f"pub_ok={pub_ok}")
+    # hashrate
+    if sample.stats is not None:
+        hr = sample.stats.get("hashrate_ghs") or sample.stats.get("hashrate")
+        eghs = float(sample.stats.get("expected_ghs") or 0)
+        if hr is not None:
+            if eghs > 0:
+                pct = hr / eghs * 100.0
+                parts.append(f"hr={hr:.3f}GH/s({pct:.1f}%)")
+            else:
+                parts.append(f"hr={hr:.3f}GH/s")
+    # vcore (ASIC)
+    if sample.sensors is not None:
+        miner = (sample.sensors.get("miner") or {})
+        vcore = miner.get("vcore_mv")
+        if vcore is not None:
+            parts.append(f"vcore={vcore}mV")
+
+    if not sample.ok:
+        row = f"{prefix}{ts}  {host_tag}UNREACHABLE"
+    else:
+        row = f"{prefix}{ts}  {host_tag}{' '.join(parts) or 'ok'}"
+
+    print(row, flush=True)
+
+
+def _append_sample_to_file(sample: Sample, path: str) -> None:
+    """Append one tick to the --samples-out file (NDJSON or CSV by extension)."""
+    ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    row: dict = {"ts": ts, "host": sample.device.ip, "warmup": sample.warmup}
+    if sample.info:
+        row["uptime_ms"] = sample.info.get("uptime_ms")
+        row["reset_reason"] = sample.info.get("reset_reason")
+    if sample.heap:
+        internal = sample.heap.get("internal") or {}
+        row["heap_free"] = internal.get("free")
+        row["heap_min_free"] = internal.get("min_free")
+        row["heap_largest_block"] = internal.get("largest_free_block")
+    if sample.stats:
+        row["hashrate"] = sample.stats.get("hashrate_ghs") or sample.stats.get("hashrate")
+        row["expected_ghs"] = sample.stats.get("expected_ghs")
+    if sample.sensors:
+        miner = (sample.sensors.get("miner") or {})
+        row["vcore_mv"] = miner.get("vcore_mv")
+        row["temp_c"] = miner.get("temp_c") or (sample.sensors.get("thermal") or {}).get("temp_c")
+
+    if path.endswith(".csv"):
+        is_new = not os.path.exists(path) or os.path.getsize(path) == 0
+        with open(path, "a", newline="") as f:
+            writer = _csv_mod.DictWriter(f, fieldnames=list(row.keys()), extrasaction="ignore")
+            if is_new:
+                writer.writeheader()
+            writer.writerow({k: ("" if v is None else v) for k, v in row.items()})
+    else:
+        # NDJSON: one JSON object per line for streaming
+        with open(path, "a") as f:
+            f.write(_json_mod.dumps(row) + "\n")
+
+
+def _compute_summary_metrics(samples: list, duration: float) -> dict:
+    """Compute per-run summary metrics from collected samples."""
+    metrics: dict = {"duration_s": duration}
+
+    heap_frees: List[float] = []
+    heap_min_frees: List[float] = []
+    heap_largest: List[float] = []
+    hashrates: List[float] = []
+    hashrate_pcts: List[float] = []
+    temps: List[float] = []
+    reboots = 0
+    prev_uptime: Optional[float] = None
+
+    for s in samples:
+        if not s.ok:
+            continue
+        if s.heap:
+            internal = s.heap.get("internal") or {}
+            hf = internal.get("free")
+            hmf = internal.get("min_free")
+            hlb = internal.get("largest_free_block")
+            if hf is not None:
+                heap_frees.append(hf)
+            if hmf is not None:
+                heap_min_frees.append(hmf)
+            if hlb is not None:
+                heap_largest.append(hlb)
+        if s.info:
+            uptime = s.info.get("uptime_ms")
+            if uptime is not None and prev_uptime is not None and uptime < prev_uptime:
+                reboots += 1
+            if uptime is not None:
+                prev_uptime = uptime
+        if s.stats:
+            hr = s.stats.get("hashrate_ghs") or s.stats.get("hashrate")
+            eghs = float(s.stats.get("expected_ghs") or 0)
+            if hr is not None:
+                hashrates.append(hr)
+                if eghs > 0:
+                    hashrate_pcts.append(hr / eghs * 100.0)
+        if s.sensors:
+            miner = (s.sensors.get("miner") or {})
+            tc = miner.get("temp_c") or (s.sensors.get("thermal") or {}).get("temp_c")
+            if tc is not None:
+                temps.append(tc)
+
+    if heap_frees:
+        metrics["heap_free_min"] = min(heap_frees)
+    if heap_min_frees:
+        metrics["heap_min_free_min"] = min(heap_min_frees)
+    if heap_largest:
+        metrics["largest_block_min"] = min(heap_largest)
+    if hashrates:
+        metrics["hashrate_min"] = min(hashrates)
+        metrics["hashrate_avg"] = sum(hashrates) / len(hashrates)
+    if hashrate_pcts:
+        metrics["hashrate_pct_expected_min"] = min(hashrate_pcts)
+    if temps:
+        metrics["temp_max"] = max(temps)
+    metrics["reboot_count"] = reboots
+
+    return metrics
 
 
 def _run_device(device, ctx: "SuiteContext", rs: ResultSet) -> None:
@@ -183,6 +359,19 @@ def _run_device(device, ctx: "SuiteContext", rs: ResultSet) -> None:
         ))
         return
 
+    quiet = ctx.extra.get("quiet", False)
+    samples_out_path = ctx.extra.get("samples_out")
+    attach_logs_mode = ctx.extra.get("attach_logs", "anomaly")
+
+    _collected_samples: List[Sample] = []
+
+    def _on_sample(sample: Sample) -> None:
+        _collected_samples.append(sample)
+        if not quiet:
+            _print_tick_row(sample, len(ctx.devices) > 1)
+        if samples_out_path:
+            _append_sample_to_file(sample, samples_out_path)
+
     logger.info(
         "soak %s (%s): duration=%.0fs interval=%.0fs settle=%ds %d detectors",
         device.ip, device.board, duration, interval, settle_delay, len(dets),
@@ -195,7 +384,26 @@ def _run_device(device, ctx: "SuiteContext", rs: ResultSet) -> None:
         detectors=dets,
         fields=fields,
         settle_delay=settle_delay,
+        on_sample=_on_sample,
     )
+
+    # Per-run summary metrics
+    summary_metrics = _compute_summary_metrics(_collected_samples, duration)
+    summary_metrics["anomaly_count"] = len(anomalies)
+
+    # Log tail
+    logs_attached: Optional[List[str]] = None
+    if attach_logs_mode != "never":
+        should_tail = (attach_logs_mode == "always") or (attach_logs_mode == "anomaly" and bool(anomalies))
+        if should_tail:
+            from fleetlib.client import Client
+            from fleetlib.sse import tail_lines, SSEUnavailable
+            c = Client(device.ip, device.port)
+            try:
+                logs_attached = tail_lines(c, max_lines=50, max_seconds=10.0)
+            except SSEUnavailable as e:
+                logger.warning("log tail unavailable on %s: %s", device.ip, e)
+                logs_attached = None
 
     if anomalies:
         first = anomalies[0]
@@ -207,10 +415,8 @@ def _run_device(device, ctx: "SuiteContext", rs: ResultSet) -> None:
             device=device,
             status=STATUS_FAIL,
             detail=detail,
-            metrics={
-                "anomalies": len(anomalies),
-                "duration_s": duration,
-            },
+            metrics=summary_metrics,
+            logs=logs_attached,
         ))
     else:
         rs.add(Result(
@@ -218,5 +424,6 @@ def _run_device(device, ctx: "SuiteContext", rs: ResultSet) -> None:
             device=device,
             status=STATUS_PASS,
             detail=f"healthy for {duration:.0f}s",
-            metrics={"duration_s": duration},
+            metrics=summary_metrics,
+            logs=logs_attached,
         ))

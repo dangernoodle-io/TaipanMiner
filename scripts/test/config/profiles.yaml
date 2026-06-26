@@ -51,5 +51,6 @@ esp32-s2:
   has_psram: false
   max_concurrent: 2
   max_rps: 4.0
+  heap_floor: 8000
   single_worker: true
   hashrate_floor_pct: 75.0

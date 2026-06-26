@@ -69,6 +69,26 @@ Devices advertise under `_taipanminer._tcp.local.` (mDNS / zeroconf).
 
 The `--hosts` flag is accepted by every subcommand and bypasses mDNS.
 
+**Unreachable host diagnostics** — when `--hosts` is used and a host fails
+enrichment (busy httpd worker, wrong IP, timeout), the harness reports the
+per-host reason on stderr rather than collapsing everything into a generic
+"No devices found." message.  Hosts that do resolve are still used; only when
+*none* resolve does the command fail, printing a summary such as:
+
+```
+2 host(s) specified; none reachable:
+  172.16.1.250: unreachable (timeout after 5s)
+  172.16.1.251: unreachable (connection refused)
+```
+
+Reason classes: `timeout` (socket/HTTP timeout), `refused` (connection
+refused), `no_route` (host unreachable / DNS failure), `http_error` (non-2xx
+HTTP response), `bad_response` (parse error or other).
+
+When mDNS discovery returns nothing (no `--hosts` given), the message
+explicitly says "No devices found via mDNS" so you know to check mDNS
+advertisement rather than host connectivity.
+
 ---
 
 ## Subcommands

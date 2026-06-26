@@ -59,24 +59,31 @@ class SuiteContext:
 
 
 def resolve_devices(args):
-    """Discover (zeroconf) or --hosts, then filter by --board."""
+    """Discover (zeroconf) or --hosts, then filter by --board.
+
+    Returns a :class:`~fleetlib.discovery.ResolveResult` containing the
+    successfully-enriched devices and any per-host enrichment failures.
+    Callers render user-facing messages from the result; this function is
+    intentionally message-free so tests can assert on the structured output.
+    """
     import sys
     import os
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-    from fleetlib.discovery import discover, from_hosts
+    from fleetlib.discovery import discover, from_hosts_detailed, ResolveResult
 
     if hasattr(args, "hosts") and args.hosts:
         hosts = [h.strip() for h in args.hosts.split(",") if h.strip()]
-        devices = from_hosts(hosts)
+        result = from_hosts_detailed(hosts)
     else:
         timeout = getattr(args, "discover_timeout", 10)
         devices = discover(timeout=timeout)
+        result = ResolveResult(devices=devices, failures=[], from_mdns=True)
 
     board_filter = getattr(args, "board", None)
     if board_filter:
-        devices = [d for d in devices if _matches_board(d, board_filter)]
+        result.devices = [d for d in result.devices if _matches_board(d, board_filter)]
 
-    return devices
+    return result
 
 
 def _matches_board(device, board_class: str) -> bool:

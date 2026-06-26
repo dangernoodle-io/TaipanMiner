@@ -499,7 +499,7 @@ mutating actions.
 ```sh
 # push a local .bin to devices
 ./fleet ota push --bin .pio/build/bitaxe-601/firmware.bin \
-    --target v0.70.0 [--yes] [--dry-run]
+    --target v0.70.0 [--yes] [--dry-run] [--mark-valid]
 
 # trigger pull-OTA
 ./fleet ota pull [--mode auto|pull] [--target VERSION] [--yes]
@@ -518,6 +518,44 @@ mutating actions.
 ```
 
 **Destructive / operator-only.**
+
+#### Post-push readiness grace
+
+After a push, `fleet ota push` always waits for the device to finish rebooting
+and for mining to spin up before judging success or failure (up to
+`_POST_OTA_READINESS_TIMEOUT` seconds, default 120 s).  This is unconditional —
+the OTA reboot always needs a grace window for the miner task to initialise and
+hashrate to come up, regardless of whether `--settle` was passed.
+
+`reset_reason='software'` after an OTA reboot is **expected** — it is not
+treated as a failure.
+
+#### PENDING vs FAILED
+
+`fleet ota push` distinguishes two post-reboot states:
+
+| State | Condition | Exit |
+|-------|-----------|------|
+| **PENDING** | Mining healthy (hashrate > 0, no abnormal reset), but firmware has not yet self-validated (`validated:false` in `/api/health`). | 0 — success |
+| **FAILED** | Abnormal reset (`panic`/`brownout`/`wdt`), mining never resumed, wrong version, or device unreachable. | 1 — failure |
+
+The default policy is **PENDING = success**: the firmware self-validates on the
+first accepted share, or after the 15-minute stratum-auth timer in
+`ota_validator`.  The harness does not fight this.
+
+#### `--mark-valid` (force validation)
+
+Pass `--mark-valid` to force-validate the image immediately after readiness
+confirms healthy mining:
+
+```sh
+./fleet ota push --bin firmware.bin --target v0.70.0 --yes --mark-valid
+```
+
+This POSTs `/api/update/mark-valid` via Guard, then verifies `validated:true` in
+`/api/health`.  On success the result is **VALIDATED** (exit 0).  Use this for
+targeted test runs where the pushed build must stick and not roll back to the
+previous version.
 
 **Auto-archive on push:** `fleet ota push` automatically archives the sibling
 `.elf` file (`.pio/build/<env>/firmware.elf` alongside `firmware.bin`) into the

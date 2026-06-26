@@ -258,6 +258,11 @@ def _build_parser() -> argparse.ArgumentParser:
                          help="path to firmware .bin")
     op_push.add_argument("--target", metavar="VER", dest="target_version",
                          help="expected version after flashing")
+    op_push.add_argument("--mark-valid", dest="mark_valid", action="store_true",
+                         default=False,
+                         help="after push succeeds, POST /api/update/mark-valid to "
+                              "force-validate the image (prevents rollback); "
+                              "default: let firmware self-validate")
     op_push.set_defaults(func=cmd_ota_push)
 
     op_pull = ota_sub.add_parser("pull", help="trigger pull-OTA on devices")
@@ -1258,7 +1263,13 @@ def _ota_settle(args) -> "SettleConfig":
 def cmd_ota_push(args) -> int:
     """OTA push a local binary to devices.
 
-    Calls: fleetlib.ota.push(client, guard, binfile, target_version=None, settle=None)
+    Calls: fleetlib.ota.push(client, guard, binfile, target_version=None,
+                             settle=None, do_mark_valid=False)
+
+    Always waits for mining to spin up post-reboot (readiness grace) before
+    judging success/failure.  Reports PENDING when mining is healthy but the
+    firmware has not yet self-validated; reports VALIDATED when --mark-valid
+    was passed and mark-valid confirmed.
     """
     import os as _os
     from fleetlib import ota
@@ -1275,6 +1286,7 @@ def cmd_ota_push(args) -> int:
     target = getattr(args, "target_version", None)
     binfile = args.binfile
     dry_run = getattr(args, "dry_run", False)
+    do_mark_valid = getattr(args, "mark_valid", False)
 
     _push = getattr(ota, "push", None)
     if _push is None:
@@ -1301,17 +1313,24 @@ def cmd_ota_push(args) -> int:
             print(f"  bin file        : {binfile}")
             print(f"  image size      : {size_str}")
             print(f"  target host     : {d.ip}:{getattr(d, 'port', 80)}")
-            print(f"  post-push expect: device reboots, boots new image, mark-valid required")
+            print(f"  post-push expect: device reboots, boots new image, "
+                  f"firmware self-validates")
+            if do_mark_valid:
+                print(f"  mark-valid      : will POST after readiness (--mark-valid)")
             if target:
                 print(f"  target version  : {target}")
             print(f"  (no HTTP sent)")
             continue
 
         print(f"Pushing {binfile} to {d.ip}…")
-        r = _push(c, guard, binfile, target_version=target, settle=settle_secs)
-        label = "OK" if r.ok else "FAILED"
-        print(f"  {d.ip}: push {label}" + (f" ({r.detail})" if not r.ok else ""))
-        if not r.ok:
+        r = _push(c, guard, binfile, target_version=target, settle=settle_secs,
+                  do_mark_valid=do_mark_valid)
+        if r.ok and r.pending:
+            print(f"  {d.ip}: push PENDING — {r.detail}")
+        elif r.ok:
+            print(f"  {d.ip}: push OK" + (f" ({r.detail})" if r.detail not in ("ok", "") else ""))
+        else:
+            print(f"  {d.ip}: push FAILED ({r.detail})")
             ok = False
 
     return 0 if ok else 1

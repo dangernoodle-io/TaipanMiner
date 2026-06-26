@@ -18,6 +18,20 @@ Subcommands:
   elf              — ELF archive management (archive/list/prune)
 """
 from __future__ import annotations
+
+# Python version floor (TA-450): fail fast with a clear message.
+# CI target is 3.11; walrus operator (:=) requires 3.8+ and dataclasses 3.7+,
+# but 3.11 is the tested baseline and matches CI.
+import sys as _sys
+if _sys.version_info < (3, 11):
+    print(
+        f"ERROR: fleet requires Python >= 3.11 "
+        f"(found {_sys.version_info.major}.{_sys.version_info.minor}). "
+        f"Install Python 3.11+ and retry.",
+        file=_sys.stderr,
+    )
+    _sys.exit(1)
+
 import argparse
 import logging
 import os

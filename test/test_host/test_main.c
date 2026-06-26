@@ -779,6 +779,24 @@ void test_sensors_miner_sag_all_fields_populated(void);
 void test_sensors_miner_all_value_fields(void);
 #endif /* ASIC_CHIP */
 
+// TA-444: fidelity tests for 4 uncovered route emitters
+void test_fidelity_diag_bench_all_fields_present(void);
+void test_fidelity_diag_bench_asic_active_emitted_when_flagged(void);
+void test_fidelity_diag_bench_canary_all_states(void);
+void test_fidelity_diag_bench_null_backend_defaults_sw(void);
+void test_fidelity_mining_rates_all_fields_present(void);
+void test_fidelity_mining_rates_all_null(void);
+void test_fidelity_mining_rates_zero_shares_not_null(void);
+void test_fidelity_pool_pub_all_fields_present(void);
+void test_fidelity_pool_pub_disconnected_all_null(void);
+void test_fidelity_pool_pub_active_pool_idx_nonzero(void);
+#ifdef ASIC_CHIP
+void test_fidelity_sensors_miner_all_fields_present(void);
+void test_fidelity_sensors_miner_all_null(void);
+void test_fidelity_sensors_miner_vin_low_true(void);
+void test_fidelity_sensors_miner_sag_count_zero_is_number(void);
+#endif /* ASIC_CHIP */
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -1561,6 +1579,24 @@ int main(void) {
     RUN_TEST(test_sensors_miner_vcore_last_restart_ms_emits_value);
     RUN_TEST(test_sensors_miner_sag_all_fields_populated);
     RUN_TEST(test_sensors_miner_all_value_fields);
+#endif /* ASIC_CHIP */
+
+    // TA-444: fidelity tests for 4 uncovered route emitters
+    RUN_TEST(test_fidelity_diag_bench_all_fields_present);
+    RUN_TEST(test_fidelity_diag_bench_asic_active_emitted_when_flagged);
+    RUN_TEST(test_fidelity_diag_bench_canary_all_states);
+    RUN_TEST(test_fidelity_diag_bench_null_backend_defaults_sw);
+    RUN_TEST(test_fidelity_mining_rates_all_fields_present);
+    RUN_TEST(test_fidelity_mining_rates_all_null);
+    RUN_TEST(test_fidelity_mining_rates_zero_shares_not_null);
+    RUN_TEST(test_fidelity_pool_pub_all_fields_present);
+    RUN_TEST(test_fidelity_pool_pub_disconnected_all_null);
+    RUN_TEST(test_fidelity_pool_pub_active_pool_idx_nonzero);
+#ifdef ASIC_CHIP
+    RUN_TEST(test_fidelity_sensors_miner_all_fields_present);
+    RUN_TEST(test_fidelity_sensors_miner_all_null);
+    RUN_TEST(test_fidelity_sensors_miner_vin_low_true);
+    RUN_TEST(test_fidelity_sensors_miner_sag_count_zero_is_number);
 #endif /* ASIC_CHIP */
 
     return UNITY_END();

@@ -1259,9 +1259,10 @@ def cmd_ota_push(args) -> int:
     """OTA push a local binary to devices.
 
     Calls: fleetlib.ota.push(client, guard, binfile, target_version=None, settle=None)
-    Falls back to legacy signature if the new one is not yet present.
     """
+    import os as _os
     from fleetlib import ota
+    from fleetlib.client import Client
 
     devices = resolve_devices(args)
     if not devices:
@@ -1269,9 +1270,11 @@ def cmd_ota_push(args) -> int:
         return 1
 
     guard = _ota_guard(args)
-    settle = _ota_settle(args)
+    settle_cfg = _ota_settle(args)
+    settle_secs = settle_cfg.settle_delay if settle_cfg.enabled else None
     target = getattr(args, "target_version", None)
     binfile = args.binfile
+    dry_run = getattr(args, "dry_run", False)
 
     _push = getattr(ota, "push", None)
     if _push is None:
@@ -1280,15 +1283,35 @@ def cmd_ota_push(args) -> int:
 
     ok = True
     for d in devices:
+        c = Client(d.ip, getattr(d, "port", 80))
+        c.board = d.board
+
+        if dry_run:
+            # Run identity verify manually so dry-run still checks board identity.
+            from fleetlib.discovery import verify_identity
+            id_ok = verify_identity(d)
+            id_str = "PASS" if id_ok else "FAIL"
+            try:
+                bin_size = _os.path.getsize(binfile)
+                size_str = f"{bin_size:,} bytes"
+            except OSError:
+                size_str = "(file not found)"
+            print(f"[DRY-RUN] push plan for {d.ip} ({d.board}):")
+            print(f"  identity-verify : {id_str}")
+            print(f"  bin file        : {binfile}")
+            print(f"  image size      : {size_str}")
+            print(f"  target host     : {d.ip}:{getattr(d, 'port', 80)}")
+            print(f"  post-push expect: device reboots, boots new image, mark-valid required")
+            if target:
+                print(f"  target version  : {target}")
+            print(f"  (no HTTP sent)")
+            continue
+
         print(f"Pushing {binfile} to {d.ip}…")
-        try:
-            success = _push(d, guard, binfile, target_version=target, settle=settle)
-        except TypeError:
-            # legacy signature: push(device, binfile, guard=None)
-            success = _push(d, binfile, guard=guard)
-        label = "OK" if success else "FAILED"
-        print(f"  {d.ip}: push {label}")
-        if not success:
+        r = _push(c, guard, binfile, target_version=target, settle=settle_secs)
+        label = "OK" if r.ok else "FAILED"
+        print(f"  {d.ip}: push {label}" + (f" ({r.detail})" if not r.ok else ""))
+        if not r.ok:
             ok = False
 
     return 0 if ok else 1
@@ -1300,6 +1323,7 @@ def cmd_ota_pull(args) -> int:
     Calls: fleetlib.ota.pull(client, guard, mode='auto', target_version=None, settle=None)
     """
     from fleetlib import ota
+    from fleetlib.client import Client
 
     devices = resolve_devices(args)
     if not devices:
@@ -1307,7 +1331,8 @@ def cmd_ota_pull(args) -> int:
         return 1
 
     guard = _ota_guard(args)
-    settle = _ota_settle(args)
+    settle_cfg = _ota_settle(args)
+    settle_secs = settle_cfg.settle_delay if settle_cfg.enabled else None
     target = getattr(args, "target_version", None)
     mode = getattr(args, "mode", "auto")
 
@@ -1318,18 +1343,16 @@ def cmd_ota_pull(args) -> int:
 
     ok = True
     for d in devices:
+        c = Client(d.ip, getattr(d, "port", 80))
+        c.board = d.board
         print(f"Triggering pull ({mode}) on {d.ip}…")
-        try:
-            version = _pull(d, guard, mode=mode, target_version=target, settle=settle)
-        except TypeError:
-            # legacy signature: pull(device, guard=None, expected_version=None)
-            version = _pull(d, guard=guard, expected_version=target)
-        if version:
-            print(f"  {d.ip}: pulled to {version}")
-            if target and version != target:
-                print(f"  {d.ip}: WARNING expected {target}, got {version}")
+        r = _pull(c, guard, mode=mode, target_version=target, settle=settle_secs)
+        if r.ok:
+            print(f"  {d.ip}: pulled to {r.version}")
+            if target and r.version != target:
+                print(f"  {d.ip}: WARNING expected {target}, got {r.version}")
         else:
-            print(f"  {d.ip}: pull FAILED")
+            print(f"  {d.ip}: pull FAILED ({r.detail})")
             ok = False
 
     return 0 if ok else 1
@@ -1341,6 +1364,7 @@ def cmd_ota_mark_valid(args) -> int:
     Calls: fleetlib.ota.mark_valid(client, guard)
     """
     from fleetlib import ota
+    from fleetlib.client import Client
 
     devices = resolve_devices(args)
     if not devices:
@@ -1356,10 +1380,9 @@ def cmd_ota_mark_valid(args) -> int:
 
     ok = True
     for d in devices:
-        try:
-            success = _mark(d, guard)
-        except TypeError:
-            success = _mark(d, guard=guard)
+        c = Client(d.ip, getattr(d, "port", 80))
+        c.board = d.board
+        success = _mark(c, guard)
         label = "OK" if success else "FAILED"
         print(f"  {d.ip}: mark-valid {label}")
         if not success:
@@ -1374,6 +1397,7 @@ def cmd_ota_recover(args) -> int:
     Calls: fleetlib.ota.recover(client, guard)
     """
     from fleetlib import ota
+    from fleetlib.client import Client
 
     devices = resolve_devices(args)
     if not devices:
@@ -1389,7 +1413,9 @@ def cmd_ota_recover(args) -> int:
 
     ok = True
     for d in devices:
-        success = _recover(d, guard)
+        c = Client(d.ip, getattr(d, "port", 80))
+        c.board = d.board
+        success = _recover(c, guard)
         label = "OK" if success else "FAILED"
         print(f"  {d.ip}: recover {label}")
         if not success:
@@ -1404,6 +1430,7 @@ def cmd_ota_status(args) -> int:
     Calls: fleetlib.ota.status(client)
     """
     from fleetlib import ota
+    from fleetlib.client import Client
 
     devices = resolve_devices(args)
     if not devices:
@@ -1416,7 +1443,9 @@ def cmd_ota_status(args) -> int:
         return 1
 
     for d in devices:
-        result = _status(d)
+        c = Client(d.ip, getattr(d, "port", 80))
+        c.board = d.board
+        result = _status(c)
         if result is None:
             print(f"  {d.ip}: unreachable")
         else:
@@ -1429,9 +1458,9 @@ def cmd_ota_verify(args) -> int:
     """Verify version + mining state post-settle on devices.
 
     Calls: fleetlib.ota.verify(client, profile, criteria, target_version, settle)
-    Falls back to legacy verify(device, target_version) if new signature absent.
     """
     from fleetlib import ota
+    from fleetlib.client import Client
 
     devices = resolve_devices(args)
     if not devices:
@@ -1439,7 +1468,8 @@ def cmd_ota_verify(args) -> int:
         return 1
 
     target = args.target_version
-    settle = _ota_settle(args)
+    settle_cfg = _ota_settle(args)
+    settle_secs = settle_cfg.settle_delay if settle_cfg.enabled else None
     criteria_path = getattr(args, "criteria", None)
     from fleetlib.criteria import load as load_criteria
     criteria = load_criteria(criteria_path) if criteria_path else load_criteria()
@@ -1451,14 +1481,12 @@ def cmd_ota_verify(args) -> int:
 
     ok = True
     for d in devices:
-        try:
-            verified = _verify(d, None, criteria, target, settle)
-        except TypeError:
-            # legacy signature: verify(device, target_version)
-            verified = _verify(d, target)
-        label = "OK" if verified else "FAIL"
-        print(f"  {d.ip}: verify {target} -> {label}")
-        if not verified:
+        c = Client(d.ip, getattr(d, "port", 80))
+        c.board = d.board
+        r = _verify(c, None, criteria, target, settle_secs)
+        label = "OK" if r.ok else "FAIL"
+        print(f"  {d.ip}: verify {target} -> {label}" + (f" ({r.detail})" if not r.ok else ""))
+        if not r.ok:
             ok = False
 
     return 0 if ok else 1
@@ -1573,22 +1601,26 @@ def cmd_elf_list(args) -> int:
         print("No archived ELFs.")
         return 0
 
-    # Collect running shas from live fleet (best-effort; failures -> empty)
+    # Collect running shas from live fleet (best-effort; failures -> empty).
+    # Primary source: /api/info app_sha256 (running image sha, always present on live device).
+    # Fallback: /api/diag/panic app_sha256 (only populated after a crash).
+    # Both are truncated ELF sha256 prefixes matching the elfstore archive key.
     running_shas: set = set()
     unreachable: list = []
     try:
         devices = resolve_devices(args)
         for d in devices:
             c = Client(d.ip, getattr(d, "port", 80))
-            # /api/info does not expose a running ELF sha directly; use /api/diag/panic
-            # for the app_sha256 of the crash build, but for IN-USE we need a different
-            # approach: compare archived shas with what devices report.
-            # We collect the short sha from any device that exposes it.
-            panic = c.get_json("/api/diag/panic", timeout=TIMEOUT_INFO)
-            if panic:
-                sha = panic.get("app_sha256", "")
+            info = c.get_json("/api/info", timeout=TIMEOUT_INFO)
+            sha = (info or {}).get("app_sha256", "")
+            if sha:
+                running_shas.add(sha.lower())
+            else:
+                # fallback: crash-build sha from /api/diag/panic
+                panic = c.get_json("/api/diag/panic", timeout=TIMEOUT_INFO)
+                sha = (panic or {}).get("app_sha256", "")
                 if sha:
-                    running_shas.add(sha)
+                    running_shas.add(sha.lower())
     except Exception:
         unreachable = []
 
@@ -1602,8 +1634,9 @@ def cmd_elf_list(args) -> int:
         sha_short = meta.sha256[:16]
         dirty_str = "yes" if meta.dirty else "no"
         size_str = f"{size:,}"
-        # IN-USE: any running sha is a prefix of the archived full sha
-        in_use = any(meta.sha256.startswith(s) for s in running_shas) if running_shas else "?"
+        # IN-USE: any running sha (truncated prefix) matches the start of the archived full sha.
+        # Compare lower-case so dev/-dirty sha prefixes from /api/info match the archive key.
+        in_use = any(meta.sha256.lower().startswith(s.lower()) for s in running_shas) if running_shas else "?"
         in_use_str = "yes" if in_use is True else ("no" if in_use is False else "?")
         print(f"{sha_short + '…':<20} {meta.board:<20} {meta.version:<18} {dirty_str:<6} "
               f"{meta.archived_at:<22} {size_str:>10}  {in_use_str}")

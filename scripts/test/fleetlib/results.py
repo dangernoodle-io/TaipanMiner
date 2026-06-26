@@ -136,19 +136,63 @@ class ResultSet:
                     )
         return regressions
 
-    def push_influxdb(
+    def push_telemetry(
         self,
-        url: str,
-        token: str,
-        org: str,
-        bucket: str,
+        broker_url: str,
+        topic_prefix: str = "fleettest",
+        tls_ctx=None,
+        _client_factory=None,
     ) -> None:
-        """Push metrics to InfluxDB (stub — no-op when url is empty).
+        """Publish per-result metrics to MQTT (mosquitto → influx → grafana pipeline).
 
-        Real implementation would use influxdb-client-python or urllib
-        line-protocol POST. Enabled only when url is non-empty and the
-        caller explicitly passes credentials.
+        Topic convention: ``fleettest/<suite>/<board>``
+        Payload per result (JSON):
+          {suite, host, board, ts (ISO-8601), status, metrics: {...}}
+
+        broker_url: "host:port" or "host" (default port 1883).
+        topic_prefix: prefix for the topic (default: "fleettest").
+        tls_ctx: optional ssl.SSLContext for TLS connections.
+        _client_factory: injectable paho client factory (for tests).
+
+        Never raises — publish failures are logged as warnings so a
+        telemetry failure never fails a run or changes the exit code.
         """
-        if not url:
+        if not broker_url:
             return
-        # stub: future implementation
+
+        import datetime
+        import json as _json
+        import logging as _logging
+        from fleetlib.mqtt import connect_and_publish
+
+        _log = _logging.getLogger(__name__)
+
+        for r in self.results:
+            if not r.metrics:
+                continue
+            topic = f"{topic_prefix}/{self.suite_name}/{r.device.board}"
+            payload_obj = {
+                "suite": self.suite_name,
+                "host": r.device.ip,
+                "board": r.device.board,
+                "ts": datetime.datetime.fromtimestamp(
+                    r.timestamp, tz=datetime.timezone.utc
+                ).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "status": r.status,
+                "metrics": r.metrics,
+            }
+            payload_bytes = _json.dumps(payload_obj).encode()
+            try:
+                ok, detail = connect_and_publish(
+                    broker_url,
+                    topic,
+                    payload_bytes,
+                    tls_ctx=tls_ctx,
+                    _client_factory=_client_factory,
+                )
+                if ok:
+                    _log.debug("metrics published: %s %s", topic, detail)
+                else:
+                    _log.warning("metrics publish skipped/failed: %s", detail)
+            except Exception as exc:  # noqa: BLE001
+                _log.warning("metrics publish error for %s: %s", r.name, exc)

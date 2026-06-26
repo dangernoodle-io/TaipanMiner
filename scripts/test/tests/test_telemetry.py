@@ -287,7 +287,8 @@ class TestMqttBrokerVerify(unittest.TestCase):
                 self.tls_ctx_set = ctx
 
         # patch ssl to avoid real cert parsing; capture the SSLContext calls
-        with patch("suites.telemetry.ssl") as mock_ssl:
+        # build_tls_context lives in fleetlib.mqtt, so patch ssl there
+        with patch("fleetlib.mqtt.ssl") as mock_ssl:
             mock_ctx = MagicMock()
             mock_ssl.SSLContext.return_value = mock_ctx
             mock_ssl.PROTOCOL_TLS_CLIENT = 0

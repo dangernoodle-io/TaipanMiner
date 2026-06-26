@@ -51,32 +51,10 @@ CONFIG_BB_MDNS_EVT_POOL_SIZE=4
 # dual-core boards keep the UI (default y).
 CONFIG_WEBUI_MINING_UI=n
 
-# Disable the HTTPS pull/check path on the S2. update_check creates an idle 8KB
-# worker task (BB_HTTP_CLIENT_TASK_STACK) at boot that just blocks — it can never
-# run its TLS manifest fetch in this heap, and its periodic timer is an OOM risk.
-# ota_pull (HTTPS download) is likewise infeasible (12KB task + TLS). Reclaiming
-# that ~8KB gives an OTA-pushed image room to survive its mark-valid window.
-# ota_push (plain HTTP, mining paused) stays enabled — the working OTA path here.
-CONFIG_BB_UPDATE_CHECK_AUTOREGISTER=n
-CONFIG_BB_OTA_PULL_AUTOREGISTER=n
-# OTA strategy = boot-mode (breadboard v0.47.0+, B1-244). bb_ota_boot owns
-# POST /api/update/apply on the S2 (full-heap pull on next boot). Required: the
-# BB_OTA_STRATEGY choice defaults to PULL, which would leave BB_OTA_BOOT_AUTOREGISTER
-# off and the S2 with no onboard OTA trigger. Selecting BOOT flips boot autoregister
-# on and pull autoregister off (the explicit =n above is now redundant but harmless).
-CONFIG_BB_OTA_STRATEGY_BOOT=y
-# Boot-OTA progress HTTP: stand up GET /api/update/progress (+CORS) and
-# advertise-only mDNS during the boot-mode OTA download so the fleet-update
-# UI can poll progress without waiting for the device to fully reboot.
-# Consumer must call bb_ota_boot_set_mdns_service() before bb_ota_boot_run_if_pending().
-CONFIG_BB_OTA_BOOT_PROGRESS_HTTP=y
-# Boot-mode update status: serve runtime GET /api/update/status + on-demand
-# POST /api/update/check (heap-guarded one-shot manifest fetch, no persistent
-# update-check worker — that worker is why BB_UPDATE_CHECK_AUTOREGISTER=n above).
-# Lets taipan-cli / the dashboard see update availability on the headless S2.
-CONFIG_BB_OTA_BOOT_STATUS_HTTP=y
-# Fallback to heap allocation on OTA apply when contiguous DRAM is fragmented
-CONFIG_BB_OTA_CHECK_ON_APPLY_FALLBACK=y
+# OTA strategy = boot-mode: STRATEGY_BOOT + progress/status HTTP + apply-fallback
+# are in sdkconfig/ota-boot (shared with all non-PSRAM boards). STRATEGY_BOOT
+# also implicitly flips UPDATE_CHECK_AUTOREGISTER and PULL_AUTOREGISTER off via
+# Kconfig selects — no need to pin them here.
 # OTA push receive buffer: v0.41.2 makes this a Kconfig (default 1024).
 # 1024 stalled the push on the single-core S2 (task_wdt); 4096 completes.
 CONFIG_BB_OTA_PUSH_RECV_BUF_SIZE=4096

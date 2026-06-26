@@ -598,8 +598,8 @@ void app_main(void)
     // Register OTA LED actions before any OTA path can fire (boot-mode / pull / push).
     bb_ota_led_init(&s_tm_ota_led_ops, NULL);
 
-#ifdef BOARD_OTA_BOOT_MODE
-    // OTA-only boot mode (tight/serial-less boards, e.g. S2): if armed via
+#ifdef CONFIG_BB_OTA_STRATEGY_BOOT
+    // OTA-only boot mode (non-PSRAM boards): if armed via
     // POST /api/update/apply, pull the new firmware at FULL early-boot heap
     // before any subsystem allocates, then reboot into it. Never returns when
     // armed; returns immediately otherwise. WiFi STA was started by

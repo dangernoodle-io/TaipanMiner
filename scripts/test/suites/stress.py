@@ -9,6 +9,7 @@ Per device:
 Conservative ceilings for no-PSRAM and C3 boards per profile.
 """
 from __future__ import annotations
+import copy
 import logging
 import sys
 import os
@@ -143,8 +144,12 @@ def _run_device(device, ctx: "SuiteContext", rs: ResultSet) -> None:
         ))
         return
 
-    # 5. Recovery assertion: board must return to ready + heap must not leak
-    recovery = wait_until_ready(c, profile, criteria, timeout=120)
+    # 5. Recovery assertion: board must return to ready + heap must not leak.
+    # Use settle_delay=0 — the device was already settled before load; we only
+    # want to confirm it is up and healthy, not re-run the full warmup window.
+    recovery_criteria = copy.copy(criteria)
+    recovery_criteria.settle_delay = 0
+    recovery = wait_until_ready(c, profile, recovery_criteria, timeout=120)
     if not recovery.ready:
         rs.add(Result(
             name=f"{device.ip}/stress",

@@ -291,6 +291,67 @@ class TestRecoveryAssertion(unittest.TestCase):
 # Tests: settle gate
 # ---------------------------------------------------------------------------
 
+class TestRecoverySettleDelay(unittest.TestCase):
+    """Recovery assertion must use settle_delay=0 so it never re-waits the warmup floor."""
+
+    def test_recovery_uses_zero_settle_delay(self):
+        """wait_until_ready for recovery is called with settle_delay=0 criteria copy.
+
+        This prevents timeout=120 from racing against settle_delay=120 and
+        spuriously failing healthy boards.
+        """
+        from suites import stress
+        import copy
+
+        device = _make_device()
+        ctx = _make_ctx([device], extra={"duration": 0.3, "level": 0.8})
+        # Give ctx.criteria a non-zero settle_delay to verify it is zeroed for recovery
+        ctx.criteria = Criteria(settle_delay=120, heap_floor=50_000)
+
+        mock_client = MagicMock()
+        mock_client.get_json.return_value = {"uptime_ms": 30_000, "free_heap": 90_000}
+
+        captured_criteria = []
+
+        def _fake_wait_ready(c, profile, crit, timeout=300):
+            captured_criteria.append(copy.copy(crit))
+            return _ready()
+
+        with patch("suites.stress.Client", return_value=mock_client):
+            with patch("suites.stress.wait_until_ready", side_effect=_fake_wait_ready):
+                stress._run_device(device, ctx, ctx.results)
+
+        # The recovery call should have settle_delay=0
+        self.assertTrue(len(captured_criteria) >= 1, "wait_until_ready not called")
+        recovery_crit = captured_criteria[-1]
+        self.assertEqual(
+            recovery_crit.settle_delay, 0,
+            f"recovery settle_delay should be 0, got {recovery_crit.settle_delay}",
+        )
+
+    def test_healthy_board_passes_after_short_duration(self):
+        """A healthy board passes stress even with default criteria (settle_delay=120)
+        because recovery uses settle_delay=0.
+        """
+        from suites import stress
+
+        device = _make_device()
+        ctx = _make_ctx([device], extra={"duration": 0.3, "level": 0.8})
+        ctx.criteria = Criteria(settle_delay=120, heap_floor=50_000)
+
+        mock_client = MagicMock()
+        mock_client.get_json.return_value = {"uptime_ms": 30_000, "free_heap": 90_000}
+
+        # Recovery wait_until_ready returns ready immediately (settle_delay=0 on recovery)
+        with patch("suites.stress.Client", return_value=mock_client):
+            with patch("suites.stress.wait_until_ready", return_value=_ready()):
+                stress._run_device(device, ctx, ctx.results)
+
+        results = ctx.results.results
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].status, STATUS_PASS, results[0].detail)
+
+
 class TestSettleGate(unittest.TestCase):
     def test_not_ready_causes_skip(self):
         """Board not ready before load → SKIP (never apply load)."""

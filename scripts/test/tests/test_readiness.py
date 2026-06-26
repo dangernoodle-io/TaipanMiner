@@ -206,5 +206,106 @@ class TestDeviceLike(unittest.TestCase):
             MockClient.assert_called_once_with("127.0.0.1", 80)
 
 
+class TestCapabilityScoping(unittest.TestCase):
+    """Pool/hashrate checks are gated on expected_ghs > 0 (mining capability)."""
+
+    def test_non_mining_board_ignores_disconnected_pool(self):
+        """Board with expected_ghs=0 is ready even when pool reports not connected."""
+        # expected_ghs=0 → non-mining → pool check skipped
+        stats = {"hashrate": 0, "expected_ghs": 0.0}
+        pool = {"connected": False}
+        c = _make_client(
+            info=_ready_info(),
+            heap=_ready_heap(),
+            stats=stats,
+            pool=pool,
+        )
+        criteria = Criteria(
+            settle_delay=0,
+            readiness_heap_floor=50_000,
+            readiness_hashrate_min=0.0,
+            readiness_vcore_floor=0,
+        )
+        r = wait_until_ready(c, None, criteria, timeout=30)
+        self.assertTrue(r.ready, f"non-mining board should be ready regardless of pool; reason={r.reason!r}")
+
+    def test_mining_board_fails_when_pool_disconnected(self):
+        """Board with expected_ghs>0 is NOT ready when pool is disconnected."""
+        stats = {"hashrate": 300_000, "expected_ghs": 0.0003}
+        pool = {"connected": False}
+        c = _make_client(
+            info=_ready_info(),
+            heap=_ready_heap(),
+            stats=stats,
+            pool=pool,
+        )
+        criteria = Criteria(
+            settle_delay=0,
+            readiness_heap_floor=50_000,
+            readiness_hashrate_min=0.0,
+            readiness_vcore_floor=0,
+        )
+        r = wait_until_ready(c, None, criteria, timeout=8)
+        self.assertFalse(r.ready, f"mining board with pool disconnected should not be ready; reason={r.reason!r}")
+        self.assertIn("pool", r.reason.lower())
+
+    def test_mining_board_pool_connected_is_ready(self):
+        """Board with expected_ghs>0 is ready when pool is connected."""
+        stats = {"hashrate": 300_000, "expected_ghs": 0.0003}
+        pool = {"connected": True}
+        c = _make_client(
+            info=_ready_info(),
+            heap=_ready_heap(),
+            stats=stats,
+            pool=pool,
+        )
+        criteria = Criteria(
+            settle_delay=0,
+            readiness_heap_floor=50_000,
+            readiness_hashrate_min=0.0,
+            readiness_vcore_floor=0,
+        )
+        r = wait_until_ready(c, None, criteria, timeout=30)
+        self.assertTrue(r.ready, f"mining board with pool connected should be ready; reason={r.reason!r}")
+
+    def test_stats_unavailable_treated_as_non_mining(self):
+        """When /api/stats returns None, board is treated as non-mining (pool check skipped)."""
+        pool = {"connected": False}
+        c = _make_client(
+            info=_ready_info(),
+            heap=_ready_heap(),
+            stats=None,
+            pool=pool,
+        )
+        criteria = Criteria(
+            settle_delay=0,
+            readiness_heap_floor=50_000,
+            readiness_hashrate_min=0.0,
+            readiness_vcore_floor=0,
+        )
+        r = wait_until_ready(c, None, criteria, timeout=30)
+        self.assertTrue(r.ready, f"board with no stats should be treated as non-mining; reason={r.reason!r}")
+
+    def test_hashrate_min_respected_for_mining_board(self):
+        """Mining board with hashrate below min is NOT ready (hashrate_min > 0)."""
+        stats = {"hashrate": 100, "expected_ghs": 0.0003}
+        pool = {"connected": True}
+        c = _make_client(
+            info=_ready_info(),
+            heap=_ready_heap(),
+            stats=stats,
+            pool=pool,
+        )
+        criteria = Criteria(
+            settle_delay=0,
+            readiness_heap_floor=50_000,
+            readiness_hashrate_min=200.0,  # 200 Hz floor
+            readiness_vcore_floor=0,
+        )
+        r = wait_until_ready(c, None, criteria, timeout=8)
+        self.assertFalse(r.ready)
+        self.assertIn("hashrate", r.reason.lower())
+
+
 if __name__ == "__main__":
     unittest.main()

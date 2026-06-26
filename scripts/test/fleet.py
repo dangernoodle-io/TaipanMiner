@@ -286,9 +286,15 @@ def cmd_status(args) -> int:
         board = info.get("board", d.board)
         version = info.get("version", d.version)
 
-        health_str = "ok" if health and health.get("status") == "ok" else "??"
-        if health and health.get("status") != "ok":
+        if health is None:
+            health_str = "??"
+        elif health.get("ok") is True:
+            health_str = "ok"
+        elif health.get("ok") is False:
+            health_str = "unhealthy"
             all_ok = False
+        else:
+            health_str = "??"
 
         print(f"{d.ip:<20} {board:<20} {version:<16} {uptime_str:>12}  {heap_str:>12}  {health_str}")
 

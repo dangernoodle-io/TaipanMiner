@@ -83,24 +83,36 @@ def wait_until_ready(client, profile, criteria: "Criteria", timeout: int = 300) 
                 f"heap_free {heap_free} < floor {criteria.readiness_heap_floor}"
             )
 
-        # 2. Pool connected (optional endpoint)
-        if not reasons or True:  # always check
+        # 2 + 3. Pool connected + hashrate — mining boards only.
+        # A board is considered mining-capable when /api/stats reports expected_ghs > 0.
+        # Non-mining boards (SW hash disabled, display-only, etc.) are ready on heap +
+        # reachability alone — do not penalise them for an idle pool connection.
+        stats = _safe_get(c, "/api/stats", TIMEOUT_INFO)
+        is_mining = stats is not None and (stats.get("expected_ghs") or 0.0) > 0
+
+        if is_mining:
+            # Pool connected
             pool = _safe_get(c, "/api/pool", TIMEOUT_INFO)
             if pool is not None:
-                # Pool endpoint exists — check connection
-                connected = pool.get("connected") or pool.get("pool_connected")
+                # Prefer "connected"; fall back to "pool_connected".
+                # Use explicit key presence check — `or` would convert False→None
+                # (falsy short-circuit) and break the `is False` test below.
+                if "connected" in pool:
+                    connected = pool["connected"]
+                elif "pool_connected" in pool:
+                    connected = pool["pool_connected"]
+                else:
+                    connected = None
                 if connected is False:
                     reasons.append("pool not connected")
 
-        # 3. Hashrate minimum
-        if criteria.readiness_hashrate_min > 0:
-            stats = _safe_get(c, "/api/stats", TIMEOUT_INFO)
-            if stats is None:
-                reasons.append("stats unavailable")
-            else:
+            # Hashrate minimum (only when criteria specifies a non-zero floor)
+            if criteria.readiness_hashrate_min > 0:
                 hr = stats.get("hashrate_ghs") or stats.get("hashrate") or 0.0
                 if hr <= criteria.readiness_hashrate_min:
-                    reasons.append(f"hashrate {hr} <= min {criteria.readiness_hashrate_min}")
+                    reasons.append(
+                        f"hashrate {hr} <= min {criteria.readiness_hashrate_min}"
+                    )
 
         # 4. Vcore floor (ASIC boards)
         if criteria.readiness_vcore_floor > 0:

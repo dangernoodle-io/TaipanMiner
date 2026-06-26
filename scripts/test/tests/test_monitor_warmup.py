@@ -14,6 +14,7 @@ from fleetlib.monitor import (
     Sample,
     poll,
     make_heap_floor_detector,
+    hashrate_ghs,
 )
 from fleetlib.discovery import Device
 
@@ -309,6 +310,19 @@ class TestOnSampleCallback(unittest.TestCase):
         failed_samples = [s for s in received if not s.ok]
         self.assertGreater(len(ok_samples), 0, "should receive ok samples")
         self.assertGreater(len(failed_samples), 0, "should receive failed samples")
+
+
+class TestHashrateGhsNormalization(unittest.TestCase):
+    """hashrate_ghs() normalizes raw H/s to GH/s; honors hashrate_ghs field."""
+
+    def test_hashrate_ghs_normalization(self):
+        # raw H/s -> GH/s
+        self.assertAlmostEqual(hashrate_ghs({"hashrate": 359822}), 0.000359822, places=9)
+        # explicit GH/s field taken as-is
+        self.assertEqual(hashrate_ghs({"hashrate_ghs": 1.5}), 1.5)
+        # absent / None
+        self.assertIsNone(hashrate_ghs({}))
+        self.assertIsNone(hashrate_ghs(None))
 
 
 if __name__ == "__main__":

@@ -369,7 +369,7 @@ class TestSoakHashrateCPU(unittest.TestCase):
         )
 
     def test_per_class_floor_from_profile(self):
-        """Profile hashrate_floor_pct=90%: hashrate 0.85 → FAIL; 0.95 → PASS."""
+        """Profile hashrate_floor_pct=90%: 0.85 GH/s → FAIL; 0.95 GH/s → PASS."""
         from suites import soak
         from fleetlib.criteria import Criteria
         from fleetlib.profiles import Profile, Profiles
@@ -377,13 +377,13 @@ class TestSoakHashrateCPU(unittest.TestCase):
         # Build a context with a profile that has hashrate_floor_pct=90.0
         criteria = Criteria(hashrate_floor_pct=90.0)
 
-        # Test: below floor
+        # Test: below floor (use hashrate_ghs key to set GH/s directly)
         device = _make_device(board="esp32-wroom32")
         ctx = _make_ctx([device], criteria=criteria, extra={"duration": 0.3, "interval": 0.05, "quiet": True})
 
         def _fake_below(dev, fset):
             s = _make_sample(dev)
-            s.stats = {"expected_ghs": 1.0, "hashrate": 0.85}
+            s.stats = {"expected_ghs": 1.0, "hashrate_ghs": 0.85}
             return s
 
         with patch("fleetlib.monitor._sample_device", side_effect=_fake_below):
@@ -412,13 +412,47 @@ class TestSoakHashrateCPU(unittest.TestCase):
 
         def _fake_above(dev, fset):
             s = _make_sample(dev)
-            s.stats = {"expected_ghs": 1.0, "hashrate": 0.95}
+            s.stats = {"expected_ghs": 1.0, "hashrate_ghs": 0.95}
             return s
 
         with patch("fleetlib.monitor._sample_device", side_effect=_fake_above):
             soak._run_device(device2, ctx2, rs2)
 
         self.assertEqual(rs2.results[0].status, STATUS_PASS)
+
+    def test_raw_hs_normalization_floor(self):
+        """Raw H/s `hashrate` is normalized to GH/s: 850M H/s = 0.85 GH/s → FAIL at 90% floor."""
+        from suites import soak
+        from suites import SuiteContext, SettleConfig
+        from fleetlib.criteria import Criteria
+        from fleetlib.safety import Guard
+
+        criteria = Criteria(hashrate_floor_pct=90.0)
+
+        def _run(hashrate_hs):
+            dev = _make_device(ip="192.0.2.9", board="esp32-wroom32")
+            rs = ResultSet("soak")
+            ctx = SuiteContext(
+                devices=[dev], criteria=criteria, guard=Guard(dry_run=True),
+                results=rs, fields=None, gates=set(),
+                settle=SettleConfig(settle_delay=0, enabled=False),
+                out_json=None, out_junit=None, baseline=None,
+                extra={"duration": 0.3, "interval": 0.05, "quiet": True},
+            )
+
+            def _fake(dev_, fset):
+                s = _make_sample(dev_)
+                s.stats = {"expected_ghs": 1.0, "hashrate": hashrate_hs}
+                return s
+
+            with patch("fleetlib.monitor._sample_device", side_effect=_fake):
+                soak._run_device(dev, ctx, rs)
+            return rs.results[0].status
+
+        # 0.85 GH/s expressed as raw H/s → below 90% floor → FAIL
+        self.assertEqual(_run(850_000_000), STATUS_FAIL)
+        # 0.95 GH/s expressed as raw H/s → above floor → PASS
+        self.assertEqual(_run(950_000_000), STATUS_PASS)
 
 
 class TestResultLogs(unittest.TestCase):
@@ -645,6 +679,24 @@ class TestSoakSummaryMetrics(unittest.TestCase):
         self.assertIn("hashrate_avg", result.metrics)
         self.assertIn("hashrate_pct_expected_min", result.metrics)
         self.assertAlmostEqual(result.metrics["hashrate_pct_expected_min"], 90.0, places=1)
+
+
+class TestFmtHashrateScales(unittest.TestCase):
+    """_fmt_hashrate_ghs scales H/s..TH/s from a GH/s input."""
+
+    def test_fmt_hashrate_scales(self):
+        from suites.soak import _fmt_hashrate_ghs
+
+        # wroom32: 0.000359822 GH/s = 359822 H/s → kH/s
+        self.assertTrue(_fmt_hashrate_ghs(0.000359822).endswith("kH/s"))
+        # bitaxe: 915.6 GH/s → GH/s
+        self.assertTrue(_fmt_hashrate_ghs(915.6).endswith("GH/s"))
+        # multi-TH ASIC: 4200 GH/s → TH/s
+        self.assertTrue(_fmt_hashrate_ghs(4200.0).endswith("TH/s"))
+        # tiny value: 500 H/s → non-empty, no crash
+        out = _fmt_hashrate_ghs(1e-9 * 500)
+        self.assertIsInstance(out, str)
+        self.assertTrue(out)
 
 
 if __name__ == "__main__":

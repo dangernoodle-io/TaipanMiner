@@ -22,6 +22,7 @@ from fleetlib.criteria import for_profile
 from fleetlib.monitor import (
     poll,
     detectors_from_criteria,
+    hashrate_ghs,
     Anomaly,
     Sample,
     Detector,
@@ -114,6 +115,15 @@ def _build_publisher_gate_detector(criteria, gate_name: str) -> Detector:
     return _detect
 
 
+def _fmt_hashrate_ghs(ghs: float) -> str:
+    """Human hashrate from a GH/s value, scaling H/s..TH/s."""
+    hs = ghs * 1e9  # back to H/s for scaling
+    for unit, div in (("TH/s", 1e12), ("GH/s", 1e9), ("MH/s", 1e6), ("kH/s", 1e3)):
+        if hs >= div:
+            return f"{hs / div:.2f}{unit}"
+    return f"{hs:.0f}H/s"
+
+
 def _print_tick_row(sample: Sample, multi_host: bool) -> None:
     """Print a single per-tick row to stdout."""
     ts = datetime.datetime.now().strftime("%H:%M:%S")
@@ -154,14 +164,14 @@ def _print_tick_row(sample: Sample, multi_host: bool) -> None:
             parts.append(f"pub_ok={pub_ok}")
     # hashrate
     if sample.stats is not None:
-        hr = sample.stats.get("hashrate_ghs") or sample.stats.get("hashrate")
+        hr = hashrate_ghs(sample.stats)
         eghs = float(sample.stats.get("expected_ghs") or 0)
         if hr is not None:
             if eghs > 0:
                 pct = hr / eghs * 100.0
-                parts.append(f"hr={hr:.3f}GH/s({pct:.1f}%)")
+                parts.append(f"hr={_fmt_hashrate_ghs(hr)}({pct:.1f}%)")
             else:
-                parts.append(f"hr={hr:.3f}GH/s")
+                parts.append(f"hr={_fmt_hashrate_ghs(hr)}")
     # vcore (ASIC)
     if sample.sensors is not None:
         miner = (sample.sensors.get("miner") or {})
@@ -190,7 +200,7 @@ def _append_sample_to_file(sample: Sample, path: str) -> None:
         row["heap_min_free"] = internal.get("min_free")
         row["heap_largest_block"] = internal.get("largest_free_block")
     if sample.stats:
-        row["hashrate"] = sample.stats.get("hashrate_ghs") or sample.stats.get("hashrate")
+        row["hashrate"] = hashrate_ghs(sample.stats)  # normalized GH/s
         row["expected_ghs"] = sample.stats.get("expected_ghs")
     if sample.sensors:
         miner = (sample.sensors.get("miner") or {})
@@ -244,7 +254,7 @@ def _compute_summary_metrics(samples: list, duration: float) -> dict:
             if uptime is not None:
                 prev_uptime = uptime
         if s.stats:
-            hr = s.stats.get("hashrate_ghs") or s.stats.get("hashrate")
+            hr = hashrate_ghs(s.stats)
             eghs = float(s.stats.get("expected_ghs") or 0)
             if hr is not None:
                 hashrates.append(hr)

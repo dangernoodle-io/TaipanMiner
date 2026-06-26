@@ -309,6 +309,10 @@ device showing heap, uptime, mqtt/publish state, hashrate + % of expected (when 
 and vcore (ASIC).  Warmup ticks are prefixed with `~`.  Pass `--quiet` to suppress (e.g.
 in unattended CI runs).
 
+**Hashrate units:** the harness normalizes raw `/api/stats` `hashrate` (H/s) to GH/s
+internally.  Display auto-scales: `359.82kH/s` for CPU miners, `915.60GH/s` for bitaxe.
+`--samples-out` writes `hashrate` in GH/s; `Result.metrics` hashrate keys are also GH/s.
+
 ```sh
 ./fleet soak [--duration 1h] [--interval 60] [--target VERSION]
              [--expected-ghs N] [--settle SEC] [--no-settle]

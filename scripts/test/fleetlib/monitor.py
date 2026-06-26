@@ -300,6 +300,22 @@ def make_publisher_detector(criteria: "Criteria") -> Detector:
     return _detect
 
 
+def hashrate_ghs(stats: Optional[dict]) -> Optional[float]:
+    """Hashrate in GH/s from a /api/stats dict, normalizing units.
+
+    Device reports `hashrate` in H/s and `expected_ghs` in GH/s. A
+    `hashrate_ghs` field (future firmware) is taken as-is. None when absent.
+    """
+    if stats is None:
+        return None
+    if stats.get("hashrate_ghs") is not None:
+        return float(stats["hashrate_ghs"])
+    hr = stats.get("hashrate")
+    if hr is None:
+        return None
+    return float(hr) / 1e9  # H/s -> GH/s
+
+
 def make_hashrate_detector(criteria: "Criteria", expected_ghs: float) -> Detector:
     """Anomaly when reported hashrate falls below the floor."""
     floor = expected_ghs * criteria.hashrate_floor_pct / 100.0
@@ -307,7 +323,7 @@ def make_hashrate_detector(criteria: "Criteria", expected_ghs: float) -> Detecto
     def _detect(sample: Sample, state: Dict) -> Optional[Anomaly]:
         if not sample.ok or sample.stats is None:
             return None
-        hr = sample.stats.get("hashrate_ghs") or sample.stats.get("hashrate")
+        hr = hashrate_ghs(sample.stats)
         if hr is not None and hr < floor:
             return Anomaly(
                 sample.device, "hashrate_floor",

@@ -5,4 +5,4 @@
 # so we can validate panic capture / coredump end-to-end on bench
 # hardware. NEVER enable on release builds.
 CONFIG_BB_DIAG_PANIC_TRIGGER=y
-CONFIG_LOG_MAXIMUM_LEVEL=5
+CONFIG_LOG_MAXIMUM_LEVEL=4

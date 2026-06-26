@@ -1,12 +1,9 @@
-# ESP32-S2 Mini configuration — delta from sdkconfig.defaults
+# ESP32-S2 Mini configuration — delta from sdkconfig.defaults + sdkconfig/single-core.
+# Shared single-core settings (FREERTOS_UNICORE, WDT_CPU1, YIELD_MASK, WIFI_IRAM, MDNS) are in sdkconfig/single-core.
 CONFIG_IDF_TARGET="esp32s2"
 CONFIG_IDF_TARGET_ESP32S2=y
 CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=n
 CONFIG_ESP32S3_DATA_CACHE_32KB=n
-
-# Single-core: override defaults that assume dual-core
-CONFIG_FREERTOS_UNICORE=y
-CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
 
 # WiFi power-save: keep NONE on the S2 specifically. The fleet default is now
 # MIN_MODEM (breadboard Kconfig default); the fleet-wide PS_NONE was reverted in
@@ -31,13 +28,6 @@ CONFIG_ESP_CONSOLE_UART_NUM=0
 # Hot-loop pinning not beneficial on single-core; stack placement is faster here.
 # See mining Kconfig.
 CONFIG_MINING_PIN_HOTLOOP_DATA=n
-
-# S2 SRAM budget: 320KB single-core — trim WiFi IRAM vs sdkconfig.defaults.
-# WiFi IRAM code maps into dram0_0_seg (shared SRAM); disabling moves code to
-# flash, freeing ~15KB+ of DRAM at the cost of WiFi throughput (SW mining only,
-# no ASIC — throughput doesn't matter here).
-CONFIG_ESP_WIFI_IRAM_OPT=n
-CONFIG_ESP_WIFI_RX_IRAM_OPT=n
 
 # Lever 1: move TX buffers to heap (avoids static alloc at esp_wifi_init)
 # ESP_WIFI_STATIC_TX_BUFFER / ESP_WIFI_DYNAMIC_TX_BUFFER are a choice block;
@@ -117,13 +107,9 @@ CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=4
 # RX_BA_WIN must be <= DYNAMIC_RX_BUFFER_NUM; lower the block-ack window to match
 # (reduces RX aggregation throughput, irrelevant for low-bandwidth stratum).
 CONFIG_ESP_WIFI_RX_BA_WIN=4
+# intentional: tighter S2 SRAM budget (not the 2920 in sdkconfig/no-psram-ota)
 CONFIG_LWIP_TCP_SND_BUF_DEFAULT=2880
 CONFIG_LWIP_TCP_WND_DEFAULT=2880
-
-# TA-401: yield every 8K nonces — the S2 knee. Hashrate plateaus here (~247 kH/s);
-# sparser masks add <1% throughput but explode HTTP latency (0xFFFF: p90 1507ms
-# vs 66ms here). Tuned via the TA-401 sweep.
-CONFIG_MINING_UNICORE_YIELD_MASK=0x1FFF
 
 # S2 heap reclaim — HWM-measured, safe to trim on the heap-critical S2:
 # bb_event_routes replay ring: default 16, sized for rare block.found events; 4 is sufficient.
@@ -148,14 +134,6 @@ CONFIG_BB_EVENT_QUEUE_DEPTH=8
 # Together: 0 KB standing cost (was 5.6 KB) + max ~2.8 KB transient during broker outage.
 CONFIG_BB_PUB_BUFFER_ALWAYS=n
 CONFIG_BB_PUB_BUFFER_MAX_ENTRIES=4
-
-# mDNS batch size: default 16 (8 KB each array = 16 KB BSS). The 14-peer network is
-# covered by 4 per burst (recovered next refresh); ~12.4 KB BSS reclaim.
-CONFIG_BB_MDNS_BATCH_MAX=4
-# mDNS dispatch/query task priority: single core shares one core with the
-# priority-20 miner; raise from the default 3 so the dispatch task drains
-# coalesced browse-notify bursts and does not drop peers (knot discovery).
-CONFIG_BB_MDNS_TASK_PRIORITY=10
 
 # OTA update-check pre-flight (B1-280 follow-on): the S2 is too heap-tight to run a
 # steady-state GitHub TLS handshake — ~20 KB transient against ~25 KB free OOM-panics

@@ -1,24 +1,3 @@
-# ESP32-WROOM-32 configuration — delta from sdkconfig.defaults
-CONFIG_IDF_TARGET="esp32"
-CONFIG_IDF_TARGET_ESP32=y
-CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=n
-CONFIG_ESP32S3_DATA_CACHE_32KB=n
-CONFIG_ESP32_DEFAULT_CPU_FREQ_240=y
-
-# Flash size: classic ESP32 WROOM32 has 4MB, not 16MB
-CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
-CONFIG_ESPTOOLPY_FLASHSIZE_16MB=n
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_esp32_4mb.csv"
-
-# D0 reject-path hot loop is tiny post-TA-396; stack placement of hot-loop
-# data measures ~1.5% faster than cache-aligned statics here. See mining Kconfig.
-CONFIG_MINING_PIN_HOTLOOP_DATA=n
-
-# OTA pull: 2 KB Range chunks (vs 4 KB default). No-PSRAM in-place pull — halves
-# the per-TLS-record mbedTLS alloc (~4.4 KB→~2.2 KB) so the download survives a
-# heap fragmented under concurrent httpd/SSE load. See bb_ota_pull Kconfig.
-CONFIG_BB_OTA_PULL_HTTP_CHUNK_SIZE=1024
-
-# heap: smaller TCP window on no-PSRAM (OTA moves to boot-mode)
-CONFIG_LWIP_TCP_SND_BUF_DEFAULT=2920
-CONFIG_LWIP_TCP_WND_DEFAULT=2920
+# ESP32-WROOM-32 configuration — delta from sdkconfig.defaults + sdkconfig/esp32-classic + sdkconfig/no-psram-ota.
+# Shared classic-ESP32 settings (IDF_TARGET, cache, freq, flash, partition, hotloop) are in sdkconfig/esp32-classic.
+# Shared no-PSRAM OTA settings (chunk size, TCP windows) are in sdkconfig/no-psram-ota.

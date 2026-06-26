@@ -1,4 +1,1 @@
-# T-Dongle S3 debug — delta from sdkconfig.defaults
-CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y
-CONFIG_LOG_DEFAULT_LEVEL=4
-CONFIG_LOG_MAXIMUM_LEVEL=4
+# T-Dongle S3 debug — delta from sdkconfig.defaults (level via sdkconfig/debug-common).

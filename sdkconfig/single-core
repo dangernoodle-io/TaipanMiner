@@ -1,0 +1,20 @@
+# single-core — settings shared by esp32-s2-mini and esp32-c3-supermini.
+
+# Single-core: override defaults that assume dual-core
+CONFIG_FREERTOS_UNICORE=y
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+
+# TA-401: yield every 8K nonces — sweet spot for single-core HTTP latency.
+CONFIG_MINING_UNICORE_YIELD_MASK=0x1FFF
+
+# S2/C3 SRAM budget: trim WiFi IRAM to free ~15KB of DRAM at the cost of
+# WiFi throughput (SW mining only, no ASIC — throughput doesn't matter here).
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+
+# mDNS batch size: bss batch arrays, 16→4 recovers ~12 KB; replayed next refresh.
+CONFIG_BB_MDNS_BATCH_MAX=4
+# mDNS dispatch/query task priority: single core shares one core with the
+# priority-20 miner; raise from the default 3 so the dispatch task drains
+# coalesced browse-notify bursts and does not drop peers (knot discovery).
+CONFIG_BB_MDNS_TASK_PRIORITY=10

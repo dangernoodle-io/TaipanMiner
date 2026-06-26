@@ -1,4 +1,1 @@
-# Bitaxe 601 debug — delta on top of sdkconfig.bitaxe-601
-CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y
-CONFIG_LOG_DEFAULT_LEVEL=4
-CONFIG_LOG_MAXIMUM_LEVEL=4
+# Bitaxe 601 debug overlay (level via sdkconfig/debug-common).

@@ -315,7 +315,7 @@ internally.  Display auto-scales: `359.82kH/s` for CPU miners, `915.60GH/s` for 
 
 ```sh
 ./fleet soak [--duration 1h] [--interval 60] [--target VERSION]
-             [--expected-ghs N] [--settle SEC] [--no-settle]
+             [--expected-ghs N] [--settle [SEC]]
              [--gate NAME] [--skip NAME]
              [--quiet]
              [--samples-out PATH]
@@ -332,9 +332,15 @@ Flags specific to `soak`:
 | `--interval SEC` | from criteria | poll interval |
 | `--target VERSION` | — | fail devices not running this version |
 | `--expected-ghs N` | from /api/stats | hashrate ceiling override (0 disables) |
+| `--settle` | off | opt-in settle: bare flag uses criteria default (120 s) |
+| `--settle N` | — | opt-in settle with explicit delay of N seconds |
 | `--quiet` | false | suppress per-tick live rows (CI/unattended) |
 | `--samples-out PATH` | — | write per-tick time-series: `.json` (NDJSON) or `.csv` |
 | `--attach-logs MODE` | `anomaly` | attach device log tail to result: `anomaly`, `always`, `never` |
+
+**Settle is opt-in.**  Without `--settle`, detectors are active from t=0 with no warmup
+suppression.  Pass `--settle` (bare) to enable the criteria default warmup (120 s); pass
+`--settle N` for an explicit delay.
 
 **Hashrate coverage:** all mining boards that report `expected_ghs > 0` in `/api/stats`
 are covered — not just ASICs.  Per-class floor percentages are configured in
@@ -461,7 +467,7 @@ mutating actions.
 ./fleet ota status
 
 # verify version + mining state post-settle
-./fleet ota verify --target v0.70.0 [--settle SEC]
+./fleet ota verify --target v0.70.0 [--settle [SEC]]
 ```
 
 **Destructive / operator-only.**
@@ -577,8 +583,7 @@ All subcommands accept:
 | `--out-junit PATH` | — | write JUnit XML results to file |
 | `--baseline PATH` | — | compare against a prior JSON result file |
 | `--criteria PATH` | `config/criteria.yaml` | YAML criteria override file |
-| `--settle SEC` | from criteria | warmup settle delay |
-| `--no-settle` | false | disable settle/readiness gate |
+| `--settle [SEC]` | off | opt-in warmup settle; bare = criteria default (120 s) |
 | `--dry-run` | false | log mutating ops but don't execute |
 | `--yes` | false | auto-confirm guard for mutating ops |
 | `--log-level` | WARNING | DEBUG / INFO / WARNING / ERROR |

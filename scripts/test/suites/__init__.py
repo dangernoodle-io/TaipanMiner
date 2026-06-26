@@ -31,8 +31,8 @@ SUITES: dict[str, str] = {
 
 @dataclass
 class SettleConfig:
-    settle_delay: int = 120
-    enabled: bool = True
+    settle_delay: int = 0
+    enabled: bool = False
 
     def wait_ready(self, device, criteria=None) -> "Readiness":  # noqa: F821
         from fleetlib.readiness import wait_until_ready

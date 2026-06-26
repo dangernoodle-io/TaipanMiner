@@ -22,6 +22,7 @@ class Result:
     detail: str = ""
     metrics: Dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
+    logs: Optional[List[str]] = field(default=None)
 
 
 class ResultSet:
@@ -47,6 +48,7 @@ class ResultSet:
                     "detail": r.detail,
                     "metrics": r.metrics,
                     "timestamp": r.timestamp,
+                    "logs": r.logs,
                 }
                 for r in self.results
             ],

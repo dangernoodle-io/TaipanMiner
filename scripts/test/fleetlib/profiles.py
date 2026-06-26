@@ -23,6 +23,7 @@ class Profile:
     heap_floor: Optional[int] = None        # bytes; None = use Criteria default
     vcore_floor_mv: Optional[int] = None    # mV; ASIC only
     publisher_polls: Optional[int] = None   # None = use Criteria default
+    hashrate_floor_pct: Optional[float] = None  # % floor; None = use Criteria default
 
 
 class Profiles:

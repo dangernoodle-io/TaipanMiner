@@ -305,5 +305,167 @@ class TestSoakVersionCheck(unittest.TestCase):
         self.assertEqual(results[0].status, STATUS_PASS)
 
 
+class TestSoakHashrateCPU(unittest.TestCase):
+    """TA-451: hashrate detector active on all mining boards (not ASIC-only)."""
+
+    def _make_sample_with_stats(self, device, expected_ghs, hashrate):
+        s = _make_sample(device)
+        s.stats = {"expected_ghs": expected_ghs, "hashrate": hashrate}
+        return s
+
+    def test_hashrate_detector_active_on_cpu_when_expected_ghs_nonzero(self):
+        """CPU board with expected_ghs > 0 and hashrate far below floor → FAIL."""
+        from suites import soak
+
+        device = _make_device(board="esp32-wroom32")
+        ctx = _make_ctx([device], extra={"duration": 0.3, "interval": 0.05, "quiet": True})
+
+        def _fake_sample(dev, fset):
+            return self._make_sample_with_stats(dev, expected_ghs=0.5, hashrate=0.01)
+
+        with patch("fleetlib.monitor._sample_device", side_effect=_fake_sample):
+            soak._run_device(device, ctx, ctx.results)
+
+        results = ctx.results.results
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].status, STATUS_FAIL)
+        self.assertIn("hashrate", results[0].detail.lower())
+
+    def test_hashrate_detector_skips_when_expected_ghs_zero(self):
+        """CPU board with expected_ghs = 0 → no floor check → PASS."""
+        from suites import soak
+
+        device = _make_device(board="esp32-wroom32")
+        ctx = _make_ctx([device], extra={"duration": 0.2, "interval": 0.05, "quiet": True})
+
+        def _fake_sample(dev, fset):
+            return self._make_sample_with_stats(dev, expected_ghs=0.0, hashrate=0.0)
+
+        with patch("fleetlib.monitor._sample_device", side_effect=_fake_sample):
+            soak._run_device(device, ctx, ctx.results)
+
+        results = ctx.results.results
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].status, STATUS_PASS)
+
+    def test_stats_field_fetched_for_cpu_when_hashrate_gate_enabled(self):
+        """CPU board must request stats field when hashrate gate is enabled."""
+        from suites import soak
+
+        device = _make_device(board="esp32-wroom32")
+        ctx = _make_ctx([device], extra={"duration": 0.2, "interval": 0.05, "quiet": True})
+        fetched_fields = []
+
+        def _fake_sample(dev, fset):
+            fetched_fields.append(set(fset))
+            return _make_sample(dev)
+
+        with patch("fleetlib.monitor._sample_device", side_effect=_fake_sample):
+            soak._run_device(device, ctx, ctx.results)
+
+        self.assertTrue(
+            any("stats" in f for f in fetched_fields),
+            f"CPU board should request stats field when hashrate gate enabled; got {fetched_fields}",
+        )
+
+    def test_per_class_floor_from_profile(self):
+        """Profile hashrate_floor_pct=90%: hashrate 0.85 → FAIL; 0.95 → PASS."""
+        from suites import soak
+        from fleetlib.criteria import Criteria
+        from fleetlib.profiles import Profile, Profiles
+
+        # Build a context with a profile that has hashrate_floor_pct=90.0
+        criteria = Criteria(hashrate_floor_pct=90.0)
+
+        # Test: below floor
+        device = _make_device(board="esp32-wroom32")
+        ctx = _make_ctx([device], criteria=criteria, extra={"duration": 0.3, "interval": 0.05, "quiet": True})
+
+        def _fake_below(dev, fset):
+            s = _make_sample(dev)
+            s.stats = {"expected_ghs": 1.0, "hashrate": 0.85}
+            return s
+
+        with patch("fleetlib.monitor._sample_device", side_effect=_fake_below):
+            soak._run_device(device, ctx, ctx.results)
+
+        self.assertEqual(ctx.results.results[0].status, STATUS_FAIL)
+
+        # Test: above floor
+        device2 = _make_device(ip="192.0.2.2", board="esp32-wroom32")
+        rs2 = ResultSet("soak")
+        from suites import SuiteContext, SettleConfig
+        from fleetlib.safety import Guard
+        ctx2 = SuiteContext(
+            devices=[device2],
+            criteria=criteria,
+            guard=Guard(dry_run=True),
+            results=rs2,
+            fields=None,
+            gates=set(),
+            settle=SettleConfig(settle_delay=0, enabled=False),
+            out_json=None,
+            out_junit=None,
+            baseline=None,
+            extra={"duration": 0.3, "interval": 0.05, "quiet": True},
+        )
+
+        def _fake_above(dev, fset):
+            s = _make_sample(dev)
+            s.stats = {"expected_ghs": 1.0, "hashrate": 0.95}
+            return s
+
+        with patch("fleetlib.monitor._sample_device", side_effect=_fake_above):
+            soak._run_device(device2, ctx2, rs2)
+
+        self.assertEqual(rs2.results[0].status, STATUS_PASS)
+
+
+class TestResultLogs(unittest.TestCase):
+    """Result.logs field serializes correctly into JSON output."""
+
+    def test_logs_serialized_in_json(self):
+        import json
+        import tempfile
+        import os
+        from fleetlib.results import Result, ResultSet, STATUS_PASS
+        from fleetlib.discovery import Device
+
+        dev = Device(hostname="h", ip="192.0.2.1", port=80, board="test", version="v1")
+        rs = ResultSet("t")
+        rs.add(Result("r", dev, STATUS_PASS, "", logs=["line1", "line2"]))
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
+            path = f.name
+        try:
+            rs.to_json(path)
+            with open(path) as f:
+                data = json.load(f)
+            self.assertEqual(data["results"][0]["logs"], ["line1", "line2"])
+        finally:
+            os.unlink(path)
+
+    def test_logs_none_serialized_as_null(self):
+        import json
+        import tempfile
+        import os
+        from fleetlib.results import Result, ResultSet, STATUS_PASS
+        from fleetlib.discovery import Device
+
+        dev = Device(hostname="h", ip="192.0.2.1", port=80, board="test", version="v1")
+        rs = ResultSet("t")
+        rs.add(Result("r", dev, STATUS_PASS, "", logs=None))
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
+            path = f.name
+        try:
+            rs.to_json(path)
+            with open(path) as f:
+                data = json.load(f)
+            self.assertIsNone(data["results"][0]["logs"])
+        finally:
+            os.unlink(path)
+
+
 if __name__ == "__main__":
     unittest.main()

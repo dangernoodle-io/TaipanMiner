@@ -136,7 +136,7 @@ def _run_device(device, ctx: "SuiteContext", rs: ResultSet) -> None:
     if gate_enabled(ctx, "publisher"):
         dets.append(_build_publisher_gate_detector(criteria, "publisher"))
 
-    if gate_enabled(ctx, "hashrate") and profile.is_asic:
+    if gate_enabled(ctx, "hashrate"):
         from fleetlib.monitor import make_hashrate_detector
         # CLI override takes precedence; otherwise read expected_ghs per sample from /api/stats.
         # The floor check is enabled only when the resolved value > 0.
@@ -169,7 +169,7 @@ def _run_device(device, ctx: "SuiteContext", rs: ResultSet) -> None:
     fields = list(ctx.fields) if ctx.fields else ["info", "heap", "telemetry"]
     if profile.is_asic and "sensors" not in fields:
         fields.append("sensors")
-    if "stats" not in fields and gate_enabled(ctx, "hashrate") and profile.is_asic:
+    if "stats" not in fields and gate_enabled(ctx, "hashrate"):
         fields.append("stats")
 
     # Version check

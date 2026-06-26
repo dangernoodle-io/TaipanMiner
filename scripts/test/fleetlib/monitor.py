@@ -19,6 +19,39 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Imported lazily to avoid circular imports; see _device_is_ready().
+# readiness.is_ready + readiness.ReadinessSnapshot are used in warmup evaluation.
+def _device_is_ready(sample: "Sample", criteria: "Criteria") -> bool:
+    """Evaluate the shared readiness predicate against a Sample.
+
+    Builds a ReadinessSnapshot from the sample's available fields and delegates
+    to readiness.is_ready.  pool_connected is always None here because the sample
+    does not fetch /api/pool — the hashrate signal covers that gap.
+    """
+    from .readiness import is_ready, ReadinessSnapshot
+
+    # Heap: prefer structured heap, fall back to flat free_heap on /api/info
+    heap_free: Optional[int] = None
+    if sample.heap is not None:
+        heap_free = (sample.heap.get("internal") or {}).get("free")
+    if heap_free is None and sample.info is not None:
+        heap_free = sample.info.get("free_heap")
+
+    # Mining capability + hashrate from /api/stats
+    is_mining = sample.stats is not None and (sample.stats.get("expected_ghs") or 0.0) > 0
+    hr_ghs: Optional[float] = None
+    if is_mining:
+        hr_ghs = hashrate_ghs(sample.stats)
+
+    snap = ReadinessSnapshot(
+        heap_free=heap_free,
+        is_mining=is_mining,
+        hashrate_ghs=hr_ghs,
+        pool_connected=None,  # not fetched by monitor; rely on hashrate signal
+    )
+    ready, _ = is_ready(snap, criteria)
+    return ready
+
 
 @dataclass
 class Sample:
@@ -75,6 +108,7 @@ def poll(
     fields: Optional[List[str]] = None,
     settle_delay: int = 0,
     on_sample: Optional[Callable[[Sample], None]] = None,
+    criteria: Optional["Criteria"] = None,
 ) -> List[Anomaly]:
     """Poll all devices for `duration` seconds at `interval` second ticks.
 
@@ -89,18 +123,28 @@ def poll(
         detectors:    list of Detector callables
         fields:       subset of ["info","heap","telemetry","sensors","stats"]
                       (default: ["info","heap","telemetry"])
-        settle_delay: warmup grace period in seconds after start (and after reboots).
-                      Detectors are suppressed until this window expires.
+        settle_delay: warmup floor in seconds after start (and after reboots).
+                      When criteria is supplied, warmup ends when the shared
+                      readiness predicate passes AND settle_delay has elapsed.
+                      When criteria is None, warmup ends when settle_delay elapses
+                      (legacy blind-timer behavior).
                       0 = no warmup suppression (default, preserves old behavior).
         on_sample:    optional callback invoked for every sample (including warmup ticks).
                       sample.warmup is set before the callback fires. Detectors still
                       observe warmup suppression regardless of this callback.
+        criteria:     Criteria instance used to evaluate the shared readiness predicate
+                      during warmup.  When None (or settle_delay == 0), warmup is purely
+                      time-based (backward-compatible).
 
     Returns:
         List of Anomaly detected across the run (may be empty).
     """
     if fields is None:
         fields = ["info", "heap", "telemetry"]
+    # Ensure stats is fetched when criteria is provided and settle is active,
+    # so _device_is_ready can evaluate the mining / hashrate signals.
+    if settle_delay > 0 and criteria is not None and "stats" not in fields:
+        fields = list(fields) + ["stats"]
     fset = tuple(fields)
 
     now = time.monotonic()
@@ -108,8 +152,10 @@ def poll(
     # Per-device state dict persists across ticks for stateful detectors
     state: Dict[str, Dict[str, Any]] = {d.ip: {} for d in devices}
 
-    # Per-device warmup deadline (monotonic clock); key = device.ip
-    warmup_until: Dict[str, float] = {
+    # Per-device warmup floor deadline (monotonic clock); key = device.ip.
+    # Warmup ends when BOTH the deadline has passed AND (if criteria supplied)
+    # the readiness predicate is satisfied.
+    warmup_floor: Dict[str, float] = {
         d.ip: now + settle_delay for d in devices
     }
     # Per-device last-seen uptime to detect mid-run reboots
@@ -133,17 +179,28 @@ def poll(
                     and prev is not None
                     and cur_uptime < prev
                 ):
-                    new_deadline = time.monotonic() + settle_delay
+                    new_floor = time.monotonic() + settle_delay
                     logger.info(
                         "reboot detected on %s (uptime %s -> %s ms); "
                         "resetting warmup window for %ds",
                         device.ip, prev, cur_uptime, settle_delay,
                     )
-                    warmup_until[device.ip] = new_deadline
+                    warmup_floor[device.ip] = new_floor
                 if cur_uptime is not None:
                     last_uptime[device.ip] = cur_uptime
 
-            in_warmup = settle_delay > 0 and time.monotonic() < warmup_until[device.ip]
+            # Warmup ends when:
+            #   (a) settle_delay == 0  →  never in warmup
+            #   (b) floor has elapsed AND (criteria is None OR device is ready)
+            if settle_delay > 0:
+                floor_elapsed = time.monotonic() >= warmup_floor[device.ip]
+                if floor_elapsed and criteria is not None and sample.ok:
+                    in_warmup = not _device_is_ready(sample, criteria)
+                else:
+                    in_warmup = not floor_elapsed
+            else:
+                in_warmup = False
+
             sample.warmup = in_warmup
             if on_sample is not None:
                 try:

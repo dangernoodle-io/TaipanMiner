@@ -452,6 +452,69 @@ Examples:
 
 Operator-only (long duration, consumes device resources).
 
+---
+
+## Run metrics publishing (TA-455)
+
+After every suite run (`soak`, `stress`, and any suite that populates
+`Result.metrics`), the harness publishes per-result metrics to a mosquitto topic.
+This feeds the same mosquitto → InfluxDB → Grafana pipeline as device telemetry
+(TA-270), enabling run-over-run tracking in dashboards.
+
+**Default ON** when a broker is configured; silently skipped (one-line note on
+stderr) when no broker is configured.  Publish failures are warnings — they never
+change the run exit code.
+
+### Topic convention
+
+```
+<prefix>/<suite>/<board>
+```
+
+Default prefix is `fleettest` (distinct from device telemetry `metrics/` namespace).
+Examples:
+- `fleettest/soak/bitaxe-601`
+- `fleettest/stress/esp32-wroom32`
+
+### Payload (JSON)
+
+```json
+{
+  "suite":   "soak",
+  "host":    "192.168.1.81",
+  "board":   "bitaxe-601",
+  "ts":      "2025-01-01T12:00:00Z",
+  "status":  "pass",
+  "metrics": { "heap_free_min": 72000, "hashrate_avg": 485.2, ... }
+}
+```
+
+One message per device result that has a non-empty `metrics` dict.
+
+### Configuration
+
+| Flag | Env var | Description |
+|------|---------|-------------|
+| `--metrics-mqtt-url HOST[:PORT]` | `BB_TEST_METRICS_BROKER` | broker for run metrics (also falls back to `BB_TEST_RECEIVER`) |
+| `--metrics-topic PREFIX` | — | topic prefix (default: `fleettest`) |
+| `--no-publish-metrics` | — | opt-out: disable publishing entirely |
+
+No credentials or broker IPs are hardcoded.  TLS reuses the existing `--certs` /
+`BB_TEST_CERTS` cert infrastructure when connecting to a TLS broker.
+
+```sh
+# explicit broker
+./fleet soak --hosts 172.16.1.81 --metrics-mqtt-url 172.16.1.100:1883
+
+# via env var
+BB_TEST_METRICS_BROKER=172.16.1.100:1883 ./fleet soak
+
+# opt-out
+./fleet soak --no-publish-metrics
+```
+
+---
+
 ### `stress`
 
 Concurrent HTTP load generator.  Respects `max_concurrent` and `max_rps` from the

@@ -195,109 +195,44 @@ def _mqtt_broker_verify(
 ) -> Tuple[bool, str]:
     """Subscribe to the broker and confirm a message from this device arrives.
 
-    Connects a paho-mqtt subscriber to host:port, subscribes to
-    ``<topic_prefix>/<hostname>/#`` and waits up to ``timeout`` seconds for
-    a matching message (any subtopic is accepted — the wildcard catches all
-    bb_pub sources for this device).
-
-    For stls/mtls rows, TLS material from ``certs`` is applied (ca / cert+key).
+    Delegates to fleetlib.mqtt.subscribe_and_wait after building an optional
+    TLS context from ``certs`` for stls/mtls rows.
 
     Returns (ok, detail).  Positive confirmation only — a received message is
     required for ok=True; timeout or connect failure → ok=False.
-
-    If paho-mqtt is not installed, returns (False, "paho-mqtt not installed …")
-    so the caller can treat it as a skipped check.
     """
-    try:
-        import paho.mqtt.client as mqtt  # lazy import — optional dep
-    except ImportError:
-        return False, (
-            "paho-mqtt not installed (pip install paho-mqtt); "
-            "broker-subscribe check skipped — device-side signal was the only validation"
-        )
+    from fleetlib.mqtt import subscribe_and_wait, build_tls_context
 
     topic = f"{topic_prefix}/{hostname}/#"
-    received: list = []
+    broker_url = f"{host}:{port}"
 
-    def on_connect(client, userdata, flags, rc, *args):
-        if rc == 0:
-            client.subscribe(topic, qos=0)
-        else:
-            logger.debug("broker verify: connect rc=%d", rc)
-
-    def on_message(client, userdata, msg):
-        received.append(msg)
-        client.disconnect()
-
-    if _paho_client_factory is not None:
-        client = _paho_client_factory()
-    else:
-        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-
-    client.on_connect = on_connect
-    client.on_message = on_message
-
+    tls_ctx = None
     use_tls = row in ("mqtt_stls", "mqtt_mtls")
     if use_tls and certs:
-        tls_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        tls_ctx.check_hostname = False
-        tls_ctx.verify_mode = ssl.CERT_NONE
-        ca = certs.get("ca")
-        cert = certs.get("cert")
-        key = certs.get("key")
         with tempfile.TemporaryDirectory() as td:
-            ca_path = cert_path = key_path = None
-            if ca:
-                ca_path = os.path.join(td, "ca.crt")
-                with open(ca_path, "w") as f:
-                    f.write(ca)
-                tls_ctx.verify_mode = ssl.CERT_REQUIRED
-                tls_ctx.check_hostname = True
-                tls_ctx.load_verify_locations(ca_path)
-            if cert and key:
-                cert_path = os.path.join(td, "client.crt")
-                key_path = os.path.join(td, "client.key")
-                with open(cert_path, "w") as f:
-                    f.write(cert)
-                with open(key_path, "w") as f:
-                    f.write(key)
-                tls_ctx.load_cert_chain(cert_path, key_path)
-            client.tls_set_context(tls_ctx)
-            return _run_broker_verify(client, host, port, timeout, received, topic)
+            tls_ctx, err = build_tls_context(
+                ca=certs.get("ca"),
+                cert=certs.get("cert"),
+                key=certs.get("key"),
+                tmpdir=td,
+            )
+            if err:
+                return False, f"TLS setup failed: {err}"
+            return subscribe_and_wait(
+                broker_url,
+                topic,
+                timeout=timeout,
+                tls_ctx=tls_ctx,
+                _client_factory=_paho_client_factory,
+            )
 
-    return _run_broker_verify(client, host, port, timeout, received, topic)
-
-
-def _run_broker_verify(
-    client,
-    host: str,
-    port: int,
-    timeout: int,
-    received: list,
-    topic: str,
-) -> Tuple[bool, str]:
-    """Connect, loop for timeout seconds, return result."""
-    try:
-        client.connect(host, port, keepalive=30)
-    except Exception as exc:  # noqa: BLE001
-        return False, f"broker connect failed: {exc}"
-    try:
-        client.loop_start()
-        import time
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline and not received:
-            time.sleep(0.2)
-    finally:
-        client.loop_stop()
-        try:
-            client.disconnect()
-        except Exception:
-            pass
-
-    if received:
-        msg = received[0]
-        return True, f"broker receipt confirmed: topic={msg.topic} len={len(msg.payload)}B"
-    return False, f"broker timeout: no message received on {topic!r} within {timeout}s"
+    return subscribe_and_wait(
+        broker_url,
+        topic,
+        timeout=timeout,
+        tls_ctx=None,
+        _client_factory=_paho_client_factory,
+    )
 
 
 def run(ctx: "SuiteContext") -> ResultSet:

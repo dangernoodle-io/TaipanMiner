@@ -342,6 +342,14 @@ Flags specific to `soak`:
 suppression.  Pass `--settle` (bare) to enable the criteria default warmup (120 s); pass
 `--settle N` for an explicit delay.
 
+**Settle uses a single readiness definition** shared with `ota verify` and `stress`.
+Warmup ends when *both* conditions hold: (1) the settle floor has elapsed **and**
+(2) the board passes the readiness predicate — heap ≥ floor, pool connected and
+hashrate above min (mining boards only).  `settle_delay` is the *floor*, not the
+whole window; a slow-starting board stays in warmup until it is actually ready.
+When settle is off (`settle_delay=0`), behaviour is unchanged: detectors are active
+from t=0.
+
 **Hashrate coverage:** all mining boards that report `expected_ghs > 0` in `/api/stats`
 are covered — not just ASICs.  Per-class floor percentages are configured in
 `config/profiles.yaml` (`hashrate_floor_pct`):

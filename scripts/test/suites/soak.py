@@ -33,10 +33,22 @@ NAME = "soak"
 HELP = "Long-duration fleet health soak (heap, reboot, WDT, hashrate, publisher)"
 
 
+def _parse_duration(s: str) -> float:
+    """Accept '30s', '2m', '1h', or a bare float string."""
+    s = s.strip()
+    if s.endswith("s"):
+        return float(s[:-1])
+    if s.endswith("m"):
+        return float(s[:-1]) * 60.0
+    if s.endswith("h"):
+        return float(s[:-1]) * 3600.0
+    return float(s)
+
+
 def add_arguments(parser) -> None:
     parser.add_argument(
-        "--duration", type=float, default=None,
-        help="soak window in seconds (default: criteria.duration)",
+        "--duration", type=_parse_duration, default=None,
+        help="soak window: '30s', '2m', '1h', or bare seconds (default: criteria.duration)",
     )
     parser.add_argument(
         "--interval", type=float, default=None,
@@ -45,6 +57,10 @@ def add_arguments(parser) -> None:
     parser.add_argument(
         "--target", metavar="VERSION", default=None,
         help="expected firmware version; fail devices not running this version",
+    )
+    parser.add_argument(
+        "--expected-ghs", type=float, default=None, dest="expected_ghs",
+        help="hashrate floor override in GH/s (default: read from device /api/stats); 0 disables floor check",
     )
 
 
@@ -122,10 +138,28 @@ def _run_device(device, ctx: "SuiteContext", rs: ResultSet) -> None:
 
     if gate_enabled(ctx, "hashrate") and profile.is_asic:
         from fleetlib.monitor import make_hashrate_detector
-        # expected_ghs from extra or leave at 0 (no floor check)
-        expected_ghs = ctx.extra.get("expected_ghs", 0.0)
-        if expected_ghs > 0:
-            dets.append(make_hashrate_detector(criteria, expected_ghs))
+        # CLI override takes precedence; otherwise read expected_ghs per sample from /api/stats.
+        # The floor check is enabled only when the resolved value > 0.
+        _override_ghs = ctx.extra.get("expected_ghs") or 0.0
+
+        def _live_hashrate_detector(sample: Sample, state: dict,
+                                    _override: float = _override_ghs) -> object:
+            if _override > 0:
+                eghs = _override
+            elif sample.stats is not None:
+                eghs = float(sample.stats.get("expected_ghs") or 0)
+            else:
+                eghs = 0.0
+            if eghs <= 0:
+                return None
+            inner_key = "_hr_inner"
+            eghs_key = "_hr_eghs"
+            if inner_key not in state or state.get(eghs_key) != eghs:
+                state[inner_key] = make_hashrate_detector(criteria, eghs)
+                state[eghs_key] = eghs
+            return state[inner_key](sample, state)
+
+        dets.append(_live_hashrate_detector)
 
     if gate_enabled(ctx, "vcore") and profile.is_asic:
         from fleetlib.monitor import make_vcore_detector

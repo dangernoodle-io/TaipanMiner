@@ -24,7 +24,7 @@ SUITES: dict[str, str] = {
     "soak": "suites.soak",
     "stress": "suites.stress",
     "faults": "suites.faults",
-    "matrix": "suites.matrix",
+    "matrix": "suites.transport_matrix",
 }
 
 

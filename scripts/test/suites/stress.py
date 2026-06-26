@@ -33,6 +33,19 @@ logger = logging.getLogger(__name__)
 NAME = "stress"
 HELP = "Browser-like concurrent load test with crash detection and heap-recovery assertion"
 
+
+def _parse_duration(s: str) -> float:
+    """Accept '30s', '2m', '1h', or a bare float string."""
+    s = s.strip()
+    if s.endswith("s"):
+        return float(s[:-1])
+    if s.endswith("m"):
+        return float(s[:-1]) * 60.0
+    if s.endswith("h"):
+        return float(s[:-1]) * 3600.0
+    return float(s)
+
+
 # API endpoints to hammer (mirrors browser_repro.py)
 _POLL_ENDPOINTS = [
     "/api/stats",
@@ -49,8 +62,8 @@ _SSE_ENDPOINTS = [
 
 def add_arguments(parser) -> None:
     parser.add_argument(
-        "--duration", type=float, default=30.0,
-        help="load duration per device in seconds (default: 30)",
+        "--duration", type=_parse_duration, default=30.0,
+        help="load duration: '30s', '2m', '1h', or bare seconds (default: 30)",
     )
     parser.add_argument(
         "--level", type=float, default=0.8,

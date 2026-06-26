@@ -88,28 +88,31 @@ def _build_parser() -> argparse.ArgumentParser:
     # functional
     fn = sub.add_parser("functional", help=_suite_help("functional"))
     _add_common_flags(fn)
-    fn.add_argument("--strict", action="store_true",
-                    help="fail on nullable/empty-enum schema issues (default: downgrade to skip)")
+    _add_suite_arguments(fn, "functional")
     fn.set_defaults(func=lambda a: cmd_suite(a, "functional"))
 
     # soak
     sk = sub.add_parser("soak", help=_suite_help("soak"))
     _add_common_flags(sk)
+    _add_suite_arguments(sk, "soak")
     sk.set_defaults(func=lambda a: cmd_suite(a, "soak"))
 
     # stress
     sr = sub.add_parser("stress", help=_suite_help("stress"))
     _add_common_flags(sr)
+    _add_suite_arguments(sr, "stress")
     sr.set_defaults(func=lambda a: cmd_suite(a, "stress"))
 
     # faults
     fa = sub.add_parser("faults", help=_suite_help("faults"))
     _add_common_flags(fa)
+    _add_suite_arguments(fa, "faults")
     fa.set_defaults(func=lambda a: cmd_suite(a, "faults"))
 
     # matrix
     mx = sub.add_parser("matrix", help=_suite_help("matrix"))
     _add_common_flags(mx)
+    _add_suite_arguments(mx, "matrix")
     mx.set_defaults(func=lambda a: cmd_suite(a, "matrix"))
 
     # ota
@@ -153,6 +156,22 @@ def _build_parser() -> argparse.ArgumentParser:
     op_verify.set_defaults(func=cmd_ota_verify)
 
     return p
+
+
+def _add_suite_arguments(parser: argparse.ArgumentParser, suite_name: str) -> None:
+    """Call suite.add_arguments(parser) if the suite module is importable.
+
+    Degrades gracefully on ImportError so the parser still builds.
+    """
+    try:
+        from suites import load_suite
+        mod = load_suite(suite_name)
+        mod.add_arguments(parser)
+    except ImportError as exc:
+        import warnings
+        warnings.warn(f"suite {suite_name}: add_arguments skipped ({exc})", stacklevel=2)
+    except Exception:
+        pass
 
 
 def _suite_help(name: str) -> str:
@@ -294,9 +313,16 @@ def cmd_suite(args, suite_name: str) -> int:
     ctx = _build_context(args, suite_name=suite_name)
     ctx.devices = resolve_devices(args)
 
-    # Forward suite-specific flags into ctx.extra
-    if suite_name == "functional":
-        ctx.extra["strict"] = getattr(args, "strict", False)
+    # Forward all suite-specific flags into ctx.extra generically.
+    # COMMON_DEST enumerates every dest that _add_common_flags and the main parser register,
+    # so anything left over must belong to the suite subparser.
+    _COMMON_DEST = {
+        "hosts", "discover_timeout", "board",
+        "fields", "gates", "skip_gates", "out_json", "out_junit", "baseline", "criteria",
+        "settle", "no_settle", "dry_run", "yes",
+        "log_level", "subcommand", "func",
+    }
+    ctx.extra = {k: v for k, v in vars(args).items() if k not in _COMMON_DEST}
 
     if not ctx.devices:
         print("No devices found.")

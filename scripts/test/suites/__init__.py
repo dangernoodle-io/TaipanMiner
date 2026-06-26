@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from fleetlib.results import ResultSet
     from fleetlib.safety import Guard
     from fleetlib.criteria import Criteria
+    from fleetlib.profiles import Profiles
 
 # Registry: subcommand name -> dotted module path (lazy import)
 SUITES: dict[str, str] = {
@@ -53,6 +54,7 @@ class SuiteContext:
     out_json: Optional[str]
     out_junit: Optional[str]
     baseline: Optional[str]
+    profiles: Optional["Profiles"] = None       # board-class overrides from profiles.yaml
     extra: dict = field(default_factory=dict)  # suite-specific parsed args
 
 

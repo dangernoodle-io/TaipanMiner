@@ -52,7 +52,7 @@ def _broker_available(docker, container: str) -> bool:
 
 def run_device(device, ctx, rs) -> None:
     name = f"{device.ip}/faults/broker-outage"
-    profile = profile_for(device.board)
+    profile = profile_for(device.board, ctx.profiles)
     criteria = for_profile(ctx.criteria, profile)
     docker = _docker_runner(ctx)
     container = ctx.extra.get("broker_container") or DEFAULT_CONTAINER

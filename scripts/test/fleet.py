@@ -22,6 +22,7 @@ import time
 sys.path.insert(0, os.path.dirname(__file__))
 
 from fleetlib.criteria import Criteria, load as load_criteria
+from fleetlib.profiles import Profiles
 from fleetlib.safety import Guard
 from fleetlib.results import ResultSet
 from suites import SuiteContext, SettleConfig, resolve_devices
@@ -192,7 +193,7 @@ def _build_context(args, suite_name: str = "fleet") -> SuiteContext:
     if criteria_path:
         criteria = load_criteria(criteria_path)
     else:
-        criteria = Criteria()
+        criteria = load_criteria()
 
     # Settle config
     if getattr(args, "no_settle", False):
@@ -232,6 +233,7 @@ def _build_context(args, suite_name: str = "fleet") -> SuiteContext:
         out_json=getattr(args, "out_json", None),
         out_junit=getattr(args, "out_junit", None),
         baseline=getattr(args, "baseline", None),
+        profiles=Profiles.load(),
     )
 
 
@@ -569,8 +571,8 @@ def cmd_ota_verify(args) -> int:
     target = args.target_version
     settle = _ota_settle(args)
     criteria_path = getattr(args, "criteria", None)
-    from fleetlib.criteria import load as load_criteria, Criteria
-    criteria = load_criteria(criteria_path) if criteria_path else Criteria()
+    from fleetlib.criteria import load as load_criteria
+    criteria = load_criteria(criteria_path) if criteria_path else load_criteria()
 
     _verify = getattr(ota, "verify", None)
     if _verify is None:

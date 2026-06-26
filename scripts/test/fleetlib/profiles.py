@@ -72,8 +72,13 @@ _S3_PREFIXES = ("esp32-s3",)
 _S2_PREFIXES = ("esp32-s2",)
 
 
-def profile_for(board: str) -> Profile:
+def profile_for(board: str, profiles: Optional["Profiles"] = None) -> Profile:
     """Detect board class from board string and return a Profile.
+
+    If *profiles* is supplied (a :class:`Profiles` loaded from YAML), it is
+    checked first: keys are matched against the board string by prefix so that
+    e.g. ``bitaxe`` matches ``bitaxe-403``.  The first matching YAML entry wins;
+    the hardcoded class detection below is the fallback.
 
     Classes:
       bitaxe-*          => ASIC (BM1368/BM1370; has miner/sensors, vcore checks)
@@ -83,6 +88,13 @@ def profile_for(board: str) -> Profile:
       esp32-s2*         => single-core, no-PSRAM
       esp32-s3*         => dual-core, has PSRAM
     """
+    if profiles is not None:
+        b_lower = board.lower()
+        for key in profiles.overrides:
+            if b_lower == key or b_lower.startswith(key):
+                override = profiles.get(key)
+                if override is not None:
+                    return override
     b = board.lower()
 
     if any(b.startswith(p) for p in _ASIC_PREFIXES):

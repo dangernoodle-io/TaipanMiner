@@ -39,7 +39,7 @@ def _hook_present(c):
 
 def run_device(device, ctx, rs) -> None:
     name = f"{device.ip}/faults/vcore-drop"
-    profile = profile_for(device.board)
+    profile = profile_for(device.board, ctx.profiles)
 
     if not profile.is_asic:
         rs.add(Result(name=name, device=device, status=STATUS_SKIP,

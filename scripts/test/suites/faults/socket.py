@@ -77,7 +77,7 @@ def _await_drain(c, max_sockets: int, attempts: int = 6, interval: float = 1.0,
 
 def run_device(device, ctx, rs) -> None:
     name = f"{device.ip}/faults/socket"
-    profile = profile_for(device.board)
+    profile = profile_for(device.board, ctx.profiles)
     criteria = for_profile(ctx.criteria, profile)
 
     readiness = ctx.settle.wait_ready(device, criteria)

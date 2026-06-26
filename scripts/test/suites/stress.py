@@ -87,7 +87,7 @@ def run(ctx: "SuiteContext") -> ResultSet:
 
 
 def _run_device(device, ctx: "SuiteContext", rs: ResultSet) -> None:
-    profile = profile_for(device.board)
+    profile = profile_for(device.board, ctx.profiles)
     criteria = for_profile(ctx.criteria, profile)
     duration = ctx.extra.get("duration", 30.0)
     level = ctx.extra.get("level", 0.8)

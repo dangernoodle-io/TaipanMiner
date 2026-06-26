@@ -12,7 +12,7 @@ from .client import (
 )
 from .spec import Spec
 from .discovery import Device, discover, from_hosts
-from .profiles import Profile, profile_for
+from .profiles import Profile, Profiles, profile_for
 from .criteria import Criteria, load as load_criteria, for_profile as criteria_for_profile
 from .safety import Guard
 from .results import Result, ResultSet, STATUS_PASS, STATUS_FAIL, STATUS_SKIP
@@ -41,6 +41,7 @@ __all__ = [
     "from_hosts",
     # profiles
     "Profile",
+    "Profiles",
     "profile_for",
     # criteria
     "Criteria",

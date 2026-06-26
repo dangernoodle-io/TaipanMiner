@@ -204,7 +204,7 @@ def run(ctx: "SuiteContext") -> ResultSet:
 
 
 def _run_device(device, ctx, rs, rows, receiver, certs_dir) -> None:
-    profile = profile_for(device.board)
+    profile = profile_for(device.board, ctx.profiles)
     criteria = for_profile(ctx.criteria, profile)
     ports = ctx.extra.get("ports") or {}
     c = Client(device.ip, getattr(device, "port", 80))

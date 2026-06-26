@@ -1,4 +1,4 @@
-# Canonical soak pass/fail thresholds — defaults from AUDIT §4.
+# Canonical soak pass/fail thresholds.
 # Keys match fleetlib/criteria.py Criteria dataclass fields exactly.
 # All values here are the compiled defaults; edit to tighten per-run.
 

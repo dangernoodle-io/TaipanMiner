@@ -1,7 +1,7 @@
 """Safety guardrails for mutating fleet operations.
 
-Guards against the stale-IP near-miss documented in AUDIT §2f:
-a reassigned IP nearly caused an OTA flash of the wrong board.
+Guards against a stale-IP near-miss: a reassigned IP nearly caused an
+OTA flash of the wrong board.
 Every mutating operation must pass through Guard.check() before executing.
 """
 from __future__ import annotations

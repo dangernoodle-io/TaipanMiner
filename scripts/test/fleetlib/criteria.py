@@ -1,4 +1,4 @@
-"""Canonical soak criteria — defaults from AUDIT §4, overridable per board profile."""
+"""Canonical soak criteria — harness defaults, overridable per board profile."""
 from __future__ import annotations
 import copy
 import os

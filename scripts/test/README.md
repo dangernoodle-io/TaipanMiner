@@ -278,4 +278,5 @@ Board-class capability overrides.  Keys are board-class prefix strings (e.g. `bi
 
 OTA push and other destructive operations call `fleetlib.ota` which re-fetches
 `/api/info` at the target IP immediately before acting and verifies board identity.
-This guards against stale-IP hazards on DHCP churn (see AUDIT §2f).
+This guards against stale-IP hazards on DHCP churn (a reassigned IP otherwise risks
+flashing the wrong board).

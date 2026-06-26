@@ -84,7 +84,7 @@ def _gets_healthy_mining(version="v0.70.0", reset="software", validated=False):
     health = {"ok": False if not validated else True, "validated": validated}
     return {
         "/api/health": health,
-        "/api/info": {"version": version, "reset_reason": reset, "uptime_ms": 30000},
+        "/api/info": {"build": {"version": version}, "reset_reason": reset, "uptime_ms": 30000},
         "/api/stats": {"hashrate_ghs": 243.0, "expected_ghs": 243.0},
         "/api/diag/heap": {"internal": {"free": 80000}},
         "/api/pool": {"connected": True},

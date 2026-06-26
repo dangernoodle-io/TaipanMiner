@@ -528,7 +528,7 @@ def cmd_discover(args) -> int:
 
 def cmd_status(args) -> int:
     """Fetch /api/info + /api/health for each device and print summary."""
-    from fleetlib.client import Client, TIMEOUT_INFO, TIMEOUT_HEALTH
+    from fleetlib.client import Client, TIMEOUT_INFO, TIMEOUT_HEALTH, info_field
 
     result = resolve_devices(args)
     devices = _unwrap_devices(result)
@@ -560,8 +560,8 @@ def cmd_status(args) -> int:
             heap_free = info.get("free_heap")
         heap_str = f"{heap_free:,}" if isinstance(heap_free, int) else "??"
 
-        board = info.get("board", d.board)
-        version = info.get("version", d.version)
+        board = info_field(info, "board") or d.board
+        version = info_field(info, "version") or d.version
 
         if health is None:
             health_str = "??"
@@ -1669,9 +1669,10 @@ def cmd_decode(args) -> int:
         print(f"{host}: no panic available (available=false, no backtrace/pc)")
         return 0
 
-    # Determine arch from /api/info chip_model
+    # Determine arch from /api/info build.chip_model (B1-360)
+    from fleetlib.client import info_field as _info_field
     info = c.get_json("/api/info", timeout=TIMEOUT_INFO) or {}
-    chip_model = info.get("chip_model", "ESP32")
+    chip_model = _info_field(info, "chip_model") or "ESP32"
     arch = chip_arch(chip_model)
 
     # Resolve ELF
@@ -1737,7 +1738,7 @@ def cmd_elf_archive(args) -> int:
 def cmd_elf_list(args) -> int:
     """List archived ELFs with in-use status from the live fleet."""
     import datetime
-    from fleetlib.client import Client, TIMEOUT_INFO
+    from fleetlib.client import Client, TIMEOUT_INFO, info_field
     from fleetlib.elfstore import list_entries
 
     entries = list_entries()
@@ -1746,7 +1747,7 @@ def cmd_elf_list(args) -> int:
         return 0
 
     # Collect running shas from live fleet (best-effort; failures -> empty).
-    # Primary source: /api/info app_sha256 (running image sha, always present on live device).
+    # Primary source: /api/info build.app_sha256 (B1-360 — running image sha).
     # Fallback: /api/diag/panic app_sha256 (only populated after a crash).
     # Both are truncated ELF sha256 prefixes matching the elfstore archive key.
     running_shas: set = set()
@@ -1756,7 +1757,7 @@ def cmd_elf_list(args) -> int:
         for d in devices:
             c = Client(d.ip, getattr(d, "port", 80))
             info = c.get_json("/api/info", timeout=TIMEOUT_INFO)
-            sha = (info or {}).get("app_sha256", "")
+            sha = info_field(info or {}, "app_sha256") or ""
             if sha:
                 running_shas.add(sha.lower())
             else:
@@ -1827,13 +1828,20 @@ def cmd_elf_prune(args) -> int:
         running_shas: set = set()
         for d in devices:
             c = Client(d.ip, getattr(d, "port", 80))
-            panic = c.get_json("/api/diag/panic", timeout=TIMEOUT_INFO)
-            if panic is None:
+            from fleetlib.client import info_field as _info_field_prune
+            info_resp = c.get_json("/api/info", timeout=TIMEOUT_INFO)
+            if info_resp is None:
                 unreachable.append(d.ip)
             else:
-                sha = panic.get("app_sha256", "")
+                sha = _info_field_prune(info_resp, "app_sha256") or ""
                 if sha:
                     running_shas.add(sha)
+                else:
+                    # fallback: crash-build sha from /api/diag/panic
+                    panic = c.get_json("/api/diag/panic", timeout=TIMEOUT_INFO)
+                    sha = (panic or {}).get("app_sha256", "")
+                    if sha:
+                        running_shas.add(sha)
 
         # SAFETY GUARD 2: refuse on incomplete discovery (unless --hosts authoritative)
         if unreachable and not getattr(args, "hosts", None):

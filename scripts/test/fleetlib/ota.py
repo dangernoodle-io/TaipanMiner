@@ -36,6 +36,7 @@ from .client import (
     TIMEOUT_WRITE,
     TIMEOUT_OTA_PUSH,
     TIMEOUT_UPDATE_CHECK,
+    info_field,
 )
 from .safety import Guard
 from .readiness import wait_until_ready
@@ -185,7 +186,7 @@ def pull(
     target = target_version or latest
 
     if not available:
-        cur = (_get(client, "/api/info", TIMEOUT_INFO) or {}).get("version")
+        cur = info_field(_get(client, "/api/info", TIMEOUT_INFO) or {}, "version")
         logger.info("%s: no update available (running %s)", client.ip, cur)
         return VerifyResult(ok=True, version=cur, target_version=target,
                             detail="no update available")
@@ -277,7 +278,7 @@ def wait_for_boot(
         health = _get(client, "/api/health", TIMEOUT_HEALTH)
         info = _get(client, "/api/info", TIMEOUT_INFO)
         if health is not None and info is not None:
-            v = info.get("version")
+            v = info_field(info, "version")
             if target_version is None or v == target_version:
                 logger.debug("%s: back up on %s", client.ip, v)
                 return v
@@ -303,7 +304,7 @@ def verify(
     readiness = wait_until_ready(client, profile, eff)
 
     info = _get(client, "/api/info", TIMEOUT_INFO) or {}
-    v = info.get("version")
+    v = info_field(info, "version")
     healthy, metrics = _assess_health(client, info, criteria)
     metrics["settle_elapsed_s"] = readiness.elapsed_s
 
@@ -368,7 +369,7 @@ def _post_boot_verify(
         time.sleep(settle)
 
     info = _get(client, "/api/info", TIMEOUT_INFO) or {}
-    v = info.get("version")
+    v = info_field(info, "version")
     reset_reason = info.get("reset_reason")
 
     # reset_reason='software' is the expected OTA reboot reason — not a fault.
@@ -479,7 +480,7 @@ def _basic_verify(client, target_version: Optional[str], settle: Optional[float]
     if settle:
         time.sleep(settle)
     info = _get(client, "/api/info", TIMEOUT_INFO) or {}
-    v = info.get("version")
+    v = info_field(info, "version")
     healthy, metrics = _assess_health(client, info, None)
     version_ok = target_version is None or v == target_version
     ok = version_ok and healthy

@@ -29,6 +29,25 @@ def get_field(obj: Any, path: str, default: Any = None) -> Any:
     return cur
 
 
+def info_field(info: dict, key: str, default: Any = None) -> Any:
+    """Read a B1-360 moved field from /api/info via info.build.*.
+
+    B1-360 moved version, idf_version, build_date, build_time, project_name,
+    chip_model, chip_revision, cores, cpu_freq_mhz, flash_size, app_size,
+    board, and app_sha256 under info["build"].  This accessor reads from
+    info["build"][key] only (no top-level fallback).  Returns *default* when
+    info["build"] is absent or the key is missing.
+
+    Dynamic fields that remained top-level (mac, heap_internal, uptime_ms,
+    network, ota_validated, reset_reason, …) must NOT be routed through here.
+    """
+    build = info.get("build") if isinstance(info, dict) else None
+    if not isinstance(build, dict):
+        return default
+    v = build.get(key)
+    return v if v is not None else default
+
+
 class Client:
     """urllib-based HTTP client for a single TaipanMiner device."""
 
@@ -96,3 +115,8 @@ class Client:
     def get_field(obj: Any, path: str, default: Any = None) -> Any:
         """Module-level get_field exposed as a static method."""
         return get_field(obj, path, default)
+
+    @staticmethod
+    def info_field(info: dict, key: str, default: Any = None) -> Any:
+        """Module-level info_field exposed as a static method."""
+        return info_field(info, key, default)

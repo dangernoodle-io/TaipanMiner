@@ -5,7 +5,9 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from fleetlib.profiles import profile_for
+from fleetlib.profiles import profile_for, Profiles
+
+_PROFILES_YAML = os.path.join(os.path.dirname(__file__), "..", "config", "profiles.yaml")
 
 
 class TestProfileFor(unittest.TestCase):
@@ -50,6 +52,16 @@ class TestProfileFor(unittest.TestCase):
         p = profile_for("esp32-s2-mini")
         self.assertFalse(p.is_asic)
         self.assertFalse(p.has_psram)
+
+    def test_s2_mini_yaml_heap_floor(self):
+        """esp32-s2 entry in profiles.yaml must set heap_floor=8000 (TA-460)."""
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("pyyaml not installed")
+        profiles = Profiles.load(_PROFILES_YAML)
+        p = profile_for("esp32-s2-mini", profiles=profiles)
+        self.assertEqual(p.heap_floor, 8000)
 
     # S3 — dual-core, has PSRAM
     def test_s3_devkit(self):

@@ -8,7 +8,9 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from fleetlib.criteria import Criteria, load, for_profile
-from fleetlib.profiles import profile_for
+from fleetlib.profiles import profile_for, Profiles
+
+_PROFILES_YAML = os.path.join(os.path.dirname(__file__), "..", "config", "profiles.yaml")
 
 
 class TestCriteriaDefaults(unittest.TestCase):
@@ -116,6 +118,19 @@ class TestCriteriaForProfile(unittest.TestCase):
         c2 = for_profile(c, p)
         c2.bad_reset_reasons.add("custom")
         self.assertNotIn("custom", c.bad_reset_reasons)
+
+    def test_s2_heap_floor_from_yaml_profile(self):
+        """for_profile with esp32-s2 YAML profile sets heap_floor=8000 (TA-460)."""
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("pyyaml not installed")
+        profiles = Profiles.load(_PROFILES_YAML)
+        p = profile_for("esp32-s2-mini", profiles=profiles)
+        c = Criteria()
+        c2 = for_profile(c, p)
+        self.assertEqual(c2.heap_floor, 8000)
+        self.assertEqual(c.heap_floor, 50_000)  # original untouched
 
 
 if __name__ == "__main__":

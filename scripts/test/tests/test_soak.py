@@ -699,5 +699,83 @@ class TestFmtHashrateScales(unittest.TestCase):
         self.assertTrue(out)
 
 
+class TestFmtUptime(unittest.TestCase):
+    """_fmt_uptime renders compact two-unit uptime strings."""
+
+    def test_seconds_only(self):
+        from suites.soak import _fmt_uptime
+        self.assertEqual(_fmt_uptime(45), "45s")
+
+    def test_minutes_only(self):
+        from suites.soak import _fmt_uptime
+        self.assertEqual(_fmt_uptime(540), "9m")
+
+    def test_hours_and_minutes(self):
+        from suites.soak import _fmt_uptime
+        self.assertEqual(_fmt_uptime(7927), "2h12m")
+
+    def test_hours_and_minutes_2(self):
+        from suites.soak import _fmt_uptime
+        self.assertEqual(_fmt_uptime(21396), "5h56m")
+
+    def test_days_and_hours(self):
+        from suites.soak import _fmt_uptime
+        result = _fmt_uptime(90061)
+        self.assertTrue(result.startswith("1d"), f"expected '1d...' got {result!r}")
+
+
+class TestPrintTickRowMqttOff(unittest.TestCase):
+    """mqtt=off token present when mqtt is disabled."""
+
+    def test_mqtt_disabled_renders_off(self):
+        """A sample with mqtt.enabled=False must still render mqtt=off."""
+        import io
+        from unittest.mock import patch
+        from suites import soak
+
+        device = _make_device()
+        sample = _make_sample(device, mqtt_enabled=False, mqtt_connected=False)
+
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            soak._print_tick_row(sample, multi_host=False)
+
+        row = buf.getvalue()
+        self.assertIn("mqtt=off", row, f"mqtt=off missing from row: {row!r}")
+        self.assertIn("pub_ok=", row, f"pub_ok token missing from row: {row!r}")
+
+    def test_mqtt_enabled_connected_renders_yes(self):
+        """mqtt enabled+connected → mqtt=yes."""
+        import io
+        from unittest.mock import patch
+        from suites import soak
+
+        device = _make_device()
+        sample = _make_sample(device, mqtt_enabled=True, mqtt_connected=True)
+
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            soak._print_tick_row(sample, multi_host=False)
+
+        row = buf.getvalue()
+        self.assertIn("mqtt=yes", row, f"mqtt=yes missing from row: {row!r}")
+
+    def test_mqtt_enabled_disconnected_renders_no(self):
+        """mqtt enabled but not connected → mqtt=no."""
+        import io
+        from unittest.mock import patch
+        from suites import soak
+
+        device = _make_device()
+        sample = _make_sample(device, mqtt_enabled=True, mqtt_connected=False)
+
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            soak._print_tick_row(sample, multi_host=False)
+
+        row = buf.getvalue()
+        self.assertIn("mqtt=no", row, f"mqtt=no missing from row: {row!r}")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -124,6 +124,20 @@ def _fmt_hashrate_ghs(ghs: float) -> str:
     return f"{hs:.0f}H/s"
 
 
+def _fmt_uptime(seconds: int) -> str:
+    """Compact uptime: at most two units (d/h/m/s)."""
+    d, rem = divmod(seconds, 86400)
+    h, rem = divmod(rem, 3600)
+    m, s = divmod(rem, 60)
+    if d:
+        return f"{d}d{h}h"
+    if h:
+        return f"{h}h{m}m"
+    if m:
+        return f"{m}m"
+    return f"{s}s"
+
+
 def _print_tick_row(sample: Sample, multi_host: bool) -> None:
     """Print a single per-tick row to stdout."""
     ts = datetime.datetime.now().strftime("%H:%M:%S")
@@ -148,7 +162,7 @@ def _print_tick_row(sample: Sample, multi_host: bool) -> None:
     if sample.info is not None:
         uptime = sample.info.get("uptime_ms")
         if uptime is not None:
-            parts.append(f"uptime={uptime // 1000}s")
+            parts.append(f"uptime={_fmt_uptime(uptime // 1000)}")
         rr = sample.info.get("reset_reason")
         if rr and rr != "normal":
             parts.append(f"reset={rr}")
@@ -158,7 +172,9 @@ def _print_tick_row(sample: Sample, multi_host: bool) -> None:
         pub = sample.telemetry.get("publisher") or {}
         if mqtt.get("enabled"):
             conn = "yes" if mqtt.get("connected") else "no"
-            parts.append(f"mqtt={conn}")
+        else:
+            conn = "off"
+        parts.append(f"mqtt={conn}")
         pub_ok = pub.get("last_publish_ok")
         if pub_ok is not None:
             parts.append(f"pub_ok={pub_ok}")

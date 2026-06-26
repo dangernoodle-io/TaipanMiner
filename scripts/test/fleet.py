@@ -1045,6 +1045,7 @@ def cmd_logs(args) -> int:
     import threading
 
     from fleetlib.client import Client
+    from fleetlib.profiles import Profiles, profile_for
     from fleetlib.sse import SSEUnavailable, stream_lines
 
     follow = getattr(args, "follow", False)
@@ -1063,6 +1064,19 @@ def cmd_logs(args) -> int:
     if not devices:
         print("No devices found.", file=sys.stderr)
         return 1
+
+    # Single-worker --follow warning: warn before holding a connection on heap-tight boards
+    if follow:
+        profiles = Profiles.load()
+        for d in devices:
+            p = profile_for(getattr(d, "board", "") or "", profiles)
+            if p.single_worker:
+                print(
+                    f"WARNING: {d.ip} ({getattr(d, 'board', 'unknown')}) has limited httpd workers; "
+                    f"--follow can saturate it and block other endpoints — "
+                    f"consider --lines/--duration instead",
+                    file=sys.stderr,
+                )
 
     # Color support: assign short per-host labels when multiple devices
     use_color = len(devices) > 1 and sys.stdout.isatty()
@@ -1172,7 +1186,7 @@ def _stream_one_device(
     import time
     import threading
 
-    from fleetlib.sse import SSEUnavailable, stream_lines
+    from fleetlib.sse import SSEIdleTimeout, SSEUnavailable, SSE_IDLE_TIMEOUT, stream_lines
 
     # Build a stop callable that checks both the caller's event and our deadline
     t0 = time.monotonic()
@@ -1202,6 +1216,13 @@ def _stream_one_device(
             count += 1
             if max_lines is not None and count >= max_lines:
                 break
+    except SSEIdleTimeout:
+        print(
+            f"WARNING: no log data from {ip} within {SSE_IDLE_TIMEOUT:.0f}s "
+            f"(board may not support streaming or its worker is saturated); disconnecting",
+            file=sys.stderr,
+        )
+        return 0
     except SSEUnavailable as e:
         print(f"ERROR: log sink unavailable on {ip}: {e}", file=sys.stderr)
         return 1

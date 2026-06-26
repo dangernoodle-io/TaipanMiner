@@ -10,7 +10,7 @@ Subcommands:
   soak       — run soak suite (long-running monitor)
   stress     — run stress suite (concurrent load)
   faults     — run fault-injection suite
-  matrix     — run transport-matrix suite
+  telemetry  — run telemetry transport suite
   ota        — OTA operations (push/pull/mark-valid/recover/status/verify)
 """
 from __future__ import annotations
@@ -122,11 +122,11 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_suite_arguments(fa, "faults")
     fa.set_defaults(func=lambda a: cmd_suite(a, "faults"))
 
-    # matrix
-    mx = sub.add_parser("matrix", help=_suite_help("matrix"))
-    _add_common_flags(mx)
-    _add_suite_arguments(mx, "matrix")
-    mx.set_defaults(func=lambda a: cmd_suite(a, "matrix"))
+    # telemetry
+    tel = sub.add_parser("telemetry", help=_suite_help("telemetry"))
+    _add_common_flags(tel)
+    _add_suite_arguments(tel, "telemetry")
+    tel.set_defaults(func=lambda a: cmd_suite(a, "telemetry"))
 
     # describe
     desc_p = sub.add_parser("describe", help="inspect the served OpenAPI spec")
@@ -352,7 +352,7 @@ def cmd_suite(args, suite_name: str) -> int:
     try:
         mod = load_suite(suite_name)
     except ImportError as exc:
-        # Suite module doesn't exist yet (soak/stress/faults/matrix are stubs)
+        # Suite module doesn't exist yet (soak/stress/faults/telemetry are stubs)
         print(f"Suite '{suite_name}' not available: {exc}")
         return 1
 

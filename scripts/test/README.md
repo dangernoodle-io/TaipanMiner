@@ -1,7 +1,7 @@
 # TaipanMiner fleet test harness
 
 `fleet.py` is the single entry point for all device testing: functional validation,
-long-duration soak, stress, fault injection, transport-matrix, and OTA operations.
+long-duration soak, stress, fault injection, telemetry transport, and OTA operations.
 
 ## Quick start
 
@@ -226,15 +226,15 @@ Fault-injection scenarios: socket exhaustion, broker outage, broker-outage cycle
 **Destructive / operator-only.**  Requires `--yes` to execute mutating operations;
 `--dry-run` logs actions without applying them.
 
-### `matrix`
+### `telemetry`
 
-Transport-matrix suite — configure each telemetry transport (MQTT plain/server-TLS/
+Telemetry transport suite — configure each telemetry transport (MQTT plain/server-TLS/
 mutual-TLS, HTTP plain/TLS), settle, and verify publish health per the no-false-sinks
 rule.
 
 ```sh
-./fleet matrix [--rows R,R] [--receiver HOST] [--certs DIR]
-               [--influx-container NAME] [--yes] [--dry-run]
+./fleet telemetry [--rows R,R] [--receiver HOST] [--certs DIR]
+                  [--influx-container NAME] [--yes] [--dry-run]
 ```
 
 Environment variables (can be overridden by flags):
@@ -450,7 +450,7 @@ Board-class capability overrides.  Keys are board-class prefix strings (e.g. `bi
 | `soak` | no | long-duration; operator use |
 | `stress` | no | applies load; may expose instability |
 | `faults` | no | destructive; requires `--yes` |
-| `matrix` | no | mutates transport config; requires receiver + certs |
+| `telemetry` | no | mutates transport config; requires receiver + certs |
 | `ota push/pull/recover` | no | flashes firmware; requires `--yes` |
 | `ota status/verify` | yes | read-only |
 

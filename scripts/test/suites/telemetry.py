@@ -1,4 +1,4 @@
-"""Transport-matrix suite (NAME="matrix") — folds tlsrow.py / run_matrix.sh.
+"""Telemetry transport suite (NAME="telemetry") — folds tlsrow.py / run_matrix.sh.
 
 For each transport row, PATCH /api/telemetry to configure the sink (MUTATING → via
 ctx.guard), settle, then verify publish health under the no-false-sinks rule: a sink
@@ -32,8 +32,8 @@ from suites import gate_enabled
 
 logger = logging.getLogger(__name__)
 
-NAME = "matrix"
-HELP = "Transport matrix — configure each telemetry transport and verify publish health"
+NAME = "telemetry"
+HELP = "Telemetry transport — configure each telemetry transport and verify publish health"
 
 ROWS = ["mqtt_plain", "mqtt_stls", "mqtt_mtls", "http_plain", "http_tls"]
 
@@ -210,7 +210,7 @@ def _run_device(device, ctx, rs, rows, receiver, certs_dir) -> None:
     c = Client(device.ip, getattr(device, "port", 80))
 
     for row in rows:
-        name = f"{device.ip}/matrix/{row}"
+        name = f"{device.ip}/telemetry/{row}"
 
         if not gate_enabled(ctx, row):
             rs.add(Result(name=name, device=device, status=STATUS_SKIP, detail="row gated out"))

@@ -1855,8 +1855,12 @@ def cmd_decode(args) -> int:
 
 
 def cmd_elf_archive(args) -> int:
-    """Manually archive a firmware ELF into the store."""
-    from fleetlib.elfstore import archive, sha256_of_elf
+    """Manually archive a firmware ELF into the store.
+
+    board and version are populated from esp_app_desc_t when not given (TA-461).
+    """
+    from fleetlib.elfstore import archive, sha256_of_elf, list_entries
+    from pathlib import Path
 
     elf_path = args.elf_path
     board = getattr(args, "board", "")
@@ -1864,10 +1868,21 @@ def cmd_elf_archive(args) -> int:
 
     try:
         key = archive(elf_path, board=board, version=version)
+
+        # Read back sidecar to show final (possibly auto-populated) values
+        from fleetlib.elfstore import _load_meta, _archive_root
+        root = _archive_root()
+        meta = _load_meta(root / f"{key}.json")
+
         print(f"Archived: {elf_path}")
-        print(f"  sha256 : {key}")
-        print(f"  board  : {board or '(unset)'}")
-        print(f"  version: {version or '(unset)'}")
+        print(f"  sha256     : {key}")
+        print(f"  board      : {meta.board or '(unset)'}")
+        print(f"  version    : {meta.version or '(unset)'}")
+        print(f"  build_time : {meta.build_time or '(unset)'}")
+        if not board and meta.board:
+            print(f"  (board auto-populated from esp_app_desc_t)")
+        if not version and meta.version:
+            print(f"  (version auto-populated from esp_app_desc_t)")
         return 0
     except FileNotFoundError:
         print(f"ERROR: ELF not found: {elf_path}")

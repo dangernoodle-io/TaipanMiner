@@ -8,22 +8,22 @@ test:
 	.venv/bin/python -m unittest discover tests
 
 discover:
-	.venv/bin/python fleet.py discover $(ARGS)
+	./fleet discover $(ARGS)
 
 functional:
-	.venv/bin/python fleet.py functional $(ARGS)
+	./fleet functional $(ARGS)
 
 soak:
-	.venv/bin/python fleet.py soak $(ARGS)
+	./fleet soak $(ARGS)
 
 stress:
-	.venv/bin/python fleet.py stress $(ARGS)
+	./fleet stress $(ARGS)
 
 faults:
-	.venv/bin/python fleet.py faults $(ARGS)
+	./fleet faults $(ARGS)
 
 matrix:
-	.venv/bin/python fleet.py matrix $(ARGS)
+	./fleet matrix $(ARGS)
 
 clean:
 	rm -rf .venv

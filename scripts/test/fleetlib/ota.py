@@ -92,16 +92,30 @@ def push(
     binfile: str,
     target_version: Optional[str] = None,
     settle: Optional[float] = None,
+    elf_path: Optional[str] = None,
 ) -> VerifyResult:
     """OTA-push a local firmware binary (boot-mode: device reboots to apply).
 
     POST /api/update/push (application/octet-stream, 180s) via guard, then
     wait_for_boot to target, settle, verify.
+
+    elf_path — optional explicit .elf path.  When omitted, the function looks
+    for a sibling .elf file next to binfile (i.e. .pio/build/<env>/firmware.elf
+    alongside firmware.bin).  If found, the ELF is archived before the push so
+    that fleet decode can later resolve any panic from this build.
     """
     g = guard.check(client, "POST", "/api/update/push")
     if Guard.is_dry_run_skip(g):
         return VerifyResult(ok=True, dry_run=True, target_version=target_version,
                             detail="dry-run: would push")
+
+    # --- ELF archival (before the push, non-fatal on failure) ---
+    resolved_elf = _resolve_sibling_elf(binfile, elf_path)
+    if resolved_elf:
+        _archive_elf_for_push(resolved_elf, board=getattr(client, "board", ""),
+                              version=target_version or "")
+    else:
+        logger.info("push: no sibling .elf found for %s; skipping ELF archive", binfile)
 
     data = _read_binary(binfile)
     logger.info("push %s -> %s (%d bytes)", binfile, client.ip, len(data))
@@ -353,6 +367,34 @@ def _fail_detail(ready, reason, v, target, version_ok, healthy, metrics) -> str:
 def _read_binary(binfile: str) -> bytes:
     with open(binfile, "rb") as f:
         return f.read()
+
+
+def _resolve_sibling_elf(binfile: str, explicit_elf: Optional[str]) -> Optional[str]:
+    """Return an ELF path to archive, or None if not found.
+
+    Priority:
+      1. explicit_elf if given
+      2. <binfile_stem>.elf in the same directory (e.g. firmware.elf beside firmware.bin)
+    """
+    if explicit_elf:
+        import os as _os
+        return explicit_elf if _os.path.isfile(explicit_elf) else None
+    import os as _os
+    stem = _os.path.splitext(binfile)[0]
+    candidate = stem + ".elf"
+    return candidate if _os.path.isfile(candidate) else None
+
+
+def _archive_elf_for_push(elf_path: str, board: str = "", version: str = "") -> Optional[str]:
+    """Archive the ELF before a push.  Non-fatal — logs a warning on any error."""
+    try:
+        from .elfstore import archive as _archive
+        key = _archive(elf_path, board=board, version=version)
+        logger.info("push: archived ELF %s (sha=%s)", elf_path, key[:16])
+        return key
+    except Exception as exc:
+        logger.warning("push: ELF archive failed (%s): %s", elf_path, exc)
+        return None
 
 
 def _parse_json(body: Any) -> dict:

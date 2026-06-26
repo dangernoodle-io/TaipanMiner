@@ -472,6 +472,151 @@ mutating actions.
 
 **Destructive / operator-only.**
 
+**Auto-archive on push:** `fleet ota push` automatically archives the sibling
+`.elf` file (`.pio/build/<env>/firmware.elf` alongside `firmware.bin`) into the
+ELF archive store before uploading.  This means any panic from the pushed build
+can be decoded with `fleet decode <host>` without any manual archival step.
+
+### `elf`
+
+ELF archive management.  The archive lives at `.elf-archive/` in the repo root
+(gitignored).  Each entry consists of `<sha256>.elf` + `<sha256>.json` (sidecar
+with board, version, archived_at).
+
+#### SHA format: archive key vs panic prefix
+
+The archive key is the full 64-hex-char `SHA256(elf_file_bytes)`.  This is the
+same hash that `esp_app_desc_t.app_elf_sha256` holds in the firmware image (and
+what `esptool image_info` reports as "ELF file SHA256").
+
+The `/api/diag/panic` response carries `app_sha256` as a **truncated** hex string
+whose length is `CONFIG_APP_RETRIEVE_LEN_ELF_SHA` (range 8–64, default **9**).
+Observed live: `"b268e2426"` (9 chars).
+
+`fleet decode` and `fleet elf list` resolve archived ELFs via **prefix match**:
+```
+archive_key.startswith(panic_app_sha256)   # e.g. full[0:9] == "b268e2426"
+```
+
+9 hex chars ≈ 4.5 bytes of SHA256; collision probability is negligible for any
+realistic build corpus.
+
+#### `fleet elf archive`
+
+Manually archive a firmware ELF (e.g. from a serial flash).
+
+```sh
+./fleet elf archive .pio/build/esp32-wroom32/firmware.elf \
+    --board esp32-wroom32 --version v0.71.0
+```
+
+#### `fleet elf list`
+
+Show all archived ELFs with metadata and an IN-USE column cross-referenced
+against the live fleet's running builds (`/api/diag/panic` short sha).
+
+```sh
+./fleet elf list [--hosts H,H] [--board CLASS]
+```
+
+Output columns: SHA256 prefix, board, version, dirty flag, archived timestamp,
+ELF size, IN-USE (yes/no/? when fleet is unreachable).
+
+#### `fleet elf prune`
+
+Remove old ELF entries.  Two modes:
+
+**Budget prune (default):** removes oldest entries exceeding the keep count or
+max-age window.
+
+```sh
+./fleet elf prune --keep 10
+./fleet elf prune --max-age 30d
+./fleet elf prune --keep 10 --max-age 7d --dry-run
+```
+
+**Fleet-aware GC (`--in-use`):** discovers the fleet, collects running build
+shas, and removes archived ELFs that are NOT currently running on any device.
+
+```sh
+./fleet elf prune --in-use [--hosts H,H] [--dry-run] [--yes]
+```
+
+**Two mandatory safety guards:**
+
+1. **Grace window** (`--grace-keep N`, default 5): the N most-recently archived
+   entries are ALWAYS protected regardless of in-use status.  Prevents a
+   crashed-then-rolled-back build's ELF from being deleted.
+
+2. **Conservative on incomplete discovery**: if any fleet target is unreachable
+   and `--hosts` was not given, the prune is REFUSED.  When `--hosts` provides
+   an authoritative set, the prune proceeds with a warning about unreachable
+   devices.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--keep N` | 20 | keep N most-recent entries |
+| `--max-age DUR` | — | delete entries older than DUR (`30d`, `7d`, `24h`) |
+| `--in-use` | false | fleet-aware GC: delete ELFs not running on any device |
+| `--grace-keep N` | 5 | always protect N most-recently archived entries |
+| `--hosts H,H` | mDNS | authoritative fleet set for `--in-use` GC |
+| `--dry-run` | false | show what would be deleted without deleting |
+| `--yes` | false | skip confirmation prompt |
+
+**Retention default:** keep 20 entries; prune-on-write fires after every
+`fleet ota push` and `fleet elf archive` call.
+
+### `decode`
+
+Decode a panic backtrace from a live device using an archived ELF.
+
+```sh
+# auto-discover ELF from archive (matches app_sha256 from /api/diag/panic)
+./fleet decode 172.16.1.81
+
+# explicit ELF override (e.g. for a serial-flashed build not in the archive)
+./fleet decode 172.16.1.81 --elf .pio/build/esp32-wroom32/firmware.elf
+
+# explicit toolchain override (auto-detected from ~/.platformio by default)
+./fleet decode 172.16.1.81 --toolchain-path /custom/xtensa-esp-elf-addr2line
+```
+
+**Toolchain selection:** XTENSA chips (ESP32, S2, S3) use
+`xtensa-esp-elf-addr2line`; RISCV chips (C3, C6, H2) use
+`riscv32-esp-elf-addr2line`.  Both are searched under
+`~/.platformio/packages/toolchain-*/bin/` then `PATH`.  Override with
+`FLEET_ADDR2LINE` env var or `--toolchain-path`.
+
+**Read-only:** never modifies device state or the archive.
+
+**Phase 2 (follow-up):** rebuild-from-commit to reproduce any missing ELF.
+Live-crash decode (triggering a panic on a test device) is a manual follow-up.
+
+Output:
+
+```
+Panic decode for 172.16.1.81
+  ELF     : .elf-archive/<sha>.elf
+  arch    : xtensa
+  task    : httpd
+  cause   : 28 (LoadProhibited)
+  sha256  : b268e2426 (truncated; 9 chars)
+
+  LABEL      PC             FUNCTION @ FILE:LINE
+  -----------------------------------------------------------------------
+  exc_pc     0x004008b385   crash_fn @ /components/main.c:42
+  bt[0]      0x004008b351   caller @ /components/util.c:7
+  ...
+```
+
+When `available=false` and there is no backtrace/pc, the command prints
+`no panic available` and exits 0.  When no archived ELF matches the panic sha,
+it prints a clear actionable message:
+```
+ERROR: no archived ELF for 'b268e2426'; reflash with a tracked build
+       (fleet ota push) or pass --elf <path>
+```
+
 ---
 
 ## Ad-hoc API access
@@ -654,6 +799,10 @@ Board-class capability overrides.  Keys are board-class prefix strings (e.g. `bi
 | `telemetry` | no | mutates transport config; requires receiver + certs |
 | `ota push/pull/recover` | no | flashes firmware; requires `--yes` |
 | `ota status/verify` | yes | read-only |
+| `decode` | yes | read-only; fetches `/api/diag/panic` |
+| `elf list` | yes | read-only; queries fleet + local archive |
+| `elf archive` | yes | local write only; no device mutation |
+| `elf prune` | no | deletes local archive files; requires `--yes` or `--dry-run` |
 
 ---
 

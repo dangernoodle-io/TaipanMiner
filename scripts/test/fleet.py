@@ -13,6 +13,8 @@ Subcommands:
   faults     — run fault-injection suite
   telemetry  — run telemetry transport suite
   ota        — OTA operations (push/pull/mark-valid/recover/status/verify)
+  decode     — decode a panic backtrace from a live device using an archived ELF
+  elf        — ELF archive management (archive/list/prune)
 """
 from __future__ import annotations
 import argparse
@@ -283,6 +285,74 @@ def _build_parser() -> argparse.ArgumentParser:
     op_verify.add_argument("--target", metavar="VER", dest="target_version", required=True,
                            help="expected version string")
     op_verify.set_defaults(func=cmd_ota_verify)
+
+    # decode
+    dec_p = sub.add_parser(
+        "decode",
+        help="decode a panic backtrace from a live device (uses archived ELF)",
+    )
+    dec_p.add_argument("host", metavar="HOST",
+                       help="device IP or hostname to fetch /api/diag/panic from")
+    dec_p.add_argument("--elf", dest="elf_path", metavar="PATH",
+                       help="explicit ELF file (overrides archive lookup)")
+    dec_p.add_argument("--toolchain-path", dest="toolchain_path", metavar="PATH",
+                       help="explicit path to addr2line binary (overrides auto-detect)")
+    dec_p.add_argument("--log-level", default=argparse.SUPPRESS,
+                       choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                       help="log level (default: WARNING)")
+    dec_p.set_defaults(func=cmd_decode)
+
+    # elf
+    elf_p = sub.add_parser("elf", help="ELF archive management")
+    elf_sub = elf_p.add_subparsers(dest="elf_op", metavar="OP")
+    elf_sub.required = True
+
+    elf_archive = elf_sub.add_parser("archive", help="manually archive a firmware ELF")
+    elf_archive.add_argument("elf_path", metavar="PATH", help="path to firmware .elf")
+    elf_archive.add_argument("--board", default="", metavar="BOARD", help="board name")
+    elf_archive.add_argument("--version", default="", metavar="VER", help="firmware version")
+    elf_archive.add_argument("--log-level", default=argparse.SUPPRESS,
+                             choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                             help="log level (default: WARNING)")
+    elf_archive.set_defaults(func=cmd_elf_archive)
+
+    elf_list = elf_sub.add_parser("list", help="list archived ELFs with in-use status")
+    elf_list.add_argument("--hosts", metavar="H,H,…",
+                          help="comma-separated IPs/hostnames (skip mDNS discovery)")
+    elf_list.add_argument("--discover-timeout", type=int, default=10, metavar="SEC",
+                          help="mDNS browse window in seconds (default: 10)")
+    elf_list.add_argument("--board", metavar="CLASS",
+                          help="filter devices by board class substring")
+    elf_list.add_argument("--log-level", default=argparse.SUPPRESS,
+                          choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                          help="log level (default: WARNING)")
+    elf_list.set_defaults(func=cmd_elf_list)
+
+    elf_prune = elf_sub.add_parser("prune", help="prune archived ELFs by budget or in-use GC")
+    elf_prune.add_argument("--keep", type=int, default=20, metavar="N",
+                           help="keep N most-recent entries (default: 20)")
+    elf_prune.add_argument("--max-age", dest="max_age", metavar="DUR",
+                           help="delete entries older than DUR (e.g. 30d, 7d, 1h)")
+    elf_prune.add_argument("--in-use", dest="in_use", action="store_true",
+                           help="fleet-aware GC: delete ELFs NOT running on any discovered device")
+    elf_prune.add_argument("--hosts", metavar="H,H,…",
+                           help="comma-separated IPs/hostnames (authoritative set for --in-use)")
+    elf_prune.add_argument("--discover-timeout", type=int, default=10, metavar="SEC",
+                           help="mDNS browse window in seconds (default: 10)")
+    elf_prune.add_argument("--board", metavar="CLASS",
+                           help="filter devices by board class substring")
+    elf_prune.add_argument("--grace-keep", type=int, default=5, dest="grace_keep",
+                           metavar="N",
+                           help="always keep the N most-recently archived entries "
+                                "regardless of in-use status (default: 5)")
+    elf_prune.add_argument("--dry-run", action="store_true",
+                           help="show what would be deleted without deleting")
+    elf_prune.add_argument("--yes", action="store_true",
+                           help="skip confirmation prompt")
+    elf_prune.add_argument("--log-level", default=argparse.SUPPRESS,
+                           choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                           help="log level (default: WARNING)")
+    elf_prune.set_defaults(func=cmd_elf_prune)
 
     return p
 
@@ -1392,6 +1462,285 @@ def cmd_ota_verify(args) -> int:
             ok = False
 
     return 0 if ok else 1
+
+
+# ---------------------------------------------------------------------------
+# decode + elf subcommand handlers
+# ---------------------------------------------------------------------------
+
+def cmd_decode(args) -> int:
+    """Decode a panic backtrace from a live device using an archived ELF.
+
+    GET /api/diag/panic  ->  prefix-match ELF in archive  ->  addr2line decode.
+    """
+    import json as _json
+    from fleetlib.client import Client, TIMEOUT_INFO
+    from fleetlib.elfstore import find as elf_find
+    from fleetlib.decode import chip_arch, decode_panic
+
+    host = args.host
+    port = 80
+    if ":" in host:
+        host, port_s = host.rsplit(":", 1)
+        port = int(port_s)
+
+    c = Client(host, port)
+    panic = c.get_json("/api/diag/panic", timeout=TIMEOUT_INFO)
+    if panic is None:
+        print(f"ERROR: could not reach {host} or /api/diag/panic unavailable")
+        return 1
+
+    available = panic.get("available", False)
+    app_sha = panic.get("app_sha256", "")
+
+    if not available and not panic.get("backtrace") and not panic.get("exc_pc"):
+        print(f"{host}: no panic available (available=false, no backtrace/pc)")
+        return 0
+
+    # Determine arch from /api/info chip_model
+    info = c.get_json("/api/info", timeout=TIMEOUT_INFO) or {}
+    chip_model = info.get("chip_model", "ESP32")
+    arch = chip_arch(chip_model)
+
+    # Resolve ELF
+    elf_path = getattr(args, "elf_path", None)
+    if elf_path is None and app_sha:
+        elf_path = elf_find(app_sha)
+        if elf_path is None:
+            print(f"ERROR: no archived ELF for '{app_sha}'; "
+                  f"reflash with a tracked build (fleet ota push) or pass --elf <path>")
+            return 1
+    elif elf_path is None:
+        print("ERROR: no app_sha256 in panic response and no --elf given")
+        return 1
+
+    toolchain_path = getattr(args, "toolchain_path", None)
+    result = decode_panic(panic, elf_path, arch=arch, toolchain_path=toolchain_path)
+
+    # Print result
+    print(f"\nPanic decode for {host}")
+    print(f"  ELF     : {elf_path}")
+    print(f"  arch    : {arch}")
+    print(f"  task    : {result.task or '?'}")
+    print(f"  cause   : {result.exc_cause} ({result.cause_name_str})")
+    if app_sha:
+        print(f"  sha256  : {app_sha} (truncated; {len(app_sha)} chars)")
+    if not result.ok:
+        print(f"  ERROR   : {result.error}")
+        return 1
+
+    if not result.frames:
+        print("  (no frames decoded)")
+    else:
+        print(f"\n  {'LABEL':<10} {'PC':>12}   FUNCTION @ FILE:LINE")
+        print(f"  {'-' * 70}")
+        for label, pc, frame in result.frames:
+            print(f"  {label:<10} {pc:#012x}   {frame}")
+    return 0
+
+
+def cmd_elf_archive(args) -> int:
+    """Manually archive a firmware ELF into the store."""
+    from fleetlib.elfstore import archive, sha256_of_elf
+
+    elf_path = args.elf_path
+    board = getattr(args, "board", "")
+    version = getattr(args, "version", "")
+
+    try:
+        key = archive(elf_path, board=board, version=version)
+        print(f"Archived: {elf_path}")
+        print(f"  sha256 : {key}")
+        print(f"  board  : {board or '(unset)'}")
+        print(f"  version: {version or '(unset)'}")
+        return 0
+    except FileNotFoundError:
+        print(f"ERROR: ELF not found: {elf_path}")
+        return 1
+    except Exception as exc:
+        print(f"ERROR: archive failed: {exc}")
+        return 1
+
+
+def cmd_elf_list(args) -> int:
+    """List archived ELFs with in-use status from the live fleet."""
+    import datetime
+    from fleetlib.client import Client, TIMEOUT_INFO
+    from fleetlib.elfstore import list_entries
+
+    entries = list_entries()
+    if not entries:
+        print("No archived ELFs.")
+        return 0
+
+    # Collect running shas from live fleet (best-effort; failures -> empty)
+    running_shas: set = set()
+    unreachable: list = []
+    try:
+        devices = resolve_devices(args)
+        for d in devices:
+            c = Client(d.ip, getattr(d, "port", 80))
+            # /api/info does not expose a running ELF sha directly; use /api/diag/panic
+            # for the app_sha256 of the crash build, but for IN-USE we need a different
+            # approach: compare archived shas with what devices report.
+            # We collect the short sha from any device that exposes it.
+            panic = c.get_json("/api/diag/panic", timeout=TIMEOUT_INFO)
+            if panic:
+                sha = panic.get("app_sha256", "")
+                if sha:
+                    running_shas.add(sha)
+    except Exception:
+        unreachable = []
+
+    if unreachable:
+        print(f"WARNING: {len(unreachable)} device(s) unreachable; IN-USE column may be incomplete")
+
+    print(f"\n{'SHA256 (prefix)':<20} {'BOARD':<20} {'VERSION':<18} {'DIRTY':<6} "
+          f"{'ARCHIVED':<22} {'SIZE':>10}  IN-USE")
+    print("-" * 105)
+    for meta, size in entries:
+        sha_short = meta.sha256[:16]
+        dirty_str = "yes" if meta.dirty else "no"
+        size_str = f"{size:,}"
+        # IN-USE: any running sha is a prefix of the archived full sha
+        in_use = any(meta.sha256.startswith(s) for s in running_shas) if running_shas else "?"
+        in_use_str = "yes" if in_use is True else ("no" if in_use is False else "?")
+        print(f"{sha_short + '…':<20} {meta.board:<20} {meta.version:<18} {dirty_str:<6} "
+              f"{meta.archived_at:<22} {size_str:>10}  {in_use_str}")
+
+    total_size = sum(s for _, s in entries)
+    print(f"\n{len(entries)} archived ELF(s), {total_size:,} bytes total")
+    return 0
+
+
+def cmd_elf_prune(args) -> int:
+    """Prune archived ELFs by mtime budget or fleet-aware GC.
+
+    SAFETY GUARDS (--in-use mode):
+      1. The most-recently archived N entries (--grace-keep, default 5) are
+         ALWAYS protected regardless of in-use status.
+      2. If any fleet target is unreachable, prune is REFUSED unless --hosts
+         supplies an authoritative set and all listed hosts are reachable.
+    """
+    from fleetlib.client import Client, TIMEOUT_INFO
+    from fleetlib.elfstore import list_entries, prune as elf_prune
+
+    keep = args.keep
+    max_age_str = getattr(args, "max_age", None)
+    in_use_mode = getattr(args, "in_use", False)
+    grace_keep = getattr(args, "grace_keep", 5)
+    dry_run = getattr(args, "dry_run", False)
+    yes = getattr(args, "yes", False)
+
+    max_age_secs: float = None
+    if max_age_str:
+        max_age_secs = _parse_age_duration(max_age_str)
+
+    protected_shas: set = set()
+
+    if in_use_mode:
+        # Fleet-aware GC: collect running shas
+        devices = resolve_devices(args)
+        if not devices:
+            print("ERROR: no devices found; cannot perform fleet-aware GC safely")
+            return 1
+
+        unreachable = []
+        running_shas: set = set()
+        for d in devices:
+            c = Client(d.ip, getattr(d, "port", 80))
+            panic = c.get_json("/api/diag/panic", timeout=TIMEOUT_INFO)
+            if panic is None:
+                unreachable.append(d.ip)
+            else:
+                sha = panic.get("app_sha256", "")
+                if sha:
+                    running_shas.add(sha)
+
+        # SAFETY GUARD 2: refuse on incomplete discovery (unless --hosts authoritative)
+        if unreachable and not getattr(args, "hosts", None):
+            print("ERROR: the following devices are unreachable — cannot safely determine "
+                  "which ELFs are in use:")
+            for ip in unreachable:
+                print(f"  {ip}")
+            print("Pass --hosts with an authoritative list of ALL fleet devices, "
+                  "or fix device connectivity first.")
+            return 1
+        elif unreachable:
+            print(f"WARNING: {len(unreachable)} device(s) unreachable; proceeding because "
+                  f"--hosts provides an authoritative set")
+            for ip in unreachable:
+                print(f"  UNREACHABLE: {ip}")
+
+        # Expand running short-shas to full archive keys
+        entries = list_entries()
+        for meta, _ in entries:
+            for short_sha in running_shas:
+                if meta.sha256.startswith(short_sha):
+                    protected_shas.add(meta.sha256)
+
+        # SAFETY GUARD 1: always protect the N most-recently archived entries
+        if grace_keep > 0:
+            sorted_entries = sorted(entries, key=lambda t: t[0].archived_at, reverse=True)
+            for meta, _ in sorted_entries[:grace_keep]:
+                protected_shas.add(meta.sha256)
+
+        print(f"Fleet-aware GC: {len(running_shas)} running sha(s) found, "
+              f"{len(protected_shas)} entries protected")
+
+    else:
+        # Mtime budget prune: protect the grace_keep most recent
+        entries = list_entries()
+        if grace_keep > 0:
+            sorted_entries = sorted(entries, key=lambda t: t[0].archived_at, reverse=True)
+            for meta, _ in sorted_entries[:grace_keep]:
+                protected_shas.add(meta.sha256)
+
+    # Preview what will be deleted
+    would_delete = elf_prune(
+        keep=keep, max_age=max_age_secs,
+        protected_shas=protected_shas, dry_run=True,
+    )
+    if not would_delete:
+        print("Nothing to prune.")
+        return 0
+
+    print(f"{'[DRY-RUN] ' if dry_run else ''}Would delete {len(would_delete)} entry(ies):")
+    for sha in would_delete:
+        print(f"  {sha[:16]}…")
+
+    if dry_run:
+        return 0
+
+    if not yes:
+        try:
+            ans = input(f"Delete {len(would_delete)} entry(ies)? [y/N] ")
+        except EOFError:
+            ans = ""
+        if ans.strip().lower() not in ("y", "yes"):
+            print("Aborted.")
+            return 1
+
+    deleted = elf_prune(
+        keep=keep, max_age=max_age_secs,
+        protected_shas=protected_shas, dry_run=False,
+    )
+    print(f"Deleted {len(deleted)} entry(ies).")
+    return 0
+
+
+def _parse_age_duration(s: str) -> float:
+    """Parse '30d', '7d', '24h', '1h' to seconds."""
+    s = s.strip()
+    if s.endswith("d"):
+        return float(s[:-1]) * 86400
+    if s.endswith("h"):
+        return float(s[:-1]) * 3600
+    if s.endswith("m"):
+        return float(s[:-1]) * 60
+    if s.endswith("s"):
+        return float(s[:-1])
+    return float(s)
 
 
 # ---------------------------------------------------------------------------

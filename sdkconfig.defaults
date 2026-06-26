@@ -138,19 +138,13 @@ CONFIG_MBEDTLS_PKCS7_C=n
 CONFIG_MBEDTLS_SSL_RENEGOTIATION=n
 CONFIG_MBEDTLS_SSL_KEEP_PEER_CERTIFICATE=n
 
-# mbedTLS record sizes paired with bb_ota_pull partial_http_download (4 KB GETs).
-# Dropped 16 KB->8 KB->4 KB to shrink the peak mbedtls IN-buffer alloc (~5 KB) so the
-# OTA-pull/update-check TLS handshake fits the fragmented internal heap on no-PSRAM
-# boards (esp32-wroom32, tdongle-s3) even with the always-on telemetry ring resident.
-# RISK: if GitHub/Fastly sends a handshake record >4 KB the handshake will fail
-# (they ignore max-fragment-length) — revert to 8192 if the OTA TLS breaks.
+# mbedTLS record sizes.
+# B1-301 lowered SSL_IN to 4096 (heap relief on no-PSRAM boards), but that broke the
+# GitHub TLS handshake (HW-validated: 4096 → 9× -0x7200; 16384 → clean). Boot-mode
+# conversion moved no-PSRAM TLS to boot (ample heap); bitaxe boards use PSRAM — no
+# board needs the reduction. Restored to the ESP-IDF default (16384).
 # OUT lowered to 1 KB — we never send TLS payloads larger than HTTP request headers.
-# THIS IS THE SINGLE OTA-HEAP KNOB: bb_ota's pre-flight largest-free-block guard
-# auto-derives its floor from SSL_IN (= SSL_IN + ~1 KB record overhead), so tune
-# SSL_IN alone — do NOT add a CONFIG_BB_OTA_PULL_MIN_HEAP_BLOCK_BYTES override
-# (bb default 0 = auto-derive). Lowering SSL_IN moves the guard down with it,
-# which is what lets the heap-tight no-PSRAM s2 (largest ~7.7 KB) clear the floor.
-CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=4096
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384
 CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=1024
 
 # /api/events SSE client cap. Restored to BB default 2: cap=4 reserved ~27KB

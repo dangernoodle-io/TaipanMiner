@@ -1,0 +1,22 @@
+# Canonical soak pass/fail thresholds.
+# Keys match fleetlib/criteria.py Criteria dataclass fields exactly.
+# All values here are the compiled defaults; edit to tighten per-run.
+
+poll_interval: 60.0          # seconds between samples
+duration: 3600.0             # total soak window (seconds; 1 h)
+heap_floor: 50000            # bytes — heap.internal.free must stay >= this
+heap_leak_check: true        # min_free must not decline over the soak window
+reboot_tolerance_ms: 30000   # uptime regression > this (ms) => reboot detected
+bad_reset_reasons:           # reset_reason values that trigger an anomaly
+  - panic
+  - task_wdt
+  - int_wdt
+  - brownout
+wdt_resets_flat: true        # wdt_resets count must not increase
+publisher_max_polls: 6       # consecutive polls with pub_ok=false before anomaly
+hashrate_floor_pct: 80.0     # % of expected_ghs that hashrate must meet (ASIC)
+vcore_floor_mv: 500          # mV floor for vcore (ASIC only)
+vcore_restart_flat: true     # vcore_restart_count must not increase (ASIC)
+version_check: false         # require running version == target version
+max_missed_polls: 4          # consecutive missed polls => downtime anomaly
+settle_delay: 120            # minimum warmup floor in seconds

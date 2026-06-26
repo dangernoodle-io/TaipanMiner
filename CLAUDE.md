@@ -214,6 +214,9 @@ UI-only changes merged to `main` do NOT auto-deploy — run the workflow manuall
 - Device test scope: mining integration, NVS persistence, live pool handshake
 - Anonymize test data per workspace rules
 - **Verifying firmware fixes**: do not call a fix "worked" until the device has (1) survived the OTA mark-valid window (first share accepted OR the 15-min stratum-auth timer in `ota_validator`), (2) survived a full OTA from the previously-broken version on a device that historically reproduced the bug, and (3) shown no `abnormal reset count` increment after the test window. With only one of these, say "looks ok so far" — not "fixed."
+- Fleet test harness: `scripts/test/` — see [`scripts/test/README.md`](scripts/test/README.md).
+
+**Fleet/device testing: extend the harness, never add one-off scripts.** All device test, soak, stress, fault-injection, and OTA-validation tooling lives in the `scripts/test/` harness (`fleetlib` + `suites/`). When functionality is missing, add a suite, detector, or `fleetlib` helper — do NOT drop standalone scripts into `scripts/test/`. See `scripts/test/README.md`.
 
 ## Releases
 

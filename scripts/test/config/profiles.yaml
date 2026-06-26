@@ -1,0 +1,43 @@
+# Board-class profile overrides.
+# Keys are board-class prefixes matched by fleetlib/profiles.py profile_for().
+# Each entry overrides the corresponding Profile dataclass fields for that class.
+# Fields not listed use the in-code defaults from profile_for().
+
+bitaxe:
+  is_asic: true
+  has_psram: false
+  max_concurrent: 2
+  max_rps: 4.0
+  poll_interval: 60.0
+  vcore_floor_mv: 500
+
+esp32-wroom32:
+  is_asic: false
+  has_psram: false
+  max_concurrent: 2
+  max_rps: 4.0
+
+tdongle-s3:
+  is_asic: false
+  has_psram: false
+  max_concurrent: 2
+  max_rps: 4.0
+
+esp32-c3:
+  is_asic: false
+  has_psram: false
+  max_concurrent: 1
+  max_rps: 2.0
+  heap_floor: 30000
+
+esp32-s3:
+  is_asic: false
+  has_psram: true
+  max_concurrent: 4
+  max_rps: 10.0
+
+esp32-s2:
+  is_asic: false
+  has_psram: false
+  max_concurrent: 2
+  max_rps: 4.0

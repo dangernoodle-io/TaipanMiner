@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from fleetlib.discovery import Device
-from fleetlib.sse import SSEUnavailable
+from fleetlib.sse import SSEIdleTimeout, SSEUnavailable
 
 
 def _make_device(ip="192.0.2.81", board="esp32-wroom32") -> Device:
@@ -249,6 +249,114 @@ class TestCmdLogsNoDevices(unittest.TestCase):
                 with patch("sys.stderr", stderr_buf):
                     code = fleet.cmd_logs(args)
         self.assertNotEqual(code, 0)
+
+
+class TestCmdLogsIdleBail(unittest.TestCase):
+    """TA-458: early-bail on no-data within the idle window."""
+
+    def test_idle_bail_single_host_exits_zero(self):
+        """SSEIdleTimeout => warn on stderr, exit 0 (graceful bail)."""
+        devices = [_make_device(ip="192.0.2.107", board="esp32-s2-mini")]
+        args = _base_args(follow=True)
+
+        def _silent(client, path="/api/logs", timeout=None, stop=None, idle_timeout=None):
+            raise SSEIdleTimeout(f"no SSE data from {client.ip} within 10s")
+            yield
+
+        code, stdout, stderr = _run_logs(devices, args, stream_lines_side_effect=_silent)
+        self.assertEqual(code, 0)
+        self.assertIn("no log data", stderr.lower())
+        self.assertIn("192.0.2.107", stderr)
+
+    def test_idle_bail_does_not_block_to_duration(self):
+        """Idle-bail fires quickly; does NOT hold the stream until --duration expires."""
+        import time as _time
+        devices = [_make_device(ip="192.0.2.107", board="esp32-s2-mini")]
+        args = _base_args(duration="60s")
+
+        def _silent(client, path="/api/logs", timeout=None, stop=None, idle_timeout=None):
+            raise SSEIdleTimeout(f"no SSE data from {client.ip} within 10s")
+            yield
+
+        t0 = _time.monotonic()
+        code, stdout, stderr = _run_logs(devices, args, stream_lines_side_effect=_silent)
+        elapsed = _time.monotonic() - t0
+        self.assertEqual(code, 0)
+        # Should complete instantly (mock raises immediately), well under 60s
+        self.assertLess(elapsed, 5.0)
+
+    def test_idle_bail_multihost_silent_bails_streaming_continues(self):
+        """Multi-host: silent host bails early, streaming host keeps going."""
+        devices = [
+            _make_device(ip="192.0.2.107", board="esp32-s2-mini"),
+            _make_device(ip="192.0.2.81",  board="esp32-wroom32"),
+        ]
+        args = _base_args(lines=2)
+
+        def _mixed(client, path="/api/logs", timeout=None, stop=None, idle_timeout=None):
+            if client.ip == "192.0.2.107":
+                raise SSEIdleTimeout(f"no SSE data from {client.ip} within 10s")
+                yield
+            else:
+                yield "mining line 1"
+                yield "mining line 2"
+
+        code, stdout, stderr = _run_logs(devices, args, stream_lines_side_effect=_mixed)
+        # .81 streamed OK => exit 0
+        self.assertEqual(code, 0)
+        # .81 lines appear in stdout
+        self.assertIn("mining line", stdout)
+        # .107 bail warning appears in stderr
+        self.assertIn("192.0.2.107", stderr)
+        self.assertIn("no log data", stderr.lower())
+
+    def test_normal_stream_no_idle_bail(self):
+        """Lines arriving normally => no bail, no idle-timeout warning on stderr."""
+        devices = [_make_device(ip="192.0.2.81", board="esp32-wroom32")]
+        args = _base_args(lines=3)
+
+        code, stdout, stderr = _run_logs(devices, args)
+        self.assertEqual(code, 0)
+        self.assertNotIn("no log data", stderr.lower())
+        self.assertEqual(len([l for l in stdout.splitlines() if l]), 3)
+
+
+class TestCmdLogsSingleWorkerWarn(unittest.TestCase):
+    """TA-458: single-worker --follow warning for esp32-s2/esp32-c3 boards."""
+
+    def test_follow_s2_emits_warning(self):
+        """--follow on esp32-s2-mini => single-worker WARNING on stderr."""
+        devices = [_make_device(ip="192.0.2.107", board="esp32-s2-mini")]
+        args = _base_args(follow=True, lines=1)
+        code, stdout, stderr = _run_logs(devices, args)
+        self.assertIn("WARNING", stderr)
+        self.assertIn("192.0.2.107", stderr)
+        self.assertIn("esp32-s2-mini", stderr)
+        self.assertIn("--follow", stderr)
+
+    def test_follow_c3_emits_warning(self):
+        """--follow on esp32-c3-supermini => single-worker WARNING on stderr."""
+        devices = [_make_device(ip="192.0.2.200", board="esp32-c3-supermini")]
+        args = _base_args(follow=True, lines=1)
+        code, stdout, stderr = _run_logs(devices, args)
+        self.assertIn("WARNING", stderr)
+        self.assertIn("192.0.2.200", stderr)
+        self.assertIn("esp32-c3", stderr)
+
+    def test_follow_wroom32_no_warning(self):
+        """--follow on esp32-wroom32 (multi-worker) => no single-worker warning."""
+        devices = [_make_device(ip="192.0.2.81", board="esp32-wroom32")]
+        args = _base_args(follow=True, lines=1)
+        code, stdout, stderr = _run_logs(devices, args)
+        # No single-worker warning; any other stderr (e.g. none) is fine
+        self.assertNotIn("limited httpd workers", stderr)
+
+    def test_no_follow_no_warning(self):
+        """Without --follow, no single-worker warning even on s2 board."""
+        devices = [_make_device(ip="192.0.2.107", board="esp32-s2-mini")]
+        args = _base_args(follow=False, lines=1)
+        code, stdout, stderr = _run_logs(devices, args)
+        self.assertNotIn("limited httpd workers", stderr)
 
 
 if __name__ == "__main__":

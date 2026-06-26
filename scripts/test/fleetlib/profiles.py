@@ -18,6 +18,9 @@ class Profile:
     has_psram: bool = False
     max_concurrent: int = 4   # max concurrent HTTP connections during stress
     max_rps: float = 10.0     # max requests/second during stress
+    # httpd worker constraint: True for single-core, heap-tight boards (esp32-s2, esp32-c3)
+    # --follow on these boards can saturate the sole httpd worker and block other endpoints
+    single_worker: bool = False
     # criteria overrides
     poll_interval: Optional[float] = None   # seconds
     heap_floor: Optional[int] = None        # bytes; None = use Criteria default
@@ -126,6 +129,7 @@ def profile_for(board: str, profiles: Optional["Profiles"] = None) -> Profile:
             max_concurrent=1,
             max_rps=2.0,
             heap_floor=30_000,  # C3 has less RAM than S3/wroom
+            single_worker=True,
         )
 
     if any(b.startswith(p) for p in _S3_PREFIXES):
@@ -144,6 +148,7 @@ def profile_for(board: str, profiles: Optional["Profiles"] = None) -> Profile:
             has_psram=False,
             max_concurrent=2,
             max_rps=4.0,
+            single_worker=True,
         )
 
     # unknown board — return safe defaults

@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from fleetlib.sse import SSEUnavailable, stream_lines, tail_lines
+from fleetlib.sse import SSEIdleTimeout, SSEUnavailable, stream_lines, tail_lines
 
 
 def _make_client(ip="192.0.2.81", port=80):
@@ -242,7 +242,7 @@ class TestSSEUnavailable(unittest.TestCase):
 class TestTailLines(unittest.TestCase):
     def _patch_stream(self, line_list):
         """Patch stream_lines to yield from line_list."""
-        def _fake_stream(client, path="/api/logs", timeout=None, stop=None):
+        def _fake_stream(client, path="/api/logs", timeout=None, stop=None, **kwargs):
             for line in line_list:
                 if stop is not None:
                     stopped = stop.is_set() if isinstance(stop, threading.Event) else stop()
@@ -263,7 +263,7 @@ class TestTailLines(unittest.TestCase):
         """tail_lines stops when the stop event fires."""
         client = _make_client()
 
-        def _slow_stream(client, path="/api/logs", timeout=None, stop=None):
+        def _slow_stream(client, path="/api/logs", timeout=None, stop=None, **kwargs):
             for i in range(100):
                 if stop is not None:
                     stopped = stop.is_set() if isinstance(stop, threading.Event) else stop()
@@ -288,7 +288,7 @@ class TestTailLines(unittest.TestCase):
     def test_sse_unavailable_propagates(self):
         client = _make_client()
 
-        def _raises(client, path="/api/logs", timeout=None, stop=None):
+        def _raises(client, path="/api/logs", timeout=None, stop=None, **kwargs):
             raise SSEUnavailable("occupied")
             yield  # make it a generator
 
@@ -300,6 +300,82 @@ class TestTailLines(unittest.TestCase):
         client = _make_client()
         with self._patch_stream([]):
             result = tail_lines(client, max_lines=10, max_seconds=5.0)
+        self.assertEqual(result, [])
+
+
+class TestStreamLinesIdleTimeout(unittest.TestCase):
+    """TA-458: early-bail when no SSE line arrives within the idle window."""
+
+    def _timeout_response(self):
+        """Fake response whose read() always raises socket.timeout (no data ever arrives)."""
+        import socket as _socket
+
+        class _TimeoutResp:
+            def read(self, n):
+                raise _socket.timeout("timed out")
+
+            def close(self):
+                pass
+
+        return _TimeoutResp()
+
+    def test_idle_timeout_fires_when_no_data(self):
+        """No data within idle window => SSEIdleTimeout raised, does NOT block to full timeout."""
+        client = _make_client()
+        resp = self._timeout_response()
+        t0 = time.monotonic()
+        with patch("urllib.request.urlopen", return_value=resp):
+            with self.assertRaises(SSEIdleTimeout):
+                list(stream_lines(client, timeout=30.0, idle_timeout=0.05))
+        elapsed = time.monotonic() - t0
+        # Must bail well before the 30s socket timeout
+        self.assertLess(elapsed, 5.0, f"idle bail took too long: {elapsed:.2f}s")
+
+    def test_idle_timeout_not_fired_when_data_arrives(self):
+        """Lines arriving before idle window => streams normally, no SSEIdleTimeout."""
+        client = _make_client()
+        raw = b"data: line1\n\ndata: line2\n\n"
+        resp = _fake_response([raw])
+        with patch("urllib.request.urlopen", return_value=resp):
+            lines = list(stream_lines(client, idle_timeout=10.0))
+        self.assertEqual(lines, ["line1", "line2"])
+
+    def test_idle_timeout_none_disables_check(self):
+        """idle_timeout=None: no SSEIdleTimeout even if stream is silent."""
+        client = _make_client()
+        # Response that immediately returns empty (EOF), no idle check
+        resp = _fake_response([b""])
+        with patch("urllib.request.urlopen", return_value=resp):
+            lines = list(stream_lines(client, idle_timeout=None))
+        self.assertEqual(lines, [])
+
+    def test_comment_line_resets_idle_clock(self):
+        """A SSE comment (': connected') counts as activity and prevents early bail."""
+        client = _make_client()
+        raw = b": connected\ndata: hello\n\n"
+        resp = _fake_response([raw])
+        with patch("urllib.request.urlopen", return_value=resp):
+            lines = list(stream_lines(client, idle_timeout=0.05))
+        self.assertEqual(lines, ["hello"])
+
+
+class TestTailLinesNoIdleTimeout(unittest.TestCase):
+    """tail_lines must not raise SSEIdleTimeout (it disables idle check)."""
+
+    def test_tail_lines_silent_stream_returns_empty(self):
+        """A silent stream with tail_lines returns [] without raising SSEIdleTimeout."""
+        client = _make_client()
+
+        def _silent(client, path="/api/logs", timeout=None, stop=None, idle_timeout=None):
+            # Immediately signal stop and yield nothing
+            if stop is not None:
+                if isinstance(stop, threading.Event):
+                    stop.set()
+            return
+            yield  # make it a generator
+
+        with patch("fleetlib.sse.stream_lines", side_effect=_silent):
+            result = tail_lines(client, max_lines=10, max_seconds=0.1)
         self.assertEqual(result, [])
 
 

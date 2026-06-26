@@ -150,6 +150,86 @@ execution.
 
 CI-safe with `--dry-run`.
 
+### `watch`
+
+Poll a single endpoint on each device at a fixed interval and print time-series rows.
+Read-only (GET only). CI-safe.
+
+```sh
+# stream /api/diag/heap every 5 seconds
+./fleet watch /api/diag/heap [--hosts H,H]
+
+# extract specific fields
+./fleet watch /api/diag/heap --fields internal.free,internal.min_free
+
+# stop after 10 ticks
+./fleet watch /api/diag/heap --fields internal.free --count 10
+
+# run for 5 minutes
+./fleet watch /api/diag/heap --duration 5m
+
+# only print rows when field values change
+./fleet watch /api/diag/heap --fields internal.free --on-change
+
+# exit 0 when condition is met on all devices, exit 1 on timeout
+./fleet watch /api/diag/heap --fields internal.free --until 'internal.free > 60000' --count 20
+
+# exit 0 when ANY device satisfies the condition
+./fleet watch /api/diag/heap --until 'internal.free > 60000' --any --duration 2m
+
+# flag rows when condition is true (non-terminating)
+./fleet watch /api/diag/heap --alert 'internal.free < 50000' --duration 10m
+
+# write time series to files
+./fleet watch /api/diag/heap --fields internal.free --out-csv heap.csv --out-json heap.json
+```
+
+Flags specific to `watch`:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--fields F,F` | — | comma-separated dotted fields to extract (default: whole response) |
+| `--interval SEC` | 5 | seconds between polls |
+| `--duration DUR` | — | stop after: `30s`, `5m`, `1h`, or bare seconds |
+| `--count N` | — | stop after N poll ticks |
+| `--on-change` | false | emit row only when field values change from previous tick |
+| `--until EXPR` | — | exit 0 when condition satisfied; exit 1 if not met before bound |
+| `--any` | false | with `--until`: satisfied when ANY device meets the condition (default: all) |
+| `--alert EXPR` | — | prefix rows with `ALERT` when condition true (non-terminating) |
+| `--out-json PATH` | — | write time-series records as a JSON list |
+| `--out-csv PATH` | — | write time-series records as CSV |
+
+**Exit codes** (scriptable wait pattern):
+
+```sh
+# block until all devices have >60 KB free heap (or 5 minutes elapse)
+./fleet watch /api/diag/heap --until 'internal.free > 61440' --duration 5m && echo "ready"
+```
+
+- Exit 0: `--until` condition satisfied, or normal termination (count/duration/Ctrl-C)
+- Exit 1: `--until` given but condition not met before count/duration bound; or no devices found
+
+**Expression syntax** (`--until` / `--alert`):
+
+Expressions use a safe AST-based evaluator (no `eval`/`exec`).  Supported:
+- field paths: dotted names like `internal.free`, `uptime_ms`
+- comparison ops: `<`, `<=`, `>`, `>=`, `==`, `!=`
+- boolean ops: `and`, `or`, `not`
+- literals: integers, floats, strings, `true`, `false`, `null`
+- parentheses for grouping
+
+Function calls, dunders, and Python builtins are rejected (`ExprError`).
+
+**Output format:**
+
+```
+HH:MM:SS  192.0.2.81  internal.free=72432
+HH:MM:SS  192.0.2.71  internal.free=68120
+ALERT HH:MM:SS  192.0.2.81  internal.free=48000
+```
+
+When no `--fields` are given, the whole response is printed as compact JSON on each row.
+
 ### `status`
 
 Fetch `/api/info` + `/api/health` per device and print a summary table.

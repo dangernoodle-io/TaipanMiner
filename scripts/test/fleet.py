@@ -75,6 +75,32 @@ def _add_common_flags(p: argparse.ArgumentParser) -> None:
                    help="auto-confirm guard for mutating operations")
 
 
+def _add_watch_common_flags(p: argparse.ArgumentParser) -> None:
+    """Minimal common flags for watch (targeting only — no output/gate/settle flags)."""
+    p.add_argument("--log-level", default=argparse.SUPPRESS,
+                   choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                   help="log level (default: WARNING)")
+    g = p.add_argument_group("targeting")
+    g.add_argument("--hosts", metavar="H,H,…",
+                   help="comma-separated IPs/hostnames (skip mDNS discovery)")
+    g.add_argument("--discover-timeout", type=int, default=10, metavar="SEC",
+                   help="mDNS browse window in seconds (default: 10)")
+    g.add_argument("--board", metavar="CLASS",
+                   help="filter devices by board class substring")
+
+
+def _parse_duration(s: str) -> float:
+    """Parse '30s', '5m', '1h', or bare seconds (int/float)."""
+    s = s.strip()
+    if s.endswith("s"):
+        return float(s[:-1])
+    if s.endswith("m"):
+        return float(s[:-1]) * 60
+    if s.endswith("h"):
+        return float(s[:-1]) * 3600
+    return float(s)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="fleet",
@@ -153,6 +179,36 @@ def _build_parser() -> argparse.ArgumentParser:
     call_p.add_argument("--no-validate", dest="no_validate", action="store_true",
                         help="skip request body schema validation against the served spec")
     call_p.set_defaults(func=cmd_call)
+
+    # watch
+    watch_p = sub.add_parser(
+        "watch",
+        help="poll an endpoint per-device and observe field values (CI-safe, read-only)",
+    )
+    _add_watch_common_flags(watch_p)
+    watch_p.add_argument("watch_path", metavar="PATH",
+                         help="endpoint path to poll (e.g. /api/diag/heap)")
+    watch_p.add_argument("--fields", metavar="F,F,…",
+                         help="comma-separated dotted fields to extract (default: whole response)")
+    watch_p.add_argument("--interval", type=float, default=5.0, metavar="SEC",
+                         help="seconds between polls (default: 5)")
+    watch_p.add_argument("--duration", metavar="DUR",
+                         help="stop after this duration: 30s / 5m / 1h / bare seconds")
+    watch_p.add_argument("--count", type=int, default=None, metavar="N",
+                         help="stop after N ticks per device")
+    watch_p.add_argument("--on-change", dest="on_change", action="store_true",
+                         help="only emit a row when tracked fields change")
+    watch_p.add_argument("--until", metavar="EXPR",
+                         help="exit 0 when expression is satisfied (all devices, or --any)")
+    watch_p.add_argument("--any", dest="any_device", action="store_true",
+                         help="with --until/--alert: condition met when ANY device satisfies")
+    watch_p.add_argument("--alert", metavar="EXPR",
+                         help="flag rows when expression is true (non-terminating)")
+    watch_p.add_argument("--out-json", metavar="PATH", dest="out_json",
+                         help="write time-series records as JSON list to file")
+    watch_p.add_argument("--out-csv", metavar="PATH", dest="out_csv",
+                         help="write time-series records as CSV to file")
+    watch_p.set_defaults(func=cmd_watch)
 
     # ota
     ota_p = sub.add_parser("ota", help="OTA firmware operations")
@@ -698,6 +754,210 @@ def cmd_call(args) -> int:
             _json.dump(results, fh, indent=2)
 
     return 0 if all_ok else 1
+
+
+def cmd_watch(args) -> int:
+    """Poll a single endpoint per device and print time-series rows."""
+    import csv as _csv
+    import datetime
+    import json as _json
+    import time
+
+    from fleetlib.client import Client, get_field, TIMEOUT_INFO
+    from fleetlib.spec import Spec
+    from fleetlib.expr import compile_expr, ExprError
+
+    watch_path = args.watch_path
+    fields_raw = getattr(args, "fields", None)
+    fields = [f.strip() for f in fields_raw.split(",") if f.strip()] if fields_raw else None
+    interval = float(getattr(args, "interval", 5.0))
+    count = getattr(args, "count", None)
+    duration_str = getattr(args, "duration", None)
+    max_duration = _parse_duration(duration_str) if duration_str else None
+    on_change = getattr(args, "on_change", False)
+    until_expr_s = getattr(args, "until", None)
+    any_device = getattr(args, "any_device", False)
+    alert_expr_s = getattr(args, "alert", None)
+    out_json_path = getattr(args, "out_json", None)
+    out_csv_path = getattr(args, "out_csv", None)
+
+    devices = resolve_devices(args)
+    if not devices:
+        print("No devices found.", file=sys.stderr)
+        return 1
+
+    # Compile expressions
+    until_pred = None
+    alert_pred = None
+    if until_expr_s:
+        try:
+            until_pred = compile_expr(until_expr_s)
+        except ExprError as e:
+            print(f"ERROR: --until expression invalid: {e}", file=sys.stderr)
+            return 1
+    if alert_expr_s:
+        try:
+            alert_pred = compile_expr(alert_expr_s)
+        except ExprError as e:
+            print(f"ERROR: --alert expression invalid: {e}", file=sys.stderr)
+            return 1
+
+    # Spec-aware warning: check if path is served (once per device)
+    for d in devices:
+        try:
+            c = Client(d.ip, getattr(d, "port", 80))
+            spec_doc = c.spec
+            if spec_doc is not None:
+                spec = Spec(spec_doc)
+                if not spec.has_path(watch_path):
+                    print(
+                        f"WARNING: {watch_path!r} not in spec served by {d.ip} "
+                        f"(run ./fleet describe to list available endpoints)",
+                        file=sys.stderr,
+                    )
+        except Exception:
+            pass
+
+    tick = 0
+    t0 = time.time()
+    prev_values: dict = {d.ip: {} for d in devices}
+    records: list = []
+    until_satisfied: set = set()
+
+    try:
+        while True:
+            tick_start = time.time()
+
+            for d in devices:
+                c = Client(d.ip, getattr(d, "port", 80))
+                data = c.get_json(watch_path, timeout=TIMEOUT_INFO)
+
+                ts = datetime.datetime.now().strftime("%H:%M:%S")
+                ts_iso = datetime.datetime.now().isoformat(timespec="seconds")
+
+                if data is None:
+                    print(f"{ts}  {d.ip}  ERROR", file=sys.stderr)
+                    continue
+
+                # Extract field values
+                if fields:
+                    fvals = {f: get_field(data, f) for f in fields}
+                else:
+                    fvals = None  # whole response
+
+                # --on-change: skip if identical to previous tick
+                if on_change:
+                    prev = prev_values[d.ip]
+                    if fields:
+                        cur_snapshot = {f: fvals[f] for f in fields}
+                    else:
+                        cur_snapshot = data
+                    if cur_snapshot == prev:
+                        prev_values[d.ip] = cur_snapshot
+                        continue
+                    prev_values[d.ip] = cur_snapshot
+
+                # --alert evaluation
+                is_alert = alert_pred is not None and alert_pred.eval(data)
+
+                # Build output row
+                prefix = "ALERT " if is_alert else ""
+                if fields:
+                    parts = []
+                    for f in fields:
+                        v = fvals[f]
+                        parts.append(f"{f}={v if v is not None else '?'}")
+                    row_str = f"{prefix}{ts}  {d.ip}  {' '.join(parts)}"
+                else:
+                    compact = _json.dumps(data, separators=(",", ":"))
+                    row_str = f"{prefix}{ts}  {d.ip}  {compact}"
+                print(row_str)
+
+                # Accumulate for file output
+                if fields:
+                    rec = {"ts": ts_iso, "host": d.ip, "fields": fvals}
+                else:
+                    rec = {"ts": ts_iso, "host": d.ip, "response": data}
+                records.append(rec)
+
+                # --until check
+                if until_pred is not None and until_pred.eval(data):
+                    until_satisfied.add(d.ip)
+
+            # Check --until termination condition
+            if until_pred is not None:
+                all_ips = {d.ip for d in devices}
+                if any_device:
+                    condition_met = bool(until_satisfied)
+                else:
+                    condition_met = until_satisfied >= all_ips
+                if condition_met:
+                    print("until condition satisfied", file=sys.stderr)
+                    _write_outputs(records, fields, devices, out_json_path, out_csv_path)
+                    return 0
+
+            tick += 1
+
+            # Check count bound
+            if count is not None and tick >= count:
+                break
+
+            # Check duration bound
+            if max_duration is not None and (time.time() - t0) >= max_duration:
+                break
+
+            # Sleep remainder of interval
+            elapsed = time.time() - tick_start
+            sleep_time = max(0.0, interval - elapsed)
+            time.sleep(sleep_time)
+
+    except KeyboardInterrupt:
+        print("", file=sys.stderr)
+        print("interrupted", file=sys.stderr)
+        _write_outputs(records, fields, devices, out_json_path, out_csv_path)
+        return 0
+
+    _write_outputs(records, fields, devices, out_json_path, out_csv_path)
+
+    # --until was given but not satisfied within bound
+    if until_pred is not None:
+        print("until condition not satisfied within time/count bound", file=sys.stderr)
+        return 1
+
+    return 0
+
+
+def _write_outputs(
+    records: list,
+    fields,
+    devices,
+    out_json_path,
+    out_csv_path,
+) -> None:
+    """Write accumulated records to JSON and/or CSV output files."""
+    import csv as _csv
+    import json as _json
+
+    if out_json_path:
+        with open(out_json_path, "w") as fh:
+            _json.dump(records, fh, indent=2, default=str)
+
+    if out_csv_path:
+        if fields:
+            header = ["ts", "host"] + list(fields)
+        else:
+            header = ["ts", "host", "response"]
+        with open(out_csv_path, "w", newline="") as fh:
+            writer = _csv.writer(fh)
+            writer.writerow(header)
+            for rec in records:
+                if fields:
+                    row = [rec["ts"], rec["host"]] + [
+                        rec["fields"].get(f) for f in fields
+                    ]
+                else:
+                    row = [rec["ts"], rec["host"], _json.dumps(rec.get("response", {}), separators=(",", ":"))]
+                writer.writerow(row)
 
 
 def _ota_guard(args) -> Guard:

@@ -133,6 +133,19 @@ def _add_common_flags(p: argparse.ArgumentParser) -> None:
     r.add_argument("--yes", action="store_true",
                    help="auto-confirm guard for mutating operations")
 
+    m = p.add_argument_group("metrics publishing")
+    m.add_argument("--metrics-mqtt-url", metavar="HOST[:PORT]", default=None,
+                   dest="metrics_mqtt_url",
+                   help="broker for run metrics (overrides BB_TEST_METRICS_BROKER / BB_TEST_RECEIVER); "
+                        "default ON when configured, skip with note when absent")
+    m.add_argument("--metrics-topic", metavar="PREFIX", default="fleettest",
+                   dest="metrics_topic",
+                   help="MQTT topic prefix for run metrics (default: fleettest); "
+                        "full topic: <prefix>/<suite>/<board>")
+    m.add_argument("--no-publish-metrics", action="store_true", default=False,
+                   dest="no_publish_metrics",
+                   help="disable automatic metrics publishing (opt-out)")
+
 
 def _add_watch_common_flags(p: argparse.ArgumentParser) -> None:
     """Minimal common flags for watch (targeting only — no output/gate/settle flags)."""
@@ -592,6 +605,7 @@ def cmd_suite(args, suite_name: str) -> int:
         "fields", "gates", "skip_gates", "out_json", "out_junit", "baseline", "criteria",
         "settle", "dry_run", "yes",
         "log_level", "subcommand", "func",
+        "metrics_mqtt_url", "metrics_topic", "no_publish_metrics",
     }
     ctx.extra = {k: v for k, v in vars(args).items() if k not in _COMMON_DEST}
 
@@ -628,6 +642,30 @@ def cmd_suite(args, suite_name: str) -> int:
             print("\nBASELINE REGRESSIONS:")
             for reg in regressions:
                 print(f"  {reg}")
+
+    # Metrics publishing — default ON when a broker is configured; opt-out via --no-publish-metrics.
+    # Never fails the run: publish errors are warned, exit code is unchanged.
+    no_publish = getattr(args, "no_publish_metrics", False)
+    if not no_publish:
+        broker_url = (
+            getattr(args, "metrics_mqtt_url", None)
+            or os.environ.get("BB_TEST_METRICS_BROKER")
+            or os.environ.get("BB_TEST_RECEIVER")
+        )
+        if broker_url:
+            topic_prefix = getattr(args, "metrics_topic", "fleettest") or "fleettest"
+            try:
+                rs.push_telemetry(broker_url, topic_prefix=topic_prefix)
+            except Exception as _pub_exc:
+                logging.getLogger(__name__).warning(
+                    "run metrics publish failed (non-fatal): %s", _pub_exc
+                )
+        else:
+            print(
+                "note: run metrics not published (no broker configured; "
+                "set --metrics-mqtt-url or BB_TEST_METRICS_BROKER to enable)",
+                file=sys.stderr,
+            )
 
     return 1 if summary["fail"] > 0 else 0
 

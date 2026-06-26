@@ -73,6 +73,50 @@ The `--hosts` flag is accepted by every subcommand and bypasses mDNS.
 
 ## Subcommands
 
+### `logs`
+
+Retrieve the device kernel log via the SSE endpoint `GET /api/logs`.  Read-only,
+CI-safe.
+
+```sh
+# tail the last 10 log lines then exit
+./fleet logs --hosts 172.16.1.81 --lines 10
+
+# stream for 30 seconds then exit
+./fleet logs --hosts 172.16.1.81 --duration 30s
+
+# stream until Ctrl-C
+./fleet logs --hosts 172.16.1.81 --follow
+
+# collect up to 20 lines and also write to a file
+./fleet logs --hosts 172.16.1.81 --lines 20 --out /tmp/device.log
+
+# multi-host: interleaved lines with per-host prefix
+./fleet logs --hosts 172.16.1.81,172.16.1.68 --duration 10s
+```
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--follow` / `-f` | false | stream until Ctrl-C (clean exit 0) |
+| `--duration DUR` | — | stop after: `30s`, `5m`, `1h`, or bare seconds |
+| `--lines N` | — | stop after N log lines |
+| `--out PATH` | — | tee captured lines to a file (stdout is also written) |
+
+When neither `--follow`, `--duration`, nor `--lines` is given, the default is
+**50 lines or 10 seconds**, whichever comes first.
+
+**One-SSE-consumer-at-a-time caveat:** the device's log sink supports only one
+active SSE consumer (TA-264/TA-265).  If another consumer already holds the
+sink, `fleet logs` prints a clear error message naming the host and exits
+non-zero rather than hanging.  With multiple `--hosts`, an unavailable host is
+reported on stderr but the remaining hosts continue streaming.
+
+**Related (out of scope here):** `GET /api/log/level` and
+`PATCH /api/log/level` allow per-tag log-level control; see `fleet describe
+/api/log/level` for the schema.
+
 ### `discover`
 
 Print a table of discovered devices with board class, version, and uptime.

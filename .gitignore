@@ -1,6 +1,7 @@
 .pio/
 .platformio/
 .claude/
+.elf-archive/
 managed_components/
 # IDF component-manager lock: re-generated per build and stamped with the
 # last-built `target:`, so it churns on every board switch. The only managed

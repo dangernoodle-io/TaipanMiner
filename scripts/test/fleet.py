@@ -31,7 +31,17 @@ from suites import SuiteContext, SettleConfig, resolve_devices
 
 
 def _add_common_flags(p: argparse.ArgumentParser) -> None:
-    """Add shared flags to a parser (main or subcommand)."""
+    """Add shared flags to a parser (main or subcommand).
+
+    --log-level is registered here with default=SUPPRESS so a value given
+    after the subcommand wins, but a value given before (on the root parser)
+    is not silently discarded by the subparser default.
+    """
+    p.add_argument("--log-level",
+                   default=argparse.SUPPRESS,
+                   choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                   help="log level (default: WARNING)")
+
     g = p.add_argument_group("targeting")
     g.add_argument("--hosts", metavar="H,H,…",
                    help="comma-separated IPs/hostnames (skip mDNS discovery)")
@@ -70,9 +80,9 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="fleet",
         description="TaipanMiner fleet test harness",
     )
-    p.add_argument("--log-level", default="WARNING",
-                   choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-                   help="log level (default: WARNING)")
+    # Root parser sets the true default; subparsers register --log-level with
+    # SUPPRESS so a post-subcommand value wins without clobbering this default.
+    p.set_defaults(log_level="WARNING")
     _add_common_flags(p)
 
     sub = p.add_subparsers(dest="subcommand", metavar="SUBCOMMAND")

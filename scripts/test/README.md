@@ -304,13 +304,62 @@ Long-duration fleet health soak.  Polls each device at `poll_interval`, applying
 full detector set (heap floor, heap leak, reboot, reset-reason, WDT, publisher, hashrate,
 vcore).  Results include anomalies with detector name and poll index.
 
+**Live per-tick reporting is on by default.**  Each tick prints a timestamped row per
+device showing heap, uptime, mqtt/publish state, hashrate + % of expected (when available),
+and vcore (ASIC).  Warmup ticks are prefixed with `~`.  Pass `--quiet` to suppress (e.g.
+in unattended CI runs).
+
 ```sh
 ./fleet soak [--duration 1h] [--interval 60] [--target VERSION]
              [--expected-ghs N] [--settle SEC] [--no-settle]
              [--gate NAME] [--skip NAME]
+             [--quiet]
+             [--samples-out PATH]
+             [--attach-logs {anomaly,always,never}]
 ```
 
 Duration accepts `30s`, `2m`, `1h`, or bare seconds.
+
+Flags specific to `soak`:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--duration DUR` | from criteria | soak window |
+| `--interval SEC` | from criteria | poll interval |
+| `--target VERSION` | — | fail devices not running this version |
+| `--expected-ghs N` | from /api/stats | hashrate ceiling override (0 disables) |
+| `--quiet` | false | suppress per-tick live rows (CI/unattended) |
+| `--samples-out PATH` | — | write per-tick time-series: `.json` (NDJSON) or `.csv` |
+| `--attach-logs MODE` | `anomaly` | attach device log tail to result: `anomaly`, `always`, `never` |
+
+**Hashrate coverage:** all mining boards that report `expected_ghs > 0` in `/api/stats`
+are covered — not just ASICs.  Per-class floor percentages are configured in
+`config/profiles.yaml` (`hashrate_floor_pct`):
+
+| Board class | Floor |
+|-------------|-------|
+| bitaxe (ASIC) | 75% |
+| esp32-wroom32 | 80% |
+| tdongle-s3 | 80% |
+| esp32-c3 | 70% |
+| esp32-s3 | 80% |
+| esp32-s2 | 75% |
+
+**Baseline metrics:** `Result.metrics` is populated with per-run summary statistics for
+every soak result, enabling regression detection via `--baseline`:
+
+| Metric | Description | Direction |
+|--------|-------------|-----------|
+| `heap_free_min` | minimum heap.internal.free seen | higher is better |
+| `heap_min_free_min` | minimum min_free_ever seen | higher is better |
+| `largest_block_min` | minimum largest free block | higher is better |
+| `hashrate_min` | minimum hashrate sample | higher is better |
+| `hashrate_avg` | mean hashrate over run | higher is better |
+| `hashrate_pct_expected_min` | min % of expected_ghs | higher is better |
+| `temp_max` | peak temperature (°C) | lower is better |
+| `reboot_count` | detected mid-run reboots | lower is better |
+| `anomaly_count` | total anomalies fired | lower is better |
+| `duration_s` | soak window duration | — |
 
 Examples:
 
@@ -323,6 +372,24 @@ Examples:
 
 # soak with specific version assertion and faster poll
 ./fleet soak --hosts 172.16.1.71 --duration 1h --interval 30 --target v0.70.0
+
+# soak with live rows suppressed (CI/unattended)
+./fleet soak --hosts 172.16.1.81 --duration 2h --quiet
+
+# write full per-tick time-series for offline analysis
+./fleet soak --hosts 172.16.1.81 --duration 1h --samples-out /tmp/soak.csv
+
+# attach log tail on anomaly (default) and save JSON results
+./fleet soak --hosts 172.16.1.81,172.16.1.68 --duration 1h \
+    --out-json /tmp/run.json --attach-logs anomaly
+
+# always attach log tail for post-run analysis
+./fleet soak --hosts 172.16.1.81 --duration 30m \
+    --out-json /tmp/run.json --attach-logs always
+
+# baseline regression check
+./fleet soak --duration 30m --out-json /tmp/run.json  # save run
+./fleet soak --duration 30m --baseline /tmp/run.json  # compare
 ```
 
 Operator-only (long duration, consumes device resources).
@@ -530,7 +597,7 @@ Soak pass/fail thresholds.  All keys match `fleetlib/criteria.py` `Criteria` fie
 | `bad_reset_reasons` | [panic, task_wdt, int_wdt, brownout] | reset reasons that trigger anomaly |
 | `wdt_resets_flat` | true | `wdt_resets` count must not increase |
 | `publisher_max_polls` | 6 | consecutive polls with `pub_ok=false` before anomaly |
-| `hashrate_floor_pct` | 80.0 | % of `expected_ghs` (ASIC only) |
+| `hashrate_floor_pct` | 80.0 | % of `expected_ghs` floor (all mining boards; per-class override in profiles.yaml) |
 | `vcore_floor_mv` | 500 | mV floor for vcore (ASIC only) |
 | `vcore_restart_flat` | true | `vcore_restart_count` must not increase (ASIC) |
 | `version_check` | false | require running version == target |
@@ -552,6 +619,7 @@ Board-class capability overrides.  Keys are board-class prefix strings (e.g. `bi
 | `heap_floor` | override heap floor for this class |
 | `vcore_floor_mv` | override vcore floor (ASIC) |
 | `publisher_polls` | override publisher anomaly threshold |
+| `hashrate_floor_pct` | % of `expected_ghs` floor for hashrate detector (all mining boards) |
 
 ---
 

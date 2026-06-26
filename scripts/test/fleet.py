@@ -30,6 +30,10 @@ from fleetlib.safety import Guard
 from fleetlib.results import ResultSet
 from suites import SuiteContext, SettleConfig, resolve_devices
 
+# Sentinel: --settle given as a bare flag (no value). Distinguishes "absent"
+# (default=None) from "bare" (const=_SETTLE_BARE) from "--settle N" (int).
+_SETTLE_BARE = object()
+
 
 def _add_common_flags(p: argparse.ArgumentParser) -> None:
     """Add shared flags to a parser (main or subcommand).
@@ -66,10 +70,9 @@ def _add_common_flags(p: argparse.ArgumentParser) -> None:
                    help="YAML criteria override file")
 
     r = p.add_argument_group("run control")
-    r.add_argument("--settle", type=int, default=None, metavar="SEC",
-                   help="warmup settle delay in seconds (default: from criteria)")
-    r.add_argument("--no-settle", action="store_true",
-                   help="disable settle/readiness gate")
+    r.add_argument("--settle", nargs="?", type=int, const=_SETTLE_BARE, default=None,
+                   metavar="SEC",
+                   help="opt-in warmup settle: bare = criteria default (120s), --settle N = N seconds")
     r.add_argument("--dry-run", action="store_true",
                    help="log mutating operations but don't execute them")
     r.add_argument("--yes", action="store_true",
@@ -320,13 +323,17 @@ def _build_context(args, suite_name: str = "fleet") -> SuiteContext:
     else:
         criteria = load_criteria()
 
-    # Settle config
-    if getattr(args, "no_settle", False):
+    # Settle config — opt-in: off by default; --settle enables
+    settle_arg = getattr(args, "settle", None)
+    if settle_arg is None:
+        # No --settle flag: settle OFF
         settle = SettleConfig(settle_delay=0, enabled=False)
-    elif args.settle is not None:
-        settle = SettleConfig(settle_delay=args.settle, enabled=True)
-    else:
+    elif settle_arg is _SETTLE_BARE:
+        # --settle (bare): ON, use criteria default
         settle = SettleConfig(settle_delay=criteria.settle_delay, enabled=True)
+    else:
+        # --settle N: ON, use explicit seconds
+        settle = SettleConfig(settle_delay=settle_arg, enabled=True)
 
     # Guard
     guard = Guard(
@@ -452,7 +459,7 @@ def cmd_suite(args, suite_name: str) -> int:
     _COMMON_DEST = {
         "hosts", "discover_timeout", "board",
         "fields", "gates", "skip_gates", "out_json", "out_junit", "baseline", "criteria",
-        "settle", "no_settle", "dry_run", "yes",
+        "settle", "dry_run", "yes",
         "log_level", "subcommand", "func",
     }
     ctx.extra = {k: v for k, v in vars(args).items() if k not in _COMMON_DEST}
@@ -1170,12 +1177,12 @@ def _ota_guard(args) -> Guard:
 
 
 def _ota_settle(args) -> "SettleConfig":
-    no_settle = getattr(args, "no_settle", False)
-    delay = getattr(args, "settle", None)
-    from suites import SettleConfig
-    if no_settle:
+    settle_arg = getattr(args, "settle", None)
+    if settle_arg is None:
         return SettleConfig(enabled=False)
-    return SettleConfig(settle_delay=delay if delay is not None else 120, enabled=True)
+    if settle_arg is _SETTLE_BARE:
+        return SettleConfig(settle_delay=120, enabled=True)
+    return SettleConfig(settle_delay=settle_arg, enabled=True)
 
 
 def cmd_ota_push(args) -> int:

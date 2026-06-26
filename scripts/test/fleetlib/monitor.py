@@ -30,6 +30,7 @@ class Sample:
     sensors: Optional[dict]
     stats: Optional[dict]
     ok: bool  # False when /api/info was unreachable
+    warmup: bool = False
 
 
 @dataclass
@@ -73,6 +74,7 @@ def poll(
     detectors: List[Detector],
     fields: Optional[List[str]] = None,
     settle_delay: int = 0,
+    on_sample: Optional[Callable[[Sample], None]] = None,
 ) -> List[Anomaly]:
     """Poll all devices for `duration` seconds at `interval` second ticks.
 
@@ -90,6 +92,9 @@ def poll(
         settle_delay: warmup grace period in seconds after start (and after reboots).
                       Detectors are suppressed until this window expires.
                       0 = no warmup suppression (default, preserves old behavior).
+        on_sample:    optional callback invoked for every sample (including warmup ticks).
+                      sample.warmup is set before the callback fires. Detectors still
+                      observe warmup suppression regardless of this callback.
 
     Returns:
         List of Anomaly detected across the run (may be empty).
@@ -139,6 +144,12 @@ def poll(
                     last_uptime[device.ip] = cur_uptime
 
             in_warmup = settle_delay > 0 and time.monotonic() < warmup_until[device.ip]
+            sample.warmup = in_warmup
+            if on_sample is not None:
+                try:
+                    on_sample(sample)
+                except Exception as exc:
+                    logger.error("on_sample callback error on %s: %s", device.ip, exc)
 
             for det in detectors:
                 try:
@@ -289,6 +300,22 @@ def make_publisher_detector(criteria: "Criteria") -> Detector:
     return _detect
 
 
+def hashrate_ghs(stats: Optional[dict]) -> Optional[float]:
+    """Hashrate in GH/s from a /api/stats dict, normalizing units.
+
+    Device reports `hashrate` in H/s and `expected_ghs` in GH/s. A
+    `hashrate_ghs` field (future firmware) is taken as-is. None when absent.
+    """
+    if stats is None:
+        return None
+    if stats.get("hashrate_ghs") is not None:
+        return float(stats["hashrate_ghs"])
+    hr = stats.get("hashrate")
+    if hr is None:
+        return None
+    return float(hr) / 1e9  # H/s -> GH/s
+
+
 def make_hashrate_detector(criteria: "Criteria", expected_ghs: float) -> Detector:
     """Anomaly when reported hashrate falls below the floor."""
     floor = expected_ghs * criteria.hashrate_floor_pct / 100.0
@@ -296,7 +323,7 @@ def make_hashrate_detector(criteria: "Criteria", expected_ghs: float) -> Detecto
     def _detect(sample: Sample, state: Dict) -> Optional[Anomaly]:
         if not sample.ok or sample.stats is None:
             return None
-        hr = sample.stats.get("hashrate_ghs") or sample.stats.get("hashrate")
+        hr = hashrate_ghs(sample.stats)
         if hr is not None and hr < floor:
             return Anomaly(
                 sample.device, "hashrate_floor",

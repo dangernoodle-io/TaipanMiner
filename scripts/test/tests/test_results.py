@@ -181,5 +181,61 @@ class TestBaselineRegression(unittest.TestCase):
             os.unlink(path)
 
 
+class TestBaselineRegressionNewMetrics(unittest.TestCase):
+    """TA-449: new per-run summary metrics regress correctly in compare_baseline."""
+
+    def _write_baseline(self, results: list) -> str:
+        data = {"suite": "test", "results": results}
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
+            json.dump(data, f)
+            return f.name
+
+    def test_heap_free_min_regression(self):
+        rs = ResultSet("t")
+        rs.add(Result("soak/heap", _dev(), STATUS_PASS, "", {"heap_free_min": 40_000}))
+        path = self._write_baseline([{"name": "soak/heap", "metrics": {"heap_free_min": 60_000}}])
+        try:
+            regressions = rs.compare_baseline(path)
+            self.assertEqual(len(regressions), 1)
+            self.assertIn("heap_free_min", regressions[0])
+            self.assertIn("regression", regressions[0])
+        finally:
+            os.unlink(path)
+
+    def test_hashrate_avg_regression(self):
+        rs = ResultSet("t")
+        rs.add(Result("soak/hr", _dev(), STATUS_PASS, "", {"hashrate_avg": 400.0}))
+        path = self._write_baseline([{"name": "soak/hr", "metrics": {"hashrate_avg": 480.0}}])
+        try:
+            regressions = rs.compare_baseline(path)
+            self.assertEqual(len(regressions), 1)
+            self.assertIn("hashrate_avg", regressions[0])
+        finally:
+            os.unlink(path)
+
+    def test_temp_max_regression(self):
+        rs = ResultSet("t")
+        rs.add(Result("soak/temp", _dev(), STATUS_PASS, "", {"temp_max": 85.0}))
+        path = self._write_baseline([{"name": "soak/temp", "metrics": {"temp_max": 70.0}}])
+        try:
+            regressions = rs.compare_baseline(path)
+            self.assertEqual(len(regressions), 1)
+            self.assertIn("temp_max", regressions[0])
+            self.assertIn("regression", regressions[0])
+        finally:
+            os.unlink(path)
+
+    def test_anomaly_count_regression(self):
+        rs = ResultSet("t")
+        rs.add(Result("soak/a", _dev(), STATUS_FAIL, "", {"anomaly_count": 3}))
+        path = self._write_baseline([{"name": "soak/a", "metrics": {"anomaly_count": 0}}])
+        try:
+            regressions = rs.compare_baseline(path)
+            self.assertEqual(len(regressions), 1)
+            self.assertIn("anomaly_count", regressions[0])
+        finally:
+            os.unlink(path)
+
+
 if __name__ == "__main__":
     unittest.main()

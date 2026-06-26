@@ -85,4 +85,6 @@ def for_profile(criteria: Criteria, profile: "Profile") -> Criteria:
         c.vcore_floor_mv = profile.vcore_floor_mv
     if profile.publisher_polls is not None:
         c.publisher_max_polls = profile.publisher_polls
+    if profile.hashrate_floor_pct is not None:
+        c.hashrate_floor_pct = profile.hashrate_floor_pct
     return c

@@ -30,6 +30,7 @@ class Sample:
     sensors: Optional[dict]
     stats: Optional[dict]
     ok: bool  # False when /api/info was unreachable
+    warmup: bool = False
 
 
 @dataclass
@@ -73,6 +74,7 @@ def poll(
     detectors: List[Detector],
     fields: Optional[List[str]] = None,
     settle_delay: int = 0,
+    on_sample: Optional[Callable[[Sample], None]] = None,
 ) -> List[Anomaly]:
     """Poll all devices for `duration` seconds at `interval` second ticks.
 
@@ -90,6 +92,9 @@ def poll(
         settle_delay: warmup grace period in seconds after start (and after reboots).
                       Detectors are suppressed until this window expires.
                       0 = no warmup suppression (default, preserves old behavior).
+        on_sample:    optional callback invoked for every sample (including warmup ticks).
+                      sample.warmup is set before the callback fires. Detectors still
+                      observe warmup suppression regardless of this callback.
 
     Returns:
         List of Anomaly detected across the run (may be empty).
@@ -139,6 +144,12 @@ def poll(
                     last_uptime[device.ip] = cur_uptime
 
             in_warmup = settle_delay > 0 and time.monotonic() < warmup_until[device.ip]
+            sample.warmup = in_warmup
+            if on_sample is not None:
+                try:
+                    on_sample(sample)
+                except Exception as exc:
+                    logger.error("on_sample callback error on %s: %s", device.ip, exc)
 
             for det in detectors:
                 try:

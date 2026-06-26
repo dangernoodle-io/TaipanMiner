@@ -32,6 +32,59 @@ from fleetlib.safety import Guard
 from fleetlib.results import ResultSet
 from suites import SuiteContext, SettleConfig, resolve_devices
 
+
+def _emit_resolve_warnings(result, file=None) -> None:
+    """Print per-host enrichment failures to stderr (or *file* if given).
+
+    Always safe to call; does nothing when there are no failures or when
+    *result* is a plain list (backward-compat with test mocks).
+    """
+    import sys as _sys
+    from fleetlib.discovery import ResolveResult
+    if not isinstance(result, ResolveResult):
+        return
+    dest = file or _sys.stderr
+    for f in result.failures:
+        print(f"  {f.host}: unreachable ({f.reason})", file=dest)
+
+
+def _no_devices_message(result) -> str:
+    """Return the appropriate 'no devices' message given a ResolveResult.
+
+    Falls back to the generic message when *result* is a plain list (backward-
+    compat with test mocks that patch resolve_devices to return []).
+    """
+    from fleetlib.discovery import ResolveResult
+    if not isinstance(result, ResolveResult):
+        return "No devices found."
+    if result.from_mdns:
+        return "No devices found via mDNS (_taipanminer._tcp.local.)."
+    n = len(result.failures)
+    lines = [f"{n} host(s) specified; none reachable:"]
+    for f in result.failures:
+        lines.append(f"  {f.host}: unreachable ({f.reason})")
+    return "\n".join(lines)
+
+
+def _unwrap_devices(result, caller_name: str = ""):
+    """Extract the device list from a ResolveResult.
+
+    When at least one device resolved (partial failure), emits per-host failure
+    warnings to stderr so the operator knows which hosts were skipped.
+    When NO devices resolved, warnings are embedded in _no_devices_message
+    instead — so callers that gate on empty must call _no_devices_message and
+    must NOT call _emit_resolve_warnings separately.
+
+    Also accepts a plain list for backward compatibility with existing test mocks.
+    """
+    from fleetlib.discovery import ResolveResult
+    if isinstance(result, list):
+        return result
+    # Only warn here for partial failures; all-fail is handled by _no_devices_message
+    if result.devices and result.failures:
+        _emit_resolve_warnings(result)
+    return result.devices
+
 # Sentinel: --settle given as a bare flag (no value). Distinguishes "absent"
 # (default=None) from "bare" (const=_SETTLE_BARE) from "--settle N" (int).
 _SETTLE_BARE = object()
@@ -451,9 +504,10 @@ def _build_context(args, suite_name: str = "fleet") -> SuiteContext:
 def cmd_discover(args) -> int:
     """Discover devices via mDNS and print a table."""
     print("Discovering devices (mDNS _taipanminer._tcp.local.)…")
-    devices = resolve_devices(args)
+    result = resolve_devices(args)
+    devices = _unwrap_devices(result)
     if not devices:
-        print("No devices found.")
+        print(_no_devices_message(result))
         return 0
     _print_device_table(devices, extra_headers=["uptime"])
     return 0
@@ -463,9 +517,10 @@ def cmd_status(args) -> int:
     """Fetch /api/info + /api/health for each device and print summary."""
     from fleetlib.client import Client, TIMEOUT_INFO, TIMEOUT_HEALTH
 
-    devices = resolve_devices(args)
+    result = resolve_devices(args)
+    devices = _unwrap_devices(result)
     if not devices:
-        print("No devices found.")
+        print(_no_devices_message(result), file=sys.stderr)
         return 1
 
     print(f"{'HOST':<20} {'BOARD':<20} {'VERSION':<16} {'UPTIME':>12}  {'HEAP FREE':>12}  HEALTH")
@@ -526,7 +581,8 @@ def cmd_suite(args, suite_name: str) -> int:
         return 1
 
     ctx = _build_context(args, suite_name=suite_name)
-    ctx.devices = resolve_devices(args)
+    _resolve_result = resolve_devices(args)
+    ctx.devices = _unwrap_devices(_resolve_result)
 
     # Forward all suite-specific flags into ctx.extra generically.
     # COMMON_DEST enumerates every dest that _add_common_flags and the main parser register,
@@ -540,7 +596,7 @@ def cmd_suite(args, suite_name: str) -> int:
     ctx.extra = {k: v for k, v in vars(args).items() if k not in _COMMON_DEST}
 
     if not ctx.devices:
-        print("No devices found.")
+        print(_no_devices_message(_resolve_result), file=sys.stderr)
         return 1
 
     print(f"Running {suite_name} suite on {len(ctx.devices)} device(s)…")
@@ -582,9 +638,10 @@ def cmd_describe(args) -> int:
     from fleetlib.client import Client
     from fleetlib.spec import Spec
 
-    devices = resolve_devices(args)
+    _resolve_result = resolve_devices(args)
+    devices = _unwrap_devices(_resolve_result)
     if not devices:
-        print("No devices found.")
+        print(_no_devices_message(_resolve_result), file=sys.stderr)
         return 1
 
     d = devices[0]
@@ -757,9 +814,10 @@ def cmd_call(args) -> int:
             print(f"ERROR: --json-file is not valid JSON: {e}")
             return 1
 
-    devices = resolve_devices(args)
+    _resolve_result = resolve_devices(args)
+    devices = _unwrap_devices(_resolve_result)
     if not devices:
-        print("No devices found.")
+        print(_no_devices_message(_resolve_result), file=sys.stderr)
         return 1
 
     # Fetch spec from first device for path-warning and body validation
@@ -894,9 +952,10 @@ def cmd_watch(args) -> int:
     out_json_path = getattr(args, "out_json", None)
     out_csv_path = getattr(args, "out_csv", None)
 
-    devices = resolve_devices(args)
+    _resolve_result = resolve_devices(args)
+    devices = _unwrap_devices(_resolve_result)
     if not devices:
-        print("No devices found.", file=sys.stderr)
+        print(_no_devices_message(_resolve_result), file=sys.stderr)
         return 1
 
     # Compile expressions
@@ -1060,9 +1119,10 @@ def cmd_logs(args) -> int:
         max_lines = 50
         max_duration = 10.0
 
-    devices = resolve_devices(args)
+    _resolve_result = resolve_devices(args)
+    devices = _unwrap_devices(_resolve_result)
     if not devices:
-        print("No devices found.", file=sys.stderr)
+        print(_no_devices_message(_resolve_result), file=sys.stderr)
         return 1
 
     # Single-worker --follow warning: warn before holding a connection on heap-tight boards
@@ -1296,9 +1356,10 @@ def cmd_ota_push(args) -> int:
     from fleetlib import ota
     from fleetlib.client import Client
 
-    devices = resolve_devices(args)
+    _resolve_result = resolve_devices(args)
+    devices = _unwrap_devices(_resolve_result)
     if not devices:
-        print("No devices found.")
+        print(_no_devices_message(_resolve_result), file=sys.stderr)
         return 1
 
     guard = _ota_guard(args)
@@ -1365,9 +1426,10 @@ def cmd_ota_pull(args) -> int:
     from fleetlib import ota
     from fleetlib.client import Client
 
-    devices = resolve_devices(args)
+    _resolve_result = resolve_devices(args)
+    devices = _unwrap_devices(_resolve_result)
     if not devices:
-        print("No devices found.")
+        print(_no_devices_message(_resolve_result), file=sys.stderr)
         return 1
 
     guard = _ota_guard(args)
@@ -1406,9 +1468,10 @@ def cmd_ota_mark_valid(args) -> int:
     from fleetlib import ota
     from fleetlib.client import Client
 
-    devices = resolve_devices(args)
+    _resolve_result = resolve_devices(args)
+    devices = _unwrap_devices(_resolve_result)
     if not devices:
-        print("No devices found.")
+        print(_no_devices_message(_resolve_result), file=sys.stderr)
         return 1
 
     guard = _ota_guard(args)
@@ -1439,9 +1502,10 @@ def cmd_ota_recover(args) -> int:
     from fleetlib import ota
     from fleetlib.client import Client
 
-    devices = resolve_devices(args)
+    _resolve_result = resolve_devices(args)
+    devices = _unwrap_devices(_resolve_result)
     if not devices:
-        print("No devices found.")
+        print(_no_devices_message(_resolve_result), file=sys.stderr)
         return 1
 
     guard = _ota_guard(args)
@@ -1472,9 +1536,10 @@ def cmd_ota_status(args) -> int:
     from fleetlib import ota
     from fleetlib.client import Client
 
-    devices = resolve_devices(args)
+    _resolve_result = resolve_devices(args)
+    devices = _unwrap_devices(_resolve_result)
     if not devices:
-        print("No devices found.")
+        print(_no_devices_message(_resolve_result), file=sys.stderr)
         return 1
 
     _status = getattr(ota, "status", None)
@@ -1502,9 +1567,10 @@ def cmd_ota_verify(args) -> int:
     from fleetlib import ota
     from fleetlib.client import Client
 
-    devices = resolve_devices(args)
+    _resolve_result = resolve_devices(args)
+    devices = _unwrap_devices(_resolve_result)
     if not devices:
-        print("No devices found.")
+        print(_no_devices_message(_resolve_result), file=sys.stderr)
         return 1
 
     target = args.target_version
@@ -1648,7 +1714,7 @@ def cmd_elf_list(args) -> int:
     running_shas: set = set()
     unreachable: list = []
     try:
-        devices = resolve_devices(args)
+        devices = _unwrap_devices(resolve_devices(args))
         for d in devices:
             c = Client(d.ip, getattr(d, "port", 80))
             info = c.get_json("/api/info", timeout=TIMEOUT_INFO)
@@ -1713,7 +1779,8 @@ def cmd_elf_prune(args) -> int:
 
     if in_use_mode:
         # Fleet-aware GC: collect running shas
-        devices = resolve_devices(args)
+        _elf_resolve = resolve_devices(args)
+        devices = _unwrap_devices(_elf_resolve)
         if not devices:
             print("ERROR: no devices found; cannot perform fleet-aware GC safely")
             return 1

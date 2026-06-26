@@ -41,3 +41,4 @@ webui/*/coverage/
 /gcovr-coveralls.json
 /*_gz.c
 .breadboard
+scripts/test/.venv/

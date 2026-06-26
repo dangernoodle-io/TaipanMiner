@@ -1,5 +1,7 @@
 """Board class detection and capability profiles."""
 from __future__ import annotations
+import dataclasses
+import os
 from dataclasses import dataclass
 from typing import Optional
 
@@ -21,6 +23,45 @@ class Profile:
     heap_floor: Optional[int] = None        # bytes; None = use Criteria default
     vcore_floor_mv: Optional[int] = None    # mV; ASIC only
     publisher_polls: Optional[int] = None   # None = use Criteria default
+
+
+class Profiles:
+    """Named board-class profile overrides loaded from config/profiles.yaml.
+
+    Keys are the board-class prefix strings used by profile_for() (e.g. 'bitaxe',
+    'esp32-c3').  Use load() to read the YAML; use get() to look up a class by name.
+    """
+
+    def __init__(self, overrides: Optional[dict] = None) -> None:
+        self.overrides: dict = overrides or {}
+
+    @classmethod
+    def load(cls, path: str = "config/profiles.yaml") -> "Profiles":
+        """Load profile overrides from YAML.  Returns empty Profiles if file absent."""
+        if not os.path.exists(path):
+            return cls()
+        try:
+            import yaml  # type: ignore[import]
+        except ImportError:
+            return cls()
+        try:
+            with open(path) as f:
+                data = yaml.safe_load(f) or {}
+        except Exception:
+            return cls()
+        return cls(overrides=data)
+
+    def get(self, board_class: str) -> Optional[Profile]:
+        """Return a Profile for the given board_class key, or None if not defined."""
+        entry = self.overrides.get(board_class)
+        if entry is None:
+            return None
+        valid = {f.name for f in dataclasses.fields(Profile)}
+        kw = {k: v for k, v in entry.items() if k in valid and k != "board"}
+        return Profile(board=board_class, **kw)
+
+    def __repr__(self) -> str:
+        return f"Profiles({list(self.overrides.keys())})"
 
 
 _ASIC_PREFIXES = ("bitaxe",)

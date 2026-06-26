@@ -5,7 +5,8 @@ migrate_board.py / pulltest.py / validate70.py OTA logic into one library.
 
 Contract (the CLI `ota` subcommand dispatches to these by name — signatures are
 FIXED):
-    push(client, guard, binfile, target_version=None, settle=None)
+    push(client, guard, binfile, target_version=None, settle=None,
+         elf_path=None, do_mark_valid=False)
     pull(client, guard, mode='auto', target_version=None, settle=None)
     mark_valid(client, guard)
     recover(client, guard)
@@ -51,6 +52,14 @@ _BOOT_TIMEOUT = 240
 _PROGRESS_POLL_INTERVAL = 3
 _PROGRESS_TIMEOUT = 300
 
+# Post-OTA readiness grace: how long to wait after the device comes back up for
+# mining to spin up and heap to stabilize.  Applied unconditionally in push/pull
+# verify — the device always needs this window after an OTA reboot regardless of
+# whether --settle was passed.
+_POST_OTA_READINESS_TIMEOUT = 120   # seconds: max wait for mining/heap to stabilise
+_POST_OTA_SETTLE_GRACE = 0          # settle_delay floor for post-OTA readiness
+                                    # (0 = no artificial delay, just wait until ready)
+
 # Terminal states reported by GET /api/update/progress for pull-mode (202) OTA.
 _PROGRESS_SUCCESS = {"done", "success", "complete", "completed", "applied", "valid", "ready"}
 _PROGRESS_FAILURE = {"error", "failed", "fail", "aborted", "abort", "cancelled", "canceled"}
@@ -60,12 +69,19 @@ _PROGRESS_FAILURE = {"error", "failed", "fail", "aborted", "abort", "cancelled",
 # no Criteria is supplied.
 _BAD_RESET_REASONS = {"panic", "task_wdt", "int_wdt", "brownout"}
 
+# OTA reboot always produces reset_reason='software' — this is EXPECTED, not a fault.
+_OTA_EXPECTED_RESET_REASON = "software"
+
 
 @dataclass
 class VerifyResult:
     """Structured outcome of an OTA flow / verification.
 
     ok        — overall success (booted to target + healthy, or a benign no-op)
+    pending   — push succeeded and mining is healthy, but firmware has not yet
+                self-validated (validated:false).  ok=True, pending=True means
+                "PUSH OK — pending validation".  pending=False is the normal case
+                (either already validated, or validation is not tracked).
     dry_run   — guard short-circuited; no mutation was performed
     version   — version the device reports now
     healthy   — mining healthy (hashrate > 0, no abnormal reset_reason)
@@ -78,6 +94,7 @@ class VerifyResult:
     target_version: Optional[str] = None
     healthy: bool = False
     ready: bool = False
+    pending: bool = False
     dry_run: bool = False
     metrics: dict = field(default_factory=dict)
 
@@ -93,16 +110,21 @@ def push(
     target_version: Optional[str] = None,
     settle: Optional[float] = None,
     elf_path: Optional[str] = None,
+    do_mark_valid: bool = False,
 ) -> VerifyResult:
     """OTA-push a local firmware binary (boot-mode: device reboots to apply).
 
     POST /api/update/push (application/octet-stream, 180s) via guard, then
-    wait_for_boot to target, settle, verify.
+    wait_for_boot to target, post-OTA readiness grace, verify.
 
     elf_path — optional explicit .elf path.  When omitted, the function looks
     for a sibling .elf file next to binfile (i.e. .pio/build/<env>/firmware.elf
     alongside firmware.bin).  If found, the ELF is archived before the push so
     that fleet decode can later resolve any panic from this build.
+
+    do_mark_valid — when True, POST /api/update/mark-valid after readiness
+    confirms healthy mining, then verify validated:true.  Default is False:
+    let the firmware self-validate (first accepted share / 15-min timer).
     """
     g = guard.check(client, "POST", "/api/update/push")
     if Guard.is_dry_run_skip(g):
@@ -131,7 +153,8 @@ def push(
         return VerifyResult(ok=False, target_version=target_version,
                             detail="device did not come back up after push")
 
-    return _basic_verify(client, target_version or booted, settle)
+    return _post_boot_verify(client, target_version or booted, settle,
+                             do_mark_valid=do_mark_valid, guard=guard)
 
 
 def pull(
@@ -200,7 +223,7 @@ def pull(
         return VerifyResult(ok=False, target_version=target,
                             detail="device did not come back up after apply")
 
-    return _basic_verify(client, target or booted, settle)
+    return _post_boot_verify(client, target or booted, settle)
 
 
 def mark_valid(client, guard: "Guard") -> bool:
@@ -296,10 +319,162 @@ def verify(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _basic_verify(client, target_version: Optional[str], settle: Optional[float]) -> VerifyResult:
-    """Lightweight post-boot verify for push/pull (no profile/criteria available).
+def _post_boot_verify(
+    client,
+    target_version: Optional[str],
+    settle: Optional[float],
+    do_mark_valid: bool = False,
+    guard: Optional["Guard"] = None,
+) -> VerifyResult:
+    """Post-OTA verify for push/pull.
 
-    Optional settle delay, then assert version + health off /api/info + /api/stats.
+    Always waits for mining to spin up (wait_until_ready with a real timeout),
+    regardless of whether --settle was passed.  The OTA reboot always needs this
+    grace period for hashrate to come up and heap to stabilise.
+
+    After readiness:
+    - Checks version, hashrate, and reset_reason for real failures.
+    - Distinguishes PENDING-VALIDATION (healthy mining + validated:false) from
+      actual failure.  A pending result reports ok=True, pending=True.
+    - reset_reason='software' after OTA reboot is expected — not a failure.
+    - If do_mark_valid=True, POSTs /api/update/mark-valid and confirms
+      validated:true; reports ok=True, pending=False (VALIDATED).
+
+    Failures (ok=False):
+    - Device unreachable / never came back (caught upstream in push/pull)
+    - reset_reason is an abnormal fault (panic / brownout / wdt)
+    - Mining never resumed within the readiness window
+    - Version mismatch (wrong image applied)
+    """
+    from .criteria import Criteria
+
+    # Build a minimal criteria for wait_until_ready.  settle_delay=0 means
+    # "no artificial floor — just wait until ready (mining up + heap ok)".
+    # The extra --settle value becomes the sleep we do AFTER readiness, below.
+    post_ota_criteria = Criteria(
+        settle_delay=_POST_OTA_SETTLE_GRACE,
+        readiness_heap_floor=50_000,
+        readiness_hashrate_min=0.0,
+        readiness_vcore_floor=0,
+    )
+
+    readiness = wait_until_ready(
+        client, None, post_ota_criteria,
+        timeout=_POST_OTA_READINESS_TIMEOUT,
+    )
+
+    # Additional explicit settle on top of readiness (from --settle flag).
+    if settle:
+        time.sleep(settle)
+
+    info = _get(client, "/api/info", TIMEOUT_INFO) or {}
+    v = info.get("version")
+    reset_reason = info.get("reset_reason")
+
+    # reset_reason='software' is the expected OTA reboot reason — not a fault.
+    # Only abnormal reasons (panic/brownout/wdt) indicate a real problem.
+    bad = _BAD_RESET_REASONS
+    reset_ok = reset_reason is None or reset_reason not in bad
+
+    stats = _get(client, "/api/stats", TIMEOUT_INFO) or {}
+    hashrate = stats.get("hashrate_ghs") or stats.get("hashrate") or info.get("hashrate") or 0.0
+    hashrate = float(hashrate)
+
+    metrics = {"hashrate": hashrate, "reset_reason": reset_reason}
+    metrics["settle_elapsed_s"] = readiness.elapsed_s
+
+    # Version check
+    version_ok = target_version is None or v == target_version
+
+    # Health: mining must be up (hashrate>0) and no abnormal reset
+    healthy = hashrate > 0 and reset_ok
+
+    if not version_ok:
+        return VerifyResult(
+            ok=False, version=v, target_version=target_version,
+            healthy=healthy, ready=readiness.ready, metrics=metrics,
+            detail=_fail_detail(readiness.ready, readiness.reason,
+                                v, target_version, version_ok, healthy, metrics),
+        )
+
+    if not reset_ok:
+        return VerifyResult(
+            ok=False, version=v, target_version=target_version,
+            healthy=False, ready=readiness.ready, metrics=metrics,
+            detail=f"abnormal reset_reason={reset_reason!r} after OTA reboot",
+        )
+
+    if not readiness.ready or hashrate <= 0:
+        # Mining never resumed within the window — real failure
+        return VerifyResult(
+            ok=False, version=v, target_version=target_version,
+            healthy=False, ready=readiness.ready, metrics=metrics,
+            detail=_fail_detail(readiness.ready, readiness.reason,
+                                v, target_version, version_ok, healthy, metrics),
+        )
+
+    # Mining is healthy.  Now check validation state.
+    validated = _check_validated(client)
+
+    if do_mark_valid:
+        # Force-validate: POST mark-valid then confirm validated:true.
+        if guard is not None:
+            mv_ok = mark_valid(client, guard)
+        else:
+            sc, _ = client.request("POST", "/api/update/mark-valid", timeout=TIMEOUT_WRITE)
+            mv_ok = sc in (200, 202, 204)
+        if mv_ok:
+            validated = _check_validated(client)
+            if validated:
+                return VerifyResult(
+                    ok=True, version=v, target_version=target_version,
+                    healthy=True, ready=True, pending=False, metrics=metrics,
+                    detail="VALIDATED (mark-valid confirmed)",
+                )
+            else:
+                return VerifyResult(
+                    ok=False, version=v, target_version=target_version,
+                    healthy=True, ready=True, pending=True, metrics=metrics,
+                    detail="mark-valid posted but validated:true not confirmed",
+                )
+        else:
+            return VerifyResult(
+                ok=False, version=v, target_version=target_version,
+                healthy=True, ready=True, pending=True, metrics=metrics,
+                detail="mark-valid POST failed",
+            )
+
+    if not validated:
+        # Mining healthy but not yet validated — PENDING (firmware self-validates).
+        return VerifyResult(
+            ok=True, version=v, target_version=target_version,
+            healthy=True, ready=True, pending=True, metrics=metrics,
+            detail="PUSH OK — pending validation (firmware self-validates on first share / timer)",
+        )
+
+    return VerifyResult(
+        ok=True, version=v, target_version=target_version,
+        healthy=True, ready=True, pending=False, metrics=metrics,
+        detail="ok",
+    )
+
+
+def _check_validated(client) -> bool:
+    """Return True when /api/health reports validated:true (or field absent, assume ok)."""
+    health = _get(client, "/api/health", TIMEOUT_HEALTH)
+    if health is None:
+        return False
+    # validated field: absent means the endpoint doesn't track it (older fw) — treat as ok
+    if "validated" not in health:
+        return True
+    return bool(health.get("validated"))
+
+
+def _basic_verify(client, target_version: Optional[str], settle: Optional[float]) -> VerifyResult:
+    """Lightweight post-boot verify (no profile/criteria available).
+
+    Legacy helper retained for callers that do NOT go through push/pull (e.g.
+    tests that call it directly).  Post-OTA paths use _post_boot_verify instead.
     """
     if settle:
         time.sleep(settle)

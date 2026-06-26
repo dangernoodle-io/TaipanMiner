@@ -31,6 +31,11 @@ class Criteria:
     vcore_restart_flat: bool = True      # vcore_restart_count must not increase (ASIC)
     version_check: bool = False          # require running version == target version
     max_missed_polls: int = 4            # consecutive missed polls => downtime anomaly
+    # settle / readiness gate
+    settle_delay: int = 120             # minimum warmup floor in seconds
+    readiness_heap_floor: int = 50_000  # heap_internal.free must reach this before ready
+    readiness_hashrate_min: float = 0.0 # minimum hashrate to declare ready (0 = skip)
+    readiness_vcore_floor: int = 0      # mV floor for ASIC boards (0 = skip)
 
 
 def load(path: str = "config/criteria.yaml") -> Criteria:

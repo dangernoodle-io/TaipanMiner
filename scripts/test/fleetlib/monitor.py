@@ -72,6 +72,7 @@ def poll(
     duration: float,
     detectors: List[Detector],
     fields: Optional[List[str]] = None,
+    settle_delay: int = 0,
 ) -> List[Anomaly]:
     """Poll all devices for `duration` seconds at `interval` second ticks.
 
@@ -80,12 +81,15 @@ def poll(
     on first anomaly — callers decide what to do with the list).
 
     Args:
-        devices:   list of Device to monitor
-        interval:  seconds between poll ticks (including sampling time)
-        duration:  total seconds to run
-        detectors: list of Detector callables
-        fields:    subset of ["info","heap","telemetry","sensors","stats"]
-                   (default: ["info","heap","telemetry"])
+        devices:      list of Device to monitor
+        interval:     seconds between poll ticks (including sampling time)
+        duration:     total seconds to run
+        detectors:    list of Detector callables
+        fields:       subset of ["info","heap","telemetry","sensors","stats"]
+                      (default: ["info","heap","telemetry"])
+        settle_delay: warmup grace period in seconds after start (and after reboots).
+                      Detectors are suppressed until this window expires.
+                      0 = no warmup suppression (default, preserves old behavior).
 
     Returns:
         List of Anomaly detected across the run (may be empty).
@@ -94,8 +98,18 @@ def poll(
         fields = ["info", "heap", "telemetry"]
     fset = tuple(fields)
 
+    now = time.monotonic()
+
     # Per-device state dict persists across ticks for stateful detectors
     state: Dict[str, Dict[str, Any]] = {d.ip: {} for d in devices}
+
+    # Per-device warmup deadline (monotonic clock); key = device.ip
+    warmup_until: Dict[str, float] = {
+        d.ip: now + settle_delay for d in devices
+    }
+    # Per-device last-seen uptime to detect mid-run reboots
+    last_uptime: Dict[str, Optional[float]] = {d.ip: None for d in devices}
+
     anomalies: List[Anomaly] = []
     t0 = time.time()
 
@@ -104,15 +118,43 @@ def poll(
         for device in devices:
             sample = _sample_device(device, fset)
             st = state[device.ip]
+
+            # Uptime regression = reboot mid-run; re-arm warmup window
+            if settle_delay > 0 and sample.ok and sample.info is not None:
+                cur_uptime = sample.info.get("uptime_ms")
+                prev = last_uptime[device.ip]
+                if (
+                    cur_uptime is not None
+                    and prev is not None
+                    and cur_uptime < prev
+                ):
+                    new_deadline = time.monotonic() + settle_delay
+                    logger.info(
+                        "reboot detected on %s (uptime %s -> %s ms); "
+                        "resetting warmup window for %ds",
+                        device.ip, prev, cur_uptime, settle_delay,
+                    )
+                    warmup_until[device.ip] = new_deadline
+                if cur_uptime is not None:
+                    last_uptime[device.ip] = cur_uptime
+
+            in_warmup = settle_delay > 0 and time.monotonic() < warmup_until[device.ip]
+
             for det in detectors:
                 try:
                     a = det(sample, st)
                     if a is not None:
-                        logger.warning(
-                            "ANOMALY [%s] %s (%s): %s",
-                            a.detector, device.ip, device.board, a.message,
-                        )
-                        anomalies.append(a)
+                        if in_warmup:
+                            logger.debug(
+                                "WARMUP-SUPPRESS [%s] %s (%s): %s",
+                                a.detector, device.ip, device.board, a.message,
+                            )
+                        else:
+                            logger.warning(
+                                "ANOMALY [%s] %s (%s): %s",
+                                a.detector, device.ip, device.board, a.message,
+                            )
+                            anomalies.append(a)
                 except Exception as exc:
                     logger.error("detector error on %s: %s", device.ip, exc)
 

@@ -1,0 +1,210 @@
+"""Tests for fleetlib.readiness — offline unit tests with mocked clients."""
+import os
+import sys
+import time
+import unittest
+from unittest.mock import MagicMock, patch
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from fleetlib.criteria import Criteria
+from fleetlib.readiness import wait_until_ready, Readiness
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _make_client(info=None, heap=None, stats=None, sensors=None, pool=None, raises=None):
+    """Build a mock Client whose get_json returns canned responses per path."""
+    c = MagicMock()
+
+    def _get_json(path, timeout=5):
+        if raises:
+            raise raises
+        mapping = {
+            "/api/info": info,
+            "/api/diag/heap": heap,
+            "/api/stats": stats,
+            "/api/sensors": sensors,
+            "/api/pool": pool,
+        }
+        return mapping.get(path)
+
+    c.get_json = _get_json
+    return c
+
+
+def _ready_info():
+    return {"uptime_ms": 30000, "board": "esp32-wroom32", "version": "v0.69.0"}
+
+
+def _ready_heap():
+    return {"internal": {"free": 80000, "min_free": 75000}}
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+class TestFloorElapsed(unittest.TestCase):
+    """wait_until_ready must never return before settle_delay has elapsed."""
+
+    def test_floor_elapsed_small_settle(self):
+        """With settle_delay=2 and an immediately-ready device, elapsed >= 2."""
+        c = _make_client(info=_ready_info(), heap=_ready_heap())
+        criteria = Criteria(
+            settle_delay=2,
+            readiness_heap_floor=50_000,
+            readiness_hashrate_min=0.0,
+            readiness_vcore_floor=0,
+        )
+        r = wait_until_ready(c, None, criteria, timeout=30)
+        self.assertTrue(r.ready, f"expected ready=True, reason={r.reason!r}")
+        self.assertGreaterEqual(
+            r.elapsed_s, 2,
+            f"elapsed {r.elapsed_s:.2f}s < settle_delay 2s",
+        )
+
+    def test_floor_elapsed_zero_settle(self):
+        """With settle_delay=0, returns immediately once conditions met."""
+        c = _make_client(info=_ready_info(), heap=_ready_heap())
+        criteria = Criteria(
+            settle_delay=0,
+            readiness_heap_floor=50_000,
+            readiness_hashrate_min=0.0,
+            readiness_vcore_floor=0,
+        )
+        t0 = time.monotonic()
+        r = wait_until_ready(c, None, criteria, timeout=30)
+        elapsed = time.monotonic() - t0
+        self.assertTrue(r.ready)
+        # Should return quickly (well under 5s)
+        self.assertLess(elapsed, 5.0)
+
+
+class TestTimeout(unittest.TestCase):
+    """wait_until_ready must return Readiness(ready=False) when timeout expires."""
+
+    def test_timeout_heap_never_meets_floor(self):
+        """Device heap stays below floor forever — should time out."""
+        c = _make_client(
+            info=_ready_info(),
+            heap={"internal": {"free": 10000}},  # always below 50k floor
+        )
+        criteria = Criteria(
+            settle_delay=0,
+            readiness_heap_floor=50_000,
+            readiness_hashrate_min=0.0,
+            readiness_vcore_floor=0,
+        )
+        t0 = time.monotonic()
+        r = wait_until_ready(c, None, criteria, timeout=8)
+        elapsed = time.monotonic() - t0
+        self.assertFalse(r.ready, f"expected ready=False, got {r}")
+        self.assertGreaterEqual(elapsed, 7)
+
+    def test_timeout_device_unreachable(self):
+        """Device never responds — should time out."""
+        c = _make_client()  # all endpoints return None
+        criteria = Criteria(
+            settle_delay=0,
+            readiness_heap_floor=50_000,
+            readiness_hashrate_min=0.0,
+            readiness_vcore_floor=0,
+        )
+        r = wait_until_ready(c, None, criteria, timeout=8)
+        self.assertFalse(r.ready)
+
+
+class TestTransientErrors(unittest.TestCase):
+    """wait_until_ready must tolerate transient errors and eventually succeed."""
+
+    def test_transient_connection_errors(self):
+        """Client raises ConnectionError for first 3 calls, then returns valid data."""
+        call_count = {"n": 0}
+
+        c = MagicMock()
+
+        def _get_json(path, timeout=5):
+            if path == "/api/info":
+                call_count["n"] += 1
+                if call_count["n"] <= 3:
+                    raise ConnectionError("transient failure")
+                return _ready_info()
+            if path == "/api/diag/heap":
+                if call_count["n"] <= 3:
+                    return None
+                return _ready_heap()
+            return None
+
+        c.get_json = _get_json
+
+        criteria = Criteria(
+            settle_delay=0,
+            readiness_heap_floor=50_000,
+            readiness_hashrate_min=0.0,
+            readiness_vcore_floor=0,
+        )
+        r = wait_until_ready(c, None, criteria, timeout=60)
+        self.assertTrue(r.ready, f"expected ready=True after transient errors, reason={r.reason!r}")
+        self.assertGreater(call_count["n"], 3, "expected at least 4 calls")
+
+    def test_osError_treated_as_not_ready(self):
+        """OSError (connection refused) treated as not-ready, not a crash."""
+        call_count = {"n": 0}
+
+        c = MagicMock()
+
+        def _get_json(path, timeout=5):
+            call_count["n"] += 1
+            if call_count["n"] < 3:
+                raise OSError("connection refused")
+            if path == "/api/info":
+                return _ready_info()
+            if path == "/api/diag/heap":
+                return _ready_heap()
+            return None
+
+        c.get_json = _get_json
+        criteria = Criteria(
+            settle_delay=0,
+            readiness_heap_floor=50_000,
+            readiness_hashrate_min=0.0,
+            readiness_vcore_floor=0,
+        )
+        r = wait_until_ready(c, None, criteria, timeout=60)
+        self.assertTrue(r.ready)
+
+
+class TestDeviceLike(unittest.TestCase):
+    """wait_until_ready accepts a Device-like object (has .ip, .port) in addition to Client."""
+
+    def test_device_object(self):
+        """Pass a Device-like object; function must create a Client from .ip/.port."""
+        class FakeDevice:
+            ip = "127.0.0.1"
+            port = 80
+
+        # Patch Client at the module where it's used
+        with patch("fleetlib.readiness.Client") as MockClient:
+            instance = MagicMock()
+
+            def _get_json(path, timeout=5):
+                if path == "/api/info":
+                    return _ready_info()
+                if path == "/api/diag/heap":
+                    return _ready_heap()
+                return None
+
+            instance.get_json = _get_json
+            MockClient.return_value = instance
+
+            criteria = Criteria(settle_delay=0, readiness_heap_floor=50_000)
+            r = wait_until_ready(FakeDevice(), None, criteria, timeout=30)
+            self.assertTrue(r.ready)
+            MockClient.assert_called_once_with("127.0.0.1", 80)
+
+
+if __name__ == "__main__":
+    unittest.main()

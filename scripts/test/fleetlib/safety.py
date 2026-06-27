@@ -21,7 +21,20 @@ _SENTINEL = object()
 
 
 class IdentityMismatch(Exception):
-    """Device at the target IP is not the board we expected."""
+    """Device at the target IP is not the board we expected.
+
+    Only raised when a KNOWN (non-None) identity is read and it differs from
+    the expected board/hostname.  This is the real safety case.
+    """
+
+
+class DeviceUnreachable(Exception):
+    """Device identity could not be read (unreachable / mid-reboot).
+
+    Distinct from IdentityMismatch: the device returned no identity at all,
+    so we cannot confirm OR deny board match.  Callers should skip/retry
+    rather than treating this as a safety violation.
+    """
 
 
 class RefusedWithoutConfirmation(Exception):
@@ -66,16 +79,28 @@ class Guard:
         if method not in MUTATING:
             return None
 
-        # Always re-verify identity before any destructive action
-        from .discovery import verify_identity
-        if not verify_identity(
-            device,
-            expect_board=self.expect_board,
-            expect_hostname=self.expect_hostname,
-        ):
+        # Always re-verify identity before any destructive action.
+        # Distinguish three outcomes:
+        #   - device unreachable (info=None)     -> DeviceUnreachable (skip, not a safety violation)
+        #   - known identity differs from expect -> IdentityMismatch  (real safety guard)
+        #   - identity matches (or no expectation) -> proceed
+        from .discovery import _read_identity
+        board, hostname = _read_identity(device)
+        if board is None and hostname is None:
+            raise DeviceUnreachable(
+                f"Could not read identity from {device.ip} (unreachable / mid-reboot). "
+                f"Refusing {method} {path}."
+            )
+        if self.expect_board is not None and board != self.expect_board:
             raise IdentityMismatch(
-                f"Identity check failed for {device.ip} — "
-                f"expected board={self.expect_board!r} hostname={self.expect_hostname!r}. "
+                f"Identity mismatch for {device.ip} — "
+                f"expected board={self.expect_board!r}, got board={board!r}. "
+                f"Refusing {method} {path}."
+            )
+        if self.expect_hostname is not None and hostname != self.expect_hostname:
+            raise IdentityMismatch(
+                f"Identity mismatch for {device.ip} — "
+                f"expected hostname={self.expect_hostname!r}, got hostname={hostname!r}. "
                 f"Refusing {method} {path}."
             )
 

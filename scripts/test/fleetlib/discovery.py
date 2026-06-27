@@ -224,6 +224,23 @@ def discover(timeout: float = 5) -> List[Device]:
     return devices
 
 
+def _read_identity(device: Device):
+    """Fetch /api/info and return (board, hostname).
+
+    Returns (None, None) when the device is unreachable (info=None).
+    Returns (board, hostname) — either or both may be a non-None string — when
+    the device responds.  Used by safety.Guard to distinguish unreachable from
+    a genuine identity mismatch.
+    """
+    c = Client(device.ip, device.port)
+    info = c.get_json("/api/info", timeout=TIMEOUT_INFO)
+    if info is None:
+        return None, None
+    board = info_field(info, "board")
+    hostname = info.get("hostname") or info.get("host")
+    return board, hostname
+
+
 def verify_identity(
     device: Device,
     expect_board: Optional[str] = None,

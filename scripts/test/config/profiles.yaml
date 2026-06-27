@@ -22,6 +22,7 @@ esp32-wroom32:
   max_concurrent: 2
   max_rps: 4.0
   hashrate_floor_pct: 80.0
+  readiness_heap_floor: 30000  # no-PSRAM board; global default 50000 is too tight
 
 tdongle-s3:
   is_asic: false
@@ -29,6 +30,7 @@ tdongle-s3:
   max_concurrent: 2
   max_rps: 4.0
   hashrate_floor_pct: 80.0
+  readiness_heap_floor: 30000  # no-PSRAM board; global default 50000 is too tight
 
 esp32-c3:
   is_asic: false
@@ -38,6 +40,7 @@ esp32-c3:
   heap_floor: 30000
   single_worker: true
   hashrate_floor_pct: 70.0
+  readiness_heap_floor: 30000  # single-core, small heap; global default 50000 is too tight
 
 esp32-s3:
   is_asic: false
@@ -54,3 +57,4 @@ esp32-s2:
   heap_floor: 8000
   single_worker: true
   hashrate_floor_pct: 75.0
+  readiness_heap_floor: 8000  # heap-tight S2; matches heap_floor

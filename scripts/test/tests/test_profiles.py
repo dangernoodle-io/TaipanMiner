@@ -63,6 +63,64 @@ class TestProfileFor(unittest.TestCase):
         p = profile_for("esp32-s2-mini", profiles=profiles)
         self.assertEqual(p.heap_floor, 8000)
 
+    def test_s2_mini_yaml_readiness_heap_floor(self):
+        """esp32-s2 entry in profiles.yaml must set readiness_heap_floor=8000 (TA-484)."""
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("pyyaml not installed")
+        profiles = Profiles.load(_PROFILES_YAML)
+        p = profile_for("esp32-s2-mini", profiles=profiles)
+        self.assertEqual(p.readiness_heap_floor, 8000)
+
+    def test_c3_yaml_readiness_heap_floor(self):
+        """esp32-c3 entry in profiles.yaml must set readiness_heap_floor=30000 (TA-484)."""
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("pyyaml not installed")
+        profiles = Profiles.load(_PROFILES_YAML)
+        p = profile_for("esp32-c3-supermini", profiles=profiles)
+        self.assertEqual(p.readiness_heap_floor, 30000)
+
+    def test_wroom32_yaml_readiness_heap_floor(self):
+        """esp32-wroom32 entry in profiles.yaml must set readiness_heap_floor=30000 (TA-484)."""
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("pyyaml not installed")
+        profiles = Profiles.load(_PROFILES_YAML)
+        p = profile_for("esp32-wroom32", profiles=profiles)
+        self.assertEqual(p.readiness_heap_floor, 30000)
+
+    def test_tdongle_yaml_readiness_heap_floor(self):
+        """tdongle-s3 entry in profiles.yaml must set readiness_heap_floor=30000 (TA-484)."""
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("pyyaml not installed")
+        profiles = Profiles.load(_PROFILES_YAML)
+        p = profile_for("tdongle-s3", profiles=profiles)
+        self.assertEqual(p.readiness_heap_floor, 30000)
+
+    def test_bitaxe_yaml_readiness_heap_floor_absent(self):
+        """bitaxe entry in profiles.yaml must NOT set readiness_heap_floor (keeps global default) (TA-484)."""
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("pyyaml not installed")
+        profiles = Profiles.load(_PROFILES_YAML)
+        p = profile_for("bitaxe-403", profiles=profiles)
+        self.assertIsNone(p.readiness_heap_floor)
+
+    def test_profile_dataclass_readiness_fields_default_none(self):
+        """Profile readiness_* fields default to None (TA-484)."""
+        from fleetlib.profiles import Profile
+        p = Profile(board="test-board")
+        self.assertIsNone(p.readiness_heap_floor)
+        self.assertIsNone(p.readiness_hashrate_min)
+        self.assertIsNone(p.readiness_vcore_floor)
+
     # S3 — dual-core, has PSRAM
     def test_s3_devkit(self):
         p = profile_for("esp32-s3-devkit")

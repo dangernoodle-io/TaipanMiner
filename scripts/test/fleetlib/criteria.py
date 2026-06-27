@@ -87,4 +87,10 @@ def for_profile(criteria: Criteria, profile: "Profile") -> Criteria:
         c.publisher_max_polls = profile.publisher_polls
     if profile.hashrate_floor_pct is not None:
         c.hashrate_floor_pct = profile.hashrate_floor_pct
+    if profile.readiness_heap_floor is not None:
+        c.readiness_heap_floor = profile.readiness_heap_floor
+    if profile.readiness_hashrate_min is not None:
+        c.readiness_hashrate_min = profile.readiness_hashrate_min
+    if profile.readiness_vcore_floor is not None:
+        c.readiness_vcore_floor = profile.readiness_vcore_floor
     return c

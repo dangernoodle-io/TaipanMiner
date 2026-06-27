@@ -132,6 +132,66 @@ class TestCriteriaForProfile(unittest.TestCase):
         self.assertEqual(c2.heap_floor, 8000)
         self.assertEqual(c.heap_floor, 50_000)  # original untouched
 
+    def test_readiness_heap_floor_applied_from_profile(self):
+        """for_profile applies readiness_heap_floor from profile onto Criteria (TA-484)."""
+        from fleetlib.profiles import Profile
+        p = Profile(board="test-board", readiness_heap_floor=30_000)
+        c = Criteria()
+        c2 = for_profile(c, p)
+        self.assertEqual(c2.readiness_heap_floor, 30_000)
+        self.assertEqual(c.readiness_heap_floor, 50_000)  # original untouched
+
+    def test_readiness_hashrate_min_applied_from_profile(self):
+        """for_profile applies readiness_hashrate_min from profile onto Criteria (TA-484)."""
+        from fleetlib.profiles import Profile
+        p = Profile(board="test-board", readiness_hashrate_min=1.5)
+        c = Criteria()
+        c2 = for_profile(c, p)
+        self.assertEqual(c2.readiness_hashrate_min, 1.5)
+
+    def test_readiness_vcore_floor_applied_from_profile(self):
+        """for_profile applies readiness_vcore_floor from profile onto Criteria (TA-484)."""
+        from fleetlib.profiles import Profile
+        p = Profile(board="test-board", readiness_vcore_floor=400)
+        c = Criteria()
+        c2 = for_profile(c, p)
+        self.assertEqual(c2.readiness_vcore_floor, 400)
+
+    def test_none_readiness_fields_leave_criteria_default(self):
+        """Profile with no readiness_* fields leaves Criteria readiness defaults unchanged (TA-484)."""
+        from fleetlib.profiles import Profile
+        p = Profile(board="test-board")
+        c = Criteria()
+        c2 = for_profile(c, p)
+        self.assertEqual(c2.readiness_heap_floor, 50_000)
+        self.assertEqual(c2.readiness_hashrate_min, 0.0)
+        self.assertEqual(c2.readiness_vcore_floor, 0)
+
+    def test_s2_readiness_heap_floor_from_yaml_profile(self):
+        """for_profile with esp32-s2 YAML profile sets readiness_heap_floor=8000 (TA-484)."""
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("pyyaml not installed")
+        profiles = Profiles.load(_PROFILES_YAML)
+        p = profile_for("esp32-s2-mini", profiles=profiles)
+        c = Criteria()
+        c2 = for_profile(c, p)
+        self.assertEqual(c2.readiness_heap_floor, 8000)
+        self.assertEqual(c.readiness_heap_floor, 50_000)  # original untouched
+
+    def test_bitaxe_no_readiness_heap_floor_override(self):
+        """for_profile with bitaxe YAML profile leaves readiness_heap_floor at default (TA-484)."""
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("pyyaml not installed")
+        profiles = Profiles.load(_PROFILES_YAML)
+        p = profile_for("bitaxe-403", profiles=profiles)
+        c = Criteria()
+        c2 = for_profile(c, p)
+        self.assertEqual(c2.readiness_heap_floor, 50_000)
+
 
 if __name__ == "__main__":
     unittest.main()

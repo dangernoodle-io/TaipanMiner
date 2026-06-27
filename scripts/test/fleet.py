@@ -1553,6 +1553,7 @@ def cmd_ota_push(args) -> int:
     import os as _os
     from fleetlib import ota
     from fleetlib.client import Client
+    from fleetlib.profiles import profile_for
     from fleetlib.safety import DeviceUnreachable, IdentityMismatch
 
     _resolve_result = resolve_devices(args)
@@ -1569,6 +1570,13 @@ def cmd_ota_push(args) -> int:
     dry_run = getattr(args, "dry_run", False)
     do_mark_valid = getattr(args, "mark_valid", False)
 
+    # Load criteria (from --criteria path or harness defaults).
+    criteria_path = getattr(args, "criteria", None)
+    criteria = load_criteria(criteria_path) if criteria_path else load_criteria()
+
+    # Load profiles once for per-device profile resolution.
+    _profiles = Profiles.load()
+
     _push = getattr(ota, "push", None)
     if _push is None:
         print("ERROR: fleetlib.ota.push not available")
@@ -1578,6 +1586,7 @@ def cmd_ota_push(args) -> int:
     for d in devices:
         c = Client(d.ip, getattr(d, "port", 80))
         c.board = d.board
+        prof = profile_for(getattr(d, "board", "") or "", _profiles)
 
         if dry_run:
             # Run identity verify manually so dry-run still checks board identity.
@@ -1606,7 +1615,7 @@ def cmd_ota_push(args) -> int:
         print(f"Pushing {binfile} to {d.ip}…")
         try:
             r = _push(c, guard, binfile, target_version=target, settle=settle_secs,
-                      do_mark_valid=do_mark_valid)
+                      do_mark_valid=do_mark_valid, criteria=criteria, profile=prof)
         except DeviceUnreachable as exc:
             print(f"  {d.ip}: SKIPPED (unreachable: {exc})")
             ok = False

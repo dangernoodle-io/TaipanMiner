@@ -11,7 +11,8 @@ class Profile:
     """Capability profile for a board class.
 
     Criteria overrides (None = use Criteria default):
-      poll_interval, heap_floor, vcore_floor_mv, publisher_polls
+      poll_interval, heap_floor, vcore_floor_mv, publisher_polls,
+      readiness_heap_floor, readiness_hashrate_min, readiness_vcore_floor
     """
     board: str
     is_asic: bool = False
@@ -27,6 +28,10 @@ class Profile:
     vcore_floor_mv: Optional[int] = None    # mV; ASIC only
     publisher_polls: Optional[int] = None   # None = use Criteria default
     hashrate_floor_pct: Optional[float] = None  # % floor; None = use Criteria default
+    # readiness gate overrides (None = use Criteria default)
+    readiness_heap_floor: Optional[int] = None    # bytes; None = use Criteria default (50000)
+    readiness_hashrate_min: Optional[float] = None  # GH/s min; None = use Criteria default
+    readiness_vcore_floor: Optional[int] = None   # mV; None = use Criteria default
 
 
 class Profiles:

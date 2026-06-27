@@ -29,7 +29,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from fleetlib.discovery import Device
-from fleetlib.safety import Guard
+from fleetlib.safety import DeviceUnreachable, IdentityMismatch, Guard
 
 
 # ---------------------------------------------------------------------------
@@ -67,9 +67,11 @@ def _patch_resolve(device):
     return patch("fleet.resolve_devices", return_value=[device])
 
 
-# Patch verify_identity so Guard.check doesn't make real HTTP calls.
+# Patch _read_identity so Guard.check doesn't make real HTTP calls.
+# ok=True -> known identity (guard passes); ok=False -> unreachable (None, None).
 def _patch_identity(ok=True):
-    return patch("fleetlib.discovery.verify_identity", return_value=ok)
+    val = ("test-board", "test-host") if ok else (None, None)
+    return patch("fleetlib.discovery._read_identity", return_value=val)
 
 
 # ---------------------------------------------------------------------------
@@ -551,6 +553,122 @@ class TestElfListInUseDirty(unittest.TestCase):
         output = buf.getvalue()
         self.assertEqual(rc, 0)
         self.assertIn("yes", output, f"Expected IN-USE=yes via panic fallback\n{output}")
+
+
+# ---------------------------------------------------------------------------
+# TA-475: per-host isolation regression test
+# ---------------------------------------------------------------------------
+
+class TestCmdOtaPushHostIsolation(unittest.TestCase):
+    """TA-475: one unreachable host must not abort remaining hosts in the batch.
+
+    Scenario: [healthy, unreachable (None identity), healthy]
+      - Both healthy hosts must be pushed.
+      - The unreachable host must be recorded as skipped/failed.
+      - Batch exit code must be non-zero (some hosts failed).
+      - Remaining hosts MUST be attempted (no early abort).
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".bin")
+        self.tmp.write(b"\x00firmware\xff")
+        self.tmp.close()
+
+    def tearDown(self):
+        os.unlink(self.tmp.name)
+
+    def test_unreachable_host_does_not_abort_remaining(self):
+        import fleet
+        import io
+        from contextlib import redirect_stdout
+
+        dev_a = _device(ip="192.0.2.10")
+        dev_b = _device(ip="192.0.2.28")   # this one is unreachable
+        dev_c = _device(ip="192.0.2.77")
+
+        devices = [dev_a, dev_b, dev_c]
+        args = _args(binfile=self.tmp.name, yes=True)
+
+        pushed_ips = []
+
+        # The real guard.check raises DeviceUnreachable when _read_identity returns (None, None).
+        # cmd_ota_push wraps _push(c, guard, ...) in try/except — so if the real ota.push
+        # calls guard.check internally and it raises, fleet.py must catch and continue.
+        # To test isolation without mocking internals, make the mock _push raise directly
+        # for the unreachable host (simulating the exception escaping from ota.push).
+        def isolating_push(client, guard, binfile, **kw):
+            if client.ip == "192.0.2.28":
+                raise DeviceUnreachable(f"could not read identity from {client.ip}")
+            pushed_ips.append(client.ip)
+            return _ok_verify_result()
+
+        buf = io.StringIO()
+        with patch("fleet.resolve_devices", return_value=devices):
+            with patch("fleetlib.discovery._read_identity", return_value=("test-board", "test-host")):
+                with patch("fleetlib.client.Client", side_effect=lambda ip, port=80: _MockClient(ip=ip, port=port)):
+                    with patch("fleetlib.ota.push", side_effect=isolating_push):
+                        with redirect_stdout(buf):
+                            rc = fleet.cmd_ota_push(args)
+
+        output = buf.getvalue()
+
+        # Both healthy hosts must have been pushed
+        self.assertIn("192.0.2.10", pushed_ips, "healthy host .10 was not pushed")
+        self.assertIn("192.0.2.77", pushed_ips, "healthy host .77 was not pushed")
+
+        # Unreachable host must NOT have been pushed
+        self.assertNotIn("192.0.2.28", pushed_ips, "unreachable host .28 must not be pushed")
+
+        # Batch exit code must be non-zero (one host failed)
+        self.assertEqual(rc, 1, "batch exit code must be non-zero when any host fails")
+
+        # Output must mention the unreachable host as skipped
+        self.assertIn("192.0.2.28", output)
+        self.assertIn("SKIPPED", output)
+
+    def test_identity_mismatch_does_not_abort_remaining(self):
+        """An IdentityMismatch on one host must also not abort the batch."""
+        import fleet
+        import io
+        from contextlib import redirect_stdout
+
+        dev_a = _device(ip="192.0.2.10")
+        dev_b = _device(ip="192.0.2.28")   # will have identity mismatch
+        dev_c = _device(ip="192.0.2.77")
+
+        devices = [dev_a, dev_b, dev_c]
+        # Use a guard that expects a specific board to trigger IdentityMismatch
+        args = _args(binfile=self.tmp.name, yes=True)
+
+        pushed_ips = []
+
+        def fake_push(client, guard, binfile, **kw):
+            pushed_ips.append(client.ip)
+            return _ok_verify_result()
+
+        # .28 gets a different board -> IdentityMismatch when guard has expect_board set
+        # Since _ota_guard has no expect_board, we need to raise explicitly in fake_push
+        def guarded_push(client, guard, binfile, **kw):
+            if client.ip == "192.0.2.28":
+                raise IdentityMismatch("board mismatch for test")
+            pushed_ips.append(client.ip)
+            return _ok_verify_result()
+
+        buf = io.StringIO()
+        with patch("fleet.resolve_devices", return_value=devices):
+            with patch("fleetlib.discovery._read_identity", return_value=("test-board", "test-host")):
+                with patch("fleetlib.client.Client", side_effect=lambda ip, port=80: _MockClient(ip=ip, port=port)):
+                    with patch("fleetlib.ota.push", side_effect=guarded_push):
+                        with redirect_stdout(buf):
+                            rc = fleet.cmd_ota_push(args)
+
+        output = buf.getvalue()
+        self.assertIn("192.0.2.10", pushed_ips)
+        self.assertIn("192.0.2.77", pushed_ips)
+        self.assertNotIn("192.0.2.28", pushed_ips)
+        self.assertEqual(rc, 1)
+        self.assertIn("192.0.2.28", output)
+        self.assertIn("SKIPPED", output)
 
 
 if __name__ == "__main__":

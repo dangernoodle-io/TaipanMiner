@@ -80,7 +80,9 @@ def _live_guard():
 
 
 def _patch_identity(ok=True):
-    return patch("fleetlib.discovery.verify_identity", return_value=ok)
+    # _live_guard expects board="esp32-wroom32"; return matching board for ok=True.
+    val = ("esp32-wroom32", "test-host") if ok else (None, None)
+    return patch("fleetlib.discovery._read_identity", return_value=val)
 
 
 # Kill real sleeps in every test (poll loops would otherwise stall).
@@ -176,8 +178,9 @@ class TestPush(unittest.TestCase):
         self.assertEqual(c.request_log, [])  # NO HTTP mutation
 
     def test_push_identity_mismatch_refuses(self):
+        # A genuinely different board (non-None) must raise IdentityMismatch.
         c = MockClient()
-        with _patch_identity(False):
+        with patch("fleetlib.discovery._read_identity", return_value=("wrong-board", "some-host")):
             with self.assertRaises(IdentityMismatch):
                 ota.push(c, _live_guard(), self.tmp.name)
         self.assertEqual(c.request_log, [])
@@ -287,8 +290,9 @@ class TestPullGuard(unittest.TestCase):
         self.assertEqual(c.request_log, [])
 
     def test_identity_mismatch_refuses(self):
+        # A genuinely different board (non-None) must raise IdentityMismatch.
         c = MockClient()
-        with _patch_identity(False):
+        with patch("fleetlib.discovery._read_identity", return_value=("wrong-board", "some-host")):
             with self.assertRaises(IdentityMismatch):
                 ota.pull(c, _live_guard())
         self.assertEqual(c.request_log, [])

@@ -162,7 +162,7 @@ class TestCmdCallGuard(unittest.TestCase):
     def test_dry_run_skips_mutation(self):
         args = _args("PATCH", "/api/settings", json_body='{"led_heartbeat_en":false}',
                      dry_run=True, yes=False)
-        with patch("fleetlib.discovery.verify_identity", return_value=True):
+        with patch("fleetlib.discovery._read_identity", return_value=("test-board", "test-host")):
             code, out = _run_cmd_call(args, [_dev()])
         self.assertEqual(code, 0)
         self.assertIn("DRY-RUN", out)
@@ -172,16 +172,17 @@ class TestCmdCallGuard(unittest.TestCase):
     def test_no_yes_refuses_mutation(self):
         args = _args("PATCH", "/api/settings", json_body='{"led_heartbeat_en":false}',
                      dry_run=False, yes=False)
-        with patch("fleetlib.discovery.verify_identity", return_value=True):
+        with patch("fleetlib.discovery._read_identity", return_value=("test-board", "test-host")):
             code, out = _run_cmd_call(args, [_dev()])
         self.assertEqual(code, 1)
         self.assertIn("ERROR", out)
         self.assertNotIn("HTTP 200", out)
 
-    def test_identity_mismatch_refuses(self):
+    def test_unreachable_refuses(self):
+        # DeviceUnreachable (None, None identity) must be caught and reported as ERROR.
         args = _args("PATCH", "/api/settings", json_body='{"led_heartbeat_en":false}',
                      dry_run=False, yes=True)
-        with patch("fleetlib.discovery.verify_identity", return_value=False):
+        with patch("fleetlib.discovery._read_identity", return_value=(None, None)):
             code, out = _run_cmd_call(args, [_dev()])
         self.assertEqual(code, 1)
         self.assertIn("ERROR", out)
@@ -189,7 +190,7 @@ class TestCmdCallGuard(unittest.TestCase):
     def test_yes_flag_allows_mutation(self):
         args = _args("PATCH", "/api/settings", json_body='{"led_heartbeat_en":false}',
                      dry_run=False, yes=True)
-        with patch("fleetlib.discovery.verify_identity", return_value=True):
+        with patch("fleetlib.discovery._read_identity", return_value=("test-board", "test-host")):
             code, out = _run_cmd_call(
                 args, [_dev()],
                 client_responses={("PATCH", "/api/settings"): (200, {"ok": True})},
@@ -212,7 +213,7 @@ class TestCmdCallBodyValidation(unittest.TestCase):
     def test_valid_body_passes(self):
         args = _args("PATCH", "/api/settings", json_body='{"led_heartbeat_en":true}',
                      dry_run=True, yes=False)
-        with patch("fleetlib.discovery.verify_identity", return_value=True):
+        with patch("fleetlib.discovery._read_identity", return_value=("test-board", "test-host")):
             code, out = _run_cmd_call(args, [_dev()])
         self.assertEqual(code, 0)
         self.assertIn("DRY-RUN", out)
@@ -221,7 +222,7 @@ class TestCmdCallBodyValidation(unittest.TestCase):
         # display_en should be boolean, not string
         args = _args("PATCH", "/api/settings", json_body='{"display_en":"notabool"}',
                      dry_run=True, yes=False)
-        with patch("fleetlib.discovery.verify_identity", return_value=True):
+        with patch("fleetlib.discovery._read_identity", return_value=("test-board", "test-host")):
             code, out = _run_cmd_call(args, [_dev()])
         self.assertEqual(code, 1)
         self.assertIn("ERROR", out)
@@ -232,7 +233,7 @@ class TestCmdCallBodyValidation(unittest.TestCase):
         # Same invalid body, but --no-validate
         args = _args("PATCH", "/api/settings", json_body='{"display_en":"notabool"}',
                      dry_run=True, yes=False, no_validate=True)
-        with patch("fleetlib.discovery.verify_identity", return_value=True):
+        with patch("fleetlib.discovery._read_identity", return_value=("test-board", "test-host")):
             code, out = _run_cmd_call(args, [_dev()])
         self.assertEqual(code, 0)
         self.assertIn("DRY-RUN", out)
@@ -260,7 +261,7 @@ class TestCmdCallBodyParsing(unittest.TestCase):
             fname = fh.name
         try:
             args = _args("PATCH", "/api/settings", json_file=fname, dry_run=True)
-            with patch("fleetlib.discovery.verify_identity", return_value=True):
+            with patch("fleetlib.discovery._read_identity", return_value=("test-board", "test-host")):
                 code, out = _run_cmd_call(args, [_dev()])
             self.assertEqual(code, 0)
             self.assertIn("DRY-RUN", out)

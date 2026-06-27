@@ -340,7 +340,7 @@ class TestRunDevice(unittest.TestCase):
                    extra={"rows": "mqtt_plain", "receiver": "rx.example"})
         with patch.dict(os.environ, {}, clear=True), \
              patch("suites.telemetry.Client", return_value=client), \
-             patch("fleetlib.discovery.verify_identity", return_value=True):
+             patch("fleetlib.discovery._read_identity", return_value=("esp32-wroom32", "test-host")):
             matrix.run(ctx)
         self.assertEqual(ctx.results.results[0].status, "skip")
         client.request.assert_not_called()
@@ -354,7 +354,7 @@ class TestRunDevice(unittest.TestCase):
                           "_paho_client_factory": factory})
         with patch.dict(os.environ, {}, clear=True), \
              patch("suites.telemetry.Client", return_value=client), \
-             patch("fleetlib.discovery.verify_identity", return_value=True):
+             patch("fleetlib.discovery._read_identity", return_value=("esp32-wroom32", "test-host")):
             matrix.run(ctx)
         r = ctx.results.results[0]
         self.assertEqual(r.status, "pass", r.detail)
@@ -369,7 +369,7 @@ class TestRunDevice(unittest.TestCase):
                    extra={"rows": "mqtt_plain", "receiver": "rx.example"})
         with patch.dict(os.environ, {}, clear=True), \
              patch("suites.telemetry.Client", return_value=client), \
-             patch("fleetlib.discovery.verify_identity", return_value=True), \
+             patch("fleetlib.discovery._read_identity", return_value=("esp32-wroom32", "test-host")), \
              patch("suites.telemetry._mqtt_broker_verify",
                    return_value=(False, "paho-mqtt not installed; broker-subscribe check skipped")):
             matrix.run(ctx)
@@ -402,7 +402,7 @@ class TestRunDevice(unittest.TestCase):
                    extra={"rows": "http_plain", "receiver": "rx.example"})
         with patch.dict(os.environ, {}, clear=True), \
              patch("suites.telemetry.Client", return_value=client), \
-             patch("fleetlib.discovery.verify_identity", return_value=True), \
+             patch("fleetlib.discovery._read_identity", return_value=("esp32-wroom32", "test-host")), \
              patch("suites.telemetry._mqtt_broker_verify") as mock_broker:
             matrix.run(ctx)
         mock_broker.assert_not_called()

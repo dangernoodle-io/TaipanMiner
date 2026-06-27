@@ -63,7 +63,8 @@ def _live_guard():
 
 
 def _patch_identity(ok=True):
-    return patch("fleetlib.discovery.verify_identity", return_value=ok)
+    val = ("esp32-s2-mini", "test-host") if ok else (None, None)
+    return patch("fleetlib.discovery._read_identity", return_value=val)
 
 
 def _ready_readiness():
@@ -424,7 +425,7 @@ class TestCmdOtaPushVerdicts(unittest.TestCase):
 
         buf = io.StringIO()
         with patch("fleet.resolve_devices", return_value=[device]):
-            with patch("fleetlib.discovery.verify_identity", return_value=True):
+            with patch("fleetlib.discovery._read_identity", return_value=("test-board", "test-host")):
                 with patch("fleetlib.client.Client", return_value=mock_client):
                     with patch("fleetlib.ota.push", return_value=result):
                         with redirect_stdout(buf):
@@ -490,7 +491,7 @@ class TestCmdOtaPushVerdicts(unittest.TestCase):
 
         buf = io.StringIO()
         with patch("fleet.resolve_devices", return_value=[device]):
-            with patch("fleetlib.discovery.verify_identity", return_value=True):
+            with patch("fleetlib.discovery._read_identity", return_value=("test-board", "test-host")):
                 with patch("fleetlib.client.Client", return_value=mock_client):
                     with redirect_stdout(buf):
                         rc = fleet.cmd_ota_push(args)

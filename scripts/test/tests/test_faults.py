@@ -103,7 +103,7 @@ class TestSocketScenario(unittest.TestCase):
         ctx = _ctx([dev], _ok_guard(), FakeSettle(ready=True))
         with patch("suites.faults.socket.Client", return_value=client), \
              patch("suites.faults.socket._drive_sockets", return_value=20), \
-             patch("fleetlib.discovery.verify_identity", return_value=True):
+             patch("fleetlib.discovery._read_identity", return_value=("esp32-wroom32", "test-host")):
             socket_scn.run_device(dev, ctx, ctx.results)
         self.assertEqual(_statuses(ctx.results), ["pass"], ctx.results.results[0].detail)
 
@@ -119,7 +119,7 @@ class TestSocketScenario(unittest.TestCase):
 
         with patch("suites.faults.socket.Client", return_value=client), \
              patch("suites.faults.socket._drive_sockets", side_effect=crash_drive), \
-             patch("fleetlib.discovery.verify_identity", return_value=True):
+             patch("fleetlib.discovery._read_identity", return_value=("esp32-wroom32", "test-host")):
             socket_scn.run_device(dev, ctx, ctx.results)
         r = ctx.results.results[0]
         self.assertEqual(r.status, "fail")
@@ -133,7 +133,7 @@ class TestSocketScenario(unittest.TestCase):
         with patch("suites.faults.socket.Client", return_value=client), \
              patch("suites.faults.socket._drive_sockets", return_value=40), \
              patch("suites.faults.socket.time.sleep", return_value=None), \
-             patch("fleetlib.discovery.verify_identity", return_value=True):
+             patch("fleetlib.discovery._read_identity", return_value=("esp32-wroom32", "test-host")):
             socket_scn.run_device(dev, ctx, ctx.results)
         r = ctx.results.results[0]
         self.assertEqual(r.status, "fail")
@@ -148,7 +148,7 @@ class TestSocketScenario(unittest.TestCase):
         drive = MagicMock()
         with patch("suites.faults.socket.Client", return_value=client), \
              patch("suites.faults.socket._drive_sockets", drive), \
-             patch("fleetlib.discovery.verify_identity", return_value=True):
+             patch("fleetlib.discovery._read_identity", return_value=("esp32-wroom32", "test-host")):
             socket_scn.run_device(dev, ctx, ctx.results)
         self.assertEqual(ctx.results.results[0].status, "skip")
         drive.assert_not_called()
@@ -168,7 +168,7 @@ class TestSocketScenario(unittest.TestCase):
         drive = MagicMock()
         with patch("suites.faults.socket.Client", return_value=client), \
              patch("suites.faults.socket._drive_sockets", drive), \
-             patch("fleetlib.discovery.verify_identity", return_value=True):
+             patch("fleetlib.discovery._read_identity", return_value=("esp32-wroom32", "test-host")):
             socket_scn.run_device(dev, ctx, ctx.results)
         r = ctx.results.results[0]
         self.assertEqual(r.status, "skip")
@@ -217,7 +217,7 @@ class TestBrokerOutage(unittest.TestCase):
                           "outage_duration": 0, "reconnect_duration": 0})
         with patch("suites.faults.broker_outage.Client", return_value=client), \
              patch("suites.faults.broker_outage.time.sleep", return_value=None), \
-             patch("fleetlib.discovery.verify_identity", return_value=True):
+             patch("fleetlib.discovery._read_identity", return_value=("esp32-wroom32", "test-host")):
             broker_scn.run_device(dev, ctx, ctx.results)
         self.assertEqual(ctx.results.results[0].status, "pass",
                          ctx.results.results[0].detail)
@@ -238,7 +238,7 @@ class TestBrokerOutage(unittest.TestCase):
                           "outage_duration": 0, "reconnect_duration": 0})
         with patch("suites.faults.broker_outage.Client", return_value=client), \
              patch("suites.faults.broker_outage.time.sleep", return_value=None), \
-             patch("fleetlib.discovery.verify_identity", return_value=True):
+             patch("fleetlib.discovery._read_identity", return_value=("esp32-wroom32", "test-host")):
             broker_scn.run_device(dev, ctx, ctx.results)
         r = ctx.results.results[0]
         self.assertEqual(r.status, "fail")
@@ -255,7 +255,7 @@ class TestBrokerOutage(unittest.TestCase):
                           "outage_duration": 0, "reconnect_duration": 0})
         with patch("suites.faults.broker_outage.Client", return_value=client), \
              patch("suites.faults.broker_outage.time.sleep", return_value=None), \
-             patch("fleetlib.discovery.verify_identity", return_value=True):
+             patch("fleetlib.discovery._read_identity", return_value=("esp32-wroom32", "test-host")):
             broker_scn.run_device(dev, ctx, ctx.results)
         self.assertEqual(ctx.results.results[0].status, "skip")
         self.assertNotIn("stop", docker.actions())
@@ -282,7 +282,7 @@ class TestVcoreDrop(unittest.TestCase):
         dev = _device(board=_ASIC)
         ctx = _ctx([dev], _ok_guard(board=_ASIC), FakeSettle(ready=True))
         with patch("suites.faults.vcore_drop.Client", return_value=client), \
-             patch("fleetlib.discovery.verify_identity", return_value=True):
+             patch("fleetlib.discovery._read_identity", return_value=(_ASIC, "test-host")):
             vcore_scn.run_device(dev, ctx, ctx.results)
         r = ctx.results.results[0]
         self.assertEqual(r.status, "skip")
@@ -294,7 +294,7 @@ class TestVcoreDrop(unittest.TestCase):
         dev = _device(board=_ASIC)
         ctx = _ctx([dev], _ok_guard(board=_ASIC), FakeSettle(ready=True))
         with patch("suites.faults.vcore_drop.Client", return_value=client), \
-             patch("fleetlib.discovery.verify_identity", return_value=True):
+             patch("fleetlib.discovery._read_identity", return_value=(_ASIC, "test-host")):
             vcore_scn.run_device(dev, ctx, ctx.results)
         self.assertEqual(ctx.results.results[0].status, "pass",
                          ctx.results.results[0].detail)
@@ -310,7 +310,7 @@ class TestVcoreDrop(unittest.TestCase):
         guard = Guard(dry_run=True, confirm=True, expect_board=_ASIC)
         ctx = _ctx([dev], guard, FakeSettle(ready=True))
         with patch("suites.faults.vcore_drop.Client", return_value=client), \
-             patch("fleetlib.discovery.verify_identity", return_value=True):
+             patch("fleetlib.discovery._read_identity", return_value=(_ASIC, "test-host")):
             vcore_scn.run_device(dev, ctx, ctx.results)
         self.assertEqual(ctx.results.results[0].status, "skip")
         client.request.assert_not_called()
@@ -322,7 +322,7 @@ class TestVcoreDrop(unittest.TestCase):
         guard = Guard(dry_run=False, confirm=True, expect_board="wrong-board")
         ctx = _ctx([dev], guard, FakeSettle(ready=True))
         with patch("suites.faults.vcore_drop.Client", return_value=client), \
-             patch("fleetlib.discovery.verify_identity", return_value=False):
+             patch("fleetlib.discovery._read_identity", return_value=(None, None)):
             vcore_scn.run_device(dev, ctx, ctx.results)
         r = ctx.results.results[0]
         self.assertEqual(r.status, "skip")
@@ -337,7 +337,7 @@ class TestGuardStep(unittest.TestCase):
         dev = _device()
         ctx = _ctx([dev], Guard(dry_run=False, confirm=True, expect_board=dev.board),
                    FakeSettle())
-        with patch("fleetlib.discovery.verify_identity", return_value=True):
+        with patch("fleetlib.discovery._read_identity", return_value=(dev.board, "test-host")):
             outcome, _ = guard_step(ctx, dev, "POST", "/x")
         self.assertEqual(outcome, PROCEED)
 
@@ -345,7 +345,7 @@ class TestGuardStep(unittest.TestCase):
         dev = _device()
         ctx = _ctx([dev], Guard(dry_run=True, confirm=True, expect_board=dev.board),
                    FakeSettle())
-        with patch("fleetlib.discovery.verify_identity", return_value=True):
+        with patch("fleetlib.discovery._read_identity", return_value=(dev.board, "test-host")):
             outcome, _ = guard_step(ctx, dev, "POST", "/x")
         self.assertEqual(outcome, DRYRUN)
 
@@ -353,7 +353,7 @@ class TestGuardStep(unittest.TestCase):
         dev = _device()
         ctx = _ctx([dev], Guard(dry_run=False, confirm=True, expect_board="wrong"),
                    FakeSettle())
-        with patch("fleetlib.discovery.verify_identity", return_value=False):
+        with patch("fleetlib.discovery._read_identity", return_value=(None, None)):
             outcome, _ = guard_step(ctx, dev, "POST", "/x")
         self.assertEqual(outcome, REFUSED)
 

@@ -112,6 +112,8 @@ def push(
     settle: Optional[float] = None,
     elf_path: Optional[str] = None,
     do_mark_valid: bool = False,
+    criteria: Optional["Criteria"] = None,
+    profile: Optional["Profile"] = None,
 ) -> VerifyResult:
     """OTA-push a local firmware binary (boot-mode: device reboots to apply).
 
@@ -155,7 +157,8 @@ def push(
                             detail="device did not come back up after push")
 
     return _post_boot_verify(client, target_version or booted, settle,
-                             do_mark_valid=do_mark_valid, guard=guard)
+                             do_mark_valid=do_mark_valid, guard=guard,
+                             criteria=criteria, profile=profile)
 
 
 def pull(
@@ -326,6 +329,8 @@ def _post_boot_verify(
     settle: Optional[float],
     do_mark_valid: bool = False,
     guard: Optional["Guard"] = None,
+    criteria: Optional["Criteria"] = None,
+    profile: Optional["Profile"] = None,
 ) -> VerifyResult:
     """Post-OTA verify for push/pull.
 
@@ -347,20 +352,34 @@ def _post_boot_verify(
     - Mining never resumed within the readiness window
     - Version mismatch (wrong image applied)
     """
-    from .criteria import Criteria
+    from .criteria import Criteria, for_profile
 
-    # Build a minimal criteria for wait_until_ready.  settle_delay=0 means
-    # "no artificial floor — just wait until ready (mining up + heap ok)".
-    # The extra --settle value becomes the sleep we do AFTER readiness, below.
-    post_ota_criteria = Criteria(
-        settle_delay=_POST_OTA_SETTLE_GRACE,
-        readiness_heap_floor=50_000,
-        readiness_hashrate_min=0.0,
-        readiness_vcore_floor=0,
-    )
+    # Build the criteria for wait_until_ready.  settle_delay is always forced
+    # to _POST_OTA_SETTLE_GRACE (0) so there is no artificial floor — just wait
+    # until the board is ready.  The extra --settle value is applied AFTER
+    # readiness, below.
+    #
+    # When criteria is None: use the hardcoded backward-compatible defaults
+    # (readiness_heap_floor=50_000, etc.).
+    # When criteria is provided: derive from it (applying per-board profile
+    # overrides when profile is not None), then pin settle_delay to
+    # _POST_OTA_SETTLE_GRACE so the OTA readiness gate never adds an artificial
+    # delay on top of the post-OTA reboot window.
+    if criteria is None:
+        post_ota_criteria = Criteria(
+            settle_delay=_POST_OTA_SETTLE_GRACE,
+            readiness_heap_floor=50_000,
+            readiness_hashrate_min=0.0,
+            readiness_vcore_floor=0,
+        )
+        _readiness_profile = None
+    else:
+        effective = for_profile(criteria, profile) if profile is not None else criteria
+        post_ota_criteria = dataclasses.replace(effective, settle_delay=_POST_OTA_SETTLE_GRACE)
+        _readiness_profile = profile
 
     readiness = wait_until_ready(
-        client, None, post_ota_criteria,
+        client, _readiness_profile, post_ota_criteria,
         timeout=_POST_OTA_READINESS_TIMEOUT,
     )
 

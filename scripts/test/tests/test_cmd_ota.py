@@ -118,7 +118,7 @@ class TestCmdOtaPushDeviceWrap(unittest.TestCase):
         captured_client = {}
 
         def fake_push(client, guard, binfile, target_version=None, settle=None,
-                      elf_path=None, do_mark_valid=False):
+                      elf_path=None, do_mark_valid=False, **kw):
             captured_client["client"] = client
             # Verify it has .request — no AttributeError
             client.request("POST", "/api/update/push", body=b"x")

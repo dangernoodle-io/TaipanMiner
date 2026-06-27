@@ -982,7 +982,7 @@ def cmd_call(args) -> int:
     import json as _json
     from fleetlib.client import Client, get_field, TIMEOUT_WRITE
     from fleetlib.spec import Spec
-    from fleetlib.safety import Guard, MUTATING, IdentityMismatch, RefusedWithoutConfirmation
+    from fleetlib.safety import Guard, MUTATING, DeviceUnreachable, IdentityMismatch, RefusedWithoutConfirmation
 
     method = args.call_method.upper()
     path = args.call_path
@@ -1061,6 +1061,10 @@ def cmd_call(args) -> int:
         if is_mutating:
             try:
                 sentinel = guard.check(d, method, path)
+            except DeviceUnreachable as e:
+                print(f"ERROR: {e}")
+                all_ok = False
+                continue
             except IdentityMismatch as e:
                 print(f"ERROR: {e}")
                 all_ok = False
@@ -1549,6 +1553,7 @@ def cmd_ota_push(args) -> int:
     import os as _os
     from fleetlib import ota
     from fleetlib.client import Client
+    from fleetlib.safety import DeviceUnreachable, IdentityMismatch
 
     _resolve_result = resolve_devices(args)
     devices = _unwrap_devices(_resolve_result)
@@ -1599,8 +1604,22 @@ def cmd_ota_push(args) -> int:
             continue
 
         print(f"Pushing {binfile} to {d.ip}…")
-        r = _push(c, guard, binfile, target_version=target, settle=settle_secs,
-                  do_mark_valid=do_mark_valid)
+        try:
+            r = _push(c, guard, binfile, target_version=target, settle=settle_secs,
+                      do_mark_valid=do_mark_valid)
+        except DeviceUnreachable as exc:
+            print(f"  {d.ip}: SKIPPED (unreachable: {exc})")
+            ok = False
+            continue
+        except IdentityMismatch as exc:
+            print(f"  {d.ip}: SKIPPED (identity mismatch: {exc})")
+            ok = False
+            continue
+        except Exception as exc:
+            print(f"  {d.ip}: FAILED (unexpected error: {exc})")
+            ok = False
+            continue
+
         if r.ok and r.pending:
             print(f"  {d.ip}: push PENDING — {r.detail}")
         elif r.ok:

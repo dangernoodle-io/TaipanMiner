@@ -6,7 +6,7 @@ long-duration soak, stress, fault injection, telemetry transport, and OTA operat
 ## Quick start
 
 ```sh
-cd scripts/test
+cd scripts/fleet
 ./fleet discover
 ```
 
@@ -21,7 +21,7 @@ output goes to stderr; stdout is clean for harness output and JSON.
 **Extend the harness; never add one-off scripts.**  All device test, soak, stress,
 fault-injection, and OTA-validation tooling lives here (`fleetlib/` + `suites/`).
 When functionality is missing, add a suite, detector, or `fleetlib` helper — do NOT
-drop standalone scripts into `scripts/test/`.
+drop standalone scripts into `scripts/fleet/`.
 
 ---
 
@@ -33,11 +33,11 @@ Python is too old (TA-450).
 
 ```sh
 # Option A — make
-cd scripts/test
+cd scripts/fleet
 make setup
 
 # Option B — manual
-cd scripts/test
+cd scripts/fleet
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```

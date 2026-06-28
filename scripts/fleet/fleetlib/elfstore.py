@@ -70,8 +70,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_KEEP = 20
 
 # Locate the archive root relative to this file:
-# scripts/test/fleetlib/ -> scripts/test/ -> scripts/ -> repo-root
-_HARNESS_DIR = Path(__file__).parent.parent  # scripts/test/
+# scripts/fleet/fleetlib/ -> scripts/fleet/ -> scripts/ -> repo-root
+_HARNESS_DIR = Path(__file__).parent.parent  # scripts/fleet/
 _REPO_ROOT = _HARNESS_DIR.parent.parent      # repo root
 _ARCHIVE_DEFAULT = _REPO_ROOT / ".elf-archive"
 

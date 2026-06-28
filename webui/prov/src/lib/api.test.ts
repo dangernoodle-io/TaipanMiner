@@ -40,7 +40,7 @@ describe('fetchScan', () => {
 
 describe('fetchInfo', () => {
   it('GETs /api/info and returns board + version trimmed', async () => {
-    const spy = setFetch(200, { version: 'v1.2.3', board: 'tdongle-s3' })
+    const spy = setFetch(200, { build: { version: 'v1.2.3', board: 'tdongle-s3' } })
     const result = await fetchInfo()
     expect(spy.mock.calls[0][0]).toBe('/api/info')
     expect(result).toEqual({ board: 'tdongle-s3', version: 'v1.2.3' })
@@ -53,7 +53,7 @@ describe('fetchInfo', () => {
   })
 
   it('trims whitespace from both fields', async () => {
-    setFetch(200, { version: '  v1.2.3  ', board: '  tdongle-s3  ' })
+    setFetch(200, { build: { version: '  v1.2.3  ', board: '  tdongle-s3  ' } })
     const result = await fetchInfo()
     expect(result).toEqual({ board: 'tdongle-s3', version: 'v1.2.3' })
   })

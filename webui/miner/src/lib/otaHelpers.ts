@@ -18,7 +18,7 @@ export interface OtaUploadState {
 }
 
 export function firmwareName(info: Info | null): string {
-  return info?.board ? `taipanminer-${info.board}.bin` : 'firmware.bin'
+  return info?.build.board ? `taipanminer-${info.build.board}.bin` : 'firmware.bin'
 }
 
 export function minerBusy(

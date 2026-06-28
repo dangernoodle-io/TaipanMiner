@@ -3,17 +3,22 @@ import { firmwareName, minerBusy } from './otaHelpers'
 import type { Info } from './api'
 
 const baseInfo: Info = {
-  board: 'bitaxe-601',
-  project_name: 'TaipanMiner',
-  version: 'v1.2.3',
-  idf_version: '5.5.3',
-  build_date: '2024-01-15',
-  build_time: '14:30:00',
-  chip_model: 'esp32-s3',
-  cores: 2,
   mac: '00:11:22:33:44:55',
-  flash_size: 16777216,
-  app_size: 1048576,
+  build: {
+    board: 'bitaxe-601',
+    project_name: 'TaipanMiner',
+    version: 'v1.2.3',
+    idf_version: '5.5.3',
+    build_date: '2024-01-15',
+    build_time: '14:30:00',
+    chip_model: 'esp32-s3',
+    chip_revision: 0,
+    cores: 2,
+    cpu_freq_mhz: 240,
+    flash_size: 16777216,
+    app_size: 1048576,
+    app_sha256: '',
+  },
   heap_internal: { free: 131072, total: 262144, min_free: 98304, largest_block: 65536 },
   reset_reason: 'Unknown',
   hostname: 'taipan.local',
@@ -34,11 +39,11 @@ describe('firmwareName', () => {
   })
 
   it('returns board-specific name for different board', () => {
-    expect(firmwareName({ ...baseInfo, board: 'bitaxe-403' })).toBe('taipanminer-bitaxe-403.bin')
+    expect(firmwareName({ ...baseInfo, build: { ...baseInfo.build, board: 'bitaxe-403' } })).toBe('taipanminer-bitaxe-403.bin')
   })
 
   it('returns board-specific name for tdongle-s3', () => {
-    expect(firmwareName({ ...baseInfo, board: 'tdongle-s3' })).toBe('taipanminer-tdongle-s3.bin')
+    expect(firmwareName({ ...baseInfo, build: { ...baseInfo.build, board: 'tdongle-s3' } })).toBe('taipanminer-tdongle-s3.bin')
   })
 })
 

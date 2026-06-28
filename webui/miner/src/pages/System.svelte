@@ -185,7 +185,7 @@
       </div>
     {/if}
     <div class="viz">
-      <Donut used={$info?.app_size} total={$info?.flash_size} label="Flash" size={108}
+      <Donut used={$info?.build.app_size} total={$info?.build.flash_size} label="Flash" size={108}
              hint="Flash storage — the running app partition's size vs total flash. The remainder holds the second OTA slot, filesystem, and NVS." />
     </div>
   </div>
@@ -201,9 +201,9 @@
   {/if}
 
   <InfoCard title="Device">
-    <InfoRow label="Board">{$info?.board ?? '—'}</InfoRow>
-    <InfoRow label="Chip">{$info?.chip_model ?? '—'}</InfoRow>
-    <InfoRow label="Cores">{$info?.cores ?? '—'}</InfoRow>
+    <InfoRow label="Board">{$info?.build.board ?? '—'}</InfoRow>
+    <InfoRow label="Chip">{$info?.build.chip_model ?? '—'}</InfoRow>
+    <InfoRow label="Cores">{$info?.build.cores ?? '—'}</InfoRow>
     <InfoRow label="MAC" mono>{$info?.mac ?? '—'}</InfoRow>
     <InfoRow label="BSSID" mono>{$info?.network?.bssid ?? '—'}</InfoRow>
     <InfoRow label="Display">{displayLabel}</InfoRow>
@@ -211,10 +211,10 @@
   </InfoCard>
 
   <InfoCard title="Firmware">
-    <InfoRow label="Project" mono>{$info?.project_name ?? '—'}</InfoRow>
-    <InfoRow label="Version">{$info?.version ?? '—'}</InfoRow>
-    <InfoRow label="Built">{fmtBuildTime($info?.build_date, $info?.build_time)}</InfoRow>
-    <InfoRow label="IDF">{$info?.idf_version ?? '—'}</InfoRow>
+    <InfoRow label="Project" mono>{$info?.build.project_name ?? '—'}</InfoRow>
+    <InfoRow label="Version">{$info?.build.version ?? '—'}</InfoRow>
+    <InfoRow label="Built">{fmtBuildTime($info?.build.build_date, $info?.build.build_time)}</InfoRow>
+    <InfoRow label="IDF">{$info?.build.idf_version ?? '—'}</InfoRow>
   </InfoCard>
 
   <InfoCard title="Runtime">

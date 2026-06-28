@@ -52,17 +52,24 @@ describe('Header', () => {
 
   it('shows board and version when info is set', () => {
     info.set({
-      board: 'bitaxe-601',
-      version: '1.2.3',
-      hostname: 'miner',
-      ip: '192.168.1.1',
       mac: 'AA:BB:CC:DD:EE:FF',
-      idf_version: '5.5',
-      build_date: 'Jan  1 2025',
-      build_time: '00:00:00',
+      build: {
+        board: 'bitaxe-601',
+        version: '1.2.3',
+        idf_version: '5.5',
+        build_date: 'Jan  1 2025',
+        build_time: '00:00:00',
+        project_name: 'TaipanMiner',
+        chip_model: 'ESP32-S3',
+        chip_revision: 0,
+        cores: 2,
+        cpu_freq_mhz: 240,
+        flash_size: 0,
+        app_size: 0,
+        app_sha256: '',
+      },
       reset_reason: 'Power on',
-      wdt_resets: 0,
-      uptime_boot_s: 0
+      hostname: 'miner',
     } as any)
     render(Header)
     expect(screen.getByText('bitaxe-601 · 1.2.3')).toBeInTheDocument()

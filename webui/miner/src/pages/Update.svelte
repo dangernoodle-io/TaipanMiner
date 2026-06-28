@@ -24,9 +24,9 @@
   <div class="card">
     <h2>Firmware</h2>
     <dl class="fw-rows">
-      <InfoRow label="Version">{$info?.version ?? '—'}</InfoRow>
-      <InfoRow label="Board">{$info?.board ?? '—'}</InfoRow>
-      <InfoRow label="Build">{fmtBuildTime($info?.build_date, $info?.build_time)}</InfoRow>
+      <InfoRow label="Version">{$info?.build.version ?? '—'}</InfoRow>
+      <InfoRow label="Board">{$info?.build.board ?? '—'}</InfoRow>
+      <InfoRow label="Build">{fmtBuildTime($info?.build.build_date, $info?.build.build_time)}</InfoRow>
     </dl>
 
     <div class="row-actions">

@@ -11,8 +11,8 @@ export type DeviceInfo = { board: string; version: string }
 export async function fetchInfo(): Promise<DeviceInfo> {
   const r = await fetch('/api/info')
   if (!r.ok) throw new Error(`info failed: ${r.status}`)
-  const info = await r.json() as { board?: string; version?: string }
-  return { board: (info.board ?? '').trim(), version: (info.version ?? '').trim() }
+  const info = await r.json() as { build?: { board?: string; version?: string } }
+  return { board: (info.build?.board ?? '').trim(), version: (info.build?.version ?? '').trim() }
 }
 
 export type SaveBody = {

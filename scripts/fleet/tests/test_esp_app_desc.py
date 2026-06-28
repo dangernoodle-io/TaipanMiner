@@ -200,7 +200,7 @@ class TestArchiveMetadataAutoPopulate(unittest.TestCase):
 class TestCmdElfArchiveCLI(unittest.TestCase):
     def test_shows_auto_populated_annotation(self):
         """When board comes from esp_app_desc_t, the CLI notes it."""
-        import fleet
+        import commands.elf as elf_cmd
 
         with tempfile.TemporaryDirectory() as td:
             store = Path(td) / "store"
@@ -221,7 +221,7 @@ class TestCmdElfArchiveCLI(unittest.TestCase):
 
             with patch("fleetlib.elfstore._ARCHIVE_DEFAULT", store):
                 with patch("sys.stdout", new_callable=StringIO) as mock_out:
-                    rc = fleet.cmd_elf_archive(args)
+                    rc = elf_cmd.cmd_elf_archive(args)
 
         out = mock_out.getvalue()
         self.assertEqual(rc, 0)

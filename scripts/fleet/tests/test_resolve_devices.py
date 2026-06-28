@@ -70,7 +70,7 @@ class TestMdnsEmpty(unittest.TestCase):
     """fleet.py cmd_discover prints the mDNS-specific message when mDNS returns nothing."""
 
     def _run_discover(self, mdns_devices):
-        import fleet
+        import commands.discover as discover_cmd
         args = MagicMock()
         args.hosts = None
         args.board = None
@@ -78,10 +78,10 @@ class TestMdnsEmpty(unittest.TestCase):
         result = ResolveResult(devices=mdns_devices, failures=[], from_mdns=True)
         stdout_buf = io.StringIO()
         stderr_buf = io.StringIO()
-        with patch("fleet.resolve_devices", return_value=result):
+        with patch("commands.discover.resolve_devices", return_value=result):
             with patch("sys.stdout", stdout_buf):
                 with patch("sys.stderr", stderr_buf):
-                    code = fleet.cmd_discover(args)
+                    code = discover_cmd.run(args)
         return code, stdout_buf.getvalue(), stderr_buf.getvalue()
 
     def test_mdns_empty_prints_mdns_message(self):
@@ -114,17 +114,17 @@ class TestHostsAllFail(unittest.TestCase):
     """When every --hosts entry fails enrichment, print per-host reasons."""
 
     def _run_status(self, result):
-        import fleet
+        import commands.status as status_cmd
         args = MagicMock()
         args.hosts = ",".join(f.host for f in result.failures)
         args.board = None
         args.discover_timeout = 10
         stderr_buf = io.StringIO()
         stdout_buf = io.StringIO()
-        with patch("fleet.resolve_devices", return_value=result):
+        with patch("commands.status.resolve_devices", return_value=result):
             with patch("sys.stdout", stdout_buf):
                 with patch("sys.stderr", stderr_buf):
-                    code = fleet.cmd_status(args)
+                    code = status_cmd.run(args)
         return code, stdout_buf.getvalue(), stderr_buf.getvalue()
 
     def test_all_fail_not_no_devices_found(self):
@@ -190,7 +190,7 @@ class TestHostsPartial(unittest.TestCase):
     """Partial success: resolved devices are used; failures appear as warnings."""
 
     def _run_status(self, result):
-        import fleet
+        import commands.status as status_cmd
         args = MagicMock()
         args.hosts = "192.0.2.10,192.0.2.250"
         args.board = None
@@ -206,11 +206,11 @@ class TestHostsPartial(unittest.TestCase):
             }
             return mc
 
-        with patch("fleet.resolve_devices", return_value=result):
+        with patch("commands.status.resolve_devices", return_value=result):
             with patch("fleetlib.client.Client", side_effect=_fake_client):
                 with patch("sys.stdout", stdout_buf):
                     with patch("sys.stderr", stderr_buf):
-                        code = fleet.cmd_status(args)
+                        code = status_cmd.run(args)
         return code, stdout_buf.getvalue(), stderr_buf.getvalue()
 
     def test_partial_proceeds_with_good_device(self):

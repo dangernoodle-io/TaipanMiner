@@ -32,7 +32,7 @@ def _make_client(info=None, health=None, heap=None):
 
 def _run_status(devices):
     """Call cmd_status with mocked args; return (exit_code, stdout_text)."""
-    import fleet
+    import commands.status as status_cmd
 
     args = MagicMock()
     args.hosts = ",".join(d.ip for d in devices)
@@ -40,9 +40,9 @@ def _run_status(devices):
     args.discover_timeout = 10
 
     buf = io.StringIO()
-    with patch("fleet.resolve_devices", return_value=devices):
+    with patch("commands.status.resolve_devices", return_value=devices):
         with patch("sys.stdout", buf):
-            code = fleet.cmd_status(args)
+            code = status_cmd.run(args)
 
     return code, buf.getvalue()
 

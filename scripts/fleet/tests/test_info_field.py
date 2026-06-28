@@ -8,7 +8,7 @@ Covers:
   - ota.wait_for_boot: version from build.*
   - ota.verify: version from build.*
   - ota._post_boot_verify (via push): version from build.* (false-negative fix)
-  - fleet.cmd_status: BOARD/VERSION columns from build.*
+  - status_cmd.run: BOARD/VERSION columns from build.*
   - fleet.cmd_elf_list: IN-USE resolved via build.app_sha256
 """
 from __future__ import annotations
@@ -284,7 +284,7 @@ class TestOtaVerifyBuildShape(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# fleet.cmd_status — BOARD/VERSION from build.*
+# status_cmd.run — BOARD/VERSION from build.*
 # ---------------------------------------------------------------------------
 
 class TestCmdStatusBuildShape(unittest.TestCase):
@@ -293,16 +293,16 @@ class TestCmdStatusBuildShape(unittest.TestCase):
                       board="esp32-wroom32", version="v0.99.0")
 
     def _run_status(self, devices, client_mock):
-        import fleet
+        import commands.status as status_cmd
         args = MagicMock()
         args.hosts = ",".join(d.ip for d in devices)
         args.board = None
         args.discover_timeout = 10
         buf = io.StringIO()
-        with patch("fleet.resolve_devices", return_value=devices):
+        with patch("commands.status.resolve_devices", return_value=devices):
             with patch("fleetlib.client.Client", return_value=client_mock):
                 with patch("sys.stdout", buf):
-                    code = fleet.cmd_status(args)
+                    code = status_cmd.run(args)
         return code, buf.getvalue()
 
     def test_board_version_from_build(self):
@@ -367,16 +367,16 @@ class TestElfListInUseBuildShape(unittest.TestCase):
             }
             device = Device(hostname="taipan-81", ip="192.0.2.81", port=80,
                             board="esp32-wroom32", version="dev-f218d41")
-            import fleet
+            import commands.elf as elf_cmd
             args = MagicMock()
             args.hosts = "192.0.2.81"
             args.board = None
             args.discover_timeout = 10
-            with patch("fleet.resolve_devices", return_value=[device]):
+            with patch("commands.elf.resolve_devices", return_value=[device]):
                 with patch("fleetlib.client.Client", return_value=mock_client):
                     with patch("fleetlib.elfstore._ARCHIVE_DEFAULT", store):
                         with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
-                            rc = fleet.cmd_elf_list(args)
+                            rc = elf_cmd.cmd_elf_list(args)
 
             self.assertEqual(rc, 0)
             out = mock_out.getvalue()

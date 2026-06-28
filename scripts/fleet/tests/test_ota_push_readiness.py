@@ -398,7 +398,7 @@ class TestCmdOtaPushVerdicts(unittest.TestCase):
         import argparse
         import io
         from contextlib import redirect_stdout
-        import fleet
+        import commands.ota as ota_cmd
         from fleetlib.discovery import Device
         from fleetlib.client import Client
 
@@ -424,12 +424,12 @@ class TestCmdOtaPushVerdicts(unittest.TestCase):
         mock_client.board = device.board
 
         buf = io.StringIO()
-        with patch("fleet.resolve_devices", return_value=[device]):
+        with patch("commands.ota.resolve_devices", return_value=[device]):
             with patch("fleetlib.discovery._read_identity", return_value=("test-board", "test-host")):
                 with patch("fleetlib.client.Client", return_value=mock_client):
                     with patch("fleetlib.ota.push", return_value=result):
                         with redirect_stdout(buf):
-                            rc = fleet.cmd_ota_push(args)
+                            rc = ota_cmd.cmd_ota_push(args)
 
         return rc, buf.getvalue()
 
@@ -464,7 +464,7 @@ class TestCmdOtaPushVerdicts(unittest.TestCase):
         import argparse
         import io
         from contextlib import redirect_stdout
-        import fleet
+        import commands.ota as ota_cmd
         from fleetlib.discovery import Device
         from fleetlib.client import Client
 
@@ -490,11 +490,11 @@ class TestCmdOtaPushVerdicts(unittest.TestCase):
         mock_client.board = device.board
 
         buf = io.StringIO()
-        with patch("fleet.resolve_devices", return_value=[device]):
+        with patch("commands.ota.resolve_devices", return_value=[device]):
             with patch("fleetlib.discovery._read_identity", return_value=("test-board", "test-host")):
                 with patch("fleetlib.client.Client", return_value=mock_client):
                     with redirect_stdout(buf):
-                        rc = fleet.cmd_ota_push(args)
+                        rc = ota_cmd.cmd_ota_push(args)
 
         out = buf.getvalue()
         self.assertEqual(rc, 0)
@@ -626,7 +626,7 @@ class TestCmdOtaPushCriteriaThreaded(unittest.TestCase):
         import argparse
         import io
         from contextlib import redirect_stdout
-        import fleet
+        import commands.ota as ota_cmd
         from fleetlib.discovery import Device
 
         device = Device(hostname="miner-01", ip="192.0.2.1", port=80,
@@ -658,12 +658,12 @@ class TestCmdOtaPushCriteriaThreaded(unittest.TestCase):
         mock_client.board = device.board
 
         buf = io.StringIO()
-        with patch("fleet.resolve_devices", return_value=[device]):
+        with patch("commands.ota.resolve_devices", return_value=[device]):
             with patch("fleetlib.discovery._read_identity", return_value=("test-board", "test-host")):
                 with patch("fleetlib.client.Client", return_value=mock_client):
                     with patch("fleetlib.ota.push", side_effect=fake_push):
                         with redirect_stdout(buf):
-                            rc = fleet.cmd_ota_push(args)
+                            rc = ota_cmd.cmd_ota_push(args)
 
         return rc, captured
 

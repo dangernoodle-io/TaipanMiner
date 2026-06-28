@@ -91,13 +91,13 @@ def _args(path=None, method=None, json_raw=False, hosts=None, board=None):
 
 class TestRenderSchema(unittest.TestCase):
     def setUp(self):
-        import fleet
-        self.fleet = fleet
+        import commands.describe as describe_mod
+        self.describe_mod = describe_mod
 
     def _capture(self, schema, indent=0):
         buf = io.StringIO()
         with patch("builtins.print", lambda *a, **kw: buf.write(" ".join(str(x) for x in a) + "\n")):
-            self.fleet._render_schema(schema, indent=indent)
+            self.describe_mod._render_schema(schema, indent=indent)
         return buf.getvalue()
 
     def test_no_properties_shows_type(self):
@@ -170,19 +170,19 @@ class TestRenderSchema(unittest.TestCase):
 
 class TestSchemaTypeStr(unittest.TestCase):
     def setUp(self):
-        import fleet
-        self.fleet = fleet
+        import commands.describe as describe_mod
+        self.describe_mod = describe_mod
 
     def test_plain_type(self):
-        self.assertEqual(self.fleet._schema_type_str({"type": "string"}), "string")
+        self.assertEqual(self.describe_mod._schema_type_str({"type": "string"}), "string")
 
     def test_anyof_non_null(self):
-        result = self.fleet._schema_type_str({"anyOf": [{"type": "integer"}, {"type": "null"}]})
+        result = self.describe_mod._schema_type_str({"anyOf": [{"type": "integer"}, {"type": "null"}]})
         self.assertIn("integer", result)
         self.assertIn("?", result)
 
     def test_no_type_returns_any(self):
-        self.assertEqual(self.fleet._schema_type_str({}), "any")
+        self.assertEqual(self.describe_mod._schema_type_str({}), "any")
 
 
 # ---------------------------------------------------------------------------
@@ -191,19 +191,19 @@ class TestSchemaTypeStr(unittest.TestCase):
 
 class TestCmdDescribeListPaths(unittest.TestCase):
     def setUp(self):
-        import fleet
-        self.fleet = fleet
+        import commands.describe as describe_mod
+        self.describe_mod = describe_mod
 
     def _run(self, args):
         buf = io.StringIO()
         with patch("builtins.print", lambda *a, **kw: buf.write(" ".join(str(x) for x in a) + "\n")):
-            code = self.fleet.cmd_describe(args)
+            code = self.describe_mod.run(args)
         return code, buf.getvalue()
 
     def test_list_all_paths(self):
         dev = _make_device()
         args = _args()  # no path
-        with patch("fleet.resolve_devices", return_value=[dev]):
+        with patch("commands.describe.resolve_devices", return_value=[dev]):
             with patch("fleetlib.client.Client.spec", new_callable=lambda: property(lambda self: SAMPLE_SPEC)):
                 code, out = self._run(args)
         self.assertEqual(code, 0)
@@ -214,14 +214,14 @@ class TestCmdDescribeListPaths(unittest.TestCase):
 
     def test_no_devices_returns_1(self):
         args = _args()
-        with patch("fleet.resolve_devices", return_value=[]):
+        with patch("commands.describe.resolve_devices", return_value=[]):
             code, out = self._run(args)
         self.assertEqual(code, 1)
 
     def test_unreachable_spec_returns_1(self):
         dev = _make_device()
         args = _args()
-        with patch("fleet.resolve_devices", return_value=[dev]):
+        with patch("commands.describe.resolve_devices", return_value=[dev]):
             with patch("fleetlib.client.Client.spec", new_callable=lambda: property(lambda self: None)):
                 code, out = self._run(args)
         self.assertEqual(code, 1)
@@ -229,19 +229,19 @@ class TestCmdDescribeListPaths(unittest.TestCase):
 
 class TestCmdDescribePathOnly(unittest.TestCase):
     def setUp(self):
-        import fleet
-        self.fleet = fleet
+        import commands.describe as describe_mod
+        self.describe_mod = describe_mod
 
     def _run(self, args):
         buf = io.StringIO()
         with patch("builtins.print", lambda *a, **kw: buf.write(" ".join(str(x) for x in a) + "\n")):
-            code = self.fleet.cmd_describe(args)
+            code = self.describe_mod.run(args)
         return code, buf.getvalue()
 
     def test_known_path_shows_schema(self):
         dev = _make_device()
         args = _args(path="/api/settings")
-        with patch("fleet.resolve_devices", return_value=[dev]):
+        with patch("commands.describe.resolve_devices", return_value=[dev]):
             with patch("fleetlib.client.Client.spec", new_callable=lambda: property(lambda self: SAMPLE_SPEC)):
                 code, out = self._run(args)
         self.assertEqual(code, 0)
@@ -251,7 +251,7 @@ class TestCmdDescribePathOnly(unittest.TestCase):
     def test_unknown_path_returns_1(self):
         dev = _make_device()
         args = _args(path="/api/nonexistent")
-        with patch("fleet.resolve_devices", return_value=[dev]):
+        with patch("commands.describe.resolve_devices", return_value=[dev]):
             with patch("fleetlib.client.Client.spec", new_callable=lambda: property(lambda self: SAMPLE_SPEC)):
                 code, out = self._run(args)
         self.assertEqual(code, 1)
@@ -261,7 +261,7 @@ class TestCmdDescribePathOnly(unittest.TestCase):
     def test_path_and_method(self):
         dev = _make_device()
         args = _args(path="/api/settings", method="PATCH")
-        with patch("fleet.resolve_devices", return_value=[dev]):
+        with patch("commands.describe.resolve_devices", return_value=[dev]):
             with patch("fleetlib.client.Client.spec", new_callable=lambda: property(lambda self: SAMPLE_SPEC)):
                 code, out = self._run(args)
         self.assertEqual(code, 0)
@@ -270,20 +270,20 @@ class TestCmdDescribePathOnly(unittest.TestCase):
 
 class TestCmdDescribeRawJson(unittest.TestCase):
     def setUp(self):
-        import fleet
-        self.fleet = fleet
+        import commands.describe as describe_mod
+        self.describe_mod = describe_mod
 
     def _run(self, args):
         buf = io.StringIO()
         with patch("builtins.print", lambda *a, **kw: buf.write(" ".join(str(x) for x in a) + "\n")):
-            code = self.fleet.cmd_describe(args)
+            code = self.describe_mod.run(args)
         return code, buf.getvalue()
 
     def test_raw_json_contains_json(self):
         import json
         dev = _make_device()
         args = _args(path="/api/settings", method="PATCH", json_raw=True)
-        with patch("fleet.resolve_devices", return_value=[dev]):
+        with patch("commands.describe.resolve_devices", return_value=[dev]):
             with patch("fleetlib.client.Client.spec", new_callable=lambda: property(lambda self: SAMPLE_SPEC)):
                 code, out = self._run(args)
         self.assertEqual(code, 0)

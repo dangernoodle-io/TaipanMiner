@@ -35,7 +35,7 @@ def _base_args(**kwargs):
 
 def _run_logs(devices, args, stream_lines_side_effect=None):
     """Call cmd_logs with mocked resolve_devices and stream_lines."""
-    import fleet
+    import commands.logs as logs_cmd
 
     stdout_buf = io.StringIO()
     stderr_buf = io.StringIO()
@@ -50,11 +50,11 @@ def _run_logs(devices, args, stream_lines_side_effect=None):
 
     side_effect = stream_lines_side_effect or _default_stream
 
-    with patch("fleet.resolve_devices", return_value=devices):
+    with patch("commands.logs.resolve_devices", return_value=devices):
         with patch("fleetlib.sse.stream_lines", side_effect=side_effect):
             with patch("sys.stdout", stdout_buf):
                 with patch("sys.stderr", stderr_buf):
-                    code = fleet.cmd_logs(args)
+                    code = logs_cmd.run(args)
 
     return code, stdout_buf.getvalue(), stderr_buf.getvalue()
 
@@ -239,15 +239,15 @@ class TestCmdLogsOccupiedSink(unittest.TestCase):
 
 class TestCmdLogsNoDevices(unittest.TestCase):
     def test_no_devices_returns_nonzero(self):
-        import fleet
+        import commands.logs as logs_cmd
 
         args = _base_args()
         stdout_buf = io.StringIO()
         stderr_buf = io.StringIO()
-        with patch("fleet.resolve_devices", return_value=[]):
+        with patch("commands.logs.resolve_devices", return_value=[]):
             with patch("sys.stdout", stdout_buf):
                 with patch("sys.stderr", stderr_buf):
-                    code = fleet.cmd_logs(args)
+                    code = logs_cmd.run(args)
         self.assertNotEqual(code, 0)
 
 

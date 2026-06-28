@@ -47,7 +47,7 @@ def _run_watch(devices, args, responses_map):
     Each response is a dict returned by client.get_json().
     Responses cycle — last value repeated when ticks exceed list length.
     """
-    import fleet
+    import commands.watch as watch_cmd
 
     call_counts = {ip: 0 for ip in responses_map}
 
@@ -67,12 +67,12 @@ def _run_watch(devices, args, responses_map):
     stdout_buf = io.StringIO()
     stderr_buf = io.StringIO()
 
-    with patch("fleet.resolve_devices", return_value=devices):
+    with patch("commands.watch.resolve_devices", return_value=devices):
         with patch("fleetlib.client.Client", side_effect=_make_client):
             with patch("time.sleep", return_value=None):
                 with patch("sys.stdout", stdout_buf):
                     with patch("sys.stderr", stderr_buf):
-                        code = fleet.cmd_watch(args)
+                        code = watch_cmd.run(args)
 
     return code, stdout_buf.getvalue(), stderr_buf.getvalue()
 

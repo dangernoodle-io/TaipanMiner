@@ -16,7 +16,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import fleet
+import commands.probe_endpoints as probe_cmd
 
 
 # ---------------------------------------------------------------------------
@@ -82,10 +82,10 @@ class TestProbeEndpointsGETOnly(unittest.TestCase):
         mock_client = MagicMock()
         mock_client.get_json.side_effect = get_json_side_effect
         args = _make_args(**(extra_args or {}))
-        with patch("fleet.resolve_devices", return_value=[device]):
+        with patch("commands.probe_endpoints.resolve_devices", return_value=[device]):
             with patch("fleetlib.client.Client", return_value=mock_client):
                 with patch("sys.stdout", new_callable=StringIO) as mock_out:
-                    rc = fleet.cmd_probe_endpoints(args)
+                    rc = probe_cmd.run(args)
         return rc, mock_out.getvalue(), mock_client
 
     def test_enumerates_get_only_skips_mutating_and_streaming(self):
@@ -183,10 +183,10 @@ class TestProbeEndpointsGETOnly(unittest.TestCase):
         mock_client.get_json.side_effect = side_effect
         mock_client.request.return_value = (200, b'{}')
         args = _make_args(include_mutating=True)
-        with patch("fleet.resolve_devices", return_value=[device]):
+        with patch("commands.probe_endpoints.resolve_devices", return_value=[device]):
             with patch("fleetlib.client.Client", return_value=mock_client):
                 with patch("sys.stdout", new_callable=StringIO) as mock_out:
-                    rc = fleet.cmd_probe_endpoints(args)
+                    rc = probe_cmd.run(args)
         out = mock_out.getvalue()
         # /api/reboot POST should appear in output
         self.assertIn("/api/reboot", out)
@@ -208,19 +208,19 @@ class TestProbeEndpointsGETOnly(unittest.TestCase):
         mock_client.get_json.side_effect = side_effect
         mock_client.request.return_value = (200, b'data')
         args = _make_args(include_streaming=True)
-        with patch("fleet.resolve_devices", return_value=[device]):
+        with patch("commands.probe_endpoints.resolve_devices", return_value=[device]):
             with patch("fleetlib.client.Client", return_value=mock_client):
                 with patch("sys.stdout", new_callable=StringIO) as mock_out:
-                    rc = fleet.cmd_probe_endpoints(args)
+                    rc = probe_cmd.run(args)
         out = mock_out.getvalue()
         self.assertIn("/api/logs", out)
 
     def test_no_devices(self):
         """When no devices are found, return 1."""
         args = _make_args()
-        with patch("fleet.resolve_devices", return_value=[]):
+        with patch("commands.probe_endpoints.resolve_devices", return_value=[]):
             with patch("sys.stderr", new_callable=StringIO):
-                rc = fleet.cmd_probe_endpoints(args)
+                rc = probe_cmd.run(args)
         self.assertEqual(rc, 1)
 
 

@@ -98,7 +98,7 @@ def _args(method, path, json_body=None, json_file=None, fields=None, out_json=No
 
 def _run_cmd_call(args, devices, spec_doc=SAMPLE_SPEC, client_responses=None):
     """Run cmd_call with mocked resolve_devices, Client.spec, and Client.get_json/request."""
-    import fleet
+    import commands.call as call_cmd
     buf = io.StringIO()
 
     def mock_get_json(self_c, path, timeout=None):
@@ -112,12 +112,12 @@ def _run_cmd_call(args, devices, spec_doc=SAMPLE_SPEC, client_responses=None):
             return data[0], json.dumps(data[1]).encode()
         return 200, b'{}'
 
-    with patch("fleet.resolve_devices", return_value=devices):
+    with patch("commands.call.resolve_devices", return_value=devices):
         with patch("fleetlib.client.Client.spec", new_callable=lambda: property(lambda s: spec_doc)):
             with patch("fleetlib.client.Client.get_json", mock_get_json):
                 with patch("fleetlib.client.Client.request", mock_request):
                     with patch("builtins.print", lambda *a, **kw: buf.write(" ".join(str(x) for x in a) + "\n")):
-                        code = fleet.cmd_call(args)
+                        code = call_cmd.run(args)
 
     return code, buf.getvalue()
 
@@ -245,12 +245,12 @@ class TestCmdCallBodyValidation(unittest.TestCase):
 
 class TestCmdCallBodyParsing(unittest.TestCase):
     def test_bad_inline_json_returns_1(self):
-        import fleet
+        import commands.call as call_cmd
         args = _args("PATCH", "/api/settings", json_body='{not json}')
         buf = io.StringIO()
-        with patch("fleet.resolve_devices", return_value=[_dev()]):
+        with patch("commands.call.resolve_devices", return_value=[_dev()]):
             with patch("builtins.print", lambda *a, **kw: buf.write(" ".join(str(x) for x in a) + "\n")):
-                code = fleet.cmd_call(args)
+                code = call_cmd.run(args)
         self.assertEqual(code, 1)
         self.assertIn("not valid JSON", buf.getvalue())
 
@@ -270,12 +270,12 @@ class TestCmdCallBodyParsing(unittest.TestCase):
             os.unlink(fname)
 
     def test_json_file_missing_returns_1(self):
-        import fleet
+        import commands.call as call_cmd
         args = _args("PATCH", "/api/settings", json_file="/nonexistent/path.json")
         buf = io.StringIO()
-        with patch("fleet.resolve_devices", return_value=[_dev()]):
+        with patch("commands.call.resolve_devices", return_value=[_dev()]):
             with patch("builtins.print", lambda *a, **kw: buf.write(" ".join(str(x) for x in a) + "\n")):
-                code = fleet.cmd_call(args)
+                code = call_cmd.run(args)
         self.assertEqual(code, 1)
         self.assertIn("ERROR", buf.getvalue())
 

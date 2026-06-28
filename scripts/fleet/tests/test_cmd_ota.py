@@ -30,6 +30,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from fleetlib.discovery import Device
 from fleetlib.safety import DeviceUnreachable, IdentityMismatch, Guard
+import commands.ota as ota_cmd
+import commands.elf as elf_cmd
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +66,7 @@ def _ok_verify_result(ok=True, version="v0.70.0", detail="ok"):
 
 # Patch resolve_devices to return a Device directly (bypasses live network).
 def _patch_resolve(device):
-    return patch("fleet.resolve_devices", return_value=[device])
+    return patch("commands.ota.resolve_devices", return_value=[device])
 
 
 # Patch _read_identity so Guard.check doesn't make real HTTP calls.
@@ -111,7 +113,7 @@ class TestCmdOtaPushDeviceWrap(unittest.TestCase):
 
     def test_push_reaches_ota_push_no_attribute_error(self):
         """Handler must not crash with AttributeError; ota.push must receive a Client."""
-        import fleet
+        # import fleet  # replaced by module-level imports
         mock_client = _MockClient(ip=self.device.ip)
         args = _args(binfile=self.tmp.name, yes=True)
 
@@ -128,7 +130,7 @@ class TestCmdOtaPushDeviceWrap(unittest.TestCase):
             with _patch_identity(True):
                 with patch("fleetlib.client.Client", return_value=mock_client) as MockClientCls:
                     with patch("fleetlib.ota.push", side_effect=fake_push):
-                        rc = fleet.cmd_ota_push(args)
+                        rc = ota_cmd.cmd_ota_push(args)
 
         self.assertEqual(rc, 0)
         # Client was constructed with device's ip and port
@@ -140,7 +142,7 @@ class TestCmdOtaPushDeviceWrap(unittest.TestCase):
 
     def test_push_board_attr_set_on_client(self):
         """cmd_ota_push must set c.board = d.board for ELF archival."""
-        import fleet
+        # import fleet  # replaced by module-level imports
         mock_client = _MockClient(ip=self.device.ip)
         args = _args(binfile=self.tmp.name, yes=True)
 
@@ -151,12 +153,12 @@ class TestCmdOtaPushDeviceWrap(unittest.TestCase):
             with _patch_identity(True):
                 with patch("fleetlib.client.Client", return_value=mock_client):
                     with patch("fleetlib.ota.push", side_effect=fake_push):
-                        fleet.cmd_ota_push(args)
+                        ota_cmd.cmd_ota_push(args)
 
         self.assertEqual(mock_client.board, self.device.board)
 
     def test_push_failure_propagates_nonzero_rc(self):
-        import fleet
+        # import fleet  # replaced by module-level imports
         mock_client = _MockClient(ip=self.device.ip)
         args = _args(binfile=self.tmp.name, yes=True)
 
@@ -167,7 +169,7 @@ class TestCmdOtaPushDeviceWrap(unittest.TestCase):
             with _patch_identity(True):
                 with patch("fleetlib.client.Client", return_value=mock_client):
                     with patch("fleetlib.ota.push", side_effect=fake_push):
-                        rc = fleet.cmd_ota_push(args)
+                        rc = ota_cmd.cmd_ota_push(args)
 
         self.assertEqual(rc, 1)
 
@@ -188,7 +190,7 @@ class TestCmdOtaPushDryRun(unittest.TestCase):
 
     def test_dry_run_prints_plan_no_request_sent(self):
         """dry-run must print identity-verify, bin file, image size, host — no HTTP."""
-        import fleet
+        # import fleet  # replaced by module-level imports
         mock_client = _MockClient(ip=self.device.ip)
         args = _args(binfile=self.tmp.name, dry_run=True, yes=False)
 
@@ -206,7 +208,7 @@ class TestCmdOtaPushDryRun(unittest.TestCase):
                         from contextlib import redirect_stdout
                         buf = io.StringIO()
                         with redirect_stdout(buf):
-                            rc = fleet.cmd_ota_push(args)
+                            rc = ota_cmd.cmd_ota_push(args)
 
         output = buf.getvalue()
         # dry-run: ota.push must NOT be called (no HTTP)
@@ -222,7 +224,7 @@ class TestCmdOtaPushDryRun(unittest.TestCase):
 
     def test_dry_run_shows_identity_fail(self):
         """dry-run plan must show FAIL when identity check fails."""
-        import fleet
+        # import fleet  # replaced by module-level imports
         mock_client = _MockClient(ip=self.device.ip)
         args = _args(binfile=self.tmp.name, dry_run=True, yes=False)
 
@@ -233,7 +235,7 @@ class TestCmdOtaPushDryRun(unittest.TestCase):
                     from contextlib import redirect_stdout
                     buf = io.StringIO()
                     with redirect_stdout(buf):
-                        fleet.cmd_ota_push(args)
+                        ota_cmd.cmd_ota_push(args)
 
         self.assertIn("FAIL", buf.getvalue())
 
@@ -244,7 +246,7 @@ class TestCmdOtaPushDryRun(unittest.TestCase):
 
 class TestCmdOtaPullDeviceWrap(unittest.TestCase):
     def test_pull_wraps_device_in_client(self):
-        import fleet
+        # import fleet  # replaced by module-level imports
         device = _device()
         mock_client = _MockClient(ip=device.ip)
         args = _args(yes=True)
@@ -259,14 +261,14 @@ class TestCmdOtaPullDeviceWrap(unittest.TestCase):
             with _patch_identity(True):
                 with patch("fleetlib.client.Client", return_value=mock_client) as MockClientCls:
                     with patch("fleetlib.ota.pull", side_effect=fake_pull):
-                        rc = fleet.cmd_ota_pull(args)
+                        rc = ota_cmd.cmd_ota_pull(args)
 
         self.assertEqual(rc, 0)
         MockClientCls.assert_called_once_with(device.ip, 80)
         self.assertIs(captured["client"], mock_client)
 
     def test_pull_failure_returns_nonzero(self):
-        import fleet
+        # import fleet  # replaced by module-level imports
         device = _device()
         mock_client = _MockClient(ip=device.ip)
         args = _args(yes=True)
@@ -276,7 +278,7 @@ class TestCmdOtaPullDeviceWrap(unittest.TestCase):
                 with patch("fleetlib.client.Client", return_value=mock_client):
                     with patch("fleetlib.ota.pull",
                                return_value=_ok_verify_result(ok=False, detail="apply busy (HTTP 409)")):
-                        rc = fleet.cmd_ota_pull(args)
+                        rc = ota_cmd.cmd_ota_pull(args)
 
         self.assertEqual(rc, 1)
 
@@ -287,7 +289,7 @@ class TestCmdOtaPullDeviceWrap(unittest.TestCase):
 
 class TestCmdOtaMarkValidDeviceWrap(unittest.TestCase):
     def test_mark_valid_wraps_device_in_client(self):
-        import fleet
+        # import fleet  # replaced by module-level imports
         device = _device()
         mock_client = _MockClient(ip=device.ip)
         args = _args(yes=True)
@@ -303,7 +305,7 @@ class TestCmdOtaMarkValidDeviceWrap(unittest.TestCase):
             with _patch_identity(True):
                 with patch("fleetlib.client.Client", return_value=mock_client) as MockClientCls:
                     with patch("fleetlib.ota.mark_valid", side_effect=fake_mark):
-                        rc = fleet.cmd_ota_mark_valid(args)
+                        rc = ota_cmd.cmd_ota_mark_valid(args)
 
         self.assertEqual(rc, 0)
         MockClientCls.assert_called_once_with(device.ip, 80)
@@ -317,7 +319,7 @@ class TestCmdOtaMarkValidDeviceWrap(unittest.TestCase):
 
 class TestCmdOtaRecoverDeviceWrap(unittest.TestCase):
     def test_recover_wraps_device_in_client(self):
-        import fleet
+        # import fleet  # replaced by module-level imports
         device = _device()
         mock_client = _MockClient(ip=device.ip)
         args = _args(yes=True)
@@ -333,7 +335,7 @@ class TestCmdOtaRecoverDeviceWrap(unittest.TestCase):
             with _patch_identity(True):
                 with patch("fleetlib.client.Client", return_value=mock_client) as MockClientCls:
                     with patch("fleetlib.ota.recover", side_effect=fake_recover):
-                        rc = fleet.cmd_ota_recover(args)
+                        rc = ota_cmd.cmd_ota_recover(args)
 
         self.assertEqual(rc, 0)
         MockClientCls.assert_called_once_with(device.ip, 80)
@@ -347,7 +349,7 @@ class TestCmdOtaRecoverDeviceWrap(unittest.TestCase):
 
 class TestCmdOtaStatusDeviceWrap(unittest.TestCase):
     def test_status_wraps_device_in_client(self):
-        import fleet
+        # import fleet  # replaced by module-level imports
         device = _device()
         mock_client = _MockClient(ip=device.ip)
         args = _args(yes=False)
@@ -361,7 +363,7 @@ class TestCmdOtaStatusDeviceWrap(unittest.TestCase):
         with _patch_resolve(device):
             with patch("fleetlib.client.Client", return_value=mock_client) as MockClientCls:
                 with patch("fleetlib.ota.status", side_effect=fake_status):
-                    rc = fleet.cmd_ota_status(args)
+                    rc = ota_cmd.cmd_ota_status(args)
 
         self.assertEqual(rc, 0)
         MockClientCls.assert_called_once_with(device.ip, 80)
@@ -376,7 +378,7 @@ class TestCmdOtaStatusDeviceWrap(unittest.TestCase):
 
 class TestCmdOtaVerifyDeviceWrap(unittest.TestCase):
     def test_verify_wraps_device_in_client(self):
-        import fleet
+        # import fleet  # replaced by module-level imports
         device = _device()
         mock_client = _MockClient(ip=device.ip)
         args = _args(yes=False, target_version="v0.70.0")
@@ -390,7 +392,7 @@ class TestCmdOtaVerifyDeviceWrap(unittest.TestCase):
         with _patch_resolve(device):
             with patch("fleetlib.client.Client", return_value=mock_client) as MockClientCls:
                 with patch("fleetlib.ota.verify", side_effect=fake_verify):
-                    rc = fleet.cmd_ota_verify(args)
+                    rc = ota_cmd.cmd_ota_verify(args)
 
         self.assertEqual(rc, 0)
         MockClientCls.assert_called_once_with(device.ip, 80)
@@ -398,7 +400,7 @@ class TestCmdOtaVerifyDeviceWrap(unittest.TestCase):
         self.assertEqual(mock_client.request_log, [])
 
     def test_verify_failure_returns_nonzero(self):
-        import fleet
+        # import fleet  # replaced by module-level imports
         device = _device()
         mock_client = _MockClient(ip=device.ip)
         args = _args(yes=False, target_version="v0.70.0")
@@ -407,7 +409,7 @@ class TestCmdOtaVerifyDeviceWrap(unittest.TestCase):
             with patch("fleetlib.client.Client", return_value=mock_client):
                 with patch("fleetlib.ota.verify",
                            return_value=_ok_verify_result(ok=False, detail="version mismatch")):
-                    rc = fleet.cmd_ota_verify(args)
+                    rc = ota_cmd.cmd_ota_verify(args)
 
         self.assertEqual(rc, 1)
 
@@ -442,7 +444,7 @@ class TestElfListInUseDirty(unittest.TestCase):
 
     def test_in_use_matched_via_info_app_sha256_dirty(self):
         """A dev/dirty build with a short app_sha256 in /api/info must show IN-USE=yes."""
-        import fleet
+        # import fleet  # replaced by module-level imports
         from fleetlib.client import Client
         from fleetlib.elfstore import list_entries
 
@@ -469,12 +471,12 @@ class TestElfListInUseDirty(unittest.TestCase):
         import io
         from contextlib import redirect_stdout
 
-        with _patch_resolve(device):
+        with patch("commands.elf.resolve_devices", return_value=[device]):
             with patch("fleetlib.client.Client", return_value=mock_client):
                 with patch("fleetlib.elfstore.list_entries", return_value=list_entries(self.store)):
                     buf = io.StringIO()
                     with redirect_stdout(buf):
-                        rc = fleet.cmd_elf_list(args)
+                        rc = elf_cmd.cmd_elf_list(args)
 
         output = buf.getvalue()
         self.assertEqual(rc, 0)
@@ -483,7 +485,7 @@ class TestElfListInUseDirty(unittest.TestCase):
 
     def test_in_use_no_match_different_sha(self):
         """An ELF whose sha does not match the running sha must show IN-USE=no."""
-        import fleet
+        # import fleet  # replaced by module-level imports
         from fleetlib.elfstore import list_entries
 
         full_sha = "aabbccdd" + "0" * 56
@@ -506,12 +508,12 @@ class TestElfListInUseDirty(unittest.TestCase):
         import io
         from contextlib import redirect_stdout
 
-        with _patch_resolve(device):
+        with patch("commands.elf.resolve_devices", return_value=[device]):
             with patch("fleetlib.client.Client", return_value=mock_client):
                 with patch("fleetlib.elfstore.list_entries", return_value=list_entries(self.store)):
                     buf = io.StringIO()
                     with redirect_stdout(buf):
-                        rc = fleet.cmd_elf_list(args)
+                        rc = elf_cmd.cmd_elf_list(args)
 
         output = buf.getvalue()
         self.assertEqual(rc, 0)
@@ -519,7 +521,7 @@ class TestElfListInUseDirty(unittest.TestCase):
 
     def test_in_use_fallback_to_panic_sha(self):
         """When /api/info has no app_sha256, fallback to /api/diag/panic."""
-        import fleet
+        # import fleet  # replaced by module-level imports
         from fleetlib.elfstore import list_entries
 
         full_sha = "cafebabe" + "0" * 56
@@ -543,12 +545,12 @@ class TestElfListInUseDirty(unittest.TestCase):
         import io
         from contextlib import redirect_stdout
 
-        with _patch_resolve(device):
+        with patch("commands.elf.resolve_devices", return_value=[device]):
             with patch("fleetlib.client.Client", return_value=mock_client):
                 with patch("fleetlib.elfstore.list_entries", return_value=list_entries(self.store)):
                     buf = io.StringIO()
                     with redirect_stdout(buf):
-                        rc = fleet.cmd_elf_list(args)
+                        rc = elf_cmd.cmd_elf_list(args)
 
         output = buf.getvalue()
         self.assertEqual(rc, 0)
@@ -578,7 +580,7 @@ class TestCmdOtaPushHostIsolation(unittest.TestCase):
         os.unlink(self.tmp.name)
 
     def test_unreachable_host_does_not_abort_remaining(self):
-        import fleet
+        # import fleet  # replaced by module-level imports
         import io
         from contextlib import redirect_stdout
 
@@ -603,12 +605,12 @@ class TestCmdOtaPushHostIsolation(unittest.TestCase):
             return _ok_verify_result()
 
         buf = io.StringIO()
-        with patch("fleet.resolve_devices", return_value=devices):
+        with patch("commands.ota.resolve_devices", return_value=devices):
             with patch("fleetlib.discovery._read_identity", return_value=("test-board", "test-host")):
                 with patch("fleetlib.client.Client", side_effect=lambda ip, port=80: _MockClient(ip=ip, port=port)):
                     with patch("fleetlib.ota.push", side_effect=isolating_push):
                         with redirect_stdout(buf):
-                            rc = fleet.cmd_ota_push(args)
+                            rc = ota_cmd.cmd_ota_push(args)
 
         output = buf.getvalue()
 
@@ -628,7 +630,7 @@ class TestCmdOtaPushHostIsolation(unittest.TestCase):
 
     def test_identity_mismatch_does_not_abort_remaining(self):
         """An IdentityMismatch on one host must also not abort the batch."""
-        import fleet
+        # import fleet  # replaced by module-level imports
         import io
         from contextlib import redirect_stdout
 
@@ -655,12 +657,12 @@ class TestCmdOtaPushHostIsolation(unittest.TestCase):
             return _ok_verify_result()
 
         buf = io.StringIO()
-        with patch("fleet.resolve_devices", return_value=devices):
+        with patch("commands.ota.resolve_devices", return_value=devices):
             with patch("fleetlib.discovery._read_identity", return_value=("test-board", "test-host")):
                 with patch("fleetlib.client.Client", side_effect=lambda ip, port=80: _MockClient(ip=ip, port=port)):
                     with patch("fleetlib.ota.push", side_effect=guarded_push):
                         with redirect_stdout(buf):
-                            rc = fleet.cmd_ota_push(args)
+                            rc = ota_cmd.cmd_ota_push(args)
 
         output = buf.getvalue()
         self.assertIn("192.0.2.10", pushed_ips)

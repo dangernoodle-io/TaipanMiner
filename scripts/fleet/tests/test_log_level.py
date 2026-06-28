@@ -5,12 +5,12 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import fleet
+import cli as cli_mod
 
 
 class TestLogLevelPlacement(unittest.TestCase):
     def _parse(self, argv):
-        p = fleet._build_parser()
+        p = cli_mod._build_cli_parser()
         return p.parse_args(argv)
 
     def test_log_level_before_subcommand(self):

@@ -14,7 +14,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import fleet as fleet_mod
+import core as core_mod
 from fleetlib.criteria import Criteria
 from suites import SettleConfig
 
@@ -48,8 +48,8 @@ def _make_args(**kwargs):
 
 
 def _build_context_settle(args) -> SettleConfig:
-    """Call fleet._build_context and return just the settle field."""
-    ctx = fleet_mod._build_context(args, suite_name="soak")
+    """Call core.build_suite_context and return just the settle field."""
+    ctx = core_mod.build_suite_context(args, name="soak")
     return ctx.settle
 
 
@@ -68,7 +68,7 @@ class TestBuildContextSettle(unittest.TestCase):
 
     def test_bare_flag_uses_criteria_default(self):
         """--settle (bare) → enabled with criteria.settle_delay (120)."""
-        args = _make_args(settle=fleet_mod._SETTLE_BARE)
+        args = _make_args(settle=core_mod.SETTLE_BARE)
         settle = _build_context_settle(args)
         self.assertTrue(settle.enabled)
         # criteria.settle_delay default is 120
@@ -98,20 +98,20 @@ class TestOtaSettle(unittest.TestCase):
     def test_no_flag_disabled(self):
         """No --settle → SettleConfig disabled."""
         args = argparse.Namespace(settle=None)
-        s = fleet_mod._ota_settle(args)
+        s = core_mod.ota_settle(args)
         self.assertFalse(s.enabled)
 
     def test_bare_flag_enabled_120(self):
         """--settle bare → enabled, delay 120."""
-        args = argparse.Namespace(settle=fleet_mod._SETTLE_BARE)
-        s = fleet_mod._ota_settle(args)
+        args = argparse.Namespace(settle=core_mod.SETTLE_BARE)
+        s = core_mod.ota_settle(args)
         self.assertTrue(s.enabled)
         self.assertEqual(s.settle_delay, 120)
 
     def test_explicit_seconds(self):
         """--settle 30 → enabled, delay 30."""
         args = argparse.Namespace(settle=30)
-        s = fleet_mod._ota_settle(args)
+        s = core_mod.ota_settle(args)
         self.assertTrue(s.enabled)
         self.assertEqual(s.settle_delay, 30)
 
@@ -125,8 +125,8 @@ class TestNoSettleRemoved(unittest.TestCase):
     def test_no_settle_flag_unrecognised(self):
         """--no-settle must not exist on the soak subparser."""
         p = argparse.ArgumentParser()
-        # Replicate what _add_common_flags adds (just the settle flag)
-        fleet_mod._add_common_flags(p)
+        # Replicate what add_common_flags adds (just the settle flag)
+        core_mod.add_common_flags(p)
         with self.assertRaises(SystemExit):
             p.parse_args(["--no-settle"])
 

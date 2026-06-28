@@ -20,7 +20,8 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import fleet
+import commands.elf as elf_cmd
+import commands.decode as decode_cmd
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +80,7 @@ class TestCmdElfArchive(unittest.TestCase):
                               version="v2.0.0")
             with patch("fleetlib.elfstore._ARCHIVE_DEFAULT", store):
                 with patch("sys.stdout", new_callable=StringIO) as mock_out:
-                    rc = fleet.cmd_elf_archive(args)
+                    rc = elf_cmd.cmd_elf_archive(args)
             self.assertEqual(rc, 0)
             out = mock_out.getvalue()
             self.assertIn("Archived", out)
@@ -88,7 +89,7 @@ class TestCmdElfArchive(unittest.TestCase):
     def test_archive_missing_file(self):
         args = _make_args(elf_path="/nonexistent/firmware.elf", board="", version="")
         with patch("sys.stdout", new_callable=StringIO):
-            rc = fleet.cmd_elf_archive(args)
+            rc = elf_cmd.cmd_elf_archive(args)
         self.assertEqual(rc, 1)
 
 
@@ -101,10 +102,10 @@ class TestCmdElfList(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             store = Path(td)
             args = _make_args()
-            with patch("fleet.resolve_devices", return_value=[]):
+            with patch("commands.elf.resolve_devices", return_value=[]):
                 with patch("fleetlib.elfstore._ARCHIVE_DEFAULT", store):
                     with patch("sys.stdout", new_callable=StringIO) as mock_out:
-                        rc = fleet.cmd_elf_list(args)
+                        rc = elf_cmd.cmd_elf_list(args)
         self.assertEqual(rc, 0)
         self.assertIn("No archived", mock_out.getvalue())
 
@@ -124,11 +125,11 @@ class TestCmdElfList(unittest.TestCase):
             mock_client = MagicMock()
             mock_client.get_json.return_value = {"build": {"app_sha256": short_sha}}
             device = _fake_device()
-            with patch("fleet.resolve_devices", return_value=[device]):
+            with patch("commands.elf.resolve_devices", return_value=[device]):
                 with patch("fleetlib.client.Client", return_value=mock_client):
                     with patch("fleetlib.elfstore._ARCHIVE_DEFAULT", store):
                         with patch("sys.stdout", new_callable=StringIO) as mock_out:
-                            rc = fleet.cmd_elf_list(_make_args())
+                            rc = elf_cmd.cmd_elf_list(_make_args())
         self.assertEqual(rc, 0)
         out = mock_out.getvalue()
         self.assertIn(sha[:16], out)
@@ -162,7 +163,7 @@ class TestCmdElfPrune(unittest.TestCase):
                               dry_run=True, yes=False)
             with patch("fleetlib.elfstore._ARCHIVE_DEFAULT", store):
                 with patch("sys.stdout", new_callable=StringIO) as mock_out:
-                    rc = fleet.cmd_elf_prune(args)
+                    rc = elf_cmd.cmd_elf_prune(args)
             # dry-run: should return 0
             self.assertEqual(rc, 0)
             out = mock_out.getvalue()
@@ -179,7 +180,7 @@ class TestCmdElfPrune(unittest.TestCase):
                               dry_run=False, yes=True)
             with patch("fleetlib.elfstore._ARCHIVE_DEFAULT", store):
                 with patch("sys.stdout", new_callable=StringIO):
-                    rc = fleet.cmd_elf_prune(args)
+                    rc = elf_cmd.cmd_elf_prune(args)
             self.assertEqual(rc, 0)
             remaining = [k for k in keys if (store / f"{k}.elf").exists()]
             self.assertEqual(len(remaining), 3)
@@ -192,7 +193,7 @@ class TestCmdElfPrune(unittest.TestCase):
                               dry_run=False, yes=True)
             with patch("fleetlib.elfstore._ARCHIVE_DEFAULT", store):
                 with patch("sys.stdout", new_callable=StringIO) as mock_out:
-                    rc = fleet.cmd_elf_prune(args)
+                    rc = elf_cmd.cmd_elf_prune(args)
             self.assertEqual(rc, 0)
             self.assertIn("Nothing to prune", mock_out.getvalue())
 
@@ -210,11 +211,11 @@ class TestCmdElfPrune(unittest.TestCase):
             device = _fake_device()
             args = _make_args(keep=1, max_age=None, in_use=True, grace_keep=0,
                               dry_run=False, yes=True)
-            with patch("fleet.resolve_devices", return_value=[device]):
+            with patch("commands.elf.resolve_devices", return_value=[device]):
                 with patch("fleetlib.client.Client", return_value=mock_client):
                     with patch("fleetlib.elfstore._ARCHIVE_DEFAULT", store):
                         with patch("sys.stdout", new_callable=StringIO):
-                            rc = fleet.cmd_elf_prune(args)
+                            rc = elf_cmd.cmd_elf_prune(args)
             self.assertEqual(rc, 0)
             # running entry must survive
             self.assertTrue((store / f"{keys[1]}.elf").exists())
@@ -230,11 +231,11 @@ class TestCmdElfPrune(unittest.TestCase):
             device = _fake_device()
             args = _make_args(keep=1, max_age=None, in_use=True, grace_keep=3,
                               dry_run=False, yes=True)
-            with patch("fleet.resolve_devices", return_value=[device]):
+            with patch("commands.elf.resolve_devices", return_value=[device]):
                 with patch("fleetlib.client.Client", return_value=mock_client):
                     with patch("fleetlib.elfstore._ARCHIVE_DEFAULT", store):
                         with patch("sys.stdout", new_callable=StringIO):
-                            rc = fleet.cmd_elf_prune(args)
+                            rc = elf_cmd.cmd_elf_prune(args)
             self.assertEqual(rc, 0)
             # grace_keep=3 → newest 3 (keys[2], keys[3], keys[4]) must survive
             for k in keys[2:]:
@@ -252,11 +253,11 @@ class TestCmdElfPrune(unittest.TestCase):
             device = _fake_device()
             args = _make_args(keep=1, max_age=None, in_use=True, grace_keep=0,
                               dry_run=False, yes=True, hosts=None)
-            with patch("fleet.resolve_devices", return_value=[device]):
+            with patch("commands.elf.resolve_devices", return_value=[device]):
                 with patch("fleetlib.client.Client", return_value=mock_client):
                     with patch("fleetlib.elfstore._ARCHIVE_DEFAULT", store):
                         with patch("sys.stdout", new_callable=StringIO) as mock_out:
-                            rc = fleet.cmd_elf_prune(args)
+                            rc = elf_cmd.cmd_elf_prune(args)
             # Should refuse prune due to unreachable device
             self.assertEqual(rc, 1)
             self.assertIn("unreachable", mock_out.getvalue().lower())
@@ -272,11 +273,11 @@ class TestCmdElfPrune(unittest.TestCase):
             # --hosts supplied → authoritative set
             args = _make_args(keep=1, max_age=None, in_use=True, grace_keep=0,
                               dry_run=True, yes=True, hosts="192.0.2.1")
-            with patch("fleet.resolve_devices", return_value=[device]):
+            with patch("commands.elf.resolve_devices", return_value=[device]):
                 with patch("fleetlib.client.Client", return_value=mock_client):
                     with patch("fleetlib.elfstore._ARCHIVE_DEFAULT", store):
                         with patch("sys.stdout", new_callable=StringIO) as mock_out:
-                            rc = fleet.cmd_elf_prune(args)
+                            rc = elf_cmd.cmd_elf_prune(args)
             # Should warn but proceed (dry-run, rc=0)
             self.assertEqual(rc, 0)
             self.assertIn("unreachable", mock_out.getvalue().lower())
@@ -299,7 +300,7 @@ class TestCmdDecode(unittest.TestCase):
         args = _make_args(host="192.0.2.1", elf_path=None, toolchain_path=None)
         with patch("fleetlib.client.Client", return_value=mock_client):
             with patch("sys.stdout", new_callable=StringIO) as mock_out:
-                rc = fleet.cmd_decode(args)
+                rc = decode_cmd.run(args)
         self.assertEqual(rc, 0)
         self.assertIn("no panic", mock_out.getvalue().lower())
 
@@ -316,7 +317,7 @@ class TestCmdDecode(unittest.TestCase):
         with patch("fleetlib.client.Client", return_value=mock_client):
             with patch("fleetlib.elfstore.find", return_value=None):
                 with patch("sys.stdout", new_callable=StringIO) as mock_out:
-                    rc = fleet.cmd_decode(args)
+                    rc = decode_cmd.run(args)
         self.assertEqual(rc, 1)
         out = mock_out.getvalue()
         self.assertIn("b268e2426", out)
@@ -328,7 +329,7 @@ class TestCmdDecode(unittest.TestCase):
         args = _make_args(host="192.0.2.99", elf_path=None, toolchain_path=None)
         with patch("fleetlib.client.Client", return_value=mock_client):
             with patch("sys.stdout", new_callable=StringIO) as mock_out:
-                rc = fleet.cmd_decode(args)
+                rc = decode_cmd.run(args)
         self.assertEqual(rc, 1)
         self.assertIn("could not reach", mock_out.getvalue())
 
@@ -356,7 +357,7 @@ class TestCmdDecode(unittest.TestCase):
                 with patch("sys.stdout", new_callable=StringIO) as mock_out:
                     args = _make_args(host="192.0.2.1", elf_path="/fake/fw.elf",
                                       toolchain_path=None)
-                    rc = fleet.cmd_decode(args)
+                    rc = decode_cmd.run(args)
         self.assertEqual(rc, 0)
         out = mock_out.getvalue()
         self.assertIn("main", out)

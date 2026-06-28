@@ -200,11 +200,11 @@ class TestFleetCmdSuiteMetricsFlag(unittest.TestCase):
     """fleet.py cmd_suite: --no-publish-metrics suppresses publish; no broker → skip note."""
 
     def _run_cmd_suite(self, extra_args=None, env=None):
-        """Build a minimal args namespace and call cmd_suite, capturing stderr."""
+        """Build a minimal args namespace and call suite run, capturing stderr."""
         import argparse
         import io
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-        import fleet as fleet_mod
+        import commands._suite as suite_mod
         from fleetlib.criteria import Criteria
         from fleetlib.profiles import Profiles
         from fleetlib.results import ResultSet
@@ -255,8 +255,8 @@ class TestFleetCmdSuiteMetricsFlag(unittest.TestCase):
                                        {"heap_free_min": 60000}))
                 return ctx.results
 
-        with patch("fleet.resolve_devices", return_value=[mock_device]), \
-             patch("fleet.load_suite", return_value=FakeModule) if False else \
+        suite_cmd = suite_mod._SuiteCommand("soak")
+        with patch("commands._suite.resolve_devices", return_value=[mock_device]), \
              patch("suites.load_suite", return_value=FakeModule), \
              patch.dict(os.environ, env or {}, clear=False):
             captured_stderr = io.StringIO()
@@ -267,7 +267,7 @@ class TestFleetCmdSuiteMetricsFlag(unittest.TestCase):
                 orig_suites = dict(SUITES)
                 SUITES["soak"] = "suites.soak"
                 try:
-                    rc = fleet_mod.cmd_suite(args, "soak")
+                    rc = suite_cmd.run(args)
                 finally:
                     SUITES.clear()
                     SUITES.update(orig_suites)

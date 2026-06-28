@@ -1,4 +1,4 @@
-include("${CMAKE_CURRENT_LIST_DIR}/../../.breadboard/cmake/bb_embed.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../../.breadboard/cmake/bbtool.cmake")
 
 bb_embed_site(OUT_SRCS _miner_srcs TABLE webui_miner_assets DIST_DIR ../../webui/miner/dist)
 bb_embed_site(OUT_SRCS _prov_srcs  TABLE webui_prov_site   DIST_DIR ../../webui/prov/dist)

@@ -69,7 +69,7 @@ if(DEFINED ENV{CI})
     endif()
 else()
     # Use bb_version.cmake: BB_FW_VERSION env var > exact tag > dev-g<sha>-bb-g<sha>
-    include("${CMAKE_CURRENT_SOURCE_DIR}/.breadboard/cmake/bb_version.cmake")
+    include("${CMAKE_CURRENT_SOURCE_DIR}/.breadboard/cmake/bbtool.cmake")
 endif()
 
 # Board-specific project name for OTA validation

@@ -1,0 +1,20 @@
+usage: fleet logs [-h] [--log-level {DEBUG,INFO,WARNING,ERROR}]
+                  [--hosts H,H,…] [--discover-timeout SEC] [--board CLASS]
+                  [--follow] [--duration DUR] [--lines N] [--out PATH]
+
+options:
+  -h, --help            show this help message and exit
+  --log-level {DEBUG,INFO,WARNING,ERROR}
+                        log level (default: WARNING)
+  --follow, -f          stream until Ctrl-C (clean exit)
+  --duration DUR        stop after this duration: 30s / 5m / 1h / bare seconds
+  --lines N             stop after N log lines (default: 50 when neither
+                        --follow nor --duration given)
+  --out PATH            also write captured lines to a file (in addition to
+                        stdout)
+
+targeting:
+  --hosts H,H,…         comma-separated IPs/hostnames (skip mDNS discovery)
+  --discover-timeout SEC
+                        mDNS browse window in seconds (default: 10)
+  --board CLASS         filter devices by board class substring

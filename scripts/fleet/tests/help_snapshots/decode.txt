@@ -1,0 +1,15 @@
+usage: fleet decode [-h] [--elf PATH] [--toolchain-path PATH]
+                    [--log-level {DEBUG,INFO,WARNING,ERROR}]
+                    HOST
+
+positional arguments:
+  HOST                  device IP or hostname to fetch /api/diag/panic from
+
+options:
+  -h, --help            show this help message and exit
+  --elf PATH            explicit ELF file (overrides archive lookup)
+  --toolchain-path PATH
+                        explicit path to addr2line binary (overrides auto-
+                        detect)
+  --log-level {DEBUG,INFO,WARNING,ERROR}
+                        log level (default: WARNING)

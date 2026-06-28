@@ -1,0 +1,22 @@
+usage: fleet elf prune [-h] [--keep N] [--max-age DUR] [--in-use]
+                       [--hosts H,H,…] [--discover-timeout SEC]
+                       [--board CLASS] [--grace-keep N] [--dry-run] [--yes]
+                       [--log-level {DEBUG,INFO,WARNING,ERROR}]
+
+options:
+  -h, --help            show this help message and exit
+  --keep N              keep N most-recent entries (default: 20)
+  --max-age DUR         delete entries older than DUR (e.g. 30d, 7d, 1h)
+  --in-use              fleet-aware GC: delete ELFs NOT running on any
+                        discovered device
+  --hosts H,H,…         comma-separated IPs/hostnames (authoritative set for
+                        --in-use)
+  --discover-timeout SEC
+                        mDNS browse window in seconds (default: 10)
+  --board CLASS         filter devices by board class substring
+  --grace-keep N        always keep the N most-recently archived entries
+                        regardless of in-use status (default: 5)
+  --dry-run             show what would be deleted without deleting
+  --yes                 skip confirmation prompt
+  --log-level {DEBUG,INFO,WARNING,ERROR}
+                        log level (default: WARNING)

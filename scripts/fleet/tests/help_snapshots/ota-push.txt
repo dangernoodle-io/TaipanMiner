@@ -1,0 +1,50 @@
+usage: fleet ota push [-h] [--log-level {DEBUG,INFO,WARNING,ERROR}]
+                      [--hosts H,H,…] [--discover-timeout SEC] [--board CLASS]
+                      [--fields F,F,…] [--gate NAME] [--skip NAME]
+                      [--out-json PATH] [--out-junit PATH] [--baseline PATH]
+                      [--criteria PATH] [--settle [SEC]] [--dry-run] [--yes]
+                      [--metrics-mqtt-url HOST[:PORT]]
+                      [--metrics-topic PREFIX] [--no-publish-metrics]
+                      --bin PATH [--target VER] [--mark-valid]
+
+options:
+  -h, --help            show this help message and exit
+  --log-level {DEBUG,INFO,WARNING,ERROR}
+                        log level (default: WARNING)
+  --bin PATH            path to firmware .bin
+  --target VER          expected version after flashing
+  --mark-valid          after push succeeds, POST /api/update/mark-valid to
+                        force-validate the image (prevents rollback); default:
+                        let firmware self-validate
+
+targeting:
+  --hosts H,H,…         comma-separated IPs/hostnames (skip mDNS discovery)
+  --discover-timeout SEC
+                        mDNS browse window in seconds (default: 10)
+  --board CLASS         filter devices by board class substring (e.g. bitaxe)
+
+output:
+  --fields F,F,…        comma-separated field subset for on-demand validation
+  --gate NAME           enable a specific check gate (repeatable; default:
+                        all)
+  --skip NAME           disable a specific check gate (repeatable)
+  --out-json PATH       write JSON results to file
+  --out-junit PATH      write JUnit XML results to file
+  --baseline PATH       compare results against a prior JSON result file
+  --criteria PATH       YAML criteria override file
+
+run control:
+  --settle [SEC]        opt-in warmup settle: bare = criteria default (120s),
+                        --settle N = N seconds
+  --dry-run             log mutating operations but don't execute them
+  --yes                 auto-confirm guard for mutating operations
+
+metrics publishing:
+  --metrics-mqtt-url HOST[:PORT]
+                        broker for run metrics (overrides
+                        BB_TEST_METRICS_BROKER / BB_TEST_RECEIVER); default ON
+                        when configured, skip with note when absent
+  --metrics-topic PREFIX
+                        MQTT topic prefix for run metrics (default:
+                        fleettest); full topic: <prefix>/<suite>/<board>
+  --no-publish-metrics  disable automatic metrics publishing (opt-out)

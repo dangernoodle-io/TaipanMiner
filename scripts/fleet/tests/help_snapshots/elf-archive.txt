@@ -1,0 +1,13 @@
+usage: fleet elf archive [-h] [--board BOARD] [--version VER]
+                         [--log-level {DEBUG,INFO,WARNING,ERROR}]
+                         PATH
+
+positional arguments:
+  PATH                  path to firmware .elf
+
+options:
+  -h, --help            show this help message and exit
+  --board BOARD         board name
+  --version VER         firmware version
+  --log-level {DEBUG,INFO,WARNING,ERROR}
+                        log level (default: WARNING)

@@ -36,6 +36,8 @@
 #include "bb_ota_hooks.h"
 #include "bb_update_check.h"
 #include "bb_pub.h"
+#include "bb_cache.h"
+#include "bb_clock.h"
 #include "bb_mqtt.h"
 #include "bb_manifest.h"
 #include "bb_registry.h"
@@ -136,121 +138,130 @@ static bool tm_mining_sample(bb_json_t obj, void *ctx)
 }
 
 // ---------------------------------------------------------------------------
-// B1-352: mining_rates bb_pub source
-// Periodic EMA hashrate + shares snapshot (both ASIC and SW mining).
+// B1-352 / SSOT: mining_rates gather+serialize (bb_pub_register_telemetry)
 // ---------------------------------------------------------------------------
-static bool tm_mining_rates_sample(bb_json_t obj, void *ctx)
+static bool tm_mining_rates_gather(void *snap_buf, void *ctx)
 {
     (void)ctx;
-    mining_rates_snapshot_t snap = {
-        .hashrate_hs       = -1.0,
-        .shares            = -1.0,
-        .rejected          = -1.0,
-        .pool_effective_hs = -1.0,
+    mining_rates_snapshot_t *snap = snap_buf;
+    snap->hashrate_hs       = -1.0;
+    snap->shares            = -1.0;
+    snap->rejected          = -1.0;
+    snap->pool_effective_hs = -1.0;
 #ifdef ASIC_CHIP
-        .asic_hashrate_hs  = -1.0,
-        .asic_total_ghs    = -1.0,
+    snap->asic_hashrate_hs  = -1.0;
+    snap->asic_total_ghs    = -1.0;
 #endif
-    };
 
-    // Gate: seed runs before start_mining(); emit sentinels until telemetry is ready.
-    if (!s_telemetry_ready) { emit_mining_rates_json(obj, &snap); return true; }
-
-    if (mining_stats.mutex != NULL && xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (s_telemetry_ready && mining_stats.mutex != NULL &&
+        xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
 #ifdef ASIC_CHIP
-        snap.hashrate_hs      = mining_stats.asic_ema.value;
-        snap.asic_hashrate_hs = mining_stats.asic_hashrate;
-        snap.asic_total_ghs   = (double)mining_stats.asic_total_ghs;
+        snap->hashrate_hs      = mining_stats.asic_ema.value;
+        snap->asic_hashrate_hs = mining_stats.asic_hashrate;
+        snap->asic_total_ghs   = (double)mining_stats.asic_total_ghs;
 #else
-        snap.hashrate_hs = mining_stats.hw_ema.value;
+        snap->hashrate_hs = mining_stats.hw_ema.value;
 #endif
-        snap.shares   = (double)mining_stats.session.shares;
-        snap.rejected = (double)mining_stats.session.rejected;
+        snap->shares   = (double)mining_stats.session.shares;
+        snap->rejected = (double)mining_stats.session.rejected;
         xSemaphoreGive(mining_stats.mutex);
     }
 
-    double pool_eff = mining_get_pool_effective_hashrate();
-    snap.pool_effective_hs = (pool_eff > 0.0) ? pool_eff : -1.0;
+    if (s_telemetry_ready) {
+        double pool_eff = mining_get_pool_effective_hashrate();
+        snap->pool_effective_hs = (pool_eff > 0.0) ? pool_eff : -1.0;
+    }
 
-    emit_mining_rates_json(obj, &snap);
+    snap->ts_ms = (int64_t)bb_clock_now_ms64();
     return true;
 }
 
+static void tm_mining_rates_serialize(bb_json_t obj, const void *snap_raw)
+{
+    emit_mining_rates_json(obj, (const mining_rates_snapshot_t *)snap_raw);
+}
+
 // ---------------------------------------------------------------------------
-// B1-352: pool bb_pub source
-// Periodic pool connection state snapshot (connection + difficulty + latency).
+// B1-352 / SSOT: pool_pub gather+serialize (bb_pub_register_telemetry)
 // ---------------------------------------------------------------------------
-static bool tm_pool_pub_sample(bb_json_t obj, void *ctx)
+static bool tm_pool_pub_gather(void *snap_buf, void *ctx)
 {
     (void)ctx;
-    pool_pub_snapshot_t snap = {
-        .connected             = false,
-        .current_difficulty    = -1.0,
-        .latency_ms            = -1.0,
-        .active_pool_idx       = -1,
-        .pool_effective_hs     = -1.0,
-        .pool_effective_hs_1m  = -1.0,
-        .pool_effective_hs_10m = -1.0,
-        .pool_effective_hs_1h  = -1.0,
-    };
+    pool_pub_snapshot_t *snap = snap_buf;
+    snap->connected             = false;
+    snap->current_difficulty    = -1.0;
+    snap->latency_ms            = -1.0;
+    snap->active_pool_idx       = -1;
+    snap->pool_effective_hs     = -1.0;
+    snap->pool_effective_hs_1m  = -1.0;
+    snap->pool_effective_hs_10m = -1.0;
+    snap->pool_effective_hs_1h  = -1.0;
 
-    // Gate: seed runs before start_mining(); emit sentinels until telemetry is ready.
-    if (!s_telemetry_ready) { emit_pool_pub_json(obj, &snap); return true; }
+    if (s_telemetry_ready) {
+        snap->connected          = stratum_is_connected();
+        snap->current_difficulty = stratum_get_difficulty();
+        {
+            int rtt = stratum_get_pool_rtt_ms();
+            snap->latency_ms = (rtt >= 0) ? (double)rtt : -1.0;
+        }
+        snap->active_pool_idx = stratum_get_active_pool_idx();
 
-    snap.connected          = stratum_is_connected();
-    snap.current_difficulty = stratum_get_difficulty();
-    {
-        int rtt = stratum_get_pool_rtt_ms();
-        snap.latency_ms = (rtt >= 0) ? (double)rtt : -1.0;
-    }
-    snap.active_pool_idx = stratum_get_active_pool_idx();
+        double pool_eff = mining_get_pool_effective_hashrate();
+        snap->pool_effective_hs = (pool_eff > 0.0) ? pool_eff : -1.0;
 
-    double pool_eff = mining_get_pool_effective_hashrate();
-    snap.pool_effective_hs = (pool_eff > 0.0) ? pool_eff : -1.0;
-
-    {
-        double v;
-        v = mining_get_pool_effective_1m();
-        snap.pool_effective_hs_1m  = (v > 0.0) ? v : -1.0;
-        v = mining_get_pool_effective_10m();
-        snap.pool_effective_hs_10m = (v > 0.0) ? v : -1.0;
-        v = mining_get_pool_effective_1h();
-        snap.pool_effective_hs_1h  = (v > 0.0) ? v : -1.0;
+        {
+            double v;
+            v = mining_get_pool_effective_1m();
+            snap->pool_effective_hs_1m  = (v > 0.0) ? v : -1.0;
+            v = mining_get_pool_effective_10m();
+            snap->pool_effective_hs_10m = (v > 0.0) ? v : -1.0;
+            v = mining_get_pool_effective_1h();
+            snap->pool_effective_hs_1h  = (v > 0.0) ? v : -1.0;
+        }
     }
 
-    emit_pool_pub_json(obj, &snap);
+    snap->ts_ms = (int64_t)bb_clock_now_ms64();
     return true;
+}
+
+static void tm_pool_pub_serialize(bb_json_t obj, const void *snap_raw)
+{
+    emit_pool_pub_json(obj, (const pool_pub_snapshot_t *)snap_raw);
 }
 
 #ifdef ASIC_CHIP
 // ---------------------------------------------------------------------------
-// B1-352: sensors_miner bb_pub source
-// Periodic ASIC power-extender live fields (vcore/icore/pcore/efficiency).
+// B1-352 / SSOT: sensors_miner gather+serialize (bb_pub_register_telemetry)
+// Gathers all fields including the 3 divergent ones for /api/sensors miner.
 // ---------------------------------------------------------------------------
-static bool tm_sensors_miner_sample(bb_json_t obj, void *ctx)
+static bool tm_sensors_miner_gather(void *snap_buf, void *ctx)
 {
     (void)ctx;
-    sensors_miner_snapshot_t snap = {
-        .vcore_mv              = -1.0,
-        .icore_ma              = -1.0,
-        .pcore_mw              = -1.0,
-        .vr_temp_c             = -1.0,
-        .efficiency_jth        = -1.0,
-        .efficiency_jth_1m     = -1.0,
-        .efficiency_jth_10m    = -1.0,
-        .efficiency_jth_1h     = -1.0,
-        .vin_mv                = -1.0,
-        .vin_low               = false,
-        .vin_low_valid         = false,
-        .sag_count             = 0,
-        .vin_min_mv            = INT_MAX,
-        .vin_uv_latched        = false,
-        .last_sag_ms           = 0,
-        .vcore_last_restart_ms = 0,
-    };
+    sensors_miner_snapshot_t *snap = snap_buf;
+    snap->vcore_mv              = -1.0;
+    snap->icore_ma              = -1.0;
+    snap->pcore_mw              = -1.0;
+    snap->vr_temp_c             = -1.0;
+    snap->efficiency_jth        = -1.0;
+    snap->efficiency_jth_1m     = -1.0;
+    snap->efficiency_jth_10m    = -1.0;
+    snap->efficiency_jth_1h     = -1.0;
+    snap->vin_mv                = -1.0;
+    snap->vin_low               = false;
+    snap->vin_low_valid         = false;
+    snap->sag_count             = 0;
+    snap->vin_min_mv            = INT_MAX;
+    snap->vin_uv_latched        = false;
+    snap->last_sag_ms           = 0;
+    snap->vcore_last_restart_ms = 0;
+    snap->expected_efficiency_jth = -1.0;
+    snap->vcore_restart_count   = 0;
+    snap->vcore_fault_held      = false;
 
-    // Gate: seed runs before start_mining(); emit sentinels until telemetry is ready.
-    if (!s_telemetry_ready) { emit_sensors_miner_json(obj, &snap); return true; }
+    if (!s_telemetry_ready) {
+        snap->ts_ms = (int64_t)bb_clock_now_ms64();
+        return true;
+    }
 
     int    pcore_mw  = -1;
     double asic_hs   = 0.0;
@@ -277,58 +288,333 @@ static bool tm_sensors_miner_sample(bb_json_t obj, void *ctx)
         xSemaphoreGive(mining_stats.mutex);
     }
 
-    /* Read bb_power snapshot for vcore/icore/vr_temp (same as REST extender) */
+    /* Read bb_power snapshot for vcore/icore/vr_temp */
     {
         bb_power_snapshot_t psnap;
         bb_power_snapshot(bb_power_primary(), &psnap);
-        snap.vcore_mv  = (psnap.vout_mv >= 0) ? (double)psnap.vout_mv : -1.0;
-        snap.icore_ma  = (psnap.iout_ma >= 0) ? (double)psnap.iout_ma : -1.0;
-        snap.vr_temp_c = (psnap.temp_c  >= 0) ? (double)psnap.temp_c  : -1.0;
+        snap->vcore_mv  = (psnap.vout_mv >= 0) ? (double)psnap.vout_mv : -1.0;
+        snap->icore_ma  = (psnap.iout_ma >= 0) ? (double)psnap.iout_ma : -1.0;
+        snap->vr_temp_c = (psnap.temp_c  >= 0) ? (double)psnap.temp_c  : -1.0;
     }
 
-    if (pcore_mw >= 0) snap.pcore_mw = (double)pcore_mw;
+    if (pcore_mw >= 0) snap->pcore_mw = (double)pcore_mw;
 
     /* efficiency_jth: instantaneous */
     if (pcore_mw >= 0 && asic_hs > 0.0) {
         double eff = mining_efficiency_jth((double)pcore_mw, asic_hs / 1e9);
-        snap.efficiency_jth = (eff >= 0.0) ? eff : -1.0;
+        snap->efficiency_jth = (eff >= 0.0) ? eff : -1.0;
     }
 
     /* rolling efficiency windows */
     {
         double e;
         e = mining_efficiency_jth((double)pcore_1m, (double)ghs_1m);
-        snap.efficiency_jth_1m  = (e >= 0.0) ? e : -1.0;
+        snap->efficiency_jth_1m  = (e >= 0.0) ? e : -1.0;
         e = mining_efficiency_jth((double)pcore_10m, (double)ghs_10m);
-        snap.efficiency_jth_10m = (e >= 0.0) ? e : -1.0;
+        snap->efficiency_jth_10m = (e >= 0.0) ? e : -1.0;
         e = mining_efficiency_jth((double)pcore_1h, (double)ghs_1h);
-        snap.efficiency_jth_1h  = (e >= 0.0) ? e : -1.0;
+        snap->efficiency_jth_1h  = (e >= 0.0) ? e : -1.0;
     }
 
     /* vin_low */
     if (vin_mv >= 0) {
-        snap.vin_mv        = (double)vin_mv;
-        snap.vin_low       = (vin_mv < (BOARD_NOMINAL_VIN_MV + 500) * 87 / 100);
-        snap.vin_low_valid = true;
+        snap->vin_mv        = (double)vin_mv;
+        snap->vin_low       = (vin_mv < (BOARD_NOMINAL_VIN_MV + 500) * 87 / 100);
+        snap->vin_low_valid = true;
     }
 
     /* VIN-sag fields from TPS546 status latch */
     {
         bb_power_tps546_status_t st;
         if (bb_power_tps546_read_status(bb_power_primary(), &st) == BB_OK) {
-            snap.sag_count             = st.sag_count;
-            snap.vin_min_mv            = st.vin_min_mv;
-            snap.vin_uv_latched        = (st.fault_bits & TPS546_FAULT_VIN_UV) != 0;
-            snap.last_sag_ms           = st.last_sag_ms;
+            snap->sag_count             = st.sag_count;
+            snap->vin_min_mv            = st.vin_min_mv;
+            snap->vin_uv_latched        = (st.fault_bits & TPS546_FAULT_VIN_UV) != 0;
+            snap->last_sag_ms           = st.last_sag_ms;
         }
-        snap.vcore_last_restart_ms = asic_task_get_vcore_last_restart_ms();
+        snap->vcore_last_restart_ms = asic_task_get_vcore_last_restart_ms();
     }
 
-    (void)asic_freq; /* reserved for expected_efficiency; omitted from this teed topic */
-    emit_sensors_miner_json(obj, &snap);
+    /* divergent fields for /api/sensors miner section */
+    {
+        double expected_ghs = 0.0;
+        double eff_expected = -1.0;
+        if (snap->pcore_mw > 0 && asic_freq > 0 &&
+            mining_get_expected_ghs(asic_freq, &expected_ghs) && expected_ghs > 0) {
+            double e = mining_efficiency_jth(snap->pcore_mw, expected_ghs);
+            eff_expected = (e >= 0.0) ? e : -1.0;
+        }
+        snap->expected_efficiency_jth = eff_expected;
+    }
+    snap->vcore_restart_count = asic_task_get_vcore_restart_count();
+    snap->vcore_fault_held    = asic_task_get_vcore_fault_held();
+
+    snap->ts_ms = (int64_t)bb_clock_now_ms64();
     return true;
 }
+
+static void tm_sensors_miner_serialize(bb_json_t obj, const void *snap_raw)
+{
+    emit_sensors_miner_json(obj, (const sensors_miner_snapshot_t *)snap_raw);
+}
 #endif /* ASIC_CHIP */
+
+// ---------------------------------------------------------------------------
+// SSOT: stats gather+serialize — cache topic for /api/stats (no re-gather in handler)
+// ---------------------------------------------------------------------------
+static bool tm_stats_gather(void *snap_buf, void *ctx)
+{
+    (void)ctx;
+    stats_snapshot_t *s = snap_buf;
+
+    s->session_rejected_other_last_code = -1;
+    s->expected_ghs = -1.0;
+#ifndef ASIC_CHIP
+    s->hashrate_1m  = -1.0;
+    s->hashrate_10m = -1.0;
+    s->hashrate_1h  = -1.0;
+    s->pool_effective_hashrate = -1.0;
+    s->hw_error_pct_1m  = -1.0;
+    s->hw_error_pct_10m = -1.0;
+    s->hw_error_pct_1h  = -1.0;
+#endif
+#ifdef ASIC_CHIP
+    s->pool_effective_hashrate = -1.0;
+    s->asic_freq_cfg = -1.0f;
+    s->asic_freq_eff = -1.0f;
+#endif
+
+    if (mining_stats.mutex != NULL && xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        s->hw_rate    = mining_stats.hw_hashrate;
+        s->hw_ema     = mining_stats.hw_ema.value;
+        s->hw_shares  = mining_stats.hw_shares;
+        s->temp_c     = mining_stats.temp_c;
+        s->session_shares                   = mining_stats.session.shares;
+        s->session_rejected                 = mining_stats.session.rejected;
+        s->session_rejected_job_not_found   = mining_stats.session.rejected_job_not_found;
+        s->session_rejected_low_difficulty  = mining_stats.session.rejected_low_difficulty;
+        s->session_rejected_duplicate       = mining_stats.session.rejected_duplicate;
+        s->session_rejected_stale_prevhash  = mining_stats.session.rejected_stale_prevhash;
+        s->session_rejected_other           = mining_stats.session.rejected_other;
+        s->session_rejected_other_last_code = mining_stats.session.rejected_other_last_code;
+        s->session_blocks_found             = mining_stats.session.blocks_found;
+        s->session_best_diff_ts             = mining_stats.session.best_diff_ts;
+        s->session_last_block_ts            = mining_stats.session.last_block_ts;
+        s->last_share_us    = mining_stats.session.last_share_us;
+        s->session_start_us = mining_stats.session.start_us;
+        s->best_diff        = mining_stats.session.best_diff;
+#ifndef ASIC_CHIP
+        s->hashrate_1m       = (double)mining_stats.hashrate_1m;
+        s->hashrate_10m      = (double)mining_stats.hashrate_10m;
+        s->hashrate_1h       = (double)mining_stats.hashrate_1h;
+        s->hw_error_pct_1m   = (double)mining_stats.hw_error_pct_1m;
+        s->hw_error_pct_10m  = (double)mining_stats.hw_error_pct_10m;
+        s->hw_error_pct_1h   = (double)mining_stats.hw_error_pct_1h;
+#endif
+#ifdef ASIC_CHIP
+        s->asic_rate         = mining_stats.asic_hashrate;
+        s->asic_ema          = mining_stats.asic_ema.value;
+        s->asic_shares       = mining_stats.asic_shares;
+        s->asic_freq_cfg     = mining_stats.asic_freq_configured_mhz;
+        s->asic_freq_eff     = mining_stats.asic_freq_effective_mhz;
+        s->asic_total_ghs    = mining_stats.asic_total_ghs;
+        s->asic_hw_error_pct = mining_stats.asic_hw_error_pct;
+        s->asic_total_ghs_1m       = mining_stats.asic_total_ghs_1m;
+        s->asic_total_ghs_10m      = mining_stats.asic_total_ghs_10m;
+        s->asic_total_ghs_1h       = mining_stats.asic_total_ghs_1h;
+        s->asic_hw_error_pct_1m    = mining_stats.asic_hw_error_pct_1m;
+        s->asic_hw_error_pct_10m   = mining_stats.asic_hw_error_pct_10m;
+        s->asic_hw_error_pct_1h    = mining_stats.asic_hw_error_pct_1h;
+        s->asic_total_valid  = (s->asic_total_ghs > 0.001f);
+        s->asic_small_cores  = BOARD_SMALL_CORES;
+        s->asic_count        = BOARD_ASIC_COUNT;
+#endif
+        xSemaphoreGive(mining_stats.mutex);
+    }
+
+    {
+        double expected = -1.0;
+#ifdef ASIC_CHIP
+        float expected_freq = s->asic_freq_cfg;
+#else
+        float expected_freq = 0.0f;
+#endif
+        if (mining_get_expected_ghs(expected_freq, &expected)) {
+            s->expected_ghs = expected;
+        }
+    }
+
+    {
+        double pool_eff_hr = mining_get_pool_effective_hashrate();
+        s->pool_effective_hashrate = (pool_eff_hr > 0.0) ? pool_eff_hr : -1.0;
+    }
+
+    s->now_us = (int64_t)bb_timer_now_us();
+
+#ifdef ASIC_CHIP
+    {
+        asic_chip_telemetry_t chip_tel[BOARD_ASIC_COUNT];
+        int n_chips = asic_task_get_chip_telemetry(chip_tel, BOARD_ASIC_COUNT);
+        s->n_chips = (n_chips <= ROUTES_JSON_MAX_CHIPS) ? n_chips : ROUTES_JSON_MAX_CHIPS;
+        for (int c = 0; c < s->n_chips; c++) {
+            s->chips[c].total_ghs   = chip_tel[c].total_ghs;
+            s->chips[c].error_ghs   = chip_tel[c].error_ghs;
+            s->chips[c].hw_err_pct  = chip_tel[c].hw_err_pct;
+            s->chips[c].total_raw   = chip_tel[c].total_raw;
+            s->chips[c].error_raw   = chip_tel[c].error_raw;
+            s->chips[c].total_drops = chip_tel[c].total_drops;
+            s->chips[c].error_drops = chip_tel[c].error_drops;
+            s->chips[c].last_drop_us = chip_tel[c].last_drop_us;
+            for (int d = 0; d < 4; d++) {
+                s->chips[c].domain_ghs[d]   = chip_tel[c].domain_ghs[d];
+                s->chips[c].domain_drops[d] = chip_tel[c].domain_drops[d];
+            }
+        }
+        /* re-read after chip telemetry fetch for accurate last_drop_ago_s */
+        s->now_us = (int64_t)bb_timer_now_us();
+    }
+#endif
+
+    s->ts_ms = (int64_t)bb_clock_now_ms64();
+    return true;
+}
+
+/* tm_stats_serialize uses the streaming JSON API via a host-capture shim.
+ * emit_stats_json takes bb_http_json_obj_stream_t* (streaming), not bb_json_t (tree).
+ * bb_cache_serialize_fn takes bb_json_t, so we build the output using the tree API
+ * directly — same fields as emit_stats_json but via bb_json_obj_set_* calls.
+ * This is the serialize-once path; REST reads memoized bytes via bb_cache_get_serialized. */
+static void tm_stats_serialize(bb_json_t obj, const void *snap_raw)
+{
+    const stats_snapshot_t *snap = snap_raw;
+    int64_t uptime_s = (snap->session_start_us > 0)
+                       ? (snap->now_us - snap->session_start_us) / 1000000
+                       : 0;
+    int64_t last_share_ago_s = (snap->last_share_us > 0)
+                               ? (snap->now_us - snap->last_share_us) / 1000000
+                               : -1;
+
+    bb_json_obj_set_number(obj, "hashrate",        snap->hw_rate);
+    bb_json_obj_set_number(obj, "hashrate_avg",    snap->hw_ema);
+    bb_json_obj_set_number(obj, "temp_c",          (double)snap->temp_c);
+    bb_json_obj_set_int   (obj, "shares",          (int64_t)snap->hw_shares);
+    bb_json_obj_set_int   (obj, "session_shares",  (int64_t)snap->session_shares);
+    bb_json_obj_set_int   (obj, "session_rejected",(int64_t)snap->session_rejected);
+    bb_json_obj_set_int   (obj, "session_blocks_found",  (int64_t)snap->session_blocks_found);
+    bb_json_obj_set_int   (obj, "session_best_diff_ts",  snap->session_best_diff_ts);
+    bb_json_obj_set_int   (obj, "session_last_block_ts", snap->session_last_block_ts);
+
+    {
+        bb_json_t rej = bb_json_obj_new();
+        bb_json_obj_set_int(rej, "total",           (int64_t)snap->session_rejected);
+        bb_json_obj_set_int(rej, "job_not_found",   (int64_t)snap->session_rejected_job_not_found);
+        bb_json_obj_set_int(rej, "low_difficulty",  (int64_t)snap->session_rejected_low_difficulty);
+        bb_json_obj_set_int(rej, "duplicate",       (int64_t)snap->session_rejected_duplicate);
+        bb_json_obj_set_int(rej, "stale_prevhash",  (int64_t)snap->session_rejected_stale_prevhash);
+        bb_json_obj_set_int(rej, "other",           (int64_t)snap->session_rejected_other);
+        bb_json_obj_set_int(rej, "other_last_code", (int64_t)snap->session_rejected_other_last_code);
+        bb_json_obj_set_obj(obj, "rejected", rej);
+    }
+
+    bb_json_obj_set_int   (obj, "last_share_ago_s", last_share_ago_s);
+    bb_json_obj_set_number(obj, "best_diff",         snap->best_diff);
+    bb_json_obj_set_int   (obj, "uptime_s",          uptime_s);
+
+    if (snap->expected_ghs >= 0.0)
+        bb_json_obj_set_number(obj, "expected_ghs", snap->expected_ghs);
+    else
+        bb_json_obj_set_null(obj, "expected_ghs");
+
+#ifndef ASIC_CHIP
+    if (snap->hashrate_1m >= 0.0)             bb_json_obj_set_number(obj, "hashrate_1m",             snap->hashrate_1m);
+    else                                      bb_json_obj_set_null  (obj, "hashrate_1m");
+    if (snap->hashrate_10m >= 0.0)            bb_json_obj_set_number(obj, "hashrate_10m",            snap->hashrate_10m);
+    else                                      bb_json_obj_set_null  (obj, "hashrate_10m");
+    if (snap->hashrate_1h >= 0.0)             bb_json_obj_set_number(obj, "hashrate_1h",             snap->hashrate_1h);
+    else                                      bb_json_obj_set_null  (obj, "hashrate_1h");
+    if (snap->pool_effective_hashrate >= 0.0) bb_json_obj_set_number(obj, "pool_effective_hashrate", snap->pool_effective_hashrate);
+    else                                      bb_json_obj_set_null  (obj, "pool_effective_hashrate");
+    if (snap->hw_error_pct_1m >= 0.0)         bb_json_obj_set_number(obj, "hw_error_pct_1m",         snap->hw_error_pct_1m);
+    else                                      bb_json_obj_set_null  (obj, "hw_error_pct_1m");
+    if (snap->hw_error_pct_10m >= 0.0)        bb_json_obj_set_number(obj, "hw_error_pct_10m",        snap->hw_error_pct_10m);
+    else                                      bb_json_obj_set_null  (obj, "hw_error_pct_10m");
+    if (snap->hw_error_pct_1h >= 0.0)         bb_json_obj_set_number(obj, "hw_error_pct_1h",         snap->hw_error_pct_1h);
+    else                                      bb_json_obj_set_null  (obj, "hw_error_pct_1h");
+#endif
+
+#ifdef ASIC_CHIP
+    bb_json_obj_set_number(obj, "asic_hashrate",     snap->asic_rate);
+    bb_json_obj_set_number(obj, "asic_hashrate_avg", snap->asic_ema);
+    bb_json_obj_set_int   (obj, "asic_shares",       (int64_t)snap->asic_shares);
+    if (snap->asic_freq_cfg >= 0.0f) bb_json_obj_set_number(obj, "asic_freq_configured_mhz", (double)snap->asic_freq_cfg);
+    else                             bb_json_obj_set_null  (obj, "asic_freq_configured_mhz");
+    if (snap->asic_freq_eff >= 0.0f) bb_json_obj_set_number(obj, "asic_freq_effective_mhz", (double)snap->asic_freq_eff);
+    else                             bb_json_obj_set_null  (obj, "asic_freq_effective_mhz");
+    bb_json_obj_set_int   (obj, "asic_small_cores", (int64_t)snap->asic_small_cores);
+    bb_json_obj_set_int   (obj, "asic_count",       (int64_t)snap->asic_count);
+    if (snap->asic_total_valid) {
+        bb_json_obj_set_number(obj, "asic_total_ghs",    (double)snap->asic_total_ghs);
+        bb_json_obj_set_number(obj, "asic_hw_error_pct", (double)snap->asic_hw_error_pct);
+        if (snap->asic_total_ghs_1m >= 0.0f)   bb_json_obj_set_number(obj, "asic_total_ghs_1m",   (double)snap->asic_total_ghs_1m);
+        else                                    bb_json_obj_set_null  (obj, "asic_total_ghs_1m");
+        if (snap->asic_total_ghs_10m >= 0.0f)  bb_json_obj_set_number(obj, "asic_total_ghs_10m",  (double)snap->asic_total_ghs_10m);
+        else                                    bb_json_obj_set_null  (obj, "asic_total_ghs_10m");
+        if (snap->asic_total_ghs_1h >= 0.0f)   bb_json_obj_set_number(obj, "asic_total_ghs_1h",   (double)snap->asic_total_ghs_1h);
+        else                                    bb_json_obj_set_null  (obj, "asic_total_ghs_1h");
+        if (snap->asic_hw_error_pct_1m >= 0.0f)  bb_json_obj_set_number(obj, "asic_hw_error_pct_1m",  (double)snap->asic_hw_error_pct_1m);
+        else                                      bb_json_obj_set_null  (obj, "asic_hw_error_pct_1m");
+        if (snap->asic_hw_error_pct_10m >= 0.0f) bb_json_obj_set_number(obj, "asic_hw_error_pct_10m", (double)snap->asic_hw_error_pct_10m);
+        else                                      bb_json_obj_set_null  (obj, "asic_hw_error_pct_10m");
+        if (snap->asic_hw_error_pct_1h >= 0.0f)  bb_json_obj_set_number(obj, "asic_hw_error_pct_1h",  (double)snap->asic_hw_error_pct_1h);
+        else                                      bb_json_obj_set_null  (obj, "asic_hw_error_pct_1h");
+    } else {
+        bb_json_obj_set_null(obj, "asic_total_ghs");
+        bb_json_obj_set_null(obj, "asic_hw_error_pct");
+        bb_json_obj_set_null(obj, "asic_total_ghs_1m");
+        bb_json_obj_set_null(obj, "asic_total_ghs_10m");
+        bb_json_obj_set_null(obj, "asic_total_ghs_1h");
+        bb_json_obj_set_null(obj, "asic_hw_error_pct_1m");
+        bb_json_obj_set_null(obj, "asic_hw_error_pct_10m");
+        bb_json_obj_set_null(obj, "asic_hw_error_pct_1h");
+    }
+    if (snap->pool_effective_hashrate >= 0.0) bb_json_obj_set_number(obj, "pool_effective_hashrate", snap->pool_effective_hashrate);
+    else                                      bb_json_obj_set_null  (obj, "pool_effective_hashrate");
+
+    {
+        bb_json_t chips_arr = bb_json_arr_new();
+        for (int c = 0; c < snap->n_chips; c++) {
+            bb_json_t chip = bb_json_obj_new();
+            bb_json_obj_set_int   (chip, "idx",         (int64_t)c);
+            bb_json_obj_set_number(chip, "total_ghs",   (double)snap->chips[c].total_ghs);
+            bb_json_obj_set_number(chip, "error_ghs",   (double)snap->chips[c].error_ghs);
+            bb_json_obj_set_number(chip, "hw_err_pct",  (double)snap->chips[c].hw_err_pct);
+            bb_json_obj_set_int   (chip, "total_raw",   (int64_t)snap->chips[c].total_raw);
+            bb_json_obj_set_int   (chip, "error_raw",   (int64_t)snap->chips[c].error_raw);
+            bb_json_obj_set_number(chip, "total_drops", (double)snap->chips[c].total_drops);
+            bb_json_obj_set_number(chip, "error_drops", (double)snap->chips[c].error_drops);
+            if (snap->chips[c].last_drop_us == 0 || snap->now_us < (int64_t)snap->chips[c].last_drop_us) {
+                bb_json_obj_set_null(chip, "last_drop_ago_s");
+            } else {
+                uint64_t ago_us = (uint64_t)snap->now_us - snap->chips[c].last_drop_us;
+                bb_json_obj_set_number(chip, "last_drop_ago_s", (double)(ago_us / 1000000ULL));
+            }
+            {
+                bb_json_t dghs = bb_json_arr_new();
+                for (int d = 0; d < 4; d++) bb_json_arr_append_number(dghs, (double)snap->chips[c].domain_ghs[d]);
+                bb_json_obj_set_arr(chip, "domain_ghs", dghs);
+            }
+            {
+                bb_json_t ddrop = bb_json_arr_new();
+                for (int d = 0; d < 4; d++) bb_json_arr_append_number(ddrop, (double)snap->chips[c].domain_drops[d]);
+                bb_json_obj_set_arr(chip, "domain_drops", ddrop);
+            }
+            bb_json_arr_append_obj(chips_arr, chip);
+        }
+        bb_json_obj_set_arr(obj, "asic_chips", chips_arr);
+    }
+#endif
+    bb_json_obj_set_int(obj, "ts_ms", snap->ts_ms);
+}
 
 static void stats_save_task(void *arg)
 {
@@ -861,15 +1147,56 @@ void app_main(void)
         // Register mining telemetry source — publishes hashrate/shares/rejected
         // on the "mining" MQTT topic each bb_pub tick.
         bb_pub_register_source("mining", tm_mining_sample, NULL);
-        // B1-352: register additional bb_pub sources for SSE fan-out.
-        // mining_rates: periodic EMA + shares (both ASIC and SW mining)
-        // pool: periodic connection state + difficulty + pool-effective hashrate
-        // sensors_miner: periodic ASIC power-extender live fields (ASIC_CHIP only)
-        bb_pub_register_source("mining_rates", tm_mining_rates_sample, NULL);
-        bb_pub_register_source("pool",         tm_pool_pub_sample,     NULL);
+        // B1-352 / SSOT: register telemetry sources via bb_pub_register_telemetry.
+        // gather+serialize split: gather stamps ts_ms and fills the snapshot struct;
+        // serialize writes JSON from the struct into bb_cache (tree API).
+        // BB_PUB_TELEM_SSE fans out SSE via bb_cache; no manual bb_sink_event needed.
+        {
+            static const bb_pub_telemetry_cfg_t k_mining_rates_telem = {
+                .topic     = "mining_rates",
+                .gather    = tm_mining_rates_gather,
+                .serialize = tm_mining_rates_serialize,
+                .snap_size = sizeof(mining_rates_snapshot_t),
+                .flags     = BB_PUB_TELEM_SSE | BB_PUB_TELEM_SINKS,
+                .ctx       = NULL,
+            };
+            bb_pub_register_telemetry(&k_mining_rates_telem);
+        }
+        {
+            static const bb_pub_telemetry_cfg_t k_pool_telem = {
+                .topic     = "pool",
+                .gather    = tm_pool_pub_gather,
+                .serialize = tm_pool_pub_serialize,
+                .snap_size = sizeof(pool_pub_snapshot_t),
+                .flags     = BB_PUB_TELEM_SSE | BB_PUB_TELEM_SINKS,
+                .ctx       = NULL,
+            };
+            bb_pub_register_telemetry(&k_pool_telem);
+        }
 #ifdef ASIC_CHIP
-        bb_pub_register_source("sensors_miner", tm_sensors_miner_sample, NULL);
+        {
+            static const bb_pub_telemetry_cfg_t k_sensors_miner_telem = {
+                .topic     = "sensors_miner",
+                .gather    = tm_sensors_miner_gather,
+                .serialize = tm_sensors_miner_serialize,
+                .snap_size = sizeof(sensors_miner_snapshot_t),
+                .flags     = BB_PUB_TELEM_SSE | BB_PUB_TELEM_SINKS,
+                .ctx       = NULL,
+            };
+            bb_pub_register_telemetry(&k_sensors_miner_telem);
+        }
 #endif
+        {
+            static const bb_pub_telemetry_cfg_t k_stats_telem = {
+                .topic     = "stats",
+                .gather    = tm_stats_gather,
+                .serialize = tm_stats_serialize,
+                .snap_size = sizeof(stats_snapshot_t),
+                .flags     = BB_PUB_TELEM_SSE | BB_PUB_TELEM_SINKS,
+                .ctx       = NULL,
+            };
+            bb_pub_register_telemetry(&k_stats_telem);
+        }
 
         // Register "block.found" SSE topic and hand the handle to mining_pool_stats
         // so record_block() can post events. Must run after bb_registry_init() so
@@ -943,8 +1270,11 @@ void app_main(void)
         {
             // Register the per-topic SSE endpoints (each calls bb_event_topic_register +
             // bb_event_routes_attach_ex internally).
+            // B1-352 / SSOT: mining_rates, pool, sensors_miner, and stats are now
+            // registered via bb_pub_register_telemetry with BB_PUB_TELEM_SSE — they
+            // get SSE fan-out through bb_cache automatically and must NOT appear here.
             static const char *const k_sse_topics[] = {
-                "sys.mem", "net.detail", "mining_rates", "pool",
+                "sys.mem", "net.detail",
                 // B1-352: fan/power/thermal SSE topics are gated to the same per-board
                 // hardware opt-in as their bb_pub_* sources (breadboard v0.70.0 AUTO_ATTACH).
                 // Without the source there is no data, so don't register an empty SSE topic.
@@ -956,9 +1286,6 @@ void app_main(void)
 #endif
 #ifdef CONFIG_BB_PUB_THERMAL_AUTO_ATTACH
                 "thermal",
-#endif
-#ifdef ASIC_CHIP
-                "sensors_miner",
 #endif
             };
             bb_err_t sink_err = BB_OK;

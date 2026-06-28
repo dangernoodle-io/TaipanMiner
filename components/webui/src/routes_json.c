@@ -150,6 +150,7 @@ void emit_stats_json(bb_http_json_obj_stream_t *obj, const stats_snapshot_t *sna
     }
     bb_http_resp_json_obj_set_arr_end(obj);
 #endif
+    bb_http_resp_json_obj_set_int(obj, "ts_ms", snap->ts_ms);
 }
 
 /* ============================================================================
@@ -473,6 +474,7 @@ void emit_mining_rates_json(bb_json_t obj, const mining_rates_snapshot_t *snap)
     else
         bb_json_obj_set_null(obj, "asic_total_ghs");
 #endif
+    bb_json_obj_set_int(obj, "ts_ms", snap->ts_ms);
 }
 
 // ---------------------------------------------------------------------------
@@ -516,6 +518,8 @@ void emit_pool_pub_json(bb_json_t obj, const pool_pub_snapshot_t *snap)
         bb_json_obj_set_number(obj, "pool_effective_hs_1h", snap->pool_effective_hs_1h);
     else
         bb_json_obj_set_null(obj, "pool_effective_hs_1h");
+
+    bb_json_obj_set_int(obj, "ts_ms", snap->ts_ms);
 }
 
 // ---------------------------------------------------------------------------
@@ -584,5 +588,15 @@ void emit_sensors_miner_json(bb_json_t obj, const sensors_miner_snapshot_t *snap
         bb_json_obj_set_number(obj, "vcore_last_restart_ms", (double)snap->vcore_last_restart_ms);
     else
         bb_json_obj_set_null(obj, "vcore_last_restart_ms");
+
+    // Divergent fields gathered from taipan_power_extender context:
+    if (snap->expected_efficiency_jth >= 0.0)
+        bb_json_obj_set_number(obj, "expected_efficiency_jth", snap->expected_efficiency_jth);
+    else
+        bb_json_obj_set_null(obj, "expected_efficiency_jth");
+    bb_json_obj_set_number(obj, "vcore_restart_count", (double)snap->vcore_restart_count);
+    bb_json_obj_set_bool(obj, "vcore_fault_held", snap->vcore_fault_held);
+
+    bb_json_obj_set_int(obj, "ts_ms", snap->ts_ms);
 }
 #endif /* ASIC_CHIP */

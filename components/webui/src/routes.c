@@ -41,6 +41,7 @@
 #include "knot.h"
 #endif
 #include "routes_json.h"
+#include "bb_cache.h"
 #include "bb_fan_routes.h"
 #include "bb_fan.h"
 #include "bb_power.h"
@@ -184,118 +185,35 @@ static bb_err_t stats_handler(bb_http_request_t *req)
 {
     set_common_headers(req);
 
-    stats_snapshot_t s = {0};
-    s.session_rejected_other_last_code = -1;
-    s.expected_ghs = -1.0;
-#ifndef ASIC_CHIP
-    s.hashrate_1m = -1.0;
-    s.hashrate_10m = -1.0;
-    s.hashrate_1h = -1.0;
-    s.pool_effective_hashrate = -1.0;
-    s.hw_error_pct_1m = -1.0;
-    s.hw_error_pct_10m = -1.0;
-    s.hw_error_pct_1h = -1.0;
-#endif
-#ifdef ASIC_CHIP
-    s.pool_effective_hashrate = -1.0;
-    s.asic_freq_cfg = -1.0f;
-    s.asic_freq_eff = -1.0f;
-#endif
-
-    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        s.hw_rate    = mining_stats.hw_hashrate;
-        s.hw_ema     = mining_stats.hw_ema.value;
-        s.hw_shares  = mining_stats.hw_shares;
-        s.temp_c     = mining_stats.temp_c;
-        s.session_shares                   = mining_stats.session.shares;
-        s.session_rejected                 = mining_stats.session.rejected;
-        s.session_rejected_job_not_found   = mining_stats.session.rejected_job_not_found;
-        s.session_rejected_low_difficulty  = mining_stats.session.rejected_low_difficulty;
-        s.session_rejected_duplicate       = mining_stats.session.rejected_duplicate;
-        s.session_rejected_stale_prevhash  = mining_stats.session.rejected_stale_prevhash;
-        s.session_rejected_other           = mining_stats.session.rejected_other;
-        s.session_rejected_other_last_code = mining_stats.session.rejected_other_last_code;
-        s.session_blocks_found             = mining_stats.session.blocks_found;
-        s.session_best_diff_ts             = mining_stats.session.best_diff_ts;
-        s.session_last_block_ts            = mining_stats.session.last_block_ts;
-        s.last_share_us    = mining_stats.session.last_share_us;
-        s.session_start_us = mining_stats.session.start_us;
-        s.best_diff        = mining_stats.session.best_diff;
-#ifndef ASIC_CHIP
-        s.hashrate_1m       = (double)mining_stats.hashrate_1m;
-        s.hashrate_10m      = (double)mining_stats.hashrate_10m;
-        s.hashrate_1h       = (double)mining_stats.hashrate_1h;
-        s.hw_error_pct_1m   = (double)mining_stats.hw_error_pct_1m;
-        s.hw_error_pct_10m  = (double)mining_stats.hw_error_pct_10m;
-        s.hw_error_pct_1h   = (double)mining_stats.hw_error_pct_1h;
-#endif
-#ifdef ASIC_CHIP
-        s.asic_rate         = mining_stats.asic_hashrate;
-        s.asic_ema          = mining_stats.asic_ema.value;
-        s.asic_shares       = mining_stats.asic_shares;
-        /* asic_temp_c removed — now in /api/thermal (asic die source) */
-        s.asic_freq_cfg     = mining_stats.asic_freq_configured_mhz;
-        s.asic_freq_eff     = mining_stats.asic_freq_effective_mhz;
-        s.asic_total_ghs    = mining_stats.asic_total_ghs;
-        s.asic_hw_error_pct = mining_stats.asic_hw_error_pct;
-        s.asic_total_ghs_1m       = mining_stats.asic_total_ghs_1m;
-        s.asic_total_ghs_10m      = mining_stats.asic_total_ghs_10m;
-        s.asic_total_ghs_1h       = mining_stats.asic_total_ghs_1h;
-        s.asic_hw_error_pct_1m    = mining_stats.asic_hw_error_pct_1m;
-        s.asic_hw_error_pct_10m   = mining_stats.asic_hw_error_pct_10m;
-        s.asic_hw_error_pct_1h    = mining_stats.asic_hw_error_pct_1h;
-        s.asic_total_valid  = (s.asic_total_ghs > 0.001f);
-        s.asic_small_cores  = BOARD_SMALL_CORES;
-        s.asic_count        = BOARD_ASIC_COUNT;
-#endif
-        xSemaphoreGive(mining_stats.mutex);
+    /* Read memoized JSON from bb_cache — no re-gather, no mutex, no ESP calls. */
+    char *buf = malloc(2048);
+    if (!buf) {
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "out of memory");
+        bb_http_resp_json_obj_end(&e);
+        return BB_ERR_NO_SPACE;
     }
 
-    double expected = -1.0;
-#ifdef ASIC_CHIP
-    float expected_freq = s.asic_freq_cfg;
-#else
-    float expected_freq = 0.0f;
-#endif
-    if (mining_get_expected_ghs(expected_freq, &expected)) {
-        s.expected_ghs = expected;
-    } else {
-        s.expected_ghs = -1.0;
+    size_t len = 0;
+    bb_err_t rc = bb_cache_get_serialized("stats", buf, 2048, &len);
+    if (rc == BB_OK && len > 0) {
+        bb_http_resp_set_status(req, 200);
+        bb_http_resp_set_header(req, "Content-Type", "application/json");
+        bb_err_t send_rc = bb_http_resp_sendstr(req, buf);
+        free(buf);
+        return send_rc;
     }
 
-    double pool_eff_hr = mining_get_pool_effective_hashrate();
-    s.pool_effective_hashrate = (pool_eff_hr > 0.0) ? pool_eff_hr : -1.0;
+    free(buf);
 
-    s.now_us = (int64_t)bb_timer_now_us();
-
-#ifdef ASIC_CHIP
-    /* Per-chip telemetry (TA-192 phase 2) — collected after mutex released */
-    asic_chip_telemetry_t chip_tel[BOARD_ASIC_COUNT];
-    int n_chips = asic_task_get_chip_telemetry(chip_tel, BOARD_ASIC_COUNT);
-    s.n_chips = (n_chips <= ROUTES_JSON_MAX_CHIPS) ? n_chips : ROUTES_JSON_MAX_CHIPS;
-    for (int c = 0; c < s.n_chips; c++) {
-        s.chips[c].total_ghs   = chip_tel[c].total_ghs;
-        s.chips[c].error_ghs   = chip_tel[c].error_ghs;
-        s.chips[c].hw_err_pct  = chip_tel[c].hw_err_pct;
-        s.chips[c].total_raw   = chip_tel[c].total_raw;
-        s.chips[c].error_raw   = chip_tel[c].error_raw;
-        s.chips[c].total_drops = chip_tel[c].total_drops;
-        s.chips[c].error_drops = chip_tel[c].error_drops;
-        s.chips[c].last_drop_us = chip_tel[c].last_drop_us;
-        for (int d = 0; d < 4; d++) {
-            s.chips[c].domain_ghs[d]   = chip_tel[c].domain_ghs[d];
-            s.chips[c].domain_drops[d] = chip_tel[c].domain_drops[d];
-        }
-    }
-    /* Re-read now_us after chip telemetry fetch for accurate last_drop_ago_s */
-    s.now_us = (int64_t)bb_timer_now_us();
-#endif
-
-    bb_http_json_obj_stream_t obj;
-    bb_err_t rc = bb_http_resp_json_obj_begin(req, &obj);
-    if (rc != BB_OK) return rc;
-    emit_stats_json(&obj, &s);
-    return bb_http_resp_json_obj_end(&obj);
+    /* Fallback: no snapshot yet (first boot, before first bb_pub tick) — 503 */
+    bb_http_resp_set_status(req, 503);
+    bb_http_json_obj_stream_t e;
+    bb_http_resp_json_obj_begin(req, &e);
+    bb_http_resp_json_obj_set_str(&e, "error", "stats not yet available");
+    bb_http_resp_json_obj_end(&e);
+    return BB_OK;
 }
 
 // ----------------------------------------------------------------------------
@@ -906,143 +824,12 @@ static bb_err_t pool_delete_primary_handler(bb_http_request_t *req)
 static void taipan_power_extender(bb_json_t root, void *ctx)
 {
     (void)ctx;
-    int    pcore_mw             = -1;
-    double asic_hashrate        = 0.0;
-    float  pcore_1m             = -1.0f;
-    float  pcore_10m            = -1.0f;
-    float  pcore_1h             = -1.0f;
-    float  ghs_1m               = -1.0f;
-    float  ghs_10m              = -1.0f;
-    float  ghs_1h               = -1.0f;
-    float  asic_freq            = 0.0f;
-    int    vin_mv               = -1;
-
-    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        pcore_mw      = mining_stats.pcore_mw;
-        asic_hashrate = mining_stats.asic_hashrate;
-        pcore_1m      = mining_stats.pcore_mw_1m;
-        pcore_10m     = mining_stats.pcore_mw_10m;
-        pcore_1h      = mining_stats.pcore_mw_1h;
-        ghs_1m        = mining_stats.asic_total_ghs_1m;
-        ghs_10m       = mining_stats.asic_total_ghs_10m;
-        ghs_1h        = mining_stats.asic_total_ghs_1h;
-        asic_freq     = mining_stats.asic_freq_configured_mhz;
-        vin_mv        = mining_stats.vin_mv;
-        xSemaphoreGive(mining_stats.mutex);
-    }
-
-    /* TM-domain power fields for the frontend Power card.
-     * vcore_mv/icore_ma/vr_temp_c mirror BB's vout_mv/iout_ma/temp_c but
-     * use the TM field names the UI expects.  We read the primary bb_power
-     * snapshot directly so we don't duplicate the polling logic. */
-    {
-        bb_power_snapshot_t psnap;
-        bb_power_snapshot(bb_power_primary(), &psnap);
-
-        if (psnap.vout_mv >= 0)
-            bb_json_obj_set_number(root, "vcore_mv", (double)psnap.vout_mv);
-        else
-            bb_json_obj_set_null(root, "vcore_mv");
-
-        if (psnap.iout_ma >= 0)
-            bb_json_obj_set_number(root, "icore_ma", (double)psnap.iout_ma);
-        else
-            bb_json_obj_set_null(root, "icore_ma");
-
-        if (psnap.temp_c >= 0)
-            bb_json_obj_set_number(root, "vr_temp_c", (double)psnap.temp_c);
-        else
-            bb_json_obj_set_null(root, "vr_temp_c");
-    }
-
-    /* pcore_mw — TOTAL board power WITH BOARD_POWER_OFFSET_MW.
-     * BB's pout_mw is raw VR only; this value includes the board offset and
-     * is the canonical power figure used by the efficiency calculation. */
-    if (pcore_mw >= 0)
-        bb_json_obj_set_number(root, "pcore_mw", (double)pcore_mw);
-    else
-        bb_json_obj_set_null(root, "pcore_mw");
-
-    /* efficiency_jth: instantaneous (pcore_mw + live hashrate) */
-    {
-        /* asic_hashrate is H/s; divide by 1e9 to get GH/s */
-        double eff = mining_efficiency_jth((double)pcore_mw, asic_hashrate / 1e9);
-        if (eff >= 0.0) bb_json_obj_set_number(root, "efficiency_jth", eff);
-        else            bb_json_obj_set_null(root, "efficiency_jth");
-    }
-
-    /* rolling efficiency windows */
-    {
-        double e;
-        e = mining_efficiency_jth((double)pcore_1m, (double)ghs_1m);
-        if (e >= 0.0) bb_json_obj_set_number(root, "efficiency_jth_1m", e);
-        else          bb_json_obj_set_null(root, "efficiency_jth_1m");
-        e = mining_efficiency_jth((double)pcore_10m, (double)ghs_10m);
-        if (e >= 0.0) bb_json_obj_set_number(root, "efficiency_jth_10m", e);
-        else          bb_json_obj_set_null(root, "efficiency_jth_10m");
-        e = mining_efficiency_jth((double)pcore_1h, (double)ghs_1h);
-        if (e >= 0.0) bb_json_obj_set_number(root, "efficiency_jth_1h", e);
-        else          bb_json_obj_set_null(root, "efficiency_jth_1h");
-    }
-
-    /* expected_efficiency_jth: from configured freq + board TDP model */
-    {
-        double expected_ghs = 0.0;
-        if (pcore_mw > 0 && asic_freq > 0 &&
-            mining_get_expected_ghs(asic_freq, &expected_ghs) && expected_ghs > 0) {
-            double eff = mining_efficiency_jth((double)pcore_mw, expected_ghs);
-            if (eff >= 0.0) bb_json_obj_set_number(root, "expected_efficiency_jth", eff);
-            else            bb_json_obj_set_null(root, "expected_efficiency_jth");
-        } else {
-            bb_json_obj_set_null(root, "expected_efficiency_jth");
-        }
-    }
-
-    /* vin_low: true when vin_mv < 87% of (nominal + 500 mV) */
-    if (vin_mv >= 0) {
-        bool vin_low = (vin_mv < (BOARD_NOMINAL_VIN_MV + 500) * 87 / 100);
-        bb_json_obj_set_bool(root, "vin_low", vin_low);
-    } else {
-        bb_json_obj_set_null(root, "vin_low");
-    }
-
-    /* TA-318: vcore_restart_count — NVS-persisted count of vcore-collapse
-     * auto-restarts. Useful for diagnosing power supply issues after the fact.
-     * Always 0 when CONFIG_TM_VCORE_WATCHDOG is not set. */
-    bb_json_obj_set_number(root, "vcore_restart_count",
-                           (double)asic_task_get_vcore_restart_count());
-    /* TA-435: vcore_fault_held — true when the watchdog has latched FAULT_HOLD
-     * due to an OC hardware fault. Cleared only by explicit UI action (TA-436). */
-    bb_json_obj_set_bool(root, "vcore_fault_held", asic_task_get_vcore_fault_held());
-
-    /* VIN-sag observability: cumulative sag count, min VIN seen, UV latch bit,
-     * last-sag timestamp, and vcore WD recovery timestamp. */
-    {
-        bb_power_tps546_status_t st;
-        if (bb_power_tps546_read_status(bb_power_primary(), &st) == BB_OK) {
-            bb_json_obj_set_number(root, "sag_count", (double)st.sag_count);
-            if (st.vin_min_mv != INT_MAX && st.vin_min_mv >= 0)
-                bb_json_obj_set_number(root, "vin_min_mv", (double)st.vin_min_mv);
-            else
-                bb_json_obj_set_null(root, "vin_min_mv");
-            bb_json_obj_set_bool(root, "vin_uv_latched",
-                                 (st.fault_bits & TPS546_FAULT_VIN_UV) != 0);
-            if (st.last_sag_ms > 0)
-                bb_json_obj_set_number(root, "last_sag_ms", (double)st.last_sag_ms);
-            else
-                bb_json_obj_set_null(root, "last_sag_ms");
-        } else {
-            bb_json_obj_set_null(root, "sag_count");
-            bb_json_obj_set_null(root, "vin_min_mv");
-            bb_json_obj_set_null(root, "vin_uv_latched");
-            bb_json_obj_set_null(root, "last_sag_ms");
-        }
-        uint64_t lrms = asic_task_get_vcore_last_restart_ms();
-        if (lrms > 0)
-            bb_json_obj_set_number(root, "vcore_last_restart_ms", (double)lrms);
-        else
-            bb_json_obj_set_null(root, "vcore_last_restart_ms");
-    }
+    /* SSOT: serve from the memoized sensors_miner cache snapshot.
+     * tm_sensors_miner_gather (in main.c) owns the gather; emit_sensors_miner_json
+     * owns the serializer. bb_cache_serialize_into writes all fields (including
+     * the 3 divergent ones: expected_efficiency_jth, vcore_restart_count,
+     * vcore_fault_held) directly into root — no re-gather, no mutex. */
+    bb_cache_serialize_into("sensors_miner", root);
 }
 
 // Schema property fragments for OpenAPI (comma-separated properties, no braces)

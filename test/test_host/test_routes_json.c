@@ -150,7 +150,7 @@ void test_stats_happy_path(void)
         "\"asic_total_ghs\":null,\"asic_hw_error_pct\":null,"
         "\"asic_total_ghs_1m\":null,\"asic_total_ghs_10m\":null,\"asic_total_ghs_1h\":null,"
         "\"asic_hw_error_pct_1m\":null,\"asic_hw_error_pct_10m\":null,\"asic_hw_error_pct_1h\":null,"
-        "\"pool_effective_hashrate\":0,\"asic_chips\":[]}",
+        "\"pool_effective_hashrate\":0,\"asic_chips\":[],\"ts_ms\":0}",
         json);
     free(json);
 }
@@ -179,7 +179,7 @@ void test_stats_zeroed(void)
         "\"asic_total_ghs\":null,\"asic_hw_error_pct\":null,"
         "\"asic_total_ghs_1m\":null,\"asic_total_ghs_10m\":null,\"asic_total_ghs_1h\":null,"
         "\"asic_hw_error_pct_1m\":null,\"asic_hw_error_pct_10m\":null,\"asic_hw_error_pct_1h\":null,"
-        "\"pool_effective_hashrate\":0,\"asic_chips\":[]}",
+        "\"pool_effective_hashrate\":0,\"asic_chips\":[],\"ts_ms\":0}",
         json);
     free(json);
 }
@@ -214,7 +214,7 @@ void test_stats_no_share_yet(void)
         "\"asic_total_ghs\":null,\"asic_hw_error_pct\":null,"
         "\"asic_total_ghs_1m\":null,\"asic_total_ghs_10m\":null,\"asic_total_ghs_1h\":null,"
         "\"asic_hw_error_pct_1m\":null,\"asic_hw_error_pct_10m\":null,\"asic_hw_error_pct_1h\":null,"
-        "\"pool_effective_hashrate\":null,\"asic_chips\":[]}";
+        "\"pool_effective_hashrate\":null,\"asic_chips\":[],\"ts_ms\":0}";
     TEST_ASSERT_EQUAL_STRING(expected, json);
     free(json);
 }

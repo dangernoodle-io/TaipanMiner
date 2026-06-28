@@ -125,6 +125,7 @@ typedef struct {
         uint64_t last_drop_us;
     } chips[ROUTES_JSON_MAX_CHIPS];
 #endif
+    int64_t  ts_ms;       /* monotonic ms at gather time (bb_clock_now_ms64) */
 } stats_snapshot_t;
 
 /* Emit /api/stats fields into an already-opened streaming JSON object.
@@ -231,14 +232,15 @@ void emit_pool_json(bb_http_json_obj_stream_t *obj,
 // All fields: double, sentinel -1.0 = unavailable/null.
 // ---------------------------------------------------------------------------
 typedef struct {
-    double hashrate_hs;            // EMA hashrate in H/s
-    double shares;                 // accepted shares this session
-    double rejected;               // rejected shares this session
-    double pool_effective_hs;      // pool-effective hashrate in H/s (-1 = unavailable)
+    double  hashrate_hs;            // EMA hashrate in H/s
+    double  shares;                 // accepted shares this session
+    double  rejected;               // rejected shares this session
+    double  pool_effective_hs;      // pool-effective hashrate in H/s (-1 = unavailable)
 #ifdef ASIC_CHIP
-    double asic_hashrate_hs;       // ASIC-reported hashrate in H/s (-1 = unavailable)
-    double asic_total_ghs;         // ASIC total GH/s from reg (-1 = unavailable)
+    double  asic_hashrate_hs;       // ASIC-reported hashrate in H/s (-1 = unavailable)
+    double  asic_total_ghs;         // ASIC total GH/s from reg (-1 = unavailable)
 #endif
+    int64_t ts_ms;                  // monotonic ms at gather time (bb_clock_now_ms64)
 } mining_rates_snapshot_t;
 
 void emit_mining_rates_json(bb_json_t obj, const mining_rates_snapshot_t *snap);
@@ -258,6 +260,7 @@ typedef struct {
     double  pool_effective_hs_1m;  // -1.0 = unavailable
     double  pool_effective_hs_10m; // -1.0 = unavailable
     double  pool_effective_hs_1h;  // -1.0 = unavailable
+    int64_t ts_ms;                 // monotonic ms at gather time (bb_clock_now_ms64)
 } pool_pub_snapshot_t;
 
 void emit_pool_pub_json(bb_json_t obj, const pool_pub_snapshot_t *snap);
@@ -288,6 +291,11 @@ typedef struct {
     bool     vin_uv_latched;      // true when TPS546_FAULT_VIN_UV bit is set
     uint64_t last_sag_ms;         // uptime-ms of last sag (0 = none)
     uint64_t vcore_last_restart_ms; // uptime-ms of last vcore WD recovery (0 = none)
+    // Fields from taipan_power_extender not in the base bb_pub topic:
+    double   expected_efficiency_jth; // < 0 = null
+    uint32_t vcore_restart_count;
+    bool     vcore_fault_held;
+    int64_t  ts_ms;                   // monotonic ms at gather time (bb_clock_now_ms64)
 } sensors_miner_snapshot_t;
 
 void emit_sensors_miner_json(bb_json_t obj, const sensors_miner_snapshot_t *snap);

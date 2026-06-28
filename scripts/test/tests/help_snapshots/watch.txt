@@ -1,0 +1,33 @@
+usage: fleet watch [-h] [--log-level {DEBUG,INFO,WARNING,ERROR}]
+                   [--hosts H,H,…] [--discover-timeout SEC] [--board CLASS]
+                   [--fields F,F,…] [--interval SEC] [--duration DUR]
+                   [--count N] [--on-change] [--until EXPR] [--any]
+                   [--alert EXPR] [--out-json PATH] [--out-csv PATH]
+                   PATH
+
+positional arguments:
+  PATH                  endpoint path to poll (e.g. /api/diag/heap)
+
+options:
+  -h, --help            show this help message and exit
+  --log-level {DEBUG,INFO,WARNING,ERROR}
+                        log level (default: WARNING)
+  --fields F,F,…        comma-separated dotted fields to extract (default:
+                        whole response)
+  --interval SEC        seconds between polls (default: 5)
+  --duration DUR        stop after this duration: 30s / 5m / 1h / bare seconds
+  --count N             stop after N ticks per device
+  --on-change           only emit a row when tracked fields change
+  --until EXPR          exit 0 when expression is satisfied (all devices, or
+                        --any)
+  --any                 with --until/--alert: condition met when ANY device
+                        satisfies
+  --alert EXPR          flag rows when expression is true (non-terminating)
+  --out-json PATH       write time-series records as JSON list to file
+  --out-csv PATH        write time-series records as CSV to file
+
+targeting:
+  --hosts H,H,…         comma-separated IPs/hostnames (skip mDNS discovery)
+  --discover-timeout SEC
+                        mDNS browse window in seconds (default: 10)
+  --board CLASS         filter devices by board class substring

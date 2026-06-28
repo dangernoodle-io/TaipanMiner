@@ -1,0 +1,10 @@
+usage: fleet elf [-h] OP ...
+
+positional arguments:
+  OP
+    archive   manually archive a firmware ELF
+    list      list archived ELFs with in-use status
+    prune     prune archived ELFs by budget or in-use GC
+
+options:
+  -h, --help  show this help message and exit

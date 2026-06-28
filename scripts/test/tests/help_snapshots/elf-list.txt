@@ -1,0 +1,11 @@
+usage: fleet elf list [-h] [--hosts H,H,…] [--discover-timeout SEC]
+                      [--board CLASS] [--log-level {DEBUG,INFO,WARNING,ERROR}]
+
+options:
+  -h, --help            show this help message and exit
+  --hosts H,H,…         comma-separated IPs/hostnames (skip mDNS discovery)
+  --discover-timeout SEC
+                        mDNS browse window in seconds (default: 10)
+  --board CLASS         filter devices by board class substring
+  --log-level {DEBUG,INFO,WARNING,ERROR}
+                        log level (default: WARNING)

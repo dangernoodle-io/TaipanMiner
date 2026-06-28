@@ -216,7 +216,7 @@ UI-only changes merged to `main` do NOT auto-deploy — run the workflow manuall
 - **Verifying firmware fixes**: do not call a fix "worked" until the device has (1) survived the OTA mark-valid window (first share accepted OR the 15-min stratum-auth timer in `ota_validator`), (2) survived a full OTA from the previously-broken version on a device that historically reproduced the bug, and (3) shown no `abnormal reset count` increment after the test window. With only one of these, say "looks ok so far" — not "fixed."
 - Fleet test harness: `scripts/fleet/` — see [`scripts/fleet/README.md`](scripts/fleet/README.md).
 
-**Fleet/device testing: extend the harness, never add one-off scripts.** All device test, soak, stress, fault-injection, and OTA-validation tooling lives in the `scripts/fleet/` harness (`fleetlib` + `suites/`). When functionality is missing, add a suite, detector, or `fleetlib` helper — do NOT drop standalone scripts into `scripts/fleet/`. See `scripts/fleet/README.md`.
+**Fleet/device testing: extend the harness, never add one-off scripts.** All device test, soak, stress, fault-injection, and OTA-validation tooling lives in the `scripts/fleet/` harness (`fleetlib/` + `suites/` + `commands/`). When functionality is missing, add a command module in `commands/`, a suite in `suites/`, a detector, or a `fleetlib` helper — do NOT drop standalone scripts into `scripts/fleet/`. See `scripts/fleet/README.md`.
 
 ## Releases
 

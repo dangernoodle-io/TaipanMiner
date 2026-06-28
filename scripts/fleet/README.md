@@ -25,6 +25,86 @@ drop standalone scripts into `scripts/fleet/`.
 
 ---
 
+## Structure / architecture
+
+```
+scripts/fleet/
+├── fleet              # bash wrapper — venv bootstrap, then exec fleet.py
+├── fleet.py           # shim — Python version check, path setup, calls cli.main()
+├── cli.py             # argparse dispatcher — builds subparsers from COMMANDS registry
+├── registry.py        # COMMANDS dict + PluginAPI (shared by cli.py and plugins)
+├── core.py            # shared CLI helpers: config/plugin loader, flag-group builders,
+│                      #   device resolution, suite context builder
+├── commands/          # one module per built-in command
+│   ├── __init__.py    # registers all built-in commands into COMMANDS (side-effect import)
+│   ├── discover.py    # NAME / HELP / add_arguments(parser) / run(args) -> int
+│   ├── status.py
+│   ├── ota.py
+│   ├── ...
+│   └── _suite.py      # bridge: wraps suites/* as commands (suite_command factory)
+├── suites/            # long-running suite implementations (run(ctx) -> ResultSet)
+├── fleetlib/          # discovery, client, criteria, results, safety, …
+├── config/            # criteria.yaml, profiles.yaml
+├── fleet.toml         # harness config: [plugins] paths = [...]
+└── tests/             # unittest suite
+    └── help_snapshots/ # golden --help fixtures; locked by test_help_snapshots.py
+```
+
+### Call chain
+
+```
+./fleet  →  fleet.py (shim)  →  cli.main()
+                                  │
+                                  ├─ core.load_config("fleet.toml")
+                                  ├─ core.load_plugins(paths, …, PluginAPI())
+                                  ├─ _build_cli_parser()  ← iterates COMMANDS
+                                  └─ COMMANDS[args.subcommand].run(args)
+```
+
+### Adding a built-in command
+
+1. Create `commands/<name>.py` with:
+   - `NAME = "<name>"` — the subcommand string
+   - `HELP = "..."` — one-line description shown in root `--help`
+   - `add_arguments(parser)` — add flags to the argparse subparser
+   - `run(args) -> int` — return 0 on success, non-zero on failure
+2. Import and register it in `commands/__init__.py`:
+   ```python
+   from commands import mycommand as _mycommand
+   COMMANDS["my-command"] = _mycommand
+   ```
+
+### Plugin mechanism
+
+External plugins extend the command set without touching the built-in source.
+
+1. Write a Python file with a `register(api)` function:
+   ```python
+   # my_plugin.py
+   class _MyCmd:
+       NAME = "my-cmd"
+       HELP = "custom command from plugin"
+       def add_arguments(self, p): pass
+       def run(self, args): return 0
+
+   def register(api):
+       api.add_command("my-cmd", _MyCmd())
+   ```
+2. List the file in `fleet.toml`:
+   ```toml
+   [plugins]
+   paths = ["/path/to/my_plugin.py"]
+   ```
+   Relative paths are resolved from the directory containing `fleet.toml`.
+
+Plugins are loaded before subparsers are built, so plugin commands appear in
+`--help` alongside built-in commands.  A collision on a name already registered
+(built-in or earlier plugin) is first-wins; a warning is printed to stderr and
+the duplicate is ignored.  A plugin that fails to import is non-fatal — the
+harness warns and continues with remaining plugins.
+
+---
+
 ## Setup
 
 **Requires Python >= 3.11** (CI target).  The `./fleet` wrapper, `fleet.py`, and

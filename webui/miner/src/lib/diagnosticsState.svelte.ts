@@ -164,7 +164,8 @@ export function createDiagnosticsState() {
 
   function startStream() {
     sse = new SseClient({
-      url: `${baseUrl}/api/logs?source=browser`,
+      url: `${baseUrl}/api/events?topic=log`,
+      eventName: 'log',
       onOpen: () => {
         if (wasDisconnected) {
           wasDisconnected = false
@@ -173,7 +174,14 @@ export function createDiagnosticsState() {
         }
       },
       onMessage: (data) => {
-        lines = lines.concat(data)
+        let line: string
+        try {
+          const e = JSON.parse(data) as { ts: number; level: string; tag: string; msg: string }
+          line = `[${e.level}] [${e.tag}] ${e.msg}`
+        } catch {
+          line = data
+        }
+        lines = lines.concat(line)
         if (lines.length > LOG_MAX_LINES) lines = lines.slice(-LOG_MAX_LINES)
         if (autoscroll) {
           queueMicrotask(() => {
@@ -186,15 +194,6 @@ export function createDiagnosticsState() {
         if (s === 'disconnected' || s === 'external') wasDisconnected = true
       },
       onRetryAtChange: (at) => { nextRetryAt = at },
-      resolveErrorStatus: async () => {
-        try {
-          const r = await fetch(`${baseUrl}/api/logs/status`)
-          const d: { active: boolean; client: string } = await r.json()
-          return d.active && d.client === 'external' ? 'external' : 'disconnected'
-        } catch {
-          return 'disconnected'
-        }
-      },
     })
     sse.start()
   }

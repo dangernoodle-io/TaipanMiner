@@ -39,7 +39,7 @@ import sys
 import time
 
 # Ensure fleetlib and suites are importable when run directly
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fleetlib.criteria import Criteria, load as load_criteria
 from fleetlib.profiles import Profiles
@@ -47,147 +47,42 @@ from fleetlib.safety import Guard
 from fleetlib.results import ResultSet
 from suites import SuiteContext, SettleConfig, resolve_devices
 
-
-def _emit_resolve_warnings(result, file=None) -> None:
-    """Print per-host enrichment failures to stderr (or *file* if given).
-
-    Always safe to call; does nothing when there are no failures or when
-    *result* is a plain list (backward-compat with test mocks).
-    """
-    import sys as _sys
-    from fleetlib.discovery import ResolveResult
-    if not isinstance(result, ResolveResult):
-        return
-    dest = file or _sys.stderr
-    for f in result.failures:
-        print(f"  {f.host}: unreachable ({f.reason})", file=dest)
+# Import shared helpers from core (moved there; keep private aliases for
+# backward compatibility so existing cmd_* bodies don't need changes).
+from core import (
+    SETTLE_BARE as _SETTLE_BARE,
+    emit_resolve_warnings as _emit_resolve_warnings,
+    no_devices_message as _no_devices_message,
+    unwrap_devices as _unwrap_devices,
+    ota_guard as _ota_guard,
+    ota_settle as _ota_settle,
+    write_outputs as _write_outputs,
+    build_suite_context as _build_context,
+)
 
 
-def _no_devices_message(result) -> str:
-    """Return the appropriate 'no devices' message given a ResolveResult.
+# ---------------------------------------------------------------------------
+# Backward-compat aliases: tests reach into fleet.* by private name.
+# Keep these thin wrappers so existing tests don't need changes.
+# ---------------------------------------------------------------------------
 
-    Falls back to the generic message when *result* is a plain list (backward-
-    compat with test mocks that patch resolve_devices to return []).
-    """
-    from fleetlib.discovery import ResolveResult
-    if not isinstance(result, ResolveResult):
-        return "No devices found."
-    if result.from_mdns:
-        return "No devices found via mDNS (_taipanminer._tcp.local.)."
-    n = len(result.failures)
-    lines = [f"{n} host(s) specified; none reachable:"]
-    for f in result.failures:
-        lines.append(f"  {f.host}: unreachable ({f.reason})")
-    return "\n".join(lines)
+def _add_common_flags(p) -> None:
+    from core import add_common_flags
+    add_common_flags(p)
 
 
-def _unwrap_devices(result, caller_name: str = ""):
-    """Extract the device list from a ResolveResult.
-
-    When at least one device resolved (partial failure), emits per-host failure
-    warnings to stderr so the operator knows which hosts were skipped.
-    When NO devices resolved, warnings are embedded in _no_devices_message
-    instead — so callers that gate on empty must call _no_devices_message and
-    must NOT call _emit_resolve_warnings separately.
-
-    Also accepts a plain list for backward compatibility with existing test mocks.
-    """
-    from fleetlib.discovery import ResolveResult
-    if isinstance(result, list):
-        return result
-    # Only warn here for partial failures; all-fail is handled by _no_devices_message
-    if result.devices and result.failures:
-        _emit_resolve_warnings(result)
-    return result.devices
-
-# Sentinel: --settle given as a bare flag (no value). Distinguishes "absent"
-# (default=None) from "bare" (const=_SETTLE_BARE) from "--settle N" (int).
-_SETTLE_BARE = object()
+def _build_context(args, suite_name: str = "fleet"):
+    from core import build_suite_context
+    return build_suite_context(args, name=suite_name)
 
 
-def _add_common_flags(p: argparse.ArgumentParser) -> None:
-    """Add shared flags to a parser (main or subcommand).
-
-    --log-level is registered here with default=SUPPRESS so a value given
-    after the subcommand wins, but a value given before (on the root parser)
-    is not silently discarded by the subparser default.
-    """
-    p.add_argument("--log-level",
-                   default=argparse.SUPPRESS,
-                   choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-                   help="log level (default: WARNING)")
-
-    g = p.add_argument_group("targeting")
-    g.add_argument("--hosts", metavar="H,H,…",
-                   help="comma-separated IPs/hostnames (skip mDNS discovery)")
-    g.add_argument("--discover-timeout", type=int, default=10, metavar="SEC",
-                   help="mDNS browse window in seconds (default: 10)")
-    g.add_argument("--board", metavar="CLASS",
-                   help="filter devices by board class substring (e.g. bitaxe)")
-
-    o = p.add_argument_group("output")
-    o.add_argument("--fields", metavar="F,F,…",
-                   help="comma-separated field subset for on-demand validation")
-    o.add_argument("--gate", action="append", dest="gates", metavar="NAME", default=[],
-                   help="enable a specific check gate (repeatable; default: all)")
-    o.add_argument("--skip", action="append", dest="skip_gates", metavar="NAME", default=[],
-                   help="disable a specific check gate (repeatable)")
-    o.add_argument("--out-json", metavar="PATH", help="write JSON results to file")
-    o.add_argument("--out-junit", metavar="PATH", help="write JUnit XML results to file")
-    o.add_argument("--baseline", metavar="PATH",
-                   help="compare results against a prior JSON result file")
-    o.add_argument("--criteria", metavar="PATH",
-                   help="YAML criteria override file")
-
-    r = p.add_argument_group("run control")
-    r.add_argument("--settle", nargs="?", type=int, const=_SETTLE_BARE, default=None,
-                   metavar="SEC",
-                   help="opt-in warmup settle: bare = criteria default (120s), --settle N = N seconds")
-    r.add_argument("--dry-run", action="store_true",
-                   help="log mutating operations but don't execute them")
-    r.add_argument("--yes", action="store_true",
-                   help="auto-confirm guard for mutating operations")
-
-    m = p.add_argument_group("metrics publishing")
-    m.add_argument("--metrics-mqtt-url", metavar="HOST[:PORT]", default=None,
-                   dest="metrics_mqtt_url",
-                   help="broker for run metrics (overrides BB_TEST_METRICS_BROKER / BB_TEST_RECEIVER); "
-                        "default ON when configured, skip with note when absent")
-    m.add_argument("--metrics-topic", metavar="PREFIX", default="fleettest",
-                   dest="metrics_topic",
-                   help="MQTT topic prefix for run metrics (default: fleettest); "
-                        "full topic: <prefix>/<suite>/<board>")
-    m.add_argument("--no-publish-metrics", action="store_true", default=False,
-                   dest="no_publish_metrics",
-                   help="disable automatic metrics publishing (opt-out)")
+def _build_parser():
+    """Build the root argparse parser (backward compat for tests)."""
+    from cli import _build_cli_parser
+    return _build_cli_parser()
 
 
-def _add_watch_common_flags(p: argparse.ArgumentParser) -> None:
-    """Minimal common flags for watch (targeting only — no output/gate/settle flags)."""
-    p.add_argument("--log-level", default=argparse.SUPPRESS,
-                   choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-                   help="log level (default: WARNING)")
-    g = p.add_argument_group("targeting")
-    g.add_argument("--hosts", metavar="H,H,…",
-                   help="comma-separated IPs/hostnames (skip mDNS discovery)")
-    g.add_argument("--discover-timeout", type=int, default=10, metavar="SEC",
-                   help="mDNS browse window in seconds (default: 10)")
-    g.add_argument("--board", metavar="CLASS",
-                   help="filter devices by board class substring")
-
-
-def _add_logs_common_flags(p: argparse.ArgumentParser) -> None:
-    """Minimal common flags for logs (targeting only — avoids suite output flag collisions)."""
-    p.add_argument("--log-level", default=argparse.SUPPRESS,
-                   choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-                   help="log level (default: WARNING)")
-    g = p.add_argument_group("targeting")
-    g.add_argument("--hosts", metavar="H,H,…",
-                   help="comma-separated IPs/hostnames (skip mDNS discovery)")
-    g.add_argument("--discover-timeout", type=int, default=10, metavar="SEC",
-                   help="mDNS browse window in seconds (default: 10)")
-    g.add_argument("--board", metavar="CLASS",
-                   help="filter devices by board class substring")
+# _ota_guard, _ota_settle, _write_outputs already imported from core above.
 
 
 def _parse_duration(s: str) -> float:
@@ -200,346 +95,6 @@ def _parse_duration(s: str) -> float:
     if s.endswith("h"):
         return float(s[:-1]) * 3600
     return float(s)
-
-
-def _build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
-        prog="fleet",
-        description="TaipanMiner fleet test harness",
-    )
-    # Root parser sets the true default; subparsers register --log-level with
-    # SUPPRESS so a post-subcommand value wins without clobbering this default.
-    p.set_defaults(log_level="WARNING")
-    _add_common_flags(p)
-
-    sub = p.add_subparsers(dest="subcommand", metavar="SUBCOMMAND")
-    sub.required = True
-
-    # discover
-    disc = sub.add_parser("discover", help="discover devices via mDNS and print table")
-    _add_common_flags(disc)
-    disc.set_defaults(func=cmd_discover)
-
-    # status
-    st = sub.add_parser("status", help="GET /api/info + /api/health per device")
-    _add_common_flags(st)
-    st.set_defaults(func=cmd_status)
-
-    # probe-endpoints
-    probe_p = sub.add_parser(
-        "probe-endpoints",
-        help="spec-driven endpoint crash probe: hit each GET once and flag uptime regressions",
-    )
-    _add_common_flags(probe_p)
-    probe_p.add_argument(
-        "--include-mutating", dest="include_mutating", action="store_true",
-        help="also probe POST/PUT/PATCH/DELETE endpoints (requires --yes guard)",
-    )
-    probe_p.add_argument(
-        "--include-streaming", dest="include_streaming", action="store_true",
-        help="also probe streaming endpoints (/api/logs, /api/diag/events, /ws) that "
-             "would otherwise hang workers",
-    )
-    probe_p.set_defaults(func=cmd_probe_endpoints)
-
-    # functional
-    fn = sub.add_parser("functional", help=_suite_help("functional"))
-    _add_common_flags(fn)
-    _add_suite_arguments(fn, "functional")
-    fn.set_defaults(func=lambda a: cmd_suite(a, "functional"))
-
-    # soak
-    sk = sub.add_parser("soak", help=_suite_help("soak"))
-    _add_common_flags(sk)
-    _add_suite_arguments(sk, "soak")
-    sk.set_defaults(func=lambda a: cmd_suite(a, "soak"))
-
-    # stress
-    sr = sub.add_parser("stress", help=_suite_help("stress"))
-    _add_common_flags(sr)
-    _add_suite_arguments(sr, "stress")
-    sr.set_defaults(func=lambda a: cmd_suite(a, "stress"))
-
-    # faults
-    fa = sub.add_parser("faults", help=_suite_help("faults"))
-    _add_common_flags(fa)
-    _add_suite_arguments(fa, "faults")
-    fa.set_defaults(func=lambda a: cmd_suite(a, "faults"))
-
-    # telemetry
-    tel = sub.add_parser("telemetry", help=_suite_help("telemetry"))
-    _add_common_flags(tel)
-    _add_suite_arguments(tel, "telemetry")
-    tel.set_defaults(func=lambda a: cmd_suite(a, "telemetry"))
-
-    # describe
-    desc_p = sub.add_parser("describe", help="inspect the served OpenAPI spec")
-    _add_common_flags(desc_p)
-    desc_p.add_argument("path", nargs="?", metavar="PATH",
-                        help="endpoint path to inspect (e.g. /api/settings)")
-    desc_p.add_argument("method", nargs="?", metavar="METHOD",
-                        help="HTTP method to inspect (e.g. PATCH)")
-    desc_p.add_argument("--json", dest="json_raw", action="store_true",
-                        help="dump raw schema JSON instead of pretty table")
-    desc_p.set_defaults(func=cmd_describe)
-
-    # call
-    call_p = sub.add_parser("call", help="make an arbitrary API request (safety-gated for mutating methods)")
-    _add_common_flags(call_p)
-    call_p.add_argument("call_method", metavar="METHOD",
-                        help="HTTP method: GET, POST, PUT, PATCH, DELETE")
-    call_p.add_argument("call_path", metavar="PATH",
-                        help="endpoint path (e.g. /api/settings)")
-    call_p.add_argument("--json", dest="json_body", metavar="JSON",
-                        help="request body as inline JSON string")
-    call_p.add_argument("--json-file", dest="json_file", metavar="FILE",
-                        help="request body from JSON file")
-    call_p.add_argument("--no-validate", dest="no_validate", action="store_true",
-                        help="skip request body schema validation against the served spec")
-    call_p.set_defaults(func=cmd_call)
-
-    # watch
-    watch_p = sub.add_parser(
-        "watch",
-        help="poll an endpoint per-device and observe field values (CI-safe, read-only)",
-    )
-    _add_watch_common_flags(watch_p)
-    watch_p.add_argument("watch_path", metavar="PATH",
-                         help="endpoint path to poll (e.g. /api/diag/heap)")
-    watch_p.add_argument("--fields", metavar="F,F,…",
-                         help="comma-separated dotted fields to extract (default: whole response)")
-    watch_p.add_argument("--interval", type=float, default=5.0, metavar="SEC",
-                         help="seconds between polls (default: 5)")
-    watch_p.add_argument("--duration", metavar="DUR",
-                         help="stop after this duration: 30s / 5m / 1h / bare seconds")
-    watch_p.add_argument("--count", type=int, default=None, metavar="N",
-                         help="stop after N ticks per device")
-    watch_p.add_argument("--on-change", dest="on_change", action="store_true",
-                         help="only emit a row when tracked fields change")
-    watch_p.add_argument("--until", metavar="EXPR",
-                         help="exit 0 when expression is satisfied (all devices, or --any)")
-    watch_p.add_argument("--any", dest="any_device", action="store_true",
-                         help="with --until/--alert: condition met when ANY device satisfies")
-    watch_p.add_argument("--alert", metavar="EXPR",
-                         help="flag rows when expression is true (non-terminating)")
-    watch_p.add_argument("--out-json", metavar="PATH", dest="out_json",
-                         help="write time-series records as JSON list to file")
-    watch_p.add_argument("--out-csv", metavar="PATH", dest="out_csv",
-                         help="write time-series records as CSV to file")
-    watch_p.set_defaults(func=cmd_watch)
-
-    # logs
-    logs_p = sub.add_parser(
-        "logs",
-        help="retrieve device kernel log via GET /api/logs (SSE, read-only)",
-    )
-    _add_logs_common_flags(logs_p)
-    logs_p.add_argument("--follow", "-f", action="store_true",
-                        help="stream until Ctrl-C (clean exit)")
-    logs_p.add_argument("--duration", metavar="DUR",
-                        help="stop after this duration: 30s / 5m / 1h / bare seconds")
-    logs_p.add_argument("--lines", type=int, default=None, metavar="N",
-                        help="stop after N log lines (default: 50 when neither --follow nor --duration given)")
-    logs_p.add_argument("--out", metavar="PATH", dest="out_path",
-                        help="also write captured lines to a file (in addition to stdout)")
-    logs_p.set_defaults(func=cmd_logs)
-
-    # ota
-    ota_p = sub.add_parser("ota", help="OTA firmware operations")
-    _add_common_flags(ota_p)
-    ota_sub = ota_p.add_subparsers(dest="ota_op", metavar="OP")
-    ota_sub.required = True
-
-    op_push = ota_sub.add_parser("push", help="push a local .bin to devices")
-    _add_common_flags(op_push)
-    op_push.add_argument("--bin", dest="binfile", metavar="PATH", required=True,
-                         help="path to firmware .bin")
-    op_push.add_argument("--target", metavar="VER", dest="target_version",
-                         help="expected version after flashing")
-    op_push.add_argument("--mark-valid", dest="mark_valid", action="store_true",
-                         default=False,
-                         help="after push succeeds, POST /api/update/mark-valid to "
-                              "force-validate the image (prevents rollback); "
-                              "default: let firmware self-validate")
-    op_push.set_defaults(func=cmd_ota_push)
-
-    op_pull = ota_sub.add_parser("pull", help="trigger pull-OTA on devices")
-    _add_common_flags(op_pull)
-    op_pull.add_argument("--mode", default="auto", choices=["auto", "pull"],
-                         help="OTA mode: auto=detect boot/pull mode (default), pull=force")
-    op_pull.add_argument("--target", metavar="VER", dest="target_version",
-                         help="assert devices land on this version")
-    op_pull.set_defaults(func=cmd_ota_pull)
-
-    op_mark = ota_sub.add_parser("mark-valid", help="mark current image valid")
-    _add_common_flags(op_mark)
-    op_mark.set_defaults(func=cmd_ota_mark_valid)
-
-    op_recover = ota_sub.add_parser("recover", help="rollback to previous image")
-    _add_common_flags(op_recover)
-    op_recover.set_defaults(func=cmd_ota_recover)
-
-    op_ostatus = ota_sub.add_parser("status", help="read /api/update/status + /api/update/progress")
-    _add_common_flags(op_ostatus)
-    op_ostatus.set_defaults(func=cmd_ota_status)
-
-    op_verify = ota_sub.add_parser("verify", help="verify version + ota_validated")
-    _add_common_flags(op_verify)
-    op_verify.add_argument("--target", metavar="VER", dest="target_version", required=True,
-                           help="expected version string")
-    op_verify.set_defaults(func=cmd_ota_verify)
-
-    # decode
-    dec_p = sub.add_parser(
-        "decode",
-        help="decode a panic backtrace from a live device (uses archived ELF)",
-    )
-    dec_p.add_argument("host", metavar="HOST",
-                       help="device IP or hostname to fetch /api/diag/panic from")
-    dec_p.add_argument("--elf", dest="elf_path", metavar="PATH",
-                       help="explicit ELF file (overrides archive lookup)")
-    dec_p.add_argument("--toolchain-path", dest="toolchain_path", metavar="PATH",
-                       help="explicit path to addr2line binary (overrides auto-detect)")
-    dec_p.add_argument("--log-level", default=argparse.SUPPRESS,
-                       choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-                       help="log level (default: WARNING)")
-    dec_p.set_defaults(func=cmd_decode)
-
-    # elf
-    elf_p = sub.add_parser("elf", help="ELF archive management")
-    elf_sub = elf_p.add_subparsers(dest="elf_op", metavar="OP")
-    elf_sub.required = True
-
-    elf_archive = elf_sub.add_parser("archive", help="manually archive a firmware ELF")
-    elf_archive.add_argument("elf_path", metavar="PATH", help="path to firmware .elf")
-    elf_archive.add_argument("--board", default="", metavar="BOARD", help="board name")
-    elf_archive.add_argument("--version", default="", metavar="VER", help="firmware version")
-    elf_archive.add_argument("--log-level", default=argparse.SUPPRESS,
-                             choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-                             help="log level (default: WARNING)")
-    elf_archive.set_defaults(func=cmd_elf_archive)
-
-    elf_list = elf_sub.add_parser("list", help="list archived ELFs with in-use status")
-    elf_list.add_argument("--hosts", metavar="H,H,…",
-                          help="comma-separated IPs/hostnames (skip mDNS discovery)")
-    elf_list.add_argument("--discover-timeout", type=int, default=10, metavar="SEC",
-                          help="mDNS browse window in seconds (default: 10)")
-    elf_list.add_argument("--board", metavar="CLASS",
-                          help="filter devices by board class substring")
-    elf_list.add_argument("--log-level", default=argparse.SUPPRESS,
-                          choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-                          help="log level (default: WARNING)")
-    elf_list.set_defaults(func=cmd_elf_list)
-
-    elf_prune = elf_sub.add_parser("prune", help="prune archived ELFs by budget or in-use GC")
-    elf_prune.add_argument("--keep", type=int, default=20, metavar="N",
-                           help="keep N most-recent entries (default: 20)")
-    elf_prune.add_argument("--max-age", dest="max_age", metavar="DUR",
-                           help="delete entries older than DUR (e.g. 30d, 7d, 1h)")
-    elf_prune.add_argument("--in-use", dest="in_use", action="store_true",
-                           help="fleet-aware GC: delete ELFs NOT running on any discovered device")
-    elf_prune.add_argument("--hosts", metavar="H,H,…",
-                           help="comma-separated IPs/hostnames (authoritative set for --in-use)")
-    elf_prune.add_argument("--discover-timeout", type=int, default=10, metavar="SEC",
-                           help="mDNS browse window in seconds (default: 10)")
-    elf_prune.add_argument("--board", metavar="CLASS",
-                           help="filter devices by board class substring")
-    elf_prune.add_argument("--grace-keep", type=int, default=5, dest="grace_keep",
-                           metavar="N",
-                           help="always keep the N most-recently archived entries "
-                                "regardless of in-use status (default: 5)")
-    elf_prune.add_argument("--dry-run", action="store_true",
-                           help="show what would be deleted without deleting")
-    elf_prune.add_argument("--yes", action="store_true",
-                           help="skip confirmation prompt")
-    elf_prune.add_argument("--log-level", default=argparse.SUPPRESS,
-                           choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-                           help="log level (default: WARNING)")
-    elf_prune.set_defaults(func=cmd_elf_prune)
-
-    return p
-
-
-def _add_suite_arguments(parser: argparse.ArgumentParser, suite_name: str) -> None:
-    """Call suite.add_arguments(parser) if the suite module is importable.
-
-    Degrades gracefully on ImportError so the parser still builds.
-    """
-    try:
-        from suites import load_suite
-        mod = load_suite(suite_name)
-        mod.add_arguments(parser)
-    except ImportError as exc:
-        import warnings
-        warnings.warn(f"suite {suite_name}: add_arguments skipped ({exc})", stacklevel=2)
-    except Exception:
-        pass
-
-
-def _suite_help(name: str) -> str:
-    try:
-        from suites import SUITES, load_suite
-        if name in SUITES:
-            mod = load_suite(name)
-            return getattr(mod, "HELP", f"run {name} suite")
-    except Exception:
-        pass
-    return f"run {name} suite"
-
-
-def _build_context(args, suite_name: str = "fleet") -> SuiteContext:
-    """Construct SuiteContext from parsed args."""
-    # Load criteria
-    criteria_path = getattr(args, "criteria", None)
-    if criteria_path:
-        criteria = load_criteria(criteria_path)
-    else:
-        criteria = load_criteria()
-
-    # Settle config — opt-in: off by default; --settle enables
-    settle_arg = getattr(args, "settle", None)
-    if settle_arg is None:
-        # No --settle flag: settle OFF
-        settle = SettleConfig(settle_delay=0, enabled=False)
-    elif settle_arg is _SETTLE_BARE:
-        # --settle (bare): ON, use criteria default
-        settle = SettleConfig(settle_delay=criteria.settle_delay, enabled=True)
-    else:
-        # --settle N: ON, use explicit seconds
-        settle = SettleConfig(settle_delay=settle_arg, enabled=True)
-
-    # Guard
-    guard = Guard(
-        dry_run=getattr(args, "dry_run", False),
-        confirm=getattr(args, "yes", False),
-    )
-
-    # Fields
-    fields_raw = getattr(args, "fields", None)
-    fields = [f.strip() for f in fields_raw.split(",") if f.strip()] if fields_raw else None
-
-    # Gates
-    enabled_gates: set = set(args.gates)
-    # Note: --skip removes from gates; if no --gate specified, empty = all enabled
-    # so --skip only makes sense with explicit --gate or when all are enabled.
-    for name in args.skip_gates:
-        enabled_gates.discard(name)
-
-    results = ResultSet(suite_name=suite_name)
-
-    return SuiteContext(
-        devices=[],          # filled in by resolve_devices before suite run
-        criteria=criteria,
-        guard=guard,
-        results=results,
-        fields=fields,
-        gates=enabled_gates,
-        settle=settle,
-        out_json=getattr(args, "out_json", None),
-        out_junit=getattr(args, "out_junit", None),
-        baseline=getattr(args, "baseline", None),
-        profiles=Profiles.load(),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1490,55 +1045,6 @@ def _stream_one_device(
     return 0
 
 
-def _write_outputs(
-    records: list,
-    fields,
-    devices,
-    out_json_path,
-    out_csv_path,
-) -> None:
-    """Write accumulated records to JSON and/or CSV output files."""
-    import csv as _csv
-    import json as _json
-
-    if out_json_path:
-        with open(out_json_path, "w") as fh:
-            _json.dump(records, fh, indent=2, default=str)
-
-    if out_csv_path:
-        if fields:
-            header = ["ts", "host"] + list(fields)
-        else:
-            header = ["ts", "host", "response"]
-        with open(out_csv_path, "w", newline="") as fh:
-            writer = _csv.writer(fh)
-            writer.writerow(header)
-            for rec in records:
-                if fields:
-                    row = [rec["ts"], rec["host"]] + [
-                        rec["fields"].get(f) for f in fields
-                    ]
-                else:
-                    row = [rec["ts"], rec["host"], _json.dumps(rec.get("response", {}), separators=(",", ":"))]
-                writer.writerow(row)
-
-
-def _ota_guard(args) -> Guard:
-    return Guard(
-        dry_run=getattr(args, "dry_run", False),
-        confirm=getattr(args, "yes", False),
-    )
-
-
-def _ota_settle(args) -> "SettleConfig":
-    settle_arg = getattr(args, "settle", None)
-    if settle_arg is None:
-        return SettleConfig(enabled=False)
-    if settle_arg is _SETTLE_BARE:
-        return SettleConfig(settle_delay=120, enabled=True)
-    return SettleConfig(settle_delay=settle_arg, enabled=True)
-
-
 def cmd_ota_push(args) -> int:
     """OTA push a local binary to devices.
 
@@ -2158,20 +1664,9 @@ def _fmt_uptime(uptime_ms: int) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Entry point
+# Entry point — delegate to registry-driven dispatcher in cli.py
 # ---------------------------------------------------------------------------
 
-def main() -> int:
-    parser = _build_parser()
-    args = parser.parse_args()
-
-    logging.basicConfig(
-        level=getattr(logging, args.log_level),
-        format="%(levelname)s %(name)s: %(message)s",
-    )
-
-    return args.func(args)
-
-
 if __name__ == "__main__":
+    from cli import main
     sys.exit(main())

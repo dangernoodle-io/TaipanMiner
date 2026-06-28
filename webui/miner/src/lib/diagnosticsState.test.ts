@@ -147,6 +147,13 @@ describe('init()', () => {
     await initPromise
   })
 
+  it('connects to /api/events?topic=log with eventName=log', async () => {
+    const ds = createDiagnosticsState()
+    await ds.init()
+    expect(lastSseInstance().callbacks.url).toMatch('/api/events?topic=log')
+    expect(lastSseInstance().callbacks.eventName).toBe('log')
+  })
+
   it('calls loadDiagAsic and other loads sequentially', async () => {
     const ds = createDiagnosticsState()
     await ds.init()
@@ -336,8 +343,8 @@ describe('clear()', () => {
     const ds = createDiagnosticsState()
     ds.init()
     // Simulate some messages via the SSE onMessage callback
-    lastSseInstance().callbacks.onMessage('line1')
-    lastSseInstance().callbacks.onMessage('line2')
+    lastSseInstance().callbacks.onMessage(JSON.stringify({ ts: 1, level: 'I', tag: 'app', msg: 'line1' }))
+    lastSseInstance().callbacks.onMessage(JSON.stringify({ ts: 2, level: 'I', tag: 'app', msg: 'line2' }))
     await flushMicrotasks()
     expect(ds.lines).toHaveLength(2)
     ds.clear()
@@ -346,16 +353,24 @@ describe('clear()', () => {
 })
 
 describe('SSE callbacks', () => {
-  it('onMessage appends to lines', async () => {
+  it('onMessage parses JSON and appends formatted lines', async () => {
     const ds = createDiagnosticsState()
     await ds.init()
-    lastSseInstance().callbacks.onMessage('hello')
-    lastSseInstance().callbacks.onMessage('world')
+    lastSseInstance().callbacks.onMessage(JSON.stringify({ ts: 1, level: 'I', tag: 'wifi', msg: 'hello' }))
+    lastSseInstance().callbacks.onMessage(JSON.stringify({ ts: 2, level: 'W', tag: 'net', msg: 'world' }))
     // Flush the queueMicrotask scheduled by onMessage (autoscroll path) so
     // the microtask runs deterministically inside this test, not during V8
     // coverage collection for a subsequent test.
     await flushMicrotasks()
-    expect(ds.lines).toEqual(['hello', 'world'])
+    expect(ds.lines).toEqual(['[I] [wifi] hello', '[W] [net] world'])
+  })
+
+  it('onMessage falls back to raw string on invalid JSON', async () => {
+    const ds = createDiagnosticsState()
+    await ds.init()
+    lastSseInstance().callbacks.onMessage('not-json')
+    await flushMicrotasks()
+    expect(ds.lines).toEqual(['not-json'])
   })
 
   it('onMessage caps lines at 500', async () => {
@@ -363,12 +378,12 @@ describe('SSE callbacks', () => {
     await ds.init()
     // Push 501 lines
     for (let i = 0; i < 501; i++) {
-      lastSseInstance().callbacks.onMessage(`line${i}`)
+      lastSseInstance().callbacks.onMessage(JSON.stringify({ ts: i, level: 'I', tag: 't', msg: `line${i}` }))
     }
     await flushMicrotasks()
     expect(ds.lines).toHaveLength(500)
-    expect(ds.lines[0]).toBe('line1') // first line dropped
-    expect(ds.lines[499]).toBe('line500')
+    expect(ds.lines[0]).toBe('[I] [t] line1') // first line dropped
+    expect(ds.lines[499]).toBe('[I] [t] line500')
   })
 
   it('onStatusChange updates status', async () => {
@@ -497,8 +512,8 @@ describe('$derived: filtered', () => {
   it('returns all lines when filter is empty', async () => {
     const ds = createDiagnosticsState()
     ds.init()
-    lastSseInstance().callbacks.onMessage('INFO hello')
-    lastSseInstance().callbacks.onMessage('DEBUG world')
+    lastSseInstance().callbacks.onMessage(JSON.stringify({ ts: 1, level: 'I', tag: 'app', msg: 'hello' }))
+    lastSseInstance().callbacks.onMessage(JSON.stringify({ ts: 2, level: 'D', tag: 'app', msg: 'world' }))
     await flushMicrotasks()
     expect(ds.filtered).toHaveLength(2)
   })
@@ -506,11 +521,11 @@ describe('$derived: filtered', () => {
   it('filters lines when filter is set', async () => {
     const ds = createDiagnosticsState()
     ds.init()
-    lastSseInstance().callbacks.onMessage('INFO hello')
-    lastSseInstance().callbacks.onMessage('DEBUG world')
+    lastSseInstance().callbacks.onMessage(JSON.stringify({ ts: 1, level: 'I', tag: 'wifi', msg: 'hello' }))
+    lastSseInstance().callbacks.onMessage(JSON.stringify({ ts: 2, level: 'D', tag: 'net', msg: 'world' }))
     await flushMicrotasks()
-    ds.filter = 'info'
-    expect(ds.filtered).toEqual(['INFO hello'])
+    ds.filter = 'wifi'
+    expect(ds.filtered).toEqual(['[I] [wifi] hello'])
   })
 })
 

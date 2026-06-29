@@ -13,6 +13,7 @@ from commands import call as _call
 from commands import watch as _watch
 from commands import logs as _logs
 from commands import ota as _ota
+from commands import reboot as _reboot
 from commands import decode as _decode
 from commands import elf as _elf
 
@@ -34,5 +35,6 @@ COMMANDS["call"] = _call
 COMMANDS["watch"] = _watch
 COMMANDS["logs"] = _logs
 COMMANDS["ota"] = _ota
+COMMANDS["reboot"] = _reboot
 COMMANDS["decode"] = _decode
 COMMANDS["elf"] = _elf

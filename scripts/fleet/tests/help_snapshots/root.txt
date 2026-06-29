@@ -32,6 +32,7 @@ positional arguments:
     logs                retrieve device kernel log via GET /api/logs (SSE,
                         read-only)
     ota                 OTA firmware operations
+    reboot              Reboot devices (POST /api/reboot), safety-gated
     decode              decode a panic backtrace from a live device (uses
                         archived ELF)
     elf                 ELF archive management

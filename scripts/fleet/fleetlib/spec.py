@@ -53,6 +53,16 @@ class Spec:
         except (KeyError, TypeError):
             return None
 
+    def request_required(self, path: str, method: str = "patch") -> bool:
+        """Return requestBody.required for the given path/method (default False)."""
+        try:
+            return bool(
+                self._doc["paths"][path][method.lower()]
+                ["requestBody"].get("required", False)
+            )
+        except (KeyError, TypeError):
+            return False
+
     def validate(self, path: str, method: str, response_json: Any) -> List[str]:
         """Validate response_json against the schema served for this path/method.
 

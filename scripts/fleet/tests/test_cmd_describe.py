@@ -293,5 +293,154 @@ class TestCmdDescribeRawJson(unittest.TestCase):
         self.assertIn('"type"', out)
 
 
+# ---------------------------------------------------------------------------
+# request_required accessor tests
+# ---------------------------------------------------------------------------
+
+class TestRequestRequired(unittest.TestCase):
+    def test_required_true(self):
+        spec = Spec({
+            "paths": {
+                "/api/telemetry": {
+                    "patch": {
+                        "requestBody": {
+                            "required": True,
+                            "content": {"application/json": {"schema": {"type": "object"}}},
+                        }
+                    }
+                }
+            }
+        })
+        self.assertTrue(spec.request_required("/api/telemetry", "patch"))
+
+    def test_required_missing_defaults_false(self):
+        spec = Spec({
+            "paths": {
+                "/api/settings": {
+                    "patch": {
+                        "requestBody": {
+                            "content": {"application/json": {"schema": {"type": "object"}}},
+                        }
+                    }
+                }
+            }
+        })
+        self.assertFalse(spec.request_required("/api/settings", "patch"))
+
+    def test_required_missing_path_defaults_false(self):
+        spec = Spec({"paths": {}})
+        self.assertFalse(spec.request_required("/api/nonexistent", "patch"))
+
+
+# ---------------------------------------------------------------------------
+# describe.py run() — request-body header and description rendering
+# ---------------------------------------------------------------------------
+
+# Spec with a bare-object requestBody that has a description and required: true
+_TELEMETRY_SPEC = {
+    "openapi": "3.1.0",
+    "info": {"title": "TaipanMiner", "version": "1.0.0"},
+    "paths": {
+        "/api/telemetry": {
+            "patch": {
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "description": "Keys are section names (mqtt, http, publisher); values are section-specific patch objects",
+                            }
+                        }
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {"type": "object", "properties": {"ok": {"type": "boolean"}}}
+                            }
+                        }
+                    }
+                },
+            }
+        }
+    },
+}
+
+
+class TestCmdDescribeBodyMeta(unittest.TestCase):
+    def setUp(self):
+        import commands.describe as describe_mod
+        self.describe_mod = describe_mod
+
+    def _run(self, args, spec_doc):
+        buf = io.StringIO()
+        with patch("builtins.print", lambda *a, **kw: buf.write(" ".join(str(x) for x in a) + "\n")):
+            with patch("commands.describe.resolve_devices", return_value=[_make_device()]):
+                with patch("fleetlib.client.Client.spec", new_callable=lambda: property(lambda self: spec_doc)):
+                    code = self.describe_mod.run(args)
+        return code, buf.getvalue()
+
+    def test_required_header_and_description_shown(self):
+        """requestBody with required:true and description surfaces both in output."""
+        args = _args(path="/api/telemetry", method="PATCH")
+        code, out = self._run(args, _TELEMETRY_SPEC)
+        self.assertEqual(code, 0)
+        self.assertIn("Request body (required):", out)
+        self.assertIn("Keys are section names", out)
+
+    def test_no_properties_no_description_does_not_crash(self):
+        """Bare-object schema without description still prints (type: object)."""
+        spec_doc = {
+            "openapi": "3.1.0",
+            "info": {"title": "T", "version": "1.0.0"},
+            "paths": {
+                "/api/foo": {
+                    "patch": {
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {"type": "object"}
+                                }
+                            }
+                        },
+                        "responses": {"200": {"content": {"application/json": {"schema": {"type": "object"}}}}},
+                    }
+                }
+            },
+        }
+        args = _args(path="/api/foo", method="PATCH")
+        code, out = self._run(args, spec_doc)
+        self.assertEqual(code, 0)
+        self.assertIn("type: object", out)
+
+    def test_no_required_flag_header_plain(self):
+        """requestBody without required flag uses plain 'Request body:' header."""
+        spec_doc = {
+            "openapi": "3.1.0",
+            "info": {"title": "T", "version": "1.0.0"},
+            "paths": {
+                "/api/bar": {
+                    "patch": {
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {"type": "object", "properties": {"x": {"type": "integer"}}}
+                                }
+                            }
+                        },
+                        "responses": {"200": {"content": {"application/json": {"schema": {"type": "object"}}}}},
+                    }
+                }
+            },
+        }
+        args = _args(path="/api/bar", method="PATCH")
+        code, out = self._run(args, spec_doc)
+        self.assertEqual(code, 0)
+        self.assertIn("Request body:", out)
+        self.assertNotIn("(required)", out)
+
+
 if __name__ == "__main__":
     unittest.main()

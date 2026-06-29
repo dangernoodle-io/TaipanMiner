@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from fleetlib.discovery import Device
+from fleetlib.discovery import Device, EnrichFailure, ResolveResult
 
 
 def _make_device(ip="192.0.2.10", board="esp32-wroom32") -> Device:
@@ -251,6 +251,152 @@ class TestJsonOutput(unittest.TestCase):
         finally:
             if os.path.exists(tf):
                 os.unlink(tf)
+
+
+def _run_watch_result(resolve_result, args, responses_map):
+    """Like _run_watch but accepts a ResolveResult (for --hosts / flapping tests).
+
+    responses_map: {ip: [resp_tick0, ...] | None}
+    A None response list means get_json raises ConnectionRefusedError every call.
+    """
+    import commands.watch as watch_cmd
+
+    call_counts = {ip: 0 for ip in responses_map}
+
+    def _make_client(ip, port=80):
+        c = MagicMock()
+        resps = responses_map.get(ip, [{}])
+
+        def _get_json(path, timeout=5):
+            if resps is None:
+                raise ConnectionRefusedError("connection refused")
+            idx = min(call_counts[ip], len(resps) - 1)
+            call_counts[ip] += 1
+            return resps[idx]
+
+        c.get_json = _get_json
+        c.spec = None
+        return c
+
+    stdout_buf = io.StringIO()
+    stderr_buf = io.StringIO()
+
+    with patch("commands.watch.resolve_devices", return_value=resolve_result):
+        with patch("fleetlib.client.Client", side_effect=_make_client):
+            with patch("time.sleep", return_value=None):
+                with patch("sys.stdout", stdout_buf):
+                    with patch("sys.stderr", stderr_buf):
+                        code = watch_cmd.run(args)
+
+    return code, stdout_buf.getvalue(), stderr_buf.getvalue()
+
+
+class TestDownAtT0ThenRecovered(unittest.TestCase):
+    """Host down at t=0 should be retained; data captured once it comes back."""
+
+    def test_host_down_t0_then_up(self):
+        # t=0: host fails enrichment → in failures; t=1: host responds.
+        ip = "192.0.2.50"
+        resolve_result = ResolveResult(
+            devices=[],
+            failures=[EnrichFailure(host=ip, reason="timeout after 5s", category="timeout")],
+            from_mdns=False,
+        )
+        args = _base_args(hosts=ip, count=2)
+        # tick 0: None (still down), tick 1: real data
+        responses_map = {ip: [None, {"free": 9999}]}
+        code, out, err = _run_watch_result(resolve_result, args, responses_map)
+        self.assertEqual(code, 0)
+        self.assertIn("9999", out, "recovered data should appear in output")
+        self.assertIn("unreachable", err, "unreachable tick should be noted on stderr")
+
+
+class TestAllHostsDownAtT0(unittest.TestCase):
+    """All named --hosts down at t=0 → loop keeps polling, does NOT return 1."""
+
+    def test_all_down_keeps_polling(self):
+        ip1 = "192.0.2.60"
+        ip2 = "192.0.2.61"
+        resolve_result = ResolveResult(
+            devices=[],
+            failures=[
+                EnrichFailure(host=ip1, reason="timeout after 5s", category="timeout"),
+                EnrichFailure(host=ip2, reason="connection refused", category="refused"),
+            ],
+            from_mdns=False,
+        )
+        args = _base_args(hosts=f"{ip1},{ip2}", count=3)
+        # Both hosts stay down every tick.
+        responses_map = {ip1: [None], ip2: [None]}
+        code, out, err = _run_watch_result(resolve_result, args, responses_map)
+        # Should complete the full count (return 0), not abort immediately (return 1).
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "", "no data rows expected when all hosts down")
+        self.assertIn("unreachable", err)
+
+
+class TestMidWatchHostDrop(unittest.TestCase):
+    """Host reachable at tick 0, drops at tick 1 → tick 1 recorded unreachable, loop continues."""
+
+    def test_mid_watch_drop_no_crash(self):
+        device = _make_device()
+        resolve_result = ResolveResult(
+            devices=[device],
+            failures=[],
+            from_mdns=False,
+        )
+        args = _base_args(hosts=device.ip, count=3)
+        # tick 0: ok, tick 1: None (drops), tick 2: ok again
+        responses_map = {device.ip: [{"x": 1}, None, {"x": 3}]}
+        code, out, err = _run_watch_result(resolve_result, args, responses_map)
+        self.assertEqual(code, 0)
+        rows = [l for l in out.strip().splitlines() if l.strip()]
+        self.assertEqual(len(rows), 2, f"expected 2 data rows, got {len(rows)}: {out!r}")
+        self.assertIn("unreachable", err)
+
+
+class TestDiscoveryModeZeroDevicesStillReturns1(unittest.TestCase):
+    """mDNS discovery with zero devices → return 1 (unchanged behaviour)."""
+
+    def test_discovery_no_devices_returns_1(self):
+        resolve_result = ResolveResult(devices=[], failures=[], from_mdns=True)
+        # No --hosts → discovery mode.
+        args = _base_args(hosts=None, count=1)
+        code, out, err = _run_watch_result(resolve_result, args, {})
+        self.assertEqual(code, 1)
+
+
+class TestUntilWithUnreachableTick(unittest.TestCase):
+    """--until with an unreachable tick present: no crash; predicate skipped."""
+
+    def test_until_skips_unreachable(self):
+        ip = "192.0.2.70"
+        resolve_result = ResolveResult(
+            devices=[],
+            failures=[EnrichFailure(host=ip, reason="timeout after 5s", category="timeout")],
+            from_mdns=False,
+        )
+        # count=3: tick 0 down, tick 1 satisfies until, tick 2 never reached.
+        args = _base_args(hosts=ip, until="value > 0", count=3)
+        responses_map = {ip: [None, {"value": 42}]}
+        code, out, err = _run_watch_result(resolve_result, args, responses_map)
+        # --until satisfied at tick 1 → exit 0.
+        self.assertEqual(code, 0)
+        self.assertIn("42", out)
+
+    def test_alert_skips_unreachable(self):
+        ip = "192.0.2.71"
+        resolve_result = ResolveResult(
+            devices=[],
+            failures=[EnrichFailure(host=ip, reason="timeout after 5s", category="timeout")],
+            from_mdns=False,
+        )
+        # All ticks down; --alert should not crash.
+        args = _base_args(hosts=ip, alert="value > 0", count=2)
+        responses_map = {ip: [None]}
+        code, out, err = _run_watch_result(resolve_result, args, responses_map)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "")  # no data rows
 
 
 if __name__ == "__main__":

@@ -61,7 +61,11 @@ def _render_schema(schema: dict, indent: int = 0) -> None:
 
     if not props:
         schema_type = schema.get("type", "any")
-        print(f"{pad}(type: {schema_type})")
+        desc = schema.get("description", "")
+        if desc:
+            print(f"{pad}(type: {schema_type}) — {desc}")
+        else:
+            print(f"{pad}(type: {schema_type})")
         return
 
     print(f"{pad}{'FIELD':<32} {'TYPE':<14} {'REQ':<4} NOTES")
@@ -150,7 +154,8 @@ def run(args) -> int:
 
         req_schema = spec.request_schema(path, m)
         if req_schema is not None:
-            print("\n  Request body:")
+            req_hdr = "Request body (required):" if spec.request_required(path, m) else "Request body:"
+            print(f"\n  {req_hdr}")
             if raw_json:
                 print(_json.dumps(req_schema, indent=4))
             else:

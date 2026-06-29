@@ -1,6 +1,6 @@
 PIO ?= pio
 
-.PHONY: help check test coverage build clean monitor compile-db lsp-% webui
+.PHONY: help check test coverage build clean monitor compile-db lsp-% webui lint
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_%-]+:.*##' $(MAKEFILE_LIST) | sort | \
@@ -65,6 +65,9 @@ flash-factory-%: ## Erase flash + write factory image — fresh device / re-ente
 
 monitor: ## Serial monitor
 	$(PIO) device monitor
+
+lint: ## Run bb advisory conventions lint (advisory only — non-gating)
+	python3 .breadboard/scripts/bbtool.py lint --root . --profile consumer
 
 clean: ## Clean build artifacts
 	$(PIO) run -t clean

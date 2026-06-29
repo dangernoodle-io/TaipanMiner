@@ -248,6 +248,60 @@ def recover(client, guard: "Guard") -> bool:
     return sc in (200, 202, 204)
 
 
+def reboot(
+    client,
+    guard: "Guard",
+    settle: Optional[float] = None,
+    criteria: Optional["Criteria"] = None,
+    profile: Optional["Profile"] = None,
+) -> VerifyResult:
+    """Reboot the device via POST /api/reboot (bodyless), safety-gated.
+
+    POST /api/reboot via guard.  sc=None (connection reset mid-response) is the
+    expected success case — the device rebooted before it could close the HTTP
+    connection.  sc in (200, 202, 204, None) is treated as success.
+
+    When settle is given: wait_for_boot then wait_until_ready (with settle_delay
+    set to the given value) to confirm the device recovered.
+    """
+    g = guard.check(client, "POST", "/api/reboot")
+    if Guard.is_dry_run_skip(g):
+        return VerifyResult(ok=True, dry_run=True, detail="dry-run: would reboot")
+
+    sc, _ = client.request("POST", "/api/reboot", timeout=TIMEOUT_WRITE)
+    # sc=None: connection reset because device rebooted — expected success.
+    if sc not in (200, 202, 204, None):
+        return VerifyResult(ok=False, detail=f"reboot rejected HTTP {sc}")
+
+    if settle is None:
+        return VerifyResult(ok=True, detail="reboot issued")
+
+    # Settle path: wait for device to come back up, then wait_until_ready.
+    booted = wait_for_boot(client)
+    if booted is None:
+        return VerifyResult(ok=False, detail="device did not come back up after reboot")
+
+    from .criteria import Criteria as _Criteria, for_profile as _for_profile
+    if criteria is None:
+        settle_criteria = _Criteria(
+            settle_delay=int(settle),
+            readiness_heap_floor=50_000,
+            readiness_hashrate_min=0.0,
+            readiness_vcore_floor=0,
+        )
+        _profile = None
+    else:
+        eff = _for_profile(criteria, profile) if profile is not None else criteria
+        import dataclasses as _dc
+        settle_criteria = _dc.replace(eff, settle_delay=int(settle))
+        _profile = profile
+
+    readiness = wait_until_ready(client, _profile, settle_criteria)
+    ok = readiness.ready
+    detail = "ready" if ok else f"not ready: {readiness.reason}"
+    return VerifyResult(ok=ok, ready=readiness.ready, detail=detail)
+
+
 # ---------------------------------------------------------------------------
 # Read-only
 # ---------------------------------------------------------------------------

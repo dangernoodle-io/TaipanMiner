@@ -81,3 +81,9 @@ if(NOT DEFINED FIRMWARE_BOARD)
     endif()
 endif()
 project(taipanminer-${FIRMWARE_BOARD})
+
+# bb_lint() advisory target — included unconditionally so it's available on
+# both the CI path (which doesn't run bbtool.cmake above) and the local path.
+# bbtool.cmake is double-def guarded; second include is a no-op.
+include("${CMAKE_CURRENT_SOURCE_DIR}/.breadboard/cmake/bbtool.cmake")
+bb_lint()

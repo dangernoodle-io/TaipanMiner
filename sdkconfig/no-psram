@@ -1,0 +1,16 @@
+# no-psram — TCP settings for no-PSRAM boards (wroom32, cyd, tdongle-s3, c3-supermini).
+# s2-mini intentionally uses 2880 (tighter SRAM budget); see sdkconfig/esp32-s2-mini.
+# BB_OTA_PULL_HTTP_CHUNK_SIZE: removed — 4096 IDF default is fine now that OTA runs at
+# boot-mode (early heap) rather than in-place against a fragmented steady-state heap.
+
+# heap: smaller TCP window on no-PSRAM (OTA moves to boot-mode)
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=2920
+CONFIG_LWIP_TCP_WND_DEFAULT=2920
+
+# bb_mdns batch ring (B1-257) — cap on no-PSRAM. Default BATCH_MAX=16 sizes the
+# ring at ~33 KB + an ~8 KB dispatch item; it's SPIRAM-preferred but falls back to
+# INTERNAL heap with no PSRAM, which exhausts the heap (mdns/bb_cache/httpd OOM).
+# 4 × depth 3 → ~8 KB. Dual-core no-PSRAM (wroom32/cyd/tdongle) don't inherit
+# single-core's cap, so it must live here on the PSRAM axis.
+CONFIG_BB_MDNS_BATCH_MAX=4
+CONFIG_BB_MDNS_BATCH_RING_DEPTH=3

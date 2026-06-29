@@ -19,6 +19,9 @@ CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=4
 CONFIG_ESP_WIFI_RX_BA_WIN=4
 
 # LwIP (trimmed)
+# Disable IPv6 — saves ~6-10 KB internal heap on no-PSRAM boards (mDNS/DHCP6/ND tables).
+# Dependent LWIP_IPV6_* symbols cascade off automatically via Kconfig.
+CONFIG_LWIP_IPV6=n
 CONFIG_LWIP_TCP_SND_BUF_DEFAULT=5840
 CONFIG_LWIP_TCP_WND_DEFAULT=5840
 CONFIG_LWIP_TCP_RECVMBOX_SIZE=6
@@ -196,7 +199,9 @@ CONFIG_BB_SINK_HTTP_TELEMETRY_AUTOREGISTER=n
 # HALs present) and override to 16 in SPIRAM (see sdkconfig/bitaxe-*). Payload 512 B
 # fits the oversized ~535 B "info" entry. Ring = (192+1+512)*8 ~= 5.6 KB internal.
 CONFIG_BB_PUB_BUFFER_ENABLE=y
-CONFIG_BB_PUB_BUFFER_ALWAYS=y
+# Fleet-wide: lazy/on-failure mode. Always-on standing cost (~5.6 KB internal) is
+# not affordable on no-PSRAM boards. PSRAM boards (bitaxe) can re-enable if needed.
+CONFIG_BB_PUB_BUFFER_ALWAYS=n
 CONFIG_BB_PUB_BUFFER_MAX_PAYLOAD_BYTES=512
 CONFIG_BB_PUB_BUFFER_MAX_ENTRIES=8
 # bb_pub source cap: 7 breadboard auto-registered sources + mining (this file) = 8;
@@ -225,6 +230,9 @@ CONFIG_BB_EVENT_MAX_TOPICS=20
 # MQTT-TLS overlay.
 CONFIG_MQTT_USE_CUSTOM_CONFIG=y
 CONFIG_MQTT_TASK_STACK_SIZE=5120
+# MQTT RX buffer: 256 B covers QoS-0 publish ACK + small broker messages.
+# Default (1024 B) is over-provisioned for our pub-only + subscribe-to-commands pattern.
+CONFIG_BB_MQTT_RX_BUFFER_BYTES=256
 
 # B1-352: bb_pub worker raised 4096->8192. The new mining_rates/pool/sensors_miner
 # sources build snapshot structs + JSON on the worker stack each tick; the 4096

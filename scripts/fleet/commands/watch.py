@@ -74,10 +74,36 @@ def run(args) -> int:
     out_csv_path = getattr(args, "out_csv", None)
 
     _resolve_result = resolve_devices(args)
-    devices = unwrap_devices(_resolve_result)
-    if not devices:
-        print(no_devices_message(_resolve_result), file=sys.stderr)
-        return 1
+    from fleetlib.discovery import ResolveResult, Device
+
+    # Build the watch device set:
+    # - Explicit --hosts: retain ALL requested hosts. Hosts that were unreachable
+    #   at t=0 are kept as minimal Device stubs so they stay in the rotation and
+    #   get polled every tick — captured as soon as they come back.
+    # - Discovery (mDNS, no --hosts): zero devices means nothing was found; abort.
+    has_explicit_hosts = bool(getattr(args, "hosts", None))
+    if has_explicit_hosts and isinstance(_resolve_result, ResolveResult):
+        # Start with successfully enriched devices.
+        devices = list(_resolve_result.devices)
+        # Append a minimal stub for each host that failed enrichment at t=0.
+        for failure in _resolve_result.failures:
+            stub = Device(
+                hostname=failure.host,
+                ip=failure.host,
+                port=80,
+                board=None,
+                version=None,
+            )
+            devices.append(stub)
+        if not devices:
+            # No hosts at all — shouldn't happen since --hosts was given, but guard.
+            print(no_devices_message(_resolve_result), file=sys.stderr)
+            return 1
+    else:
+        devices = unwrap_devices(_resolve_result)
+        if not devices:
+            print(no_devices_message(_resolve_result), file=sys.stderr)
+            return 1
 
     # Compile expressions
     until_pred = None
@@ -122,14 +148,27 @@ def run(args) -> int:
             tick_start = time.time()
 
             for d in devices:
-                c = Client(d.ip, getattr(d, "port", 80))
-                data = c.get_json(watch_path, timeout=TIMEOUT_INFO)
-
                 ts = datetime.datetime.now().strftime("%H:%M:%S")
                 ts_iso = datetime.datetime.now().isoformat(timespec="seconds")
 
+                # Per-tick fetch: isolate failures so a down host never disrupts
+                # the loop or other hosts.
+                try:
+                    c = Client(d.ip, getattr(d, "port", 80))
+                    data = c.get_json(watch_path, timeout=TIMEOUT_INFO)
+                except Exception:
+                    data = None
+
                 if data is None:
-                    print(f"{ts}  {d.ip}  ERROR", file=sys.stderr)
+                    print(f"{ts}  {d.ip}  unreachable", file=sys.stderr)
+                    # Record an unreachable tick for file outputs.
+                    if out_json_path or out_csv_path:
+                        if fields:
+                            rec = {"ts": ts_iso, "host": d.ip, "fields": {f: None for f in fields}, "unreachable": True}
+                        else:
+                            rec = {"ts": ts_iso, "host": d.ip, "response": None, "unreachable": True}
+                        records.append(rec)
+                    # Skip predicate evaluation for unreachable ticks.
                     continue
 
                 # Extract field values
@@ -150,7 +189,7 @@ def run(args) -> int:
                         continue
                     prev_values[d.ip] = cur_snapshot
 
-                # --alert evaluation
+                # --alert evaluation (only on reachable ticks)
                 is_alert = alert_pred is not None and alert_pred.eval(data)
 
                 # Build output row
@@ -173,7 +212,7 @@ def run(args) -> int:
                     rec = {"ts": ts_iso, "host": d.ip, "response": data}
                 records.append(rec)
 
-                # --until check
+                # --until check (only on reachable ticks)
                 if until_pred is not None and until_pred.eval(data):
                     until_satisfied.add(d.ip)
 

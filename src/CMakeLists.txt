@@ -1,7 +1,3 @@
-# partition_fixup_data.c is generated per-env into ${CMAKE_BINARY_DIR} by
-# scripts/embed_partitions.py (TA-332: prevents parallel-build races on a
-# shared src/ output).
-
 # Board-specific display backend: tdongle-s3 uses ST7735 (SPI), bitaxe-* use SSD1306 (I2C).
 # Both backends share bb_display; only one is linked per build to avoid spurious
 # probe/init attempts for the absent panel type.
@@ -18,7 +14,7 @@ else()
 endif()
 
 idf_component_register(
-    SRCS "main.c" "tm_pre_http.c" "partition_fixup.c" "partition_fixup_decision.c" "${CMAKE_BINARY_DIR}/partition_fixup_data.c"
+    SRCS "main.c" "tm_pre_http.c"
           "ui/ui.c"
     INCLUDE_DIRS "." "ui"
     REQUIRES mining stratum bb_wifi bb_prov bb_mdns bb_http bb_nv config asic board spi_flash app_update

@@ -27,7 +27,6 @@
 #include "led.h"
 #include "esp_ota_ops.h"
 #include "bb_timer.h"
-#include "partition_fixup.h"
 #include "bb_log.h"
 #include "bb_ota_pull.h"
 #include "bb_ota_push.h"
@@ -825,8 +824,6 @@ static void log_reset_reason(void)
 // cppcheck-suppress unusedFunction
 void app_main(void)
 {
-    partition_fixup_check();
-
     bb_log_i(TAG, "%s v%s (%s %s, IDF %s) starting...",
              bb_system_get_project_name(), bb_system_get_version(),
              bb_system_get_build_date(), bb_system_get_build_time(),
@@ -853,7 +850,6 @@ void app_main(void)
     bb_log_tag_register("display", BB_LOG_LEVEL_INFO);
     bb_log_tag_register("led", BB_LOG_LEVEL_INFO);
     bb_log_tag_register("ota_validator", BB_LOG_LEVEL_INFO);
-    bb_log_tag_register("partition_fixup", BB_LOG_LEVEL_INFO);
     bb_log_tag_register("config", BB_LOG_LEVEL_INFO);
     bb_log_tag_register("web", BB_LOG_LEVEL_INFO);
     // "diag" — opt-in instrumentation (per-job hashrate, tier1_dwell, job_swap,

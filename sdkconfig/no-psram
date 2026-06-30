@@ -14,3 +14,8 @@ CONFIG_LWIP_TCP_WND_DEFAULT=2920
 # single-core's cap, so it must live here on the PSRAM axis.
 CONFIG_BB_MDNS_BATCH_MAX=4
 CONFIG_BB_MDNS_BATCH_RING_DEPTH=3
+
+# bb_pub telem buffer caps for no-PSRAM boards (TA-505).
+# sdkconfig.defaults retains 1024 for PSRAM/bitaxe boards.
+CONFIG_BB_PUB_TELEM_SERIALIZE_MAX=512
+CONFIG_BB_PUB_TELEM_SNAP_MAX=512

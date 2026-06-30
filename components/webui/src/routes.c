@@ -234,9 +234,9 @@ static bb_err_t stats_reset_handler(bb_http_request_t *req)
 // /api/pool — TA-281/TA-286
 // Locked shape: pool config (always populated from config_*) +
 // session-scoped negotiated values (extranonce1, extranonce2_size,
-// version_mask) + most-recent stratum mining.notify exposed as a `notify`
-// sub-object. Pre-stratum-connect, connected=false, session_start_ago_s/
-// extranonce*/version_mask/notify are all null; current_difficulty defaults
+// version_mask). notify is always null — job details moved to /api/pool/job
+// (TA-505). Pre-stratum-connect, connected=false, session_start_ago_s/
+// extranonce*/version_mask are all null; current_difficulty defaults
 // to stratum_state.difficulty (512.0).
 // ----------------------------------------------------------------------------
 static bb_err_t pool_handler(bb_http_request_t *req)
@@ -397,6 +397,54 @@ static bb_err_t pool_handler(bb_http_request_t *req)
 
     bb_err_t rc_end = bb_http_resp_json_obj_end(&obj);
     free(s); free(stats_arr);
+    return rc_end;
+}
+
+// ---------------------------------------------------------------------------
+// /api/pool/job — GET (TA-505)
+// Current stratum job details. Null fields when no job is available.
+// ---------------------------------------------------------------------------
+
+static bb_err_t pool_job_handler(bb_http_request_t *req)
+{
+    set_common_headers(req);
+
+    pool_snapshot_t *s = calloc(1, sizeof(*s));
+    if (!s) {
+        bb_http_resp_set_status(req, 500);
+        bb_http_json_obj_stream_t e; bb_http_resp_json_obj_begin(req, &e);
+        bb_http_resp_json_obj_set_str(&e, "error", "out of memory");
+        bb_http_resp_json_obj_end(&e);
+        return BB_ERR_NO_SPACE;
+    }
+
+    const stratum_job_t *job = NULL;
+    if (stratum_get_job_snapshot(&job) && job) {
+        s->has_notify = true;
+        strncpy(s->job_id, job->job_id, sizeof(s->job_id) - 1);
+        memcpy(s->prevhash, job->prevhash, 32);
+        size_t cb1 = job->coinb1_len < ROUTES_JSON_MAX_COINB ? job->coinb1_len : ROUTES_JSON_MAX_COINB;
+        memcpy(s->coinb1, job->coinb1, cb1);
+        s->coinb1_len = cb1;
+        size_t cb2 = job->coinb2_len < ROUTES_JSON_MAX_COINB ? job->coinb2_len : ROUTES_JSON_MAX_COINB;
+        memcpy(s->coinb2, job->coinb2, cb2);
+        s->coinb2_len = cb2;
+        size_t mc = job->merkle_count < ROUTES_JSON_MAX_MERKLE ? job->merkle_count : ROUTES_JSON_MAX_MERKLE;
+        for (size_t i = 0; i < mc; i++)
+            memcpy(s->merkle_branches[i], job->merkle_branches[i], 32);
+        s->merkle_count = mc;
+        s->version    = job->version;
+        s->nbits      = job->nbits;
+        s->ntime      = job->ntime;
+        s->clean_jobs = job->clean_jobs;
+    }
+
+    bb_http_json_obj_stream_t obj;
+    bb_err_t rc = bb_http_resp_json_obj_begin(req, &obj);
+    if (rc != BB_OK) { free(s); return rc; }
+    emit_pool_job_json(&obj, s);
+    bb_err_t rc_end = bb_http_resp_json_obj_end(&obj);
+    free(s);
     return rc_end;
 }
 
@@ -1558,10 +1606,8 @@ static const bb_route_response_t s_stats_responses[] = {
       "\"properties\":{"
       "\"hashrate\":{\"type\":\"number\",\"description\":\"ESP32-S3 HW hashrate H/s\"},"
       "\"hashrate_avg\":{\"type\":\"number\",\"description\":\"EMA hashrate H/s\"},"
-      "\"temp_c\":{\"type\":\"number\"},"
       "\"shares\":{\"type\":\"integer\",\"description\":\"HW shares found\"},"
       "\"session_shares\":{\"type\":\"integer\"},"
-      "\"session_rejected\":{\"type\":\"integer\"},"
       "\"rejected\":{\"type\":\"object\","
       "\"properties\":{"
       "\"total\":{\"type\":\"integer\"},"
@@ -1574,8 +1620,6 @@ static const bb_route_response_t s_stats_responses[] = {
       "\"last_share_ago_s\":{\"type\":\"integer\",\"description\":\"-1 if no share yet\"},"
       "\"best_diff\":{\"type\":\"number\"},"
       "\"uptime_s\":{\"type\":\"integer\"},"
-      "\"expected_ghs\":{\"type\":\"number\","
-      "\"description\":\"theoretical max GH/s for this platform\"},"
       "\"asic_chips\":{\"type\":\"array\","
       "\"items\":{\"type\":\"object\","
       "\"properties\":{"
@@ -1641,17 +1685,8 @@ static const bb_route_response_t s_pool_responses[] = {
       "\"extranonce2_size\":{\"type\":[\"integer\",\"null\"]},"
       "\"version_mask\":{\"type\":[\"string\",\"null\"],"
       "\"description\":\"BIP320 mask, 8-char lowercase hex; null if not negotiated\"},"
-      "\"notify\":{\"type\":[\"object\",\"null\"],"
-      "\"properties\":{"
-      "\"job_id\":{\"type\":\"string\"},"
-      "\"prev_hash\":{\"type\":\"string\"},"
-      "\"coinb1\":{\"type\":\"string\"},"
-      "\"coinb2\":{\"type\":\"string\"},"
-      "\"merkle_branches\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},"
-      "\"version\":{\"type\":\"string\"},"
-      "\"nbits\":{\"type\":\"string\"},"
-      "\"ntime\":{\"type\":\"string\"},"
-      "\"clean_jobs\":{\"type\":\"boolean\"}}}},"
+      "\"notify\":{\"type\":\"null\","
+      "\"description\":\"deprecated â job details moved to /api/pool/job (TA-505)\"},"
       "\"stats\":{\"type\":\"array\",\"items\":{\"type\":\"object\","
       "\"properties\":{"
       "\"host\":{\"type\":\"string\"},"
@@ -1664,8 +1699,8 @@ static const bb_route_response_t s_pool_responses[] = {
       "\"description\":\"per-pool lifetime statistics\"}},"
       "\"required\":[\"host\",\"port\",\"worker\",\"wallet\",\"connected\","
       "\"session_start_ago_s\",\"current_difficulty\","
-      "\"extranonce1\",\"extranonce2_size\",\"version_mask\",\"notify\",\"stats\"]}",
-      "pool connection state and current job" },
+      "\"extranonce1\",\"extranonce2_size\",\"version_mask\",\"stats\"]}",
+      "pool connection state" },
     { 0 },
 };
 
@@ -1673,7 +1708,7 @@ static const bb_route_t s_pool_route = {
     .method       = BB_HTTP_GET,
     .path         = "/api/pool",
     .tag          = "pool",
-    .summary      = "Get pool connection state and current job",
+    .summary      = "Get pool connection state",
     .operation_id = "getPool",
     .responses    = s_pool_responses,
     .handler      = pool_handler,
@@ -1783,6 +1818,37 @@ static const bb_route_t s_pool_delete_primary_route = {
     .operation_id = "deletePoolPrimary",
     .responses    = s_pool_delete_primary_responses,
     .handler      = pool_delete_primary_handler,
+};
+
+// ---------------------------------------------------------------------------
+// /api/pool/job — GET (TA-505)
+// ---------------------------------------------------------------------------
+
+static const bb_route_response_t s_pool_job_responses[] = {
+    { 200, "application/json",
+      "{\"type\":\"object\","
+      "\"properties\":{"
+      "\"job_id\":{\"type\":[\"string\",\"null\"]},"
+      "\"prev_hash\":{\"type\":[\"string\",\"null\"]},"
+      "\"coinb1\":{\"type\":[\"string\",\"null\"]},"
+      "\"coinb2\":{\"type\":[\"string\",\"null\"]},"
+      "\"merkle_branches\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},"
+      "\"version\":{\"type\":[\"string\",\"null\"]},"
+      "\"nbits\":{\"type\":[\"string\",\"null\"]},"
+      "\"ntime\":{\"type\":[\"string\",\"null\"]},"
+      "\"clean_jobs\":{\"type\":[\"boolean\",\"null\"]}}}",
+      "current stratum job (null fields when no job available)" },
+    { 0 },
+};
+
+static const bb_route_t s_pool_job_route = {
+    .method       = BB_HTTP_GET,
+    .path         = "/api/pool/job",
+    .tag          = "pool",
+    .summary      = "Get current stratum job details",
+    .operation_id = "getPoolJob",
+    .responses    = s_pool_job_responses,
+    .handler      = pool_job_handler,
 };
 
 #ifdef TAIPANMINER_DEBUG
@@ -2213,6 +2279,7 @@ static const bb_route_t * const s_mining_routes[] = {
     &s_stats_route,
     &s_stats_reset_route,
     &s_pool_route,
+    &s_pool_job_route,
     &s_pool_put_route,
     &s_pool_switch_route,
     &s_pool_delete_primary_route,

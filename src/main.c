@@ -367,18 +367,12 @@ static bool tm_stats_gather(void *snap_buf, void *ctx)
     stats_snapshot_t *s = snap_buf;
 
     s->session_rejected_other_last_code = -1;
-    s->expected_ghs = -1.0;
 #ifndef ASIC_CHIP
     s->hashrate_1m  = -1.0;
     s->hashrate_10m = -1.0;
     s->hashrate_1h  = -1.0;
-    s->pool_effective_hashrate = -1.0;
-    s->hw_error_pct_1m  = -1.0;
-    s->hw_error_pct_10m = -1.0;
-    s->hw_error_pct_1h  = -1.0;
 #endif
 #ifdef ASIC_CHIP
-    s->pool_effective_hashrate = -1.0;
     s->asic_freq_cfg = -1.0f;
     s->asic_freq_eff = -1.0f;
 #endif
@@ -387,7 +381,6 @@ static bool tm_stats_gather(void *snap_buf, void *ctx)
         s->hw_rate    = mining_stats.hw_hashrate;
         s->hw_ema     = mining_stats.hw_ema.value;
         s->hw_shares  = mining_stats.hw_shares;
-        s->temp_c     = mining_stats.temp_c;
         s->session_shares                   = mining_stats.session.shares;
         s->session_rejected                 = mining_stats.session.rejected;
         s->session_rejected_job_not_found   = mining_stats.session.rejected_job_not_found;
@@ -406,9 +399,6 @@ static bool tm_stats_gather(void *snap_buf, void *ctx)
         s->hashrate_1m       = (double)mining_stats.hashrate_1m;
         s->hashrate_10m      = (double)mining_stats.hashrate_10m;
         s->hashrate_1h       = (double)mining_stats.hashrate_1h;
-        s->hw_error_pct_1m   = (double)mining_stats.hw_error_pct_1m;
-        s->hw_error_pct_10m  = (double)mining_stats.hw_error_pct_10m;
-        s->hw_error_pct_1h   = (double)mining_stats.hw_error_pct_1h;
 #endif
 #ifdef ASIC_CHIP
         s->asic_rate         = mining_stats.asic_hashrate;
@@ -429,23 +419,6 @@ static bool tm_stats_gather(void *snap_buf, void *ctx)
         s->asic_count        = BOARD_ASIC_COUNT;
 #endif
         xSemaphoreGive(mining_stats.mutex);
-    }
-
-    {
-        double expected = -1.0;
-#ifdef ASIC_CHIP
-        float expected_freq = s->asic_freq_cfg;
-#else
-        float expected_freq = 0.0f;
-#endif
-        if (mining_get_expected_ghs(expected_freq, &expected)) {
-            s->expected_ghs = expected;
-        }
-    }
-
-    {
-        double pool_eff_hr = mining_get_pool_effective_hashrate();
-        s->pool_effective_hashrate = (pool_eff_hr > 0.0) ? pool_eff_hr : -1.0;
     }
 
     s->now_us = (int64_t)bb_timer_now_us();
@@ -495,10 +468,8 @@ static void tm_stats_serialize(bb_json_t obj, const void *snap_raw)
 
     bb_json_obj_set_number(obj, "hashrate",        snap->hw_rate);
     bb_json_obj_set_number(obj, "hashrate_avg",    snap->hw_ema);
-    bb_json_obj_set_number(obj, "temp_c",          (double)snap->temp_c);
     bb_json_obj_set_int   (obj, "shares",          (int64_t)snap->hw_shares);
     bb_json_obj_set_int   (obj, "session_shares",  (int64_t)snap->session_shares);
-    bb_json_obj_set_int   (obj, "session_rejected",(int64_t)snap->session_rejected);
     bb_json_obj_set_int   (obj, "session_blocks_found",  (int64_t)snap->session_blocks_found);
     bb_json_obj_set_int   (obj, "session_best_diff_ts",  snap->session_best_diff_ts);
     bb_json_obj_set_int   (obj, "session_last_block_ts", snap->session_last_block_ts);
@@ -519,26 +490,13 @@ static void tm_stats_serialize(bb_json_t obj, const void *snap_raw)
     bb_json_obj_set_number(obj, "best_diff",         snap->best_diff);
     bb_json_obj_set_int   (obj, "uptime_s",          uptime_s);
 
-    if (snap->expected_ghs >= 0.0)
-        bb_json_obj_set_number(obj, "expected_ghs", snap->expected_ghs);
-    else
-        bb_json_obj_set_null(obj, "expected_ghs");
-
 #ifndef ASIC_CHIP
-    if (snap->hashrate_1m >= 0.0)             bb_json_obj_set_number(obj, "hashrate_1m",             snap->hashrate_1m);
-    else                                      bb_json_obj_set_null  (obj, "hashrate_1m");
-    if (snap->hashrate_10m >= 0.0)            bb_json_obj_set_number(obj, "hashrate_10m",            snap->hashrate_10m);
-    else                                      bb_json_obj_set_null  (obj, "hashrate_10m");
-    if (snap->hashrate_1h >= 0.0)             bb_json_obj_set_number(obj, "hashrate_1h",             snap->hashrate_1h);
-    else                                      bb_json_obj_set_null  (obj, "hashrate_1h");
-    if (snap->pool_effective_hashrate >= 0.0) bb_json_obj_set_number(obj, "pool_effective_hashrate", snap->pool_effective_hashrate);
-    else                                      bb_json_obj_set_null  (obj, "pool_effective_hashrate");
-    if (snap->hw_error_pct_1m >= 0.0)         bb_json_obj_set_number(obj, "hw_error_pct_1m",         snap->hw_error_pct_1m);
-    else                                      bb_json_obj_set_null  (obj, "hw_error_pct_1m");
-    if (snap->hw_error_pct_10m >= 0.0)        bb_json_obj_set_number(obj, "hw_error_pct_10m",        snap->hw_error_pct_10m);
-    else                                      bb_json_obj_set_null  (obj, "hw_error_pct_10m");
-    if (snap->hw_error_pct_1h >= 0.0)         bb_json_obj_set_number(obj, "hw_error_pct_1h",         snap->hw_error_pct_1h);
-    else                                      bb_json_obj_set_null  (obj, "hw_error_pct_1h");
+    if (snap->hashrate_1m >= 0.0)  bb_json_obj_set_number(obj, "hashrate_1m",  snap->hashrate_1m);
+    else                           bb_json_obj_set_null  (obj, "hashrate_1m");
+    if (snap->hashrate_10m >= 0.0) bb_json_obj_set_number(obj, "hashrate_10m", snap->hashrate_10m);
+    else                           bb_json_obj_set_null  (obj, "hashrate_10m");
+    if (snap->hashrate_1h >= 0.0)  bb_json_obj_set_number(obj, "hashrate_1h",  snap->hashrate_1h);
+    else                           bb_json_obj_set_null  (obj, "hashrate_1h");
 #endif
 
 #ifdef ASIC_CHIP
@@ -576,9 +534,6 @@ static void tm_stats_serialize(bb_json_t obj, const void *snap_raw)
         bb_json_obj_set_null(obj, "asic_hw_error_pct_10m");
         bb_json_obj_set_null(obj, "asic_hw_error_pct_1h");
     }
-    if (snap->pool_effective_hashrate >= 0.0) bb_json_obj_set_number(obj, "pool_effective_hashrate", snap->pool_effective_hashrate);
-    else                                      bb_json_obj_set_null  (obj, "pool_effective_hashrate");
-
     {
         bb_json_t chips_arr = bb_json_arr_new();
         for (int c = 0; c < snap->n_chips; c++) {

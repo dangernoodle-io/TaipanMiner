@@ -626,11 +626,10 @@ void test_knot_walk_early_abort(void);
 #ifdef ASIC_CHIP
 // Forward declarations from test_routes_json_asic.c (TA-292)
 // /api/power and /api/fan emitters removed (P4b) — moved to BB extenders
+// test_stats_expected_ghs_populated/null removed (TA-505: field dropped)
 void test_stats_no_asic_temp_c(void);
 void test_stats_asic_total_valid_true(void);
 void test_stats_asic_total_valid_false(void);
-void test_stats_expected_ghs_populated(void);
-void test_stats_expected_ghs_null_when_unavailable(void);
 void test_stats_freq_cfg_negative_emits_null(void);
 void test_stats_chip_array_two_chips(void);
 void test_stats_chip_array_empty(void);
@@ -652,12 +651,16 @@ void test_stats_non_asic_happy_path(void);
 void test_stats_non_asic_all_windows_null(void);
 #endif /* !ASIC_CHIP */
 void test_pool_disconnected(void);
-void test_pool_connected_with_notify(void);
+void test_pool_notify_always_null(void);
 void test_pool_version_mask_zero(void);
 void test_pool_latency_positive(void);
 void test_pool_latency_negative(void);
 void test_emit_pool_stats_empty(void);
 void test_emit_pool_stats_two_entries(void);
+// TA-505: /api/pool/job tests
+void test_pool_job_no_job(void);
+void test_pool_job_with_notify(void);
+void test_pool_job_with_merkle_branches(void);
 #ifdef ASIC_CHIP
 void test_diag_asic_empty(void);
 void test_diag_asic_three_events(void);
@@ -1422,13 +1425,17 @@ int main(void) {
     RUN_TEST(test_stats_non_asic_all_windows_null);
 #endif /* !ASIC_CHIP */
     RUN_TEST(test_pool_disconnected);
-    RUN_TEST(test_pool_connected_with_notify);
+    RUN_TEST(test_pool_notify_always_null);
     RUN_TEST(test_pool_version_mask_zero);
     RUN_TEST(test_pool_latency_positive);
     RUN_TEST(test_pool_latency_negative);
     RUN_TEST(test_emit_pool_stats_empty);
     RUN_TEST(test_emit_pool_stats_two_entries);
     RUN_TEST(test_pool_with_active_idx_and_configured_slots);
+    // TA-505: /api/pool/job
+    RUN_TEST(test_pool_job_no_job);
+    RUN_TEST(test_pool_job_with_notify);
+    RUN_TEST(test_pool_job_with_merkle_branches);
     RUN_TEST(test_pool_subscribe_status_pending);
     RUN_TEST(test_pool_subscribe_status_active);
     RUN_TEST(test_pool_subscribe_status_rejected);
@@ -1473,8 +1480,6 @@ int main(void) {
     RUN_TEST(test_stats_no_asic_temp_c);
     RUN_TEST(test_stats_asic_total_valid_true);
     RUN_TEST(test_stats_asic_total_valid_false);
-    RUN_TEST(test_stats_expected_ghs_populated);
-    RUN_TEST(test_stats_expected_ghs_null_when_unavailable);
     RUN_TEST(test_stats_freq_cfg_negative_emits_null);
     RUN_TEST(test_stats_chip_array_two_chips);
     RUN_TEST(test_stats_chip_array_empty);

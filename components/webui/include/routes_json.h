@@ -29,7 +29,6 @@ typedef struct bb_http_json_obj_stream_s bb_http_json_obj_stream_t;
  * stays undefined and all ASIC-gated blocks are excluded. */
 #ifdef ESP_PLATFORM
 #include "asic_chip.h"
-#include "bb_mdns.h"  /* Needed before knot.h so bb_mdns_txt_t is defined */
 #endif
 
 #include "knot.h"

@@ -5,10 +5,10 @@
 // Helper to create a test peer
 static knot_peer_t make_peer(const char *instance, const char *hostname, const char *ip) {
     knot_peer_t p = {0};
-    strncpy(p.instance_name, instance, sizeof(p.instance_name) - 1);
-    strncpy(p.hostname, hostname, sizeof(p.hostname) - 1);
-    strncpy(p.ip4, ip, sizeof(p.ip4) - 1);
-    p.port = 80;
+    strncpy(p.id.instance_name, instance, sizeof(p.id.instance_name) - 1);
+    strncpy(p.id.hostname, hostname, sizeof(p.id.hostname) - 1);
+    strncpy(p.id.ip4, ip, sizeof(p.id.ip4) - 1);
+    p.id.port = 80;
     strncpy(p.worker, "worker-1", sizeof(p.worker) - 1);
     strncpy(p.board, "tdongle-s3", sizeof(p.board) - 1);
     strncpy(p.version, "v1.0.0", sizeof(p.version) - 1);
@@ -23,7 +23,7 @@ void test_knot_table_upsert_empty_slot(void) {
 
     int slot = knot_table_upsert(table, 4, &peer);
     TEST_ASSERT_EQUAL_INT(0, slot);
-    TEST_ASSERT_EQUAL_STRING("miner1", table[0].instance_name);
+    TEST_ASSERT_EQUAL_STRING("miner1", table[0].id.instance_name);
 }
 
 void test_knot_table_upsert_update_existing(void) {
@@ -36,7 +36,7 @@ void test_knot_table_upsert_update_existing(void) {
 
     int slot2 = knot_table_upsert(table, 4, &peer2);
     TEST_ASSERT_EQUAL_INT(0, slot2); // same slot
-    TEST_ASSERT_EQUAL_STRING("miner1-updated.local", table[0].hostname);
+    TEST_ASSERT_EQUAL_STRING("miner1-updated.local", table[0].id.hostname);
 }
 
 void test_knot_table_upsert_table_full(void) {
@@ -65,7 +65,7 @@ void test_knot_table_upsert_evicts_same_hostname(void) {
     knot_peer_t out[4] = {0};
     size_t count = knot_table_snapshot(table, 4, out, 4);
     TEST_ASSERT_EQUAL_INT(1, count);
-    TEST_ASSERT_EQUAL_STRING("tdongles3-1-7cd8", out[0].instance_name);
+    TEST_ASSERT_EQUAL_STRING("tdongles3-1-7cd8", out[0].id.instance_name);
 }
 
 void test_knot_table_remove_existing(void) {
@@ -75,7 +75,7 @@ void test_knot_table_remove_existing(void) {
     knot_table_upsert(table, 4, &peer);
     int slot = knot_table_remove(table, 4, "miner1");
     TEST_ASSERT_EQUAL_INT(0, slot);
-    TEST_ASSERT_EQUAL_INT(0, table[0].instance_name[0]); // empty
+    TEST_ASSERT_EQUAL_INT(0, table[0].id.instance_name[0]); // empty
 }
 
 void test_knot_table_remove_missing(void) {
@@ -101,8 +101,8 @@ void test_knot_table_prune_stale_entries(void) {
     size_t pruned = knot_table_prune(table, 4, now_us, ttl_us);
 
     TEST_ASSERT_EQUAL_INT(1, pruned);
-    TEST_ASSERT_EQUAL_INT(0, table[0].instance_name[0]); // p1 pruned
-    TEST_ASSERT_EQUAL_STRING("miner2", table[1].instance_name); // p2 kept
+    TEST_ASSERT_EQUAL_INT(0, table[0].id.instance_name[0]); // p1 pruned
+    TEST_ASSERT_EQUAL_STRING("miner2", table[1].id.instance_name); // p2 kept
 }
 
 void test_knot_table_snapshot(void) {
@@ -117,8 +117,8 @@ void test_knot_table_snapshot(void) {
     size_t count = knot_table_snapshot(table, 4, out, 4);
 
     TEST_ASSERT_EQUAL_INT(2, count);
-    TEST_ASSERT_EQUAL_STRING("miner1", out[0].instance_name);
-    TEST_ASSERT_EQUAL_STRING("miner2", out[1].instance_name);
+    TEST_ASSERT_EQUAL_STRING("miner1", out[0].id.instance_name);
+    TEST_ASSERT_EQUAL_STRING("miner2", out[1].id.instance_name);
 }
 
 void test_knot_table_snapshot_cap(void) {
@@ -135,13 +135,13 @@ void test_knot_table_snapshot_cap(void) {
     size_t count = knot_table_snapshot(table, 4, out, 2);
 
     TEST_ASSERT_EQUAL_INT(2, count);
-    TEST_ASSERT_EQUAL_STRING("miner1", out[0].instance_name);
-    TEST_ASSERT_EQUAL_STRING("miner2", out[1].instance_name);
+    TEST_ASSERT_EQUAL_STRING("miner1", out[0].id.instance_name);
+    TEST_ASSERT_EQUAL_STRING("miner2", out[1].id.instance_name);
 }
 
 void test_knot_table_apply_txt(void) {
     knot_peer_t peer = {0};
-    strncpy(peer.instance_name, "miner1", sizeof(peer.instance_name) - 1);
+    strncpy(peer.id.instance_name, "miner1", sizeof(peer.id.instance_name) - 1);
 
     bb_mdns_txt_t txt[] = {
         { .key = "worker", .value = "example.com/myworker" },
@@ -161,7 +161,7 @@ void test_knot_table_apply_txt(void) {
 
 void test_knot_table_apply_txt_ui_zero(void) {
     knot_peer_t peer = {0};
-    strncpy(peer.instance_name, "miner1", sizeof(peer.instance_name) - 1);
+    strncpy(peer.id.instance_name, "miner1", sizeof(peer.id.instance_name) - 1);
     bb_mdns_txt_t txt[] = {
         { .key = "ui", .value = "0" },
     };
@@ -171,7 +171,7 @@ void test_knot_table_apply_txt_ui_zero(void) {
 
 void test_knot_table_apply_txt_ui_one(void) {
     knot_peer_t peer = {0};
-    strncpy(peer.instance_name, "miner1", sizeof(peer.instance_name) - 1);
+    strncpy(peer.id.instance_name, "miner1", sizeof(peer.id.instance_name) - 1);
     bb_mdns_txt_t txt[] = {
         { .key = "ui", .value = "1" },
     };
@@ -181,7 +181,7 @@ void test_knot_table_apply_txt_ui_one(void) {
 
 void test_knot_table_apply_txt_ui_absent_defaults_true(void) {
     knot_peer_t peer = {0};
-    strncpy(peer.instance_name, "miner1", sizeof(peer.instance_name) - 1);
+    strncpy(peer.id.instance_name, "miner1", sizeof(peer.id.instance_name) - 1);
     bb_mdns_txt_t txt[] = {
         { .key = "worker", .value = "example.com/worker" },
     };
@@ -256,7 +256,7 @@ void test_knot_walk_basic(void) {
     // Simulate knot_walk logic: iterate and count
     knot_walk_test_ctx_t ctx = {.visit_count = 0, .abort_after_one = false};
     for (size_t i = 0; i < 4; i++) {
-        if (table[i].instance_name[0] != '\0') {
+        if (table[i].id.instance_name[0] != '\0') {
             if (!knot_walk_test_cb(&table[i], &ctx)) {
                 break;
             }
@@ -279,7 +279,7 @@ void test_knot_walk_early_abort(void) {
     // Simulate knot_walk logic with early abort
     knot_walk_test_ctx_t ctx = {.visit_count = 0, .abort_after_one = true};
     for (size_t i = 0; i < 4; i++) {
-        if (table[i].instance_name[0] != '\0') {
+        if (table[i].id.instance_name[0] != '\0') {
             if (!knot_walk_test_cb(&table[i], &ctx)) {
                 break;
             }

@@ -1,5 +1,5 @@
-#include "bb_mdns.h"  // Include first so bb_mdns_txt_t is defined before knot.h
 #include "knot.h"
+#include "bb_mdns.h"
 #include "bb_log.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -24,15 +24,15 @@ static knot_peer_t g_self_peer = {0};
 static bool g_self_set = false;
 
 static void on_peer_discovered(const bb_mdns_peer_t *peer, void *ctx) {
-    if (!peer || peer->instance_name[0] == '\0') {
+    if (!peer || peer->id.instance_name[0] == '\0') {
         return;
     }
 
     knot_peer_t new_peer = {0};
-    strncpy(new_peer.instance_name, peer->instance_name, sizeof(new_peer.instance_name) - 1);
-    strncpy(new_peer.hostname,      peer->hostname,      sizeof(new_peer.hostname) - 1);
-    strncpy(new_peer.ip4,           peer->ip4,           sizeof(new_peer.ip4) - 1);
-    new_peer.port = peer->port;
+    strncpy(new_peer.id.instance_name, peer->id.instance_name, sizeof(new_peer.id.instance_name) - 1);
+    strncpy(new_peer.id.hostname,      peer->id.hostname,      sizeof(new_peer.id.hostname) - 1);
+    strncpy(new_peer.id.ip4,           peer->id.ip4,           sizeof(new_peer.id.ip4) - 1);
+    new_peer.id.port = peer->id.port;
     new_peer.last_seen_us = (int64_t)bb_timer_now_us();
 
     // Apply TXT records (worker, board, version, state) using helper
@@ -46,15 +46,15 @@ static void on_peer_discovered(const bb_mdns_peer_t *peer, void *ctx) {
          * another device announces under the same configured hostname.
          * Re-insert the cached self peer so /api/knot keeps showing it. */
         if (g_self_set &&
-            strcmp(new_peer.instance_name, g_self_instance) != 0 &&
-            strcmp(new_peer.hostname, g_self_peer.hostname) == 0) {
+            strcmp(new_peer.id.instance_name, g_self_instance) != 0 &&
+            strcmp(new_peer.id.hostname, g_self_peer.id.hostname) == 0) {
             knot_table_upsert(g_peer_table, KNOT_PEER_COUNT, &g_self_peer);
         }
         xSemaphoreGive(g_mutex);
         if (slot >= 0) {
-            bb_log_d(TAG, "peer upserted: %s (slot %d)", peer->instance_name, slot);
+            bb_log_d(TAG, "peer upserted: %s (slot %d)", peer->id.instance_name, slot);
         } else {
-            bb_log_w(TAG, "peer table full, failed to upsert %s", peer->instance_name);
+            bb_log_w(TAG, "peer table full, failed to upsert %s", peer->id.instance_name);
         }
     }
 }
@@ -139,10 +139,10 @@ void knot_set_self(const char *instance_name,
     }
 
     knot_peer_t self = {0};
-    strncpy(self.instance_name, instance_name, sizeof(self.instance_name) - 1);
-    if (hostname) strncpy(self.hostname, hostname, sizeof(self.hostname) - 1);
-    if (ip4)      strncpy(self.ip4,      ip4,      sizeof(self.ip4) - 1);
-    self.port = 80;
+    strncpy(self.id.instance_name, instance_name, sizeof(self.id.instance_name) - 1);
+    if (hostname) strncpy(self.id.hostname, hostname, sizeof(self.id.hostname) - 1);
+    if (ip4)      strncpy(self.id.ip4,      ip4,      sizeof(self.id.ip4) - 1);
+    self.id.port = 80;
     if (worker)  strncpy(self.worker,  worker,  sizeof(self.worker) - 1);
     if (board)   strncpy(self.board,   board,   sizeof(self.board) - 1);
     if (version) strncpy(self.version, version, sizeof(self.version) - 1);
@@ -188,7 +188,7 @@ void knot_walk(bool (*cb)(const knot_peer_t *peer, void *ctx), void *ctx) {
 
     if (xSemaphoreTake(g_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
         for (size_t i = 0; i < KNOT_PEER_COUNT; i++) {
-            if (g_peer_table[i].instance_name[0] != '\0') {
+            if (g_peer_table[i].id.instance_name[0] != '\0') {
                 if (!cb(&g_peer_table[i], ctx)) {
                     break;
                 }

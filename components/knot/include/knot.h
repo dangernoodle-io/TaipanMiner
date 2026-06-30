@@ -3,16 +3,14 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include "bb_mdns.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef struct {
-    char     instance_name[64];
-    char     hostname[64];
-    char     ip4[16];
-    uint16_t port;
+    bb_mdns_identity_t id;           /**< instance_name, hostname, ip4, port */
     char     worker[33];
     char     board[24];
     char     version[24];
@@ -22,17 +20,6 @@ typedef struct {
 } knot_peer_t;
 
 /// Pure table operations (host-testable, no ESP wiring)
-
-// bb_mdns_txt_t: forward declare for function signature
-// On ESP: included from bb_mdns.h (before this header in include order)
-// On host tests: must be defined locally by the caller
-#ifndef ESP_PLATFORM
-// Host test version
-typedef struct {
-    char *key;
-    char *value;
-} bb_mdns_txt_t;
-#endif
 
 int knot_table_upsert(knot_peer_t *table, size_t cap, const knot_peer_t *peer);
 int knot_table_remove(knot_peer_t *table, size_t cap, const char *instance_name);

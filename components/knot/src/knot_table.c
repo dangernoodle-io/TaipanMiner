@@ -1,10 +1,5 @@
 #include <string.h>
 
-// On ESP, include bb_mdns.h to get bb_mdns_txt_t definition before knot.h
-#ifdef ESP_PLATFORM
-#include "bb_mdns.h"
-#endif
-
 #include "knot.h"
 
 // Pure host-testable functions for peer table management.
@@ -12,7 +7,7 @@
 /// Insert or update a peer by instance_name.
 /// Returns slot index on success, or -1 if table full and no existing slot.
 int knot_table_upsert(knot_peer_t *table, size_t cap, const knot_peer_t *peer) {
-    if (!table || !peer || !peer->instance_name[0]) {
+    if (!table || !peer || !peer->id.instance_name[0]) {
         return -1;
     }
 
@@ -21,12 +16,12 @@ int knot_table_upsert(knot_peer_t *table, size_t cap, const knot_peer_t *peer) {
     // instance label (e.g. "TaipanMiner-XXXX" -> "<hostname>-XXXX") while
     // IDF's cache still holds the old advertisement until its TTL expires;
     // dedupe-by-hostname collapses both into the fresher instance.
-    if (peer->hostname[0]) {
+    if (peer->id.hostname[0]) {
         for (size_t i = 0; i < cap; i++) {
-            if (table[i].instance_name[0] != '\0' &&
-                strcmp(table[i].instance_name, peer->instance_name) != 0 &&
-                strcmp(table[i].hostname, peer->hostname) == 0) {
-                table[i].instance_name[0] = '\0';
+            if (table[i].id.instance_name[0] != '\0' &&
+                strcmp(table[i].id.instance_name, peer->id.instance_name) != 0 &&
+                strcmp(table[i].id.hostname, peer->id.hostname) == 0) {
+                table[i].id.instance_name[0] = '\0';
             }
         }
     }
@@ -34,11 +29,11 @@ int knot_table_upsert(knot_peer_t *table, size_t cap, const knot_peer_t *peer) {
     // Second pass: upsert by instance_name; track first empty slot for insert.
     int empty_slot = -1;
     for (size_t i = 0; i < cap; i++) {
-        if (table[i].instance_name[0] == '\0') {
+        if (table[i].id.instance_name[0] == '\0') {
             if (empty_slot == -1) {
                 empty_slot = i;
             }
-        } else if (strcmp(table[i].instance_name, peer->instance_name) == 0) {
+        } else if (strcmp(table[i].id.instance_name, peer->id.instance_name) == 0) {
             table[i] = *peer;
             return i;
         }
@@ -61,9 +56,9 @@ int knot_table_remove(knot_peer_t *table, size_t cap, const char *instance_name)
     }
 
     for (size_t i = 0; i < cap; i++) {
-        if (table[i].instance_name[0] != '\0' &&
-            strcmp(table[i].instance_name, instance_name) == 0) {
-            table[i].instance_name[0] = '\0';
+        if (table[i].id.instance_name[0] != '\0' &&
+            strcmp(table[i].id.instance_name, instance_name) == 0) {
+            table[i].id.instance_name[0] = '\0';
             return i;
         }
     }
@@ -81,9 +76,9 @@ size_t knot_table_prune(knot_peer_t *table, size_t cap, int64_t now_us, int64_t 
 
     size_t pruned = 0;
     for (size_t i = 0; i < cap; i++) {
-        if (table[i].instance_name[0] != '\0' &&
+        if (table[i].id.instance_name[0] != '\0' &&
             table[i].last_seen_us < (now_us - ttl_us)) {
-            table[i].instance_name[0] = '\0';
+            table[i].id.instance_name[0] = '\0';
             pruned++;
         }
     }
@@ -100,7 +95,7 @@ size_t knot_table_snapshot(const knot_peer_t *table, size_t cap, knot_peer_t *ou
 
     size_t copied = 0;
     for (size_t i = 0; i < cap && copied < out_cap; i++) {
-        if (table[i].instance_name[0] != '\0') {
+        if (table[i].id.instance_name[0] != '\0') {
             out[copied] = table[i];
             copied++;
         }

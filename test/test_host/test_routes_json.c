@@ -113,7 +113,6 @@ void test_stats_happy_path(void)
     stats_snapshot_t s = {0};
     s.hw_rate    = 223000.0;
     s.hw_ema     = 215000.0;
-    s.temp_c     = 42.5f;
     s.hw_shares  = 7;
     s.session_shares  = 5;
     s.session_rejected = 1;
@@ -126,7 +125,6 @@ void test_stats_happy_path(void)
     s.last_share_us    = 10000000LL;   /* 10 s ago */
     s.session_start_us = 5000000LL;    /* 5 s ago */
     s.best_diff        = 131072.0;
-    s.expected_ghs     = -1.0;         /* unavailable */
     s.now_us           = 15000000LL;   /* "now" */
 
     char *json = capture_stats(&s);
@@ -134,52 +132,49 @@ void test_stats_happy_path(void)
 
     /* uptime_s = (15000000 - 5000000) / 1000000 = 10
      * last_share_ago_s = (15000000 - 10000000) / 1000000 = 5
-     * ASIC fields all zero: expected_ghs=null (freq_cfg=0, not >0),
-     * freq_configured/effective=0 (>=0), total_valid=false → nulls, chips=[] */
+     * ASIC fields all zero: freq_configured/effective=0 (>=0),
+     * total_valid=false → nulls, chips=[] */
     TEST_ASSERT_EQUAL_STRING(
-        "{\"hashrate\":223000,\"hashrate_avg\":215000,\"temp_c\":42.5,"
-        "\"shares\":7,\"session_shares\":5,\"session_rejected\":1,\"session_blocks_found\":0,\"session_best_diff_ts\":0,\"session_last_block_ts\":0,"
+        "{\"hashrate\":223000,\"hashrate_avg\":215000,"
+        "\"shares\":7,\"session_shares\":5,\"session_blocks_found\":0,\"session_best_diff_ts\":0,\"session_last_block_ts\":0,"
         "\"rejected\":{\"total\":1,\"job_not_found\":1,\"low_difficulty\":0,"
         "\"duplicate\":0,\"stale_prevhash\":0,\"other\":0,\"other_last_code\":-1},"
         "\"last_share_ago_s\":5,\"best_diff\":131072,"
         "\"uptime_s\":10,"
-        "\"expected_ghs\":null,"
         "\"asic_hashrate\":0,\"asic_hashrate_avg\":0,\"asic_shares\":0,"
         "\"asic_freq_configured_mhz\":0,\"asic_freq_effective_mhz\":0,"
         "\"asic_small_cores\":0,\"asic_count\":0,"
         "\"asic_total_ghs\":null,\"asic_hw_error_pct\":null,"
         "\"asic_total_ghs_1m\":null,\"asic_total_ghs_10m\":null,\"asic_total_ghs_1h\":null,"
         "\"asic_hw_error_pct_1m\":null,\"asic_hw_error_pct_10m\":null,\"asic_hw_error_pct_1h\":null,"
-        "\"pool_effective_hashrate\":0,\"asic_chips\":[],\"ts_ms\":0}",
+        "\"asic_chips\":[],\"ts_ms\":0}",
         json);
     free(json);
 }
 
 void test_stats_zeroed(void)
 {
-    /* All-zero snapshot: uptime=0, last_share_ago_s=-1, expected_ghs=null (unavailable) */
+    /* All-zero snapshot: uptime=0, last_share_ago_s=-1 */
     stats_snapshot_t s = {0};
     s.session_rejected_other_last_code = -1;
-    s.expected_ghs = -1.0;
 
     char *json = capture_stats(&s);
     TEST_ASSERT_NOT_NULL(json);
 
     TEST_ASSERT_EQUAL_STRING(
-        "{\"hashrate\":0,\"hashrate_avg\":0,\"temp_c\":0,"
-        "\"shares\":0,\"session_shares\":0,\"session_rejected\":0,\"session_blocks_found\":0,\"session_best_diff_ts\":0,\"session_last_block_ts\":0,"
+        "{\"hashrate\":0,\"hashrate_avg\":0,"
+        "\"shares\":0,\"session_shares\":0,\"session_blocks_found\":0,\"session_best_diff_ts\":0,\"session_last_block_ts\":0,"
         "\"rejected\":{\"total\":0,\"job_not_found\":0,\"low_difficulty\":0,"
         "\"duplicate\":0,\"stale_prevhash\":0,\"other\":0,\"other_last_code\":-1},"
         "\"last_share_ago_s\":-1,\"best_diff\":0,"
         "\"uptime_s\":0,"
-        "\"expected_ghs\":null,"
         "\"asic_hashrate\":0,\"asic_hashrate_avg\":0,\"asic_shares\":0,"
         "\"asic_freq_configured_mhz\":0,\"asic_freq_effective_mhz\":0,"
         "\"asic_small_cores\":0,\"asic_count\":0,"
         "\"asic_total_ghs\":null,\"asic_hw_error_pct\":null,"
         "\"asic_total_ghs_1m\":null,\"asic_total_ghs_10m\":null,\"asic_total_ghs_1h\":null,"
         "\"asic_hw_error_pct_1m\":null,\"asic_hw_error_pct_10m\":null,\"asic_hw_error_pct_1h\":null,"
-        "\"pool_effective_hashrate\":0,\"asic_chips\":[],\"ts_ms\":0}",
+        "\"asic_chips\":[],\"ts_ms\":0}",
         json);
     free(json);
 }
@@ -189,11 +184,9 @@ void test_stats_no_share_yet(void)
     /* last_share_us=0 → last_share_ago_s should be -1 */
     stats_snapshot_t s = {0};
     s.session_rejected_other_last_code = -1;
-    s.expected_ghs = -1.0;
     s.last_share_us    = 0;
     s.session_start_us = 1000000LL;
     s.now_us           = 61000000LL;  /* 60 s uptime */
-    s.pool_effective_hashrate = -1.0; /* no shares yet → null */
 
     char *json = capture_stats(&s);
     TEST_ASSERT_NOT_NULL(json);
@@ -201,20 +194,19 @@ void test_stats_no_share_yet(void)
     /* uptime_s = 60, last_share_ago_s = -1
      * ASIC fields all zero (zero-init snapshot) */
     const char *expected =
-        "{\"hashrate\":0,\"hashrate_avg\":0,\"temp_c\":0,"
-        "\"shares\":0,\"session_shares\":0,\"session_rejected\":0,\"session_blocks_found\":0,\"session_best_diff_ts\":0,\"session_last_block_ts\":0,"
+        "{\"hashrate\":0,\"hashrate_avg\":0,"
+        "\"shares\":0,\"session_shares\":0,\"session_blocks_found\":0,\"session_best_diff_ts\":0,\"session_last_block_ts\":0,"
         "\"rejected\":{\"total\":0,\"job_not_found\":0,\"low_difficulty\":0,"
         "\"duplicate\":0,\"stale_prevhash\":0,\"other\":0,\"other_last_code\":-1},"
         "\"last_share_ago_s\":-1,\"best_diff\":0,"
         "\"uptime_s\":60,"
-        "\"expected_ghs\":null,"
         "\"asic_hashrate\":0,\"asic_hashrate_avg\":0,\"asic_shares\":0,"
         "\"asic_freq_configured_mhz\":0,\"asic_freq_effective_mhz\":0,"
         "\"asic_small_cores\":0,\"asic_count\":0,"
         "\"asic_total_ghs\":null,\"asic_hw_error_pct\":null,"
         "\"asic_total_ghs_1m\":null,\"asic_total_ghs_10m\":null,\"asic_total_ghs_1h\":null,"
         "\"asic_hw_error_pct_1m\":null,\"asic_hw_error_pct_10m\":null,\"asic_hw_error_pct_1h\":null,"
-        "\"pool_effective_hashrate\":null,\"asic_chips\":[],\"ts_ms\":0}";
+        "\"asic_chips\":[],\"ts_ms\":0}";
     TEST_ASSERT_EQUAL_STRING(expected, json);
     free(json);
 }
@@ -223,11 +215,10 @@ void test_stats_no_share_yet(void)
 #ifndef ASIC_CHIP
 void test_stats_non_asic_happy_path(void)
 {
-    /* Non-ASIC path: hashrate_1m/10m/1h + pool_effective_hashrate + hw_error_pct fields */
+    /* Non-ASIC path: hashrate_1m/10m/1h rolling windows */
     stats_snapshot_t s = {0};
     s.hw_rate    = 223000.0;
     s.hw_ema     = 215000.0;
-    s.temp_c     = 42.5f;
     s.hw_shares  = 7;
     s.session_shares  = 5;
     s.session_rejected = 0;
@@ -235,15 +226,10 @@ void test_stats_non_asic_happy_path(void)
     s.last_share_us    = 10000000LL;
     s.session_start_us = 5000000LL;
     s.best_diff        = 131072.0;
-    s.expected_ghs     = 500.0;
     s.now_us           = 15000000LL;
-    s.hashrate_1m             = 220000.0;
-    s.hashrate_10m            = 218000.0;
-    s.hashrate_1h             = 215000.0;
-    s.pool_effective_hashrate = 210000.0;
-    s.hw_error_pct_1m         = 0.1;
-    s.hw_error_pct_10m        = 0.2;
-    s.hw_error_pct_1h         = 0.15;
+    s.hashrate_1m      = 220000.0;
+    s.hashrate_10m     = 218000.0;
+    s.hashrate_1h      = 215000.0;
 
     char *json = capture_stats(&s);
     TEST_ASSERT_NOT_NULL(json);
@@ -251,11 +237,6 @@ void test_stats_non_asic_happy_path(void)
     TEST_ASSERT_NOT_NULL(strstr(json, "\"hashrate_1m\":220000"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"hashrate_10m\":218000"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"hashrate_1h\":215000"));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"pool_effective_hashrate\":210000"));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"hw_error_pct_1m\":0.1"));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"hw_error_pct_10m\":0.2"));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"hw_error_pct_1h\":0.15"));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"expected_ghs\":500"));
     free(json);
 }
 
@@ -264,14 +245,9 @@ void test_stats_non_asic_all_windows_null(void)
     /* Non-ASIC: all rolling windows set to sentinel (-1) → emit null */
     stats_snapshot_t s = {0};
     s.session_rejected_other_last_code = -1;
-    s.expected_ghs            = -1.0;
-    s.hashrate_1m             = -1.0;
-    s.hashrate_10m            = -1.0;
-    s.hashrate_1h             = -1.0;
-    s.pool_effective_hashrate = -1.0;
-    s.hw_error_pct_1m         = -1.0;
-    s.hw_error_pct_10m        = -1.0;
-    s.hw_error_pct_1h         = -1.0;
+    s.hashrate_1m  = -1.0;
+    s.hashrate_10m = -1.0;
+    s.hashrate_1h  = -1.0;
 
     char *json = capture_stats(&s);
     TEST_ASSERT_NOT_NULL(json);
@@ -279,11 +255,6 @@ void test_stats_non_asic_all_windows_null(void)
     TEST_ASSERT_NOT_NULL(strstr(json, "\"hashrate_1m\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"hashrate_10m\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"hashrate_1h\":null"));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"pool_effective_hashrate\":null"));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"hw_error_pct_1m\":null"));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"hw_error_pct_10m\":null"));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"hw_error_pct_1h\":null"));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"expected_ghs\":null"));
     free(json);
 }
 #endif /* !ASIC_CHIP */
@@ -378,7 +349,7 @@ void test_pool_with_active_idx_and_configured_slots(void)
     TEST_ASSERT_NOT_NULL(strstr(json, "\"active_pool_idx\":1"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"primary\":{\"host\":\"primary.example.com\""));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"fallback\":{\"host\":\"fallback.example.com\""));
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"merkle_branches\":[\"1111111111111111111111111111111111111111111111111111111111111111\"]"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"notify\":null"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"extranonce_subscribe\":true,\"decode_coinbase\":false"));
     TEST_ASSERT_NOT_NULL(strstr(json, "\"extranonce_subscribe\":false,\"decode_coinbase\":true"));
     free(json);
@@ -406,7 +377,9 @@ void test_pool_subscribe_status_pending(void)  { exercise_subscribe_status(1, "p
 void test_pool_subscribe_status_active(void)   { exercise_subscribe_status(2, "active"); }
 void test_pool_subscribe_status_rejected(void) { exercise_subscribe_status(3, "rejected"); }
 
-void test_pool_connected_with_notify(void)
+/* notify slot is intentionally always null post-TA-505;
+ * see test_pool_job_with_notify for job-data coverage */
+void test_pool_notify_always_null(void)
 {
     pool_snapshot_t s = {0};
     strncpy(s.host, "pool.example.com", sizeof(s.host) - 1);
@@ -446,16 +419,7 @@ void test_pool_connected_with_notify(void)
         "\"connected\":true,\"session_start_ago_s\":120,"
         "\"current_difficulty\":8192,\"pool_effective_hashrate\":0,\"pool_effective_hashrate_1m\":0,\"pool_effective_hashrate_10m\":0,\"pool_effective_hashrate_1h\":0,\"latency_ms\":42,"
         "\"extranonce1\":\"aabb\",\"extranonce2_size\":4,\"version_mask\":\"1fffe000\","
-        "\"notify\":{"
-        "\"job_id\":\"abc123\","
-        "\"prev_hash\":\"0000000000000000000000000000000000000000000000000000000000000000\","
-        "\"coinb1\":\"01\","
-        "\"coinb2\":\"02\","
-        "\"merkle_branches\":[],"
-        "\"version\":\"20000000\","
-        "\"nbits\":\"1703a30c\","
-        "\"ntime\":\"65a1b2c3\","
-        "\"clean_jobs\":true},"
+        "\"notify\":null,"
         "\"active_pool_idx\":null,"
         "\"extranonce_subscribe_status\":\"off\",\"lifetime_blocks_total\":0,\"lifetime_last_block_ts\":0,"
         "\"configured\":{\"primary\":null,\"fallback\":null},"
@@ -619,6 +583,99 @@ void test_emit_pool_stats_two_entries(void)
         "\"hashes\":500000000,\"best_diff\":99,\"blocks_found\":0,"
         "\"last_seen_s\":5,\"best_diff_ts\":0,\"last_block_ts\":0}"
         "]"));
+    free(json);
+}
+
+/* ============================================================================
+ * /api/pool/job — capture-based tests (emit_pool_job_json)
+ * ========================================================================= */
+
+static char *capture_pool_job(const pool_snapshot_t *snap)
+{
+    bb_http_request_t *req;
+    bb_http_host_capture_begin(&req);
+    bb_http_json_obj_stream_t obj;
+    bb_http_resp_json_obj_begin(req, &obj);
+    emit_pool_job_json(&obj, snap);
+    bb_http_resp_json_obj_end(&obj);
+    bb_http_host_capture_t cap;
+    bb_http_host_capture_end(req, &cap);
+    char *copy = dupstr(cap.body);
+    bb_http_host_capture_free(&cap);
+    return copy;
+}
+
+void test_pool_job_no_job(void)
+{
+    /* has_notify=false → all fields null, merkle_branches=[] */
+    pool_snapshot_t s = {0};
+
+    char *json = capture_pool_job(&s);
+    TEST_ASSERT_NOT_NULL(json);
+
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"job_id\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"prev_hash\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"coinb1\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"coinb2\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"merkle_branches\":[]"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"version\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"nbits\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"ntime\":null"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"clean_jobs\":null"));
+    free(json);
+}
+
+void test_pool_job_with_notify(void)
+{
+    /* has_notify=true → all fields populated */
+    pool_snapshot_t s = {0};
+    s.has_notify = true;
+    strncpy(s.job_id, "abc123", sizeof(s.job_id) - 1);
+    memset(s.prevhash, 0x00, 32);
+    s.coinb1[0] = 0x01; s.coinb1_len = 1;
+    s.coinb2[0] = 0x02; s.coinb2_len = 1;
+    s.merkle_count = 0;
+    s.version    = 0x20000000;
+    s.nbits      = 0x1703a30c;
+    s.ntime      = 0x65a1b2c3;
+    s.clean_jobs = true;
+
+    char *json = capture_pool_job(&s);
+    TEST_ASSERT_NOT_NULL(json);
+
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"job_id\":\"abc123\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"prev_hash\":\"0000000000000000000000000000000000000000000000000000000000000000\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"coinb1\":\"01\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"coinb2\":\"02\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"merkle_branches\":[]"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"version\":\"20000000\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"nbits\":\"1703a30c\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"ntime\":\"65a1b2c3\""));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"clean_jobs\":true"));
+    free(json);
+}
+
+void test_pool_job_with_merkle_branches(void)
+{
+    /* has_notify=true with one merkle branch */
+    pool_snapshot_t s = {0};
+    s.has_notify = true;
+    strncpy(s.job_id, "j1", sizeof(s.job_id) - 1);
+    memset(s.prevhash, 0xff, 32);
+    s.coinb1[0] = 0xaa; s.coinb1_len = 1;
+    s.coinb2[0] = 0xbb; s.coinb2_len = 1;
+    memset(s.merkle_branches[0], 0x11, 32);
+    s.merkle_count = 1;
+    s.version    = 0x20000000;
+    s.nbits      = 0x1703a30c;
+    s.ntime      = 0x65a1b2c3;
+    s.clean_jobs = false;
+
+    char *json = capture_pool_job(&s);
+    TEST_ASSERT_NOT_NULL(json);
+
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"merkle_branches\":[\"1111111111111111111111111111111111111111111111111111111111111111\"]"));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"clean_jobs\":false"));
     free(json);
 }
 

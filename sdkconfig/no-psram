@@ -10,7 +10,14 @@ CONFIG_LWIP_TCP_WND_DEFAULT=2920
 # bb_mdns batch ring (B1-257) — cap on no-PSRAM. Default BATCH_MAX=16 sizes the
 # ring at ~33 KB + an ~8 KB dispatch item; it's SPIRAM-preferred but falls back to
 # INTERNAL heap with no PSRAM, which exhausts the heap (mdns/bb_cache/httpd OOM).
-# 4 × depth 3 → ~8 KB. Dual-core no-PSRAM (wroom32/cyd/tdongle) don't inherit
-# single-core's cap, so it must live here on the PSRAM axis.
+# BATCH_MAX=4 stays here: bb does NOT derive it on the PSRAM axis (dual-core no-PSRAM
+# boards need it and the Kconfig default is 16). RING_DEPTH removed: bb #616 derives
+# depth=3 from the SPIRAM axis in Kconfig (not in sdkconfig.defaults, so derive wins).
 CONFIG_BB_MDNS_BATCH_MAX=4
-CONFIG_BB_MDNS_BATCH_RING_DEPTH=3
+
+# bb_pub telem buffer caps for no-PSRAM boards (TA-505).
+# sdkconfig.defaults retains 1024 for PSRAM/bitaxe boards; the bb #616 Kconfig
+# default of 512 (non-SPIRAM axis) does NOT win because sdkconfig.defaults is an
+# explicit fragment at higher precedence — this override is load-bearing.
+CONFIG_BB_PUB_TELEM_SERIALIZE_MAX=512
+CONFIG_BB_PUB_TELEM_SNAP_MAX=512

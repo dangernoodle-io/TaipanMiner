@@ -117,3 +117,17 @@ CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES=30720
 
 # B1-352 opt-in telemetry (breadboard v0.70.0): attach only hardware this board has.
 CONFIG_BB_PUB_THERMAL_AUTO_ATTACH=y
+
+# bb_log_event SSE queue: default 48 entries × 192 B ≈ 9 KB heap — far too large for the S2 budget.
+# 8 entries ≈ 1.5 KB; drops are observable via bb_log_event_dropped(). Keep AUTO_ATTACH=y for headless
+# observability (no USB-CDC console; this is the only live log path in run mode).
+CONFIG_BB_LOG_EVENT_QUEUE_LEN=8
+
+# TA-505 serialize caps: load-bearing override — sdkconfig.defaults sets 1024 for PSRAM/bitaxe;
+# bb #616 Kconfig derives 512 on non-SPIRAM axis but loses to the explicit sdkconfig.defaults
+# fragment (higher precedence). S2 doesn't chain no-psram, so this fragment is the override.
+CONFIG_BB_PUB_TELEM_SERIALIZE_MAX=512
+CONFIG_BB_PUB_TELEM_SNAP_MAX=512
+
+# mDNS batch ring depth removed: bb #616 derives depth=3 from the SPIRAM axis (not in
+# sdkconfig.defaults, so the Kconfig default wins and no fragment line is needed).

@@ -72,7 +72,6 @@ static void make_stats_base(stats_snapshot_t *s)
     memset(s, 0, sizeof(*s));
     s->hw_rate             = 485e9;
     s->hw_ema              = 470e9;
-    s->temp_c              = 45.0f;
     s->hw_shares           = 10;
     s->session_shares      = 8;
     s->session_rejected    = 0;
@@ -164,43 +163,8 @@ void test_stats_asic_total_valid_false(void)
     free(json);
 }
 
-void test_stats_expected_ghs_populated(void)
-{
-    /* expected_ghs field directly populated in snapshot */
-    stats_snapshot_t s;
-    make_stats_base(&s);
-    s.asic_freq_cfg    = 500.0f;  /* MHz */
-    s.asic_freq_eff    = 500.0f;
-    s.asic_small_cores = 2000;
-    s.asic_count       = 1;
-    s.asic_total_valid = false;
-    s.n_chips          = 0;
-    s.expected_ghs     = 1000.0;  /* precomputed by routes.c:mining_get_expected_ghs() */
-
-    char *json = capture_stats(&s);
-    TEST_ASSERT_NOT_NULL(json);
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"expected_ghs\":1000"));
-    free(json);
-}
-
-void test_stats_expected_ghs_null_when_unavailable(void)
-{
-    /* expected_ghs < 0 → emit null */
-    stats_snapshot_t s;
-    make_stats_base(&s);
-    s.asic_freq_cfg    = 0.0f;
-    s.asic_freq_eff    = -1.0f;
-    s.asic_small_cores = 2040;
-    s.asic_count       = 1;
-    s.asic_total_valid = false;
-    s.n_chips          = 0;
-    s.expected_ghs     = -1.0;  /* unavailable sentinel from routes.c */
-
-    char *json = capture_stats(&s);
-    TEST_ASSERT_NOT_NULL(json);
-    TEST_ASSERT_NOT_NULL(strstr(json, "\"expected_ghs\":null"));
-    free(json);
-}
+/* test_stats_expected_ghs_populated and test_stats_expected_ghs_null_when_unavailable
+ * removed — expected_ghs dropped from /api/stats (TA-505). */
 
 void test_stats_freq_cfg_negative_emits_null(void)
 {

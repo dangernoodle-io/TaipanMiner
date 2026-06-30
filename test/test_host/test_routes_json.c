@@ -750,18 +750,18 @@ void test_knot_two_peers(void)
     knot_peer_t peers[2] = {0};
     int64_t now_us = 30000000LL;
 
-    strncpy(peers[0].instance_name, "taipan-alpha._taipan._tcp.local", sizeof(peers[0].instance_name) - 1);
-    strncpy(peers[0].hostname, "taipan-alpha", sizeof(peers[0].hostname) - 1);
-    strncpy(peers[0].ip4,      "192.168.1.10", sizeof(peers[0].ip4) - 1);
+    strncpy(peers[0].id.instance_name, "taipan-alpha._taipan._tcp.local", sizeof(peers[0].id.instance_name) - 1);
+    strncpy(peers[0].id.hostname, "taipan-alpha", sizeof(peers[0].id.hostname) - 1);
+    strncpy(peers[0].id.ip4,      "192.168.1.10", sizeof(peers[0].id.ip4) - 1);
     strncpy(peers[0].worker,   "alpha-worker", sizeof(peers[0].worker) - 1);
     strncpy(peers[0].board,    "bitaxe-601",   sizeof(peers[0].board)   - 1);
     strncpy(peers[0].version,  "1.2.3",        sizeof(peers[0].version) - 1);
     strncpy(peers[0].state,    "mining",       sizeof(peers[0].state)   - 1);
     peers[0].last_seen_us = 25000000LL;
 
-    strncpy(peers[1].instance_name, "taipan-beta._taipan._tcp.local", sizeof(peers[1].instance_name) - 1);
-    strncpy(peers[1].hostname, "taipan-beta", sizeof(peers[1].hostname) - 1);
-    strncpy(peers[1].ip4,      "192.168.1.11", sizeof(peers[1].ip4) - 1);
+    strncpy(peers[1].id.instance_name, "taipan-beta._taipan._tcp.local", sizeof(peers[1].id.instance_name) - 1);
+    strncpy(peers[1].id.hostname, "taipan-beta", sizeof(peers[1].id.hostname) - 1);
+    strncpy(peers[1].id.ip4,      "192.168.1.11", sizeof(peers[1].id.ip4) - 1);
     strncpy(peers[1].worker,   "beta-worker",  sizeof(peers[1].worker)  - 1);
     strncpy(peers[1].board,    "bitaxe-403",   sizeof(peers[1].board)   - 1);
     strncpy(peers[1].version,  "1.2.0",        sizeof(peers[1].version) - 1);
@@ -788,9 +788,9 @@ void test_knot_peer_single_peer(void)
 {
     /* build_knot_peer_json shape test — single peer object */
     knot_peer_t peer = {0};
-    strncpy(peer.instance_name, "test-miner._taipan._tcp.local", sizeof(peer.instance_name) - 1);
-    strncpy(peer.hostname, "test-miner", sizeof(peer.hostname) - 1);
-    strncpy(peer.ip4,      "10.0.0.1",  sizeof(peer.ip4) - 1);
+    strncpy(peer.id.instance_name, "test-miner._taipan._tcp.local", sizeof(peer.id.instance_name) - 1);
+    strncpy(peer.id.hostname, "test-miner", sizeof(peer.id.hostname) - 1);
+    strncpy(peer.id.ip4,      "10.0.0.1",  sizeof(peer.id.ip4) - 1);
     strncpy(peer.worker,   "test-worker", sizeof(peer.worker) - 1);
     strncpy(peer.board,    "tdongle-s3",  sizeof(peer.board) - 1);
     strncpy(peer.version,  "0.9.5",       sizeof(peer.version) - 1);
@@ -817,9 +817,9 @@ void test_knot_peer_matches_array_builder(void)
     /* Verify that capture_knot([peer]) produces the same object as
      * build_knot_peer_json serialized inside [...] */
     knot_peer_t peer = {0};
-    strncpy(peer.instance_name, "gamma._taipan._tcp.local", sizeof(peer.instance_name) - 1);
-    strncpy(peer.hostname, "gamma", sizeof(peer.hostname) - 1);
-    strncpy(peer.ip4,      "172.16.1.50", sizeof(peer.ip4) - 1);
+    strncpy(peer.id.instance_name, "gamma._taipan._tcp.local", sizeof(peer.id.instance_name) - 1);
+    strncpy(peer.id.hostname, "gamma", sizeof(peer.id.hostname) - 1);
+    strncpy(peer.id.ip4,      "172.16.1.50", sizeof(peer.id.ip4) - 1);
     strncpy(peer.worker,   "gamma-w", sizeof(peer.worker) - 1);
     strncpy(peer.board,    "bitaxe-650", sizeof(peer.board) - 1);
     strncpy(peer.version,  "2.1.0", sizeof(peer.version) - 1);

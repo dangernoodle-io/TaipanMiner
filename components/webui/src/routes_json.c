@@ -336,9 +336,9 @@ void emit_diag_asic_json(bb_http_json_obj_stream_t *obj, const diag_asic_snapsho
 bb_json_t build_knot_peer_json(const knot_peer_t *peer, int64_t now_us)
 {
     bb_json_t peer_obj = bb_json_obj_new();
-    bb_json_obj_set_string(peer_obj, "instance",  peer->instance_name);
-    bb_json_obj_set_string(peer_obj, "hostname",  peer->hostname);
-    bb_json_obj_set_string(peer_obj, "ip",        peer->ip4);
+    bb_json_obj_set_string(peer_obj, "instance",  peer->id.instance_name);
+    bb_json_obj_set_string(peer_obj, "hostname",  peer->id.hostname);
+    bb_json_obj_set_string(peer_obj, "ip",        peer->id.ip4);
     bb_json_obj_set_string(peer_obj, "worker",    peer->worker);
     bb_json_obj_set_string(peer_obj, "board",     peer->board);
     bb_json_obj_set_string(peer_obj, "version",   peer->version);

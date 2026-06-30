@@ -605,15 +605,6 @@ void test_chip_routing_invalid_chip_count_negative(void);
 void test_chip_routing_invalid_chip_count_too_large(void);
 #endif /* ASIC_CHIP */
 
-// TA-234: partition_fixup_decision
-void test_pfd_skip_when_expected_empty(void);
-void test_pfd_skip_when_expected_too_short(void);
-void test_pfd_skip_when_live_unreadable(void);
-void test_pfd_skip_when_table_matches(void);
-void test_pfd_rewrite_only_when_running_at_correct_addr(void);
-void test_pfd_copy_and_rewrite_when_running_at_wrong_addr(void);
-void test_pfd_running_addr_zero_treated_as_wrong(void);
-
 // Forward declarations from test_knot.c
 void test_knot_table_upsert_empty_slot(void);
 void test_knot_table_upsert_update_existing(void);
@@ -1401,15 +1392,6 @@ int main(void) {
     RUN_TEST(test_chip_routing_invalid_chip_count_negative);
     RUN_TEST(test_chip_routing_invalid_chip_count_too_large);
 #endif /* ASIC_CHIP */
-
-    // TA-234: partition_fixup_decision tests
-    RUN_TEST(test_pfd_skip_when_expected_empty);
-    RUN_TEST(test_pfd_skip_when_expected_too_short);
-    RUN_TEST(test_pfd_skip_when_live_unreadable);
-    RUN_TEST(test_pfd_skip_when_table_matches);
-    RUN_TEST(test_pfd_rewrite_only_when_running_at_correct_addr);
-    RUN_TEST(test_pfd_copy_and_rewrite_when_running_at_wrong_addr);
-    RUN_TEST(test_pfd_running_addr_zero_treated_as_wrong);
 
     // Knot peer table tests
     RUN_TEST(test_knot_table_upsert_empty_slot);

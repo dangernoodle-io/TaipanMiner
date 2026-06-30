@@ -62,7 +62,6 @@ typedef struct {
     double   hw_ema;
     double   best_diff;
     uint32_t hw_shares;
-    float    temp_c;
     uint32_t session_shares;
     uint32_t session_rejected;
     uint32_t session_rejected_job_not_found;
@@ -76,18 +75,12 @@ typedef struct {
     int64_t  session_last_block_ts; /* unix seconds; 0 = unset */
     int64_t  last_share_us;    /* 0 = no share yet */
     int64_t  session_start_us; /* 0 = no session */
-    double   expected_ghs;     /* < 0 = unavailable, emit null */
     int64_t  now_us;           /* esp_timer_get_time() at snapshot time */
 #ifndef ASIC_CHIP
     /* Non-ASIC rolling hashrate windows (H/s). < 0 = unavailable, emit null. */
     double   hashrate_1m;
     double   hashrate_10m;
     double   hashrate_1h;
-    double   pool_effective_hashrate; /* < 0 = unavailable, emit null */
-    /* No HW-error source on HW SHA path; always < 0 → null. Reserved for parity. */
-    double   hw_error_pct_1m;
-    double   hw_error_pct_10m;
-    double   hw_error_pct_1h;
 #endif
 
 #ifdef ASIC_CHIP
@@ -104,7 +97,6 @@ typedef struct {
     float    asic_hw_error_pct_1m;
     float    asic_hw_error_pct_10m;
     float    asic_hw_error_pct_1h;
-    double   pool_effective_hashrate; /* < 0 = unavailable, emit null */
     bool     asic_total_valid;
     int      asic_small_cores;
     int      asic_count;
@@ -126,6 +118,11 @@ typedef struct {
 #endif
     int64_t  ts_ms;       /* monotonic ms at gather time (bb_clock_now_ms64) */
 } stats_snapshot_t;
+
+#ifdef CONFIG_BB_PUB_TELEM_SNAP_MAX
+_Static_assert(sizeof(stats_snapshot_t) < CONFIG_BB_PUB_TELEM_SNAP_MAX,
+               "stats_snapshot_t too large for CONFIG_BB_PUB_TELEM_SNAP_MAX — trim fields or raise limit");
+#endif
 
 /* Emit /api/stats fields into an already-opened streaming JSON object.
  * Caller does obj_begin / obj_end; this function emits fields only. */
@@ -219,12 +216,20 @@ typedef struct {
 } pool_snapshot_t;
 
 /* Emit /api/pool fields into an already-opened streaming JSON object.
- * Emits the full pool object including configured{}, notify{}, and stats[].
+ * Emits the full pool object including configured{} and stats[].
+ * notify is always emitted as null — job details are at /api/pool/job.
  * Caller does obj_begin / obj_end; this function emits fields only. */
 void emit_pool_json(bb_http_json_obj_stream_t *obj,
                     const pool_snapshot_t *s,
                     const pool_stat_snapshot_t *stats,
                     size_t stats_count);
+
+/* Emit /api/pool/job fields into an already-opened streaming JSON object.
+ * Emits the current stratum job (job_id, prev_hash, coinb1, coinb2,
+ * merkle_branches, version, nbits, ntime, clean_jobs). All fields are null
+ * when s->has_notify is false.
+ * Caller does obj_begin / obj_end; this function emits fields only. */
+void emit_pool_job_json(bb_http_json_obj_stream_t *obj, const pool_snapshot_t *s);
 
 // ---------------------------------------------------------------------------
 // mining_rates -- periodic hashrate + shares snapshot (B1-352 bb_pub source)

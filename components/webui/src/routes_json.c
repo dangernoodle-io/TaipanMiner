@@ -39,10 +39,8 @@ void emit_stats_json(bb_http_json_obj_stream_t *obj, const stats_snapshot_t *sna
 
     bb_http_resp_json_obj_set_num(obj, "hashrate",        snap->hw_rate);
     bb_http_resp_json_obj_set_num(obj, "hashrate_avg",    snap->hw_ema);
-    bb_http_resp_json_obj_set_num(obj, "temp_c",          (double)snap->temp_c);
     bb_http_resp_json_obj_set_int(obj, "shares",          (int64_t)snap->hw_shares);
     bb_http_resp_json_obj_set_int(obj, "session_shares",  (int64_t)snap->session_shares);
-    bb_http_resp_json_obj_set_int(obj, "session_rejected",(int64_t)snap->session_rejected);
     bb_http_resp_json_obj_set_int(obj, "session_blocks_found", (int64_t)snap->session_blocks_found);
     bb_http_resp_json_obj_set_int(obj, "session_best_diff_ts", snap->session_best_diff_ts);
     bb_http_resp_json_obj_set_int(obj, "session_last_block_ts", snap->session_last_block_ts);
@@ -61,27 +59,13 @@ void emit_stats_json(bb_http_json_obj_stream_t *obj, const stats_snapshot_t *sna
     bb_http_resp_json_obj_set_num(obj, "best_diff",        snap->best_diff);
     bb_http_resp_json_obj_set_int(obj, "uptime_s",         uptime_s);
 
-    if (snap->expected_ghs >= 0.0) {
-        bb_http_resp_json_obj_set_num(obj, "expected_ghs", snap->expected_ghs);
-    } else {
-        bb_http_resp_json_obj_set_null(obj, "expected_ghs");
-    }
-
 #ifndef ASIC_CHIP
-    if (snap->hashrate_1m >= 0.0)             bb_http_resp_json_obj_set_num(obj, "hashrate_1m",             snap->hashrate_1m);
-    else                                      bb_http_resp_json_obj_set_null(obj, "hashrate_1m");
-    if (snap->hashrate_10m >= 0.0)            bb_http_resp_json_obj_set_num(obj, "hashrate_10m",            snap->hashrate_10m);
-    else                                      bb_http_resp_json_obj_set_null(obj, "hashrate_10m");
-    if (snap->hashrate_1h >= 0.0)             bb_http_resp_json_obj_set_num(obj, "hashrate_1h",             snap->hashrate_1h);
-    else                                      bb_http_resp_json_obj_set_null(obj, "hashrate_1h");
-    if (snap->pool_effective_hashrate >= 0.0) bb_http_resp_json_obj_set_num(obj, "pool_effective_hashrate", snap->pool_effective_hashrate);
-    else                                      bb_http_resp_json_obj_set_null(obj, "pool_effective_hashrate");
-    if (snap->hw_error_pct_1m >= 0.0)         bb_http_resp_json_obj_set_num(obj, "hw_error_pct_1m",         snap->hw_error_pct_1m);
-    else                                      bb_http_resp_json_obj_set_null(obj, "hw_error_pct_1m");
-    if (snap->hw_error_pct_10m >= 0.0)        bb_http_resp_json_obj_set_num(obj, "hw_error_pct_10m",        snap->hw_error_pct_10m);
-    else                                      bb_http_resp_json_obj_set_null(obj, "hw_error_pct_10m");
-    if (snap->hw_error_pct_1h >= 0.0)         bb_http_resp_json_obj_set_num(obj, "hw_error_pct_1h",         snap->hw_error_pct_1h);
-    else                                      bb_http_resp_json_obj_set_null(obj, "hw_error_pct_1h");
+    if (snap->hashrate_1m >= 0.0)  bb_http_resp_json_obj_set_num(obj, "hashrate_1m",  snap->hashrate_1m);
+    else                           bb_http_resp_json_obj_set_null(obj, "hashrate_1m");
+    if (snap->hashrate_10m >= 0.0) bb_http_resp_json_obj_set_num(obj, "hashrate_10m", snap->hashrate_10m);
+    else                           bb_http_resp_json_obj_set_null(obj, "hashrate_10m");
+    if (snap->hashrate_1h >= 0.0)  bb_http_resp_json_obj_set_num(obj, "hashrate_1h",  snap->hashrate_1h);
+    else                           bb_http_resp_json_obj_set_null(obj, "hashrate_1h");
 #endif
 
 #ifdef ASIC_CHIP
@@ -120,9 +104,6 @@ void emit_stats_json(bb_http_json_obj_stream_t *obj, const stats_snapshot_t *sna
         bb_http_resp_json_obj_set_null(obj, "asic_hw_error_pct_10m");
         bb_http_resp_json_obj_set_null(obj, "asic_hw_error_pct_1h");
     }
-    if (snap->pool_effective_hashrate >= 0.0) bb_http_resp_json_obj_set_num(obj, "pool_effective_hashrate", snap->pool_effective_hashrate);
-    else                                      bb_http_resp_json_obj_set_null(obj, "pool_effective_hashrate");
-
     bb_http_resp_json_obj_set_arr_begin(obj, "asic_chips");
     for (int c = 0; c < snap->n_chips; c++) {
         bb_http_resp_json_obj_set_obj_begin(obj, NULL);
@@ -206,43 +187,7 @@ void emit_pool_json(bb_http_json_obj_stream_t *obj,
         bb_http_resp_json_obj_set_null(obj, "version_mask");
     }
 
-    if (s->has_notify) {
-        bb_http_resp_json_obj_set_obj_begin(obj, "notify");
-        bb_http_resp_json_obj_set_str(obj, "job_id", s->job_id);
-
-        char prevhash_hex[65];
-        bytes_to_hex(s->prevhash, 32, prevhash_hex);
-        bb_http_resp_json_obj_set_str(obj, "prev_hash", prevhash_hex);
-
-        char coinb1_hex[2 * ROUTES_JSON_MAX_COINB + 1];
-        bytes_to_hex(s->coinb1, s->coinb1_len, coinb1_hex);
-        bb_http_resp_json_obj_set_str(obj, "coinb1", coinb1_hex);
-
-        char coinb2_hex[2 * ROUTES_JSON_MAX_COINB + 1];
-        bytes_to_hex(s->coinb2, s->coinb2_len, coinb2_hex);
-        bb_http_resp_json_obj_set_str(obj, "coinb2", coinb2_hex);
-
-        bb_http_resp_json_obj_set_arr_begin(obj, "merkle_branches");
-        for (size_t i = 0; i < s->merkle_count; i++) {
-            char br_hex[65];
-            bytes_to_hex(s->merkle_branches[i], 32, br_hex);
-            bb_http_resp_json_obj_set_str(obj, NULL, br_hex);
-        }
-        bb_http_resp_json_obj_set_arr_end(obj);
-
-        char hex8[9];
-        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)s->version);
-        bb_http_resp_json_obj_set_str(obj, "version", hex8);
-        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)s->nbits);
-        bb_http_resp_json_obj_set_str(obj, "nbits", hex8);
-        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)s->ntime);
-        bb_http_resp_json_obj_set_str(obj, "ntime", hex8);
-
-        bb_http_resp_json_obj_set_bool(obj, "clean_jobs", s->clean_jobs);
-        bb_http_resp_json_obj_set_obj_end(obj);
-    } else {
-        bb_http_resp_json_obj_set_null(obj, "notify");
-    }
+    bb_http_resp_json_obj_set_null(obj, "notify");
 
     if (s->active_pool_idx >= 0) bb_http_resp_json_obj_set_int(obj, "active_pool_idx", (int64_t)s->active_pool_idx);
     else                        bb_http_resp_json_obj_set_null(obj, "active_pool_idx");
@@ -295,6 +240,58 @@ void emit_pool_json(bb_http_json_obj_stream_t *obj,
         bb_http_resp_json_obj_set_obj_end(obj);
     }
     bb_http_resp_json_obj_set_arr_end(obj);
+}
+
+/* ============================================================================
+ * /api/pool/job
+ * ========================================================================= */
+
+void emit_pool_job_json(bb_http_json_obj_stream_t *obj, const pool_snapshot_t *s)
+{
+    if (s->has_notify) {
+        bb_http_resp_json_obj_set_str(obj, "job_id", s->job_id);
+
+        char prevhash_hex[65];
+        bytes_to_hex(s->prevhash, 32, prevhash_hex);
+        bb_http_resp_json_obj_set_str(obj, "prev_hash", prevhash_hex);
+
+        char coinb1_hex[2 * ROUTES_JSON_MAX_COINB + 1];
+        bytes_to_hex(s->coinb1, s->coinb1_len, coinb1_hex);
+        bb_http_resp_json_obj_set_str(obj, "coinb1", coinb1_hex);
+
+        char coinb2_hex[2 * ROUTES_JSON_MAX_COINB + 1];
+        bytes_to_hex(s->coinb2, s->coinb2_len, coinb2_hex);
+        bb_http_resp_json_obj_set_str(obj, "coinb2", coinb2_hex);
+
+        bb_http_resp_json_obj_set_arr_begin(obj, "merkle_branches");
+        for (size_t i = 0; i < s->merkle_count; i++) {
+            char br_hex[65];
+            bytes_to_hex(s->merkle_branches[i], 32, br_hex);
+            bb_http_resp_json_obj_set_str(obj, NULL, br_hex);
+        }
+        bb_http_resp_json_obj_set_arr_end(obj);
+
+        char hex8[9];
+        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)s->version);
+        bb_http_resp_json_obj_set_str(obj, "version", hex8);
+        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)s->nbits);
+        bb_http_resp_json_obj_set_str(obj, "nbits", hex8);
+        snprintf(hex8, sizeof(hex8), "%08lx", (unsigned long)s->ntime);
+        bb_http_resp_json_obj_set_str(obj, "ntime", hex8);
+
+        bb_http_resp_json_obj_set_bool(obj, "clean_jobs", s->clean_jobs);
+    } else {
+        bb_http_resp_json_obj_set_null(obj, "job_id");
+        bb_http_resp_json_obj_set_null(obj, "prev_hash");
+        bb_http_resp_json_obj_set_null(obj, "coinb1");
+        bb_http_resp_json_obj_set_null(obj, "coinb2");
+        bb_http_resp_json_obj_set_arr_begin(obj, "merkle_branches");
+        bb_http_resp_json_obj_set_arr_end(obj);
+        bb_http_resp_json_obj_set_null(obj, "version");
+        bb_http_resp_json_obj_set_null(obj, "nbits");
+        bb_http_resp_json_obj_set_null(obj, "ntime");
+        bb_http_resp_json_obj_set_null(obj, "clean_jobs");
+    }
 }
 
 /* ============================================================================

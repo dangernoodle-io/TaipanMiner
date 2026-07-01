@@ -204,9 +204,9 @@ CONFIG_BB_PUB_BUFFER_MAX_ENTRIES=8
 # bb_pub source cap: 7 breadboard auto-registered sources + mining (this file) = 8;
 # raised to 14 for B1-352 (mining_rates + pool + sensors_miner) + headroom.
 CONFIG_BB_PUB_MAX_SOURCES=14
-# SSOT: stats_snapshot_t is ~465 B on ASIC builds; raise snap max to 1024 to fit.
-CONFIG_BB_PUB_TELEM_SNAP_MAX=1024
-CONFIG_BB_PUB_TELEM_SERIALIZE_MAX=1024
+# BB_PUB_TELEM_SNAP_MAX / SERIALIZE_MAX: derived by bb >= 93106a5 (PSRAM-axis: 1024
+# SPIRAM / 512 no-PSRAM).  stats_snapshot_t (~465 B on ASIC) fits in the SPIRAM-
+# axis 1024; no-PSRAM boards correctly receive 512 via the Kconfig default — removed.
 
 # B1-352 event-topic caps: 14 topics non-ASIC / 15 ASIC attach to bb_event_routes at
 # runtime (block.found + pool.notify + health.alerts + net.health + 7 bb_sink_event

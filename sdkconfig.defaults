@@ -195,7 +195,12 @@ CONFIG_BB_SINK_HTTP_TELEMETRY_AUTOREGISTER=n
 # plus a little outage headroom. PSRAM boards (bitaxe) have ~8 active sources/tick (all
 # HALs present) and override to 16 in SPIRAM (see sdkconfig/bitaxe-*). Payload 512 B
 # fits the oversized ~535 B "info" entry. Ring = (192+1+512)*8 ~= 5.6 KB internal.
-CONFIG_BB_PUB_BUFFER_ENABLE=y
+# TM has no store-and-forward use case on any board -- drop the ring fleet-wide.
+# Removes the ring code path and its up-to-~5.6 KB TRANSIENT internal-heap allocation
+# during sink outages on no-PSRAM boards — no standing BSS was reserved before or after
+# (BUFFER_STATIC=n, lazy heap). ~2.8 KB transient avoided on S2; no-op on PSRAM bitaxe
+# (ring lived in SPIRAM).
+CONFIG_BB_PUB_BUFFER_ENABLE=n
 # Fleet-wide: lazy/on-failure mode. Always-on standing cost (~5.6 KB internal) is
 # not affordable on no-PSRAM boards. PSRAM boards (bitaxe) can re-enable if needed.
 CONFIG_BB_PUB_BUFFER_ALWAYS=n

@@ -98,11 +98,8 @@ CONFIG_BB_EVENT_ROUTES_RING_MAX_ENTRY=192
 # bb_event dispatcher queue depth: default 16; 8 is sufficient for low-rate mining events.
 CONFIG_BB_EVENT_QUEUE_DEPTH=8
 
-# B1-352 heap: the new SSE telemetry sources/topics pushed the S2 over its budget
-# (OOM on boot, .107). BUFFER_ALWAYS=n is now the fleet-wide default (sdkconfig.defaults).
-# S2-only override: drop MAX_ENTRIES 8→4 to further cap heap during broker-outage episodes.
-# Together: 0 KB standing cost (was 5.6 KB) + max ~2.8 KB transient during broker outage.
-CONFIG_BB_PUB_BUFFER_MAX_ENTRIES=4
+# bb_pub store-and-forward ring is disabled fleet-wide (sdkconfig.defaults) --
+# no S2-specific override needed.
 
 # OTA update-check pre-flight (B1-280 follow-on): the S2 is too heap-tight to run a
 # steady-state GitHub TLS handshake — ~20 KB transient against ~25 KB free OOM-panics
@@ -111,8 +108,8 @@ CONFIG_BB_PUB_BUFFER_MAX_ENTRIES=4
 # above what it can offer: POST /api/update/check then returns check_on_apply cleanly
 # and the manifest check runs at apply time (boot-OTA, full early-boot heap). 30720 =
 # GitHub-TLS transient + margin (it panicked at ~25.5 KB free). Buffering + sockets
-# stay at the fleet default — the check no longer runs in steady state, so the ~2.8 KB
-# always-on ring is affordable and store-and-forward replay is kept.
+# stay at the fleet default — the check no longer runs in steady state; store-and-forward
+# is disabled fleet-wide (bb_pub ring off).
 CONFIG_BB_OTA_PULL_MIN_FREE_HEAP_BYTES=30720
 
 # B1-352 opt-in telemetry (breadboard v0.70.0): attach only hardware this board has.

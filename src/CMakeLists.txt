@@ -20,11 +20,11 @@ idf_component_register(
     REQUIRES mining stratum bb_wifi bb_prov bb_mdns bb_http bb_nv config asic board spi_flash app_update
              bb_display ${_display_backend}
              led bb_log bb_ntp bb_system bb_timer bb_ota_pull bb_ota_push bb_ota_boot bb_ota_hooks bb_openapi bb_manifest
-             bb_registry webui bb_update_check
+             bb_init webui bb_ota_check
              bb_display_info bb_led_info bb_temp bb_net_health
 )
 
-include("${CMAKE_CURRENT_LIST_DIR}/../.breadboard/cmake/bb_registry.cmake")
-bb_registry_force_register_pre_http(${COMPONENT_LIB} taipan_cors)
-bb_registry_force_register_pre_http(${COMPONENT_LIB} taipan_openapi)
-bb_registry_force_register_pre_http(${COMPONENT_LIB} taipan_webui_reserve)
+include("${CMAKE_CURRENT_LIST_DIR}/../.breadboard/cmake/bb_init.cmake")
+bb_init_force_register_pre_http(${COMPONENT_LIB} taipan_cors)
+bb_init_force_register_pre_http(${COMPONENT_LIB} taipan_openapi)
+bb_init_force_register_pre_http(${COMPONENT_LIB} taipan_webui_reserve)

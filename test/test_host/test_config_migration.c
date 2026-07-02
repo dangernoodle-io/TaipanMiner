@@ -11,7 +11,7 @@
  * BB's default "bb_cfg" namespace.
  *
  * Migration runs in app_main via migrate_legacy_bb_keys() BEFORE
- * bb_registry_init_early(), using direct ESP-IDF NVS API. It does NOT run
+ * bb_init_init_early(), using direct ESP-IDF NVS API. It does NOT run
  * inside config_init() — ordering-critical to ensure bb_wifi_autoinit (EARLY
  * tier) sees migrated wifi creds before bb_nv_config_init loads NVS.
  *

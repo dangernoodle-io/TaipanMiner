@@ -28,6 +28,7 @@ COMMANDS["soak"] = _suite_command("soak")
 COMMANDS["stress"] = _suite_command("stress")
 COMMANDS["faults"] = _suite_command("faults")
 COMMANDS["telemetry"] = _suite_command("telemetry")
+COMMANDS["churn"] = _suite_command("churn")
 
 # Remaining top-level commands
 COMMANDS["describe"] = _describe

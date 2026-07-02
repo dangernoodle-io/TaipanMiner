@@ -5,7 +5,7 @@ See breadboard scripts/bbtool/README.md."""
 Import("env")  # PlatformIO SCons pre-script
 import os, sys, subprocess
 
-VERSION = "c74bdd8e4d1c4f74af2aacaa72741dc84e15732f"  # pinned at bb c74bdd8 — PR-2: info→meta field move + REST SSOT (#613 + #614)
+VERSION = "0d752b09a5ee2bcbe3a64c5dded63cab5a52c82a"  # pinned at bb 0d752b0 — bb_update_check renamed to bb_ota_check + on-demand kick() decoupled from periodic timer (runs at prio 21, no longer starved)
 REPO = "https://github.com/dangernoodle-io/breadboard.git"
 DEST = os.path.join(env.subst("$PROJECT_DIR"), ".breadboard")
 LOCAL = os.environ.get("BREADBOARD_LOCAL")

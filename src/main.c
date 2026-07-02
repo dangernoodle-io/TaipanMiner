@@ -33,13 +33,13 @@
 #include "bb_ota_boot.h"
 #include "bb_ota_led.h"
 #include "bb_ota_hooks.h"
-#include "bb_update_check.h"
+#include "bb_ota_check.h"
 #include "bb_pub.h"
 #include "bb_cache.h"
 #include "bb_clock.h"
 #include "bb_mqtt.h"
 #include "bb_manifest.h"
-#include "bb_registry.h"
+#include "bb_init.h"
 #include "bb_event.h"
 #include "bb_event_routes.h"
 #include "bb_sink_event.h"
@@ -824,7 +824,7 @@ void app_main(void)
 #endif
 
     // Initialize early-tier registry (log_stream, nv_flash, nv_config)
-    BB_ERROR_CHECK(bb_registry_init_early());
+    BB_ERROR_CHECK(bb_init_init_early());
     BB_ERROR_CHECK(config_init());
     // Register manifest so /api/manifest exposes the NVS keyspace
     BB_ERROR_CHECK(config_register_manifest());
@@ -840,7 +840,7 @@ void app_main(void)
     // POST /api/update/apply, pull the new firmware at FULL early-boot heap
     // before any subsystem allocates, then reboot into it. Never returns when
     // armed; returns immediately otherwise. WiFi STA was started by
-    // bb_registry_init_early(); bb_ota_boot waits for the link + NTP internally
+    // bb_init_init_early(); bb_ota_boot waits for the link + NTP internally
     // and broadcasts its trace over the bb_log UDP sink (headless observability).
     bb_ota_set_progress_cb(bb_ota_led_progress);
     // Advertise the same mDNS identity the device uses in normal mining mode so
@@ -914,7 +914,7 @@ void app_main(void)
     // Register /api/info and /api/health satellite extenders. All three degrade
     // to present:false gracefully when hardware is absent (no display on wroom32,
     // no LED on bitaxe, no SoC temp sensor on classic ESP32). Must run before
-    // bb_registry_init() which starts the HTTP server and freezes the extender table.
+    // bb_init_init() which starts the HTTP server and freezes the extender table.
     bb_display_register_info();
     bb_net_health_register_health();
 
@@ -1062,17 +1062,17 @@ void app_main(void)
             }
         }
 #endif
-        // task_core / task_priority MUST be set BEFORE bb_registry_init — they're
+        // task_core / task_priority MUST be set BEFORE bb_init_init — they're
         // sampled at xTaskCreatePinnedToCore time inside the registry walk.
         // Pin the upd_check worker to Core 1. Core 0 already carries httpd + lwip +
         // wifi + stratum; a Core-0-bound mbedTLS handshake starves IDLE0 past the 60s
         // task watchdog (BB B1-217).
-        bb_update_check_set_task_core(1);
+        bb_ota_check_set_task_core(1);
 #ifndef ASIC_CHIP
         // Tdongle: mining_hw task runs on Core 1 at prio 20 (CPU-bound SHA hot-loop).
         // Worker at default prio 1 would never get CPU to call mining_pause(). Raise
         // above mining so the kick actually preempts and calls the pause hook.
-        bb_update_check_set_task_priority(21);
+        bb_ota_check_set_task_priority(21);
 #endif
 #ifdef ASIC_CHIP
         bb_ota_pull_set_task_core(1);
@@ -1092,8 +1092,8 @@ void app_main(void)
         // Initialize registry: walks PRE_HTTP tier (CORS, OpenAPI meta, route-reserve),
         // auto-starts HTTP server (CONFIG_BB_HTTP_AUTOSTART=y), then walks regular tier
         // (auto-registers all breadboard routes and endpoints). Creates the
-        // bb_update_check + bb_ota_pull worker tasks using the affinity/priority above.
-        BB_ERROR_CHECK(bb_registry_init());
+        // bb_ota_check + bb_ota_pull worker tasks using the affinity/priority above.
+        BB_ERROR_CHECK(bb_init_init());
 
         // Register mining telemetry source — publishes hashrate/shares/rejected
         // on the "mining" MQTT topic each bb_pub tick.
@@ -1150,7 +1150,7 @@ void app_main(void)
         }
 
         // Register "block.found" SSE topic and hand the handle to mining_pool_stats
-        // so record_block() can post events. Must run after bb_registry_init() so
+        // so record_block() can post events. Must run after bb_init_init() so
         // bb_event_routes is already initialized.
         //
         // Non-fatal: block.found is an optional live-notification feature. If
@@ -1201,7 +1201,7 @@ void app_main(void)
         }
 
         // Attach "net.health" retained SSE topic and start 5-second link-health
-        // evaluator. Must run after bb_registry_init() so bb_event_routes is up.
+        // evaluator. Must run after bb_init_init() so bb_event_routes is up.
         // Non-fatal: degrades gracefully (no SSE topic) rather than aborting.
         {
             bb_err_t net_err = bb_net_health_attach_sse();
@@ -1262,17 +1262,17 @@ void app_main(void)
             }
         }
 
-        // Setters below depend on bb_update_check_init / bb_ota_pull_init having
+        // Setters below depend on bb_ota_check_init / bb_ota_pull_init having
         // run (they early-return BB_ERR_INVALID_STATE before init). The values are
         // sampled per-fetch in run_one, not at task creation, so this order is correct.
-        bb_update_check_set_releases_url(
+        bb_ota_check_set_releases_url(
             "https://api.github.com/repos/dangernoodle-io/TaipanMiner/releases/latest");
-        bb_update_check_set_firmware_board("taipanminer-" FIRMWARE_BOARD);
+        bb_ota_check_set_firmware_board("taipanminer-" FIRMWARE_BOARD);
 #ifndef ASIC_CHIP
         // Tdongle: USE the pause hook. Mining on Core 1 needs to be suspended for
         // the TLS handshake. (Bitaxe: NO pause hook — bm1370 quiesce/resume churns
         // heap; mining keeps running through the check.)
-        bb_update_check_set_hooks(tm_update_pause, tm_update_resume);
+        bb_ota_check_set_hooks(tm_update_pause, tm_update_resume);
 #endif
 
         bb_ota_pull_set_releases_url("https://api.github.com/repos/dangernoodle-io/TaipanMiner/releases/latest");
@@ -1304,7 +1304,7 @@ bench_quiet_skip_net:;
     // Sync time via SNTP (UTC)
     bb_ntp_start("pool.ntp.org");
 
-    // bb_update_check + bb_ota_pull setters moved earlier (before bb_registry_init)
+    // bb_ota_check + bb_ota_pull setters moved earlier (before bb_init_init)
     // so task_core/task_priority take effect at worker-task creation time.
 
     // OTA push pause/resume + skip-check come from the unified bb_ota_set_*

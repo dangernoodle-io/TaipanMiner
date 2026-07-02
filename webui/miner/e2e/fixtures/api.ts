@@ -251,7 +251,7 @@ export const otaCheckFixture = {
   status: 'checking',
 }
 
-// /api/update/status — populated by bb_update_check's worker; the webui polls
+// /api/update/status — populated by bb_ota_check's worker; the webui polls
 // this after kicking via POST /api/update/check until last_check_ts advances.
 export const updateStatusFixture = {
   current: '1.2.3',

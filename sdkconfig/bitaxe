@@ -20,12 +20,7 @@ CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
 # build hard-errors. Stays compatible with sdkconfig.defaults' WiFi buffer settings.
 CONFIG_ESP_WIFI_RX_BA_WIN=6
 
-# Telemetry store-and-forward ring: PSRAM override of the no-PSRAM default (8).
-# Bitaxe has ~8 active bb_pub sources/tick (info/wifi/fan/power/thermal/health/rtos +
-# mining) -- in always-on mode the ring must hold a full tick or the first-enqueued
-# sources (wifi/thermal/rtos/power) are evicted before the drain. 16 = one tick + outage
-# headroom; lives in SPIRAM so the internal-heap cost is nil.
-CONFIG_BB_PUB_BUFFER_MAX_ENTRIES=16
+# Store-and-forward ring disabled fleet-wide (bb_pub BUFFER_ENABLE=n); no CONFIG_BB_PUB_BUFFER_MAX_ENTRIES override needed.
 
 # B1-352 opt-in telemetry (breadboard v0.70.0): attach only hardware this board has.
 CONFIG_BB_PUB_FAN_AUTO_ATTACH=y

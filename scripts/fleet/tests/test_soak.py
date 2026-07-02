@@ -777,5 +777,133 @@ class TestPrintTickRowMqttOff(unittest.TestCase):
         self.assertIn("mqtt=no", row, f"mqtt=no missing from row: {row!r}")
 
 
+class TestSoakMultiHost(unittest.TestCase):
+    """TA-523: soak must sample/report/write EVERY enrolled host every tick,
+    not just hosts[0]. Regression coverage for the sequential-blocking bug
+    where _run_device(host[0]) monopolized the full --duration before
+    host[1..N] ever started.
+    """
+
+    def _run_multi(self, devices, sample_fn, samples_out=None, extra=None):
+        from suites import soak
+        base_extra = {"duration": 0.3, "interval": 0.05, "quiet": True}
+        if samples_out:
+            base_extra["samples_out"] = samples_out
+        if extra:
+            base_extra.update(extra)
+        ctx = _make_ctx(devices, extra=base_extra)
+        with patch("fleetlib.monitor._sample_device", side_effect=sample_fn):
+            soak.run(ctx)
+        return ctx.results.results
+
+    def test_every_host_gets_samples_out_rows(self):
+        """>=2 mock hosts: each must produce at least one --samples-out row."""
+        import json
+        import os
+        import tempfile
+
+        dev_a = _make_device(ip="192.0.2.1", board="esp32-wroom32")
+        dev_b = _make_device(ip="192.0.2.2", board="esp32-wroom32")
+
+        def _fake_sample(dev, fset):
+            return _make_sample(dev)
+
+        fd, path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        os.unlink(path)
+        try:
+            results = self._run_multi([dev_a, dev_b], _fake_sample, samples_out=path)
+            self.assertEqual(len(results), 2)
+            self.assertTrue(os.path.exists(path))
+            with open(path) as f:
+                rows = [json.loads(l) for l in f if l.strip()]
+            hosts_seen = {r["host"] for r in rows}
+            self.assertEqual(
+                hosts_seen, {"192.0.2.1", "192.0.2.2"},
+                f"expected samples from both hosts, got {hosts_seen}",
+            )
+            # Each host must have been ticked more than once (not a single
+            # stray sample) — proves concurrent, not sequential-then-cutoff.
+            for ip in ("192.0.2.1", "192.0.2.2"):
+                count = sum(1 for r in rows if r["host"] == ip)
+                self.assertGreater(count, 1, f"host {ip} got only {count} row(s)")
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
+
+    def test_unreachable_host_does_not_suppress_other_host(self):
+        """One host permanently unreachable (raises); the other host must
+        still be sampled/reported/written every tick (per-host isolation)."""
+        import json
+        import os
+        import tempfile
+
+        dev_ok = _make_device(ip="192.0.2.10", board="esp32-wroom32")
+        dev_down = _make_device(ip="192.0.2.20", board="esp32-wroom32")
+
+        def _fake_sample(dev, fset):
+            if dev.ip == dev_down.ip:
+                raise TimeoutError("simulated unreachable host")
+            return _make_sample(dev)
+
+        fd, path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        os.unlink(path)
+        try:
+            results = self._run_multi([dev_ok, dev_down], _fake_sample, samples_out=path)
+            # The healthy host must have completed its soak and reported PASS.
+            ok_results = [r for r in results if r.device.ip == dev_ok.ip]
+            self.assertEqual(len(ok_results), 1)
+            self.assertEqual(ok_results[0].status, STATUS_PASS)
+
+            with open(path) as f:
+                rows = [json.loads(l) for l in f if l.strip()]
+            ok_rows = [r for r in rows if r["host"] == dev_ok.ip]
+            self.assertGreater(
+                len(ok_rows), 0,
+                "healthy host must still be sampled/written despite the other host being down",
+            )
+            down_rows = [r for r in rows if r["host"] == dev_down.ip]
+            self.assertEqual(
+                len(down_rows), 0,
+                "unreachable host raised before producing a sample; must not appear in output",
+            )
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
+
+    def test_unreachable_tick_recorded_without_suppressing_other_host(self):
+        """One host reports ok=False every tick (bounded-timeout style
+        unreachable, mirroring watch.py); the other host must keep getting
+        rows every tick, and the unreachable host's own ticks are recorded
+        too (not silently dropped)."""
+        import json
+        import os
+        import tempfile
+
+        dev_ok = _make_device(ip="192.0.2.30", board="esp32-wroom32")
+        dev_down = _make_device(ip="192.0.2.40", board="esp32-wroom32")
+
+        def _fake_sample(dev, fset):
+            if dev.ip == dev_down.ip:
+                return _make_sample(dev, ok=False)
+            return _make_sample(dev)
+
+        fd, path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        os.unlink(path)
+        try:
+            self._run_multi([dev_ok, dev_down], _fake_sample, samples_out=path)
+            with open(path) as f:
+                rows = [json.loads(l) for l in f if l.strip()]
+            ok_rows = [r for r in rows if r["host"] == dev_ok.ip]
+            down_rows = [r for r in rows if r["host"] == dev_down.ip]
+            self.assertGreater(len(ok_rows), 1, "healthy host must be sampled multiple ticks")
+            self.assertGreater(len(down_rows), 0, "unreachable host ticks must still be recorded")
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
+
+
 if __name__ == "__main__":
     unittest.main()

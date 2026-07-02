@@ -11,6 +11,7 @@ import json as _json_mod
 import logging
 import os
 import sys
+import threading
 from typing import TYPE_CHECKING, List, Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -82,10 +83,28 @@ def add_arguments(parser) -> None:
 
 
 def run(ctx: "SuiteContext") -> ResultSet:
+    """TA-523: each _run_device() call blocks for the full --duration inside
+    poll(). Running devices sequentially meant host[1..N] never started
+    until host[0]'s entire soak window elapsed, so every per-tick sample/
+    report/write during any run appeared to come from host[0] only. Run
+    one thread per device so all hosts are ticked concurrently for the
+    whole duration; a stuck/unreachable host cannot block the others
+    (poll()/_sample_device already bound and isolate per-host failures).
+    """
     rs = ctx.results
 
-    for device in ctx.devices:
-        _run_device(device, ctx, rs)
+    if len(ctx.devices) <= 1:
+        for device in ctx.devices:
+            _run_device(device, ctx, rs)
+    else:
+        threads = [
+            threading.Thread(target=_run_device, args=(device, ctx, rs), daemon=True)
+            for device in ctx.devices
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
 
     if ctx.out_json:
         rs.to_json(ctx.out_json)
@@ -136,6 +155,11 @@ def _fmt_uptime(seconds: int) -> str:
     if m:
         return f"{m}m"
     return f"{s}s"
+
+
+# Serializes stdout across concurrent per-device threads (TA-523) so rows
+# from different hosts never interleave mid-line.
+_print_lock = threading.Lock()
 
 
 def _print_tick_row(sample: Sample, multi_host: bool) -> None:
@@ -200,12 +224,18 @@ def _print_tick_row(sample: Sample, multi_host: bool) -> None:
     else:
         row = f"{prefix}{ts}  {host_tag}{' '.join(parts) or 'ok'}"
 
-    print(row, flush=True)
+    with _print_lock:
+        print(row, flush=True)
+
+
+# Multiple devices' _run_device() threads may write --samples-out concurrently
+# (TA-523); serialize so rows/headers from different hosts never interleave.
+_samples_out_lock = threading.Lock()
 
 
 def _append_sample_to_file(sample: Sample, path: str) -> None:
     """Append one tick to the --samples-out file (NDJSON or CSV by extension)."""
-    ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     row: dict = {"ts": ts, "host": sample.device.ip, "warmup": sample.warmup}
     if sample.info:
         row["uptime_ms"] = sample.info.get("uptime_ms")
@@ -223,17 +253,18 @@ def _append_sample_to_file(sample: Sample, path: str) -> None:
         row["vcore_mv"] = miner.get("vcore_mv")
         row["temp_c"] = miner.get("temp_c") or (sample.sensors.get("thermal") or {}).get("temp_c")
 
-    if path.endswith(".csv"):
-        is_new = not os.path.exists(path) or os.path.getsize(path) == 0
-        with open(path, "a", newline="") as f:
-            writer = _csv_mod.DictWriter(f, fieldnames=list(row.keys()), extrasaction="ignore")
-            if is_new:
-                writer.writeheader()
-            writer.writerow({k: ("" if v is None else v) for k, v in row.items()})
-    else:
-        # NDJSON: one JSON object per line for streaming
-        with open(path, "a") as f:
-            f.write(_json_mod.dumps(row) + "\n")
+    with _samples_out_lock:
+        if path.endswith(".csv"):
+            is_new = not os.path.exists(path) or os.path.getsize(path) == 0
+            with open(path, "a", newline="") as f:
+                writer = _csv_mod.DictWriter(f, fieldnames=list(row.keys()), extrasaction="ignore")
+                if is_new:
+                    writer.writeheader()
+                writer.writerow({k: ("" if v is None else v) for k, v in row.items()})
+        else:
+            # NDJSON: one JSON object per line for streaming
+            with open(path, "a") as f:
+                f.write(_json_mod.dumps(row) + "\n")
 
 
 def _compute_summary_metrics(samples: list, duration: float) -> dict:

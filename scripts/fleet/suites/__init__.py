@@ -26,6 +26,7 @@ SUITES: dict[str, str] = {
     "stress": "suites.stress",
     "faults": "suites.faults",
     "telemetry": "suites.telemetry",
+    "churn": "suites.churn",
 }
 
 

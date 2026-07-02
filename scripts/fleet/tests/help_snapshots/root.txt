@@ -24,6 +24,8 @@ positional arguments:
                         broker outage, vcore drop)
     telemetry           Telemetry transport — configure each telemetry
                         transport and verify publish health
+    churn               SSE connect/disconnect churn load-gen + heap-health
+                        sampling (fragmentation validation)
     describe            inspect the served OpenAPI spec
     call                make an arbitrary API request (safety-gated for
                         mutating methods)

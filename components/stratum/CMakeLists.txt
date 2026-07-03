@@ -1,5 +1,6 @@
 idf_component_register(
-    SRCS "src/stratum_io.c" "src/stratum_machine.c" "src/stratum_utils.c" "src/stratum_backoff.c" "src/stratum_watchdogs.c"
+    SRCS "src/stratum_io.c" "src/stratum_machine.c" "src/stratum_utils.c" "src/stratum_backoff.c" "src/stratum_watchdogs.c" "src/stratum_health.c"
     INCLUDE_DIRS "include"
     REQUIRES mining bb_json esp_netif bb_nv config board bb_ota_pull ota_validator bb_wifi bb_timer
+    PRIV_REQUIRES bb_transport_health
 )

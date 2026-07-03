@@ -37,6 +37,17 @@ CONFIG_LWIP_MAX_SOCKETS=12
 # CLOSE_WAIT-side reduction. Together cuts per-disconnect socket residency
 # from ~25s to ~2.5s.
 CONFIG_LWIP_TCP_FIN_WAIT_TIMEOUT=2000
+# B1-517 re-pin: bb_http's SSE abort teardown arms SO_LINGER{on,0} on abort so
+# aborted SSE peers get an immediate RST instead of lingering through a graceful
+# FIN close (which was leaking CLOSE_WAIT PCBs and collapsing the DMA pool under
+# repeated abort bursts). CONFIG_LWIP_SO_LINGER=y is required for the setsockopt
+# to take effect; without it, bb_http.c emits a #warning (fatal under -Werror).
+CONFIG_LWIP_SO_LINGER=y
+
+# #679: gateway-reachability probe (observe-only, bb_net_health) — bench
+# validation for the SSE-hardening chain re-pin.
+CONFIG_BB_WIFI_GW_PROBE_ENABLE=y
+
 # bb_http reserves N sockets for non-httpd usage. Restored to BB default 3:
 # the previous reserve=1 starved stratum + transient outbound (DNS lookups,
 # OTA pull) under dashboard load — reproduced as bitaxe-650 panic during

@@ -14,6 +14,7 @@
 #include "ota_validator.h"
 #include "bb_wifi.h"
 #include "bb_log.h"
+#include "stratum_health.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -667,6 +668,7 @@ static void process_message(const char *line)
 void stratum_task(void *arg)
 {
     bb_log_i(TAG, "stratum task started");
+    stratum_health_report(false);
 
     for (;;) {
         // Read config
@@ -801,6 +803,7 @@ void stratum_task(void *arg)
         }
 
         s_stratum_connected = true;
+        stratum_health_report(true);
         s_last_job_tick = xTaskGetTickCount();
         s_last_pool_job_tick = s_last_job_tick;
         s_last_tx_tick = s_last_job_tick;
@@ -924,6 +927,7 @@ void stratum_task(void *arg)
 
 reconnect:
         s_stratum_connected = false;
+        stratum_health_report(false);
         s_active_slot = NULL;  // fresh lookup on next connect
         xQueueReset(work_queue);
         if (s_sock >= 0) {

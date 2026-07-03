@@ -266,6 +266,10 @@ void test_stratum_machine_build_keepalive(void);
 void test_stratum_machine_build_keepalive_small_difficulty(void);
 void test_stratum_machine_build_keepalive_large_difficulty(void);
 void test_stratum_machine_build_keepalive_truncation(void);
+
+// Forward declaration from test_stratum_health.c (B1-684)
+void test_stratum_health_authoritative_tracks_up_down(void);
+void test_stratum_health_register_while_up(void);
 // TA-273 Phase 3: response handler tests
 void test_handle_configure_result_golden(void);
 void test_handle_configure_result_missing_field(void);
@@ -1542,6 +1546,10 @@ int main(void) {
     RUN_TEST(test_stratum_watchdog_keepalive_at_threshold);
     RUN_TEST(test_stratum_watchdog_keepalive_above_threshold);
     RUN_TEST(test_stratum_watchdog_keepalive_wraparound);
+
+    // B1-684: stratum connection state -> bb_transport_health SSOT
+    RUN_TEST(test_stratum_health_authoritative_tracks_up_down);
+    RUN_TEST(test_stratum_health_register_while_up);
 
     // B1-352: bb_pub emit builder tests (mining_rates + pool_pub)
     RUN_TEST(test_emit_mining_rates_all_fields_present);

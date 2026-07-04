@@ -55,6 +55,20 @@ def add_common_flags(p) -> None:
     _add(p)
 
 
+def _scoped_hosts(args):
+    """Return a frozenset of explicit --hosts, or None when unscoped (mDNS).
+
+    Threads the "this run was scoped to exact hosts" signal down to
+    fleetlib.ota.push()/pull() so their defense-in-depth guard can assert the
+    resolved device never falls outside the caller's explicit scope.
+    """
+    hosts_arg = getattr(args, "hosts", None)
+    if not hosts_arg:
+        return None
+    parts = hosts_arg.split(",") if isinstance(hosts_arg, str) else hosts_arg
+    return frozenset(h.strip() for h in parts if h and h.strip())
+
+
 def cmd_ota_push(args) -> int:
     """OTA push a local binary to devices."""
     import os as _os
@@ -62,13 +76,15 @@ def cmd_ota_push(args) -> int:
     from fleetlib.client import Client
     from fleetlib.criteria import load as load_criteria
     from fleetlib.profiles import Profiles, profile_for
-    from fleetlib.safety import DeviceUnreachable, IdentityMismatch
+    from fleetlib.safety import DeviceUnreachable, IdentityMismatch, ScopeViolation
 
     _resolve_result = resolve_devices(args)
     devices = unwrap_devices(_resolve_result)
     if not devices:
         print(no_devices_message(_resolve_result), file=sys.stderr)
         return 1
+
+    allowed_hosts = _scoped_hosts(args)
 
     guard = ota_guard(args)
     settle_cfg = ota_settle(args)
@@ -123,7 +139,8 @@ def cmd_ota_push(args) -> int:
         print(f"Pushing {binfile} to {d.ip}…")
         try:
             r = _push(c, guard, binfile, target_version=target, settle=settle_secs,
-                      do_mark_valid=do_mark_valid, criteria=criteria, profile=prof)
+                      do_mark_valid=do_mark_valid, criteria=criteria, profile=prof,
+                      allowed_hosts=allowed_hosts)
         except DeviceUnreachable as exc:
             print(f"  {d.ip}: SKIPPED (unreachable: {exc})")
             ok = False
@@ -132,6 +149,12 @@ def cmd_ota_push(args) -> int:
             print(f"  {d.ip}: SKIPPED (identity mismatch: {exc})")
             ok = False
             continue
+        except ScopeViolation:
+            # Never downgrade to a per-device skip: a resolved device outside
+            # the explicit --hosts scope means device resolution itself is
+            # broken. Abort the whole batch rather than risk touching more
+            # out-of-scope devices.
+            raise
         except Exception as exc:
             print(f"  {d.ip}: FAILED (unexpected error: {exc})")
             ok = False
@@ -159,6 +182,8 @@ def cmd_ota_pull(args) -> int:
         print(no_devices_message(_resolve_result), file=sys.stderr)
         return 1
 
+    allowed_hosts = _scoped_hosts(args)
+
     guard = ota_guard(args)
     settle_cfg = ota_settle(args)
     settle_secs = settle_cfg.settle_delay if settle_cfg.enabled else None
@@ -175,7 +200,8 @@ def cmd_ota_pull(args) -> int:
         c = Client(d.ip, getattr(d, "port", 80))
         c.board = d.board
         print(f"Triggering pull ({mode}) on {d.ip}…")
-        r = _pull(c, guard, mode=mode, target_version=target, settle=settle_secs)
+        r = _pull(c, guard, mode=mode, target_version=target, settle=settle_secs,
+                  allowed_hosts=allowed_hosts)
         if r.ok:
             print(f"  {d.ip}: pulled to {r.version}")
             if target and r.version != target:

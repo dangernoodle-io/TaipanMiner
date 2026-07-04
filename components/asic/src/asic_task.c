@@ -34,6 +34,8 @@
 #include "bb_log.h"
 #include "bb_nv.h"
 #include "bb_event.h"
+#include "bb_alert.h"
+#include "bb_json.h"
 #include "bb_byte_order.h"
 #include "bb_wdt.h"
 #include "esp_check.h"
@@ -54,6 +56,25 @@
 #include <time.h>
 
 static const char *TAG = "asic";
+
+// TA-536: vin_sag alert fill fn -- consolidated from the standalone
+// health.alerts topic into bb_alert's shared "alert" channel. Gated to avoid
+// an unused-static-function warning when CONFIG_BB_ALERT_ENABLE=n.
+#if BB_ALERT_ENABLE
+typedef struct {
+    uint32_t sag_count;
+    int32_t  vin_min_mv;
+    int32_t  last_sag_mv;
+} vin_sag_fill_ctx_t;
+
+static void fill_vin_sag(bb_json_t obj, void *ctx)
+{
+    const vin_sag_fill_ctx_t *c = (const vin_sag_fill_ctx_t *)ctx;
+    bb_json_obj_set_int(obj, "sag_count",   (int64_t)c->sag_count);
+    bb_json_obj_set_int(obj, "vin_min_mv",  (int64_t)c->vin_min_mv);
+    bb_json_obj_set_int(obj, "last_sag_mv", (int64_t)c->last_sag_mv);
+}
+#endif
 
 // TA-318: vcore-collapse watchdog (bb_power_health, gated by CONFIG_TM_VCORE_WATCHDOG)
 #ifdef CONFIG_TM_VCORE_WATCHDOG
@@ -86,7 +107,7 @@ void asic_task_clear_vcore_fault(void) {}
 #endif /* CONFIG_TM_VCORE_WATCHDOG */
 
 // B1-352: VIN-sag alert tracking — last sag_count seen by the 5s poll.
-// Updated when a new sag is detected to drive health.alerts events.
+// Updated when a new sag is detected to drive bb_alert "vin_sag" events.
 static uint16_t s_last_sag_count;
 
 // Clock source for bb_fan autofan PID — millisecond timestamp via bb_timer.
@@ -1017,23 +1038,21 @@ void asic_mining_task(void *arg)
                 }
 #endif /* CONFIG_TM_VCORE_WATCHDOG */
 
-                // B1-352: VIN-sag health.alerts — post on each newly detected sag.
+                // TA-536: VIN-sag alert — post on each newly detected sag via
+                // bb_alert (consolidated from the standalone health.alerts topic).
                 {
                     bb_power_tps546_status_t sst;
                     bb_power_handle_t sph = bb_power_primary();
                     if (sph && bb_power_tps546_read_status(sph, &sst) == BB_OK) {
                         if (sst.sag_count > s_last_sag_count) {
-                            bb_event_topic_t ha_topic = tm_health_alerts_topic();
-                            if (ha_topic) {
-                                char ha_payload[128];
-                                snprintf(ha_payload, sizeof(ha_payload),
-                                    "{\"kind\":\"vin_sag\",\"sag_count\":%u"
-                                    ",\"vin_min_mv\":%d,\"last_sag_mv\":%d}",
-                                    (unsigned)sst.sag_count,
-                                    sst.vin_min_mv,
-                                    sst.last_sag_mv);
-                                bb_event_post(ha_topic, 0, ha_payload, strlen(ha_payload));
-                            }
+#if BB_ALERT_ENABLE
+                            vin_sag_fill_ctx_t alert_ctx = {
+                                .sag_count   = sst.sag_count,
+                                .vin_min_mv  = sst.vin_min_mv,
+                                .last_sag_mv = sst.last_sag_mv,
+                            };
+                            bb_alert_emit("vin_sag", BB_ALERT_WARNING, fill_vin_sag, &alert_ctx);
+#endif
                             s_last_sag_count = sst.sag_count;
                         }
                     }

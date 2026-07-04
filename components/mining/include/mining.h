@@ -5,9 +5,6 @@
 #include "asic_chip.h"
 #include "work.h"
 #include "mining_pause_io.h"
-#ifdef ASIC_CHIP
-#include "bb_event.h"
-#endif
 
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
@@ -373,9 +370,3 @@ uint64_t asic_task_get_vcore_last_restart_ms(void);
 bool asic_task_get_vcore_fault_held(void);
 // Clear the FAULT_HOLD latch (for TA-436 UI-triggered reset).
 void asic_task_clear_vcore_fault(void);
-
-#ifdef ASIC_CHIP
-// B1-352: health.alerts event topic — registered by main, posted by asic_task.
-// Returns NULL until main has registered the topic (safe to call at any time).
-bb_event_topic_t tm_health_alerts_topic(void);
-#endif /* ASIC_CHIP */

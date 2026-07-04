@@ -85,11 +85,6 @@ TaskHandle_t mining_hw_task_handle = NULL;
 static bb_periodic_timer_t s_stats_timer = NULL;
 static TaskHandle_t s_stats_save_task = NULL;
 
-// B1-352: health.alerts topic handle — file-scope so asic_task can post via getter.
-static bb_event_topic_t s_health_alerts_topic = NULL;
-
-bb_event_topic_t tm_health_alerts_topic(void) { return s_health_alerts_topic; }
-
 // Set while an OTA transfer (push/pull) holds the device: the display status
 // task stops blitting (frees the SPI bus) and the panel is blanked.
 static volatile bool s_display_quiesced = false;
@@ -1176,19 +1171,6 @@ void app_main(void)
             }
         }
 
-        // B1-352: register health.alerts -- non-retained event topic for
-        // sha-self-test / vcore-fault / vin-low / stratum-state transitions.
-        // Non-fatal: SSE feature is optional.
-        {
-            bb_err_t evt_err = bb_event_topic_register("health.alerts", &s_health_alerts_topic);
-            if (evt_err == BB_OK) {
-                evt_err = bb_event_routes_attach_ex("health.alerts", false);
-            }
-            if (evt_err != BB_OK) {
-                bb_log_w(TAG, "health.alerts SSE unavailable (err %d)", evt_err);
-            }
-        }
-
         // Attach "net.health" retained SSE topic and start 5-second link-health
         // evaluator. Must run after bb_init_init() so bb_event_routes is up.
         // Non-fatal: degrades gracefully (no SSE topic) rather than aborting.
@@ -1203,7 +1185,7 @@ void app_main(void)
         // B1-352: register bb_sink_event for SSE fan-out of bb_pub periodic sources.
         // Subscribe EXPLICITLY to the periodic topics we want on SSE (not default-all).
         // MQTT gets the aggregate periodic sources via its own (default-all) subscription.
-        // Event topics (health.alerts, block.found, net.health) are handled
+        // Event topics (block.found, net.health) are handled
         // via bb_event_post directly -- they are NOT teed through bb_pub periodic sources.
         //
         // Non-fatal: if bb_sink_event setup fails, MQTT still works normally.

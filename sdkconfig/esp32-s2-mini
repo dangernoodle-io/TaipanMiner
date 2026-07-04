@@ -124,3 +124,8 @@ CONFIG_BB_PUB_THERMAL_AUTO_ATTACH=y
 CONFIG_BB_LOG_EVENT_QUEUE_LEN=8
 
 # mDNS batch ring depth: derived by bb >= 93106a5 (default 3 no-PSRAM / 4 SPIRAM) — removed.
+
+# B1-561 SSE reliability: 1 connection on tight no-PSRAM boards (fleet default
+# is 2, see sdkconfig.defaults). The S2 is the heap-tightest board; the lazy
+# SSE pool default (POOL_STATIC=n) stays — no standing BSS reservation here.
+CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS=1

@@ -1,3 +1,8 @@
 # ESP32-WROOM-32 configuration — delta from sdkconfig.defaults + sdkconfig/esp32-classic + sdkconfig/no-psram-ota.
 # Shared classic-ESP32 settings (IDF_TARGET, cache, freq, flash, partition, hotloop) are in sdkconfig/esp32-classic.
 # Shared no-PSRAM OTA settings (chunk size, TCP windows) are in sdkconfig/no-psram-ota.
+
+# B1-561 SSE reliability: 1 connection on tight no-PSRAM boards (fleet default
+# is 2, see sdkconfig.defaults). Lazy SSE pool default (POOL_STATIC=n) stays —
+# this board has more headroom than the C3/S2, no static-BSS reservation needed.
+CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS=1

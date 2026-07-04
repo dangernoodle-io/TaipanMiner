@@ -4,3 +4,7 @@
 # B1-352 opt-in telemetry (breadboard v0.70.0): attach only hardware this board has.
 CONFIG_BB_PUB_THERMAL_AUTO_ATTACH=y
 CONFIG_BB_DISPLAY_INFO_AUTO_ATTACH=y
+
+# B1-561 SSE reliability: 1 connection on tight no-PSRAM boards (fleet default
+# is 2, see sdkconfig.defaults). Lazy SSE pool default (POOL_STATIC=n) stays.
+CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS=1

@@ -5,4 +5,5 @@ idf_component_register(
     INCLUDE_DIRS "include"
     REQUIRES mining freertos driver esp_driver_i2c esp_driver_gpio board stratum bb_nv bb_system bb_log config bb_timer
              bb_power bb_power_tps546 bb_fan bb_fan_emc2101 bb_wdt bb_power_health
+    PRIV_REQUIRES bb_alert bb_json
 )

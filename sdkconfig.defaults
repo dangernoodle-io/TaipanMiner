@@ -220,9 +220,10 @@ CONFIG_BB_PUB_MAX_SOURCES=14
 # axis 1024; no-PSRAM boards correctly receive 512 via the Kconfig default — removed.
 
 # B1-352 event-topic caps: 13 topics non-ASIC / 14 ASIC attach to bb_event_routes at
-# runtime (block.found + health.alerts + net.health + 7 bb_sink_event periodic
-# topics + update.available + diag.boot + health.stack; +sensors_miner on ASIC).
-# (pool.notify removed B1-561 -- zero producers; see main.c.)
+# runtime (block.found + alert + net.health + 7 bb_sink_event periodic topics +
+# update.available + diag.boot + health.stack; +sensors_miner on ASIC).
+# (pool.notify removed and health.alerts consolidated into bb_alert's "alert"
+# topic, both B1-561/TA-536 -- net topic count unchanged; see main.c.)
 # Default BB_EVENT_ROUTES_MAX_TOPICS=8 and BB_EVENT_MAX_TOPICS=8 were already saturated
 # by pre-existing topics, causing bb_sink_event_register_topic to return NO_SPACE and the
 # new periodic SSE topics to silently not appear on /api/diag/events (HW-soak confirmed).
@@ -234,6 +235,13 @@ CONFIG_BB_PUB_MAX_SOURCES=14
 # heap/SPIRAM-preferred, unchanged). No per-board ring-size override required.
 CONFIG_BB_EVENT_ROUTES_MAX_TOPICS=20
 CONFIG_BB_EVENT_MAX_TOPICS=20
+
+# TA-536: consolidate the standalone health.alerts topic into bb's shared
+# "alert" one-shot channel (bb_alert). vin_sag is the sole producer (moved to
+# bb_alert_emit in components/asic/src/asic_task.c); frees the health.alerts
+# ring (~2.2 KB) fleet-wide.
+CONFIG_BB_ALERT_ENABLE=y
+CONFIG_BB_ALERT_AUTOREGISTER=y
 
 # Stack recoup (valid trim): esp-mqtt internal task 6144->5120 (worst observed
 # use ~2372 B -> ~2748 B margin). Raise MQTT_TASK_STACK_SIZE back to 8192 in any

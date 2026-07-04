@@ -42,5 +42,10 @@ CONFIG_BB_LOG_STREAM_BUF_BYTES=2048
 # Skip bb_event ring/queue trims: the C3 serves the mining UI dashboard, which
 # needs the event replay headroom (the S2 disables the UI via CONFIG_WEBUI_MINING_UI=n).
 
+# B1-561 SSE reliability: 1 connection on tight no-PSRAM boards (fleet default
+# is 2, see sdkconfig.defaults). The dashboard + update-badge subscription
+# share the single slot; the stale-client reap window covers tab-reload churn.
+CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS=1
+
 # B1-352 opt-in telemetry (breadboard v0.70.0): attach only hardware this board has.
 CONFIG_BB_PUB_THERMAL_AUTO_ATTACH=y

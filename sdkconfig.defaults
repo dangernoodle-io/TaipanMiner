@@ -219,9 +219,10 @@ CONFIG_BB_PUB_MAX_SOURCES=14
 # SPIRAM / 512 no-PSRAM).  stats_snapshot_t (~465 B on ASIC) fits in the SPIRAM-
 # axis 1024; no-PSRAM boards correctly receive 512 via the Kconfig default — removed.
 
-# B1-352 event-topic caps: 14 topics non-ASIC / 15 ASIC attach to bb_event_routes at
-# runtime (block.found + pool.notify + health.alerts + net.health + 7 bb_sink_event
-# periodic topics + update.available + diag.boot + health.stack; +sensors_miner on ASIC).
+# B1-352 event-topic caps: 13 topics non-ASIC / 14 ASIC attach to bb_event_routes at
+# runtime (block.found + health.alerts + net.health + 7 bb_sink_event periodic
+# topics + update.available + diag.boot + health.stack; +sensors_miner on ASIC).
+# (pool.notify removed B1-561 -- zero producers; see main.c.)
 # Default BB_EVENT_ROUTES_MAX_TOPICS=8 and BB_EVENT_MAX_TOPICS=8 were already saturated
 # by pre-existing topics, causing bb_sink_event_register_topic to return NO_SPACE and the
 # new periodic SSE topics to silently not appear on /api/diag/events (HW-soak confirmed).

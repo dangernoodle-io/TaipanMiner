@@ -1159,31 +1159,20 @@ void app_main(void)
         // the topic rather than BB_ERROR_CHECK→abort. A headless board must never
         // crash-loop over an optional SSE topic (the S2 did exactly that for weeks
         // when its generated sdkconfig had bb_event autoregister stale-off).
+        // B1-561: retained -- rare discrete event; last-found-block-on-reconnect
+        // is fine (arguably better than empty state for a client connecting
+        // between blocks).
         {
             static bb_event_topic_t s_block_topic = NULL;
             bb_err_t evt_err = bb_event_topic_register("block.found", &s_block_topic);
             if (evt_err == BB_OK) {
-                evt_err = bb_event_routes_attach_ex("block.found", false);
+                evt_err = bb_event_routes_attach_ex("block.found", true);
             }
             if (evt_err == BB_OK) {
                 mining_pool_stats_set_block_topic(s_block_topic);
             } else {
                 bb_log_w(TAG, "block.found SSE unavailable (err %d): continuing without "
                               "live block events (CONFIG_BB_EVENT_AUTOREGISTER on?)", evt_err);
-            }
-        }
-
-        // B1-352: register pool.notify -- non-retained event topic for new stratum jobs.
-        // Posted from stratum task on each mining.notify received.
-        // Non-fatal: SSE feature is optional.
-        {
-            static bb_event_topic_t s_pool_notify_topic = NULL;
-            bb_err_t evt_err = bb_event_topic_register("pool.notify", &s_pool_notify_topic);
-            if (evt_err == BB_OK) {
-                evt_err = bb_event_routes_attach_ex("pool.notify", false);
-            }
-            if (evt_err != BB_OK) {
-                bb_log_w(TAG, "pool.notify SSE unavailable (err %d)", evt_err);
             }
         }
 
@@ -1214,7 +1203,7 @@ void app_main(void)
         // B1-352: register bb_sink_event for SSE fan-out of bb_pub periodic sources.
         // Subscribe EXPLICITLY to the periodic topics we want on SSE (not default-all).
         // MQTT gets the aggregate periodic sources via its own (default-all) subscription.
-        // Event topics (pool.notify, health.alerts, block.found, net.health) are handled
+        // Event topics (health.alerts, block.found, net.health) are handled
         // via bb_event_post directly -- they are NOT teed through bb_pub periodic sources.
         //
         // Non-fatal: if bb_sink_event setup fails, MQTT still works normally.

@@ -43,6 +43,7 @@
 #include "bb_event.h"
 #include "bb_event_routes.h"
 #include "bb_sink_event.h"
+#include "bb_sink_ws.h"
 #if CONFIG_KNOT_ENABLED
 #include "knot.h"
 #endif
@@ -1230,6 +1231,28 @@ void app_main(void)
             } else {
                 bb_log_w(TAG, "bb_pub_add_sink(SSE) failed (err %d): SSE telemetry unavailable",
                           sink_err);
+            }
+        }
+
+        // B1-514: WebSocket telemetry egress. Registers /ws and wires the same
+        // bb_pub fan-out the SSE sink above uses (typed {"type":"push",
+        // "topic":..,"data":..} envelope; client subscribes via
+        // {"type":"sub","topic":[...]}). This is a second, independent bb_pub
+        // sink -- it receives the same BB_PUB_TELEM_SINKS-flagged periodic
+        // sources (mining_rates, pool, sensors_miner, stats, sys.mem, etc.) as
+        // MQTT/SSE, not the event-topic based ones (block.found, net.health,
+        // alert) which are SSE/bb_event_routes-only and unaffected by this
+        // wiring. Non-fatal: if registration fails (e.g.
+        // CONFIG_HTTPD_WS_SUPPORT unset), MQTT/SSE telemetry still work.
+        {
+            static bb_pub_sink_t s_ws_sink;
+            bb_err_t ws_err = bb_sink_ws_init(bb_http_server_get_handle(), &s_ws_sink);
+            if (ws_err == BB_OK) {
+                ws_err = bb_pub_add_sink(&s_ws_sink);
+            }
+            if (ws_err != BB_OK) {
+                bb_log_w(TAG, "bb_sink_ws_init/add_sink failed (err %d): WS telemetry unavailable",
+                          ws_err);
             }
         }
 

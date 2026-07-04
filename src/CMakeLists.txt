@@ -22,6 +22,7 @@ idf_component_register(
              led bb_log bb_ntp bb_system bb_timer bb_ota_pull bb_ota_push bb_ota_boot bb_ota_hooks bb_openapi bb_manifest
              bb_init webui bb_ota_check
              bb_display_info bb_led_info bb_temp bb_net_health
+             bb_sink_ws
 )
 
 include("${CMAKE_CURRENT_LIST_DIR}/../.breadboard/cmake/bb_init.cmake")

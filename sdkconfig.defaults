@@ -159,6 +159,8 @@ CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=1024
 # update-badge subscription + a single open dashboard fit in 2 slots; the
 # ~15s stale-client reap window covers tab-reload churn. Queue depth stays
 # at BB default (8).
+# (esp32-c3-supermini and the other no-PSRAM boards already override this to
+# 1 via B1-561 -- see sdkconfig/esp32-c3-supermini.)
 CONFIG_BB_EVENT_ROUTES_MAX_CLIENTS=2
 
 # link-health: adaptive telemetry backoff on weak RSSI (bb_net_health)
@@ -268,3 +270,9 @@ CONFIG_MQTT_USE_CORE_0=y
 # Prometheus metric namespace for GET /api/telemetry/metrics: taipanminer_<source>_<field>
 # instead of breadboard's default "bb" prefix (compile-time, no runtime call).
 CONFIG_BB_METRICS_PREFIX="taipanminer"
+
+# B1-514: enable ESP-IDF httpd WebSocket support fleet-wide so bb_websocket/
+# bb_sink_ws compile their real (non-stub) implementation and /ws is
+# available on every board (main.c's bb_sink_ws_init call fails soft to
+# BB_ERR_UNSUPPORTED without this). ESP-IDF default is n. Reversible.
+CONFIG_HTTPD_WS_SUPPORT=y

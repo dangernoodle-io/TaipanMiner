@@ -41,6 +41,18 @@ class RefusedWithoutConfirmation(Exception):
     """Mutating operation refused because explicit confirmation was not provided."""
 
 
+class ScopeViolation(Exception):
+    """A device outside an explicit --hosts scope reached a scoped operation.
+
+    Defense-in-depth: raised by fleetlib.ota.push()/pull() when the caller
+    passed an explicit allowed-hosts set (from --hosts) and the device handed
+    to the call is not a member of it. This must hard-fail (never be caught
+    and downgraded) — it exists specifically to catch a future regression in
+    device resolution that would otherwise silently fan an --hosts-scoped
+    operation out to the whole fleet.
+    """
+
+
 class Guard:
     """Safety gate applied before every mutating HTTP operation.
 

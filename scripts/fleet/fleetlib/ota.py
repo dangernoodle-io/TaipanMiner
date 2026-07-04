@@ -6,8 +6,9 @@ migrate_board.py / pulltest.py / validate70.py OTA logic into one library.
 Contract (the CLI `ota` subcommand dispatches to these by name — signatures are
 FIXED):
     push(client, guard, binfile, target_version=None, settle=None,
-         elf_path=None, do_mark_valid=False)
-    pull(client, guard, mode='auto', target_version=None, settle=None)
+         elf_path=None, do_mark_valid=False, allowed_hosts=None)
+    pull(client, guard, mode='auto', target_version=None, settle=None,
+         allowed_hosts=None)
     mark_valid(client, guard)
     recover(client, guard)
     status(client)                       # READ-ONLY
@@ -38,12 +39,13 @@ from .client import (
     TIMEOUT_UPDATE_CHECK,
     info_field,
 )
-from .safety import Guard
+from .safety import Guard, ScopeViolation
 from .readiness import wait_until_ready
 
 if TYPE_CHECKING:
     from .criteria import Criteria
     from .profiles import Profile
+    from typing import FrozenSet
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +74,26 @@ _BAD_RESET_REASONS = {"panic", "task_wdt", "int_wdt", "brownout"}
 
 # OTA reboot always produces reset_reason='software' — this is EXPECTED, not a fault.
 _OTA_EXPECTED_RESET_REASON = "software"
+
+
+def _check_scope(client, allowed_hosts: Optional["FrozenSet[str]"]) -> None:
+    """Defense-in-depth: refuse to touch a device outside an explicit --hosts scope.
+
+    allowed_hosts is None when the caller was not host-scoped (mDNS discovery
+    ran) — no check is performed. When given, push()/pull() must ONLY ever
+    reach hosts in this set; any other host means device resolution returned
+    something outside the caller's explicit scope — a bug, not a device to
+    silently skip or proceed on. This must hard-fail (non-zero exit), never
+    be caught and downgraded, so a future resolution regression can never
+    turn an --hosts-scoped op into a full-fleet fan-out.
+    """
+    if allowed_hosts is None:
+        return
+    if client.ip not in allowed_hosts:
+        raise ScopeViolation(
+            f"refusing to operate on {client.ip}: not in the explicit --hosts "
+            f"scope {sorted(allowed_hosts)!r}"
+        )
 
 
 @dataclass
@@ -114,6 +136,7 @@ def push(
     do_mark_valid: bool = False,
     criteria: Optional["Criteria"] = None,
     profile: Optional["Profile"] = None,
+    allowed_hosts: Optional["FrozenSet[str]"] = None,
 ) -> VerifyResult:
     """OTA-push a local firmware binary (boot-mode: device reboots to apply).
 
@@ -128,7 +151,13 @@ def push(
     do_mark_valid — when True, POST /api/update/mark-valid after readiness
     confirms healthy mining, then verify validated:true.  Default is False:
     let the firmware self-validate (first accepted share / 15-min timer).
+
+    allowed_hosts — defense-in-depth scope guard (see _check_scope). None
+    when the caller was not --hosts-scoped; otherwise the exact set of hosts
+    this call must be confined to. Raises ScopeViolation, not skip/return, if
+    violated.
     """
+    _check_scope(client, allowed_hosts)
     g = guard.check(client, "POST", "/api/update/push")
     if Guard.is_dry_run_skip(g):
         return VerifyResult(ok=True, dry_run=True, target_version=target_version,
@@ -167,6 +196,7 @@ def pull(
     mode: str = "auto",
     target_version: Optional[str] = None,
     settle: Optional[float] = None,
+    allowed_hosts: Optional["FrozenSet[str]"] = None,
 ) -> VerifyResult:
     """OTA-pull: check the manifest, and if an update is available, apply it.
 
@@ -176,7 +206,11 @@ def pull(
              terminal state, then wait_for_boot)
       409 -> busy (reported, not applied)
     Then settle + verify. `mode` may be forced to 'boot'/'pull'; 409 is always busy.
+
+    allowed_hosts — defense-in-depth scope guard, see push(). None when the
+    caller was not --hosts-scoped.
     """
+    _check_scope(client, allowed_hosts)
     g = guard.check(client, "POST", "/api/update/check")
     if Guard.is_dry_run_skip(g):
         return VerifyResult(ok=True, dry_run=True, target_version=target_version,

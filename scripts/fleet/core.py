@@ -64,7 +64,13 @@ def add_common_flags(p: argparse.ArgumentParser) -> None:
                    help="log level (default: WARNING)")
 
     g = p.add_argument_group("targeting")
-    g.add_argument("--hosts", metavar="H,H,…",
+    # default=SUPPRESS (mirrors --log-level above): commands with nested
+    # subparsers (e.g. `ota push`) register this flag at both the group and
+    # op level. Without SUPPRESS, a value given before the op token (e.g.
+    # `ota --hosts X push`) is silently reset to None when the op subparser
+    # applies its own default — collapsing an explicit --hosts scope into a
+    # full mDNS discovery fan-out.
+    g.add_argument("--hosts", metavar="H,H,…", default=argparse.SUPPRESS,
                    help="comma-separated IPs/hostnames (skip mDNS discovery)")
     g.add_argument("--discover-timeout", type=int, default=10, metavar="SEC",
                    help="mDNS browse window in seconds (default: 10)")

@@ -29,7 +29,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from fleetlib.discovery import Device
-from fleetlib.safety import DeviceUnreachable, IdentityMismatch, Guard
+from fleetlib.safety import DeviceUnreachable, IdentityMismatch, Guard, ScopeViolation
 import commands.ota as ota_cmd
 import commands.elf as elf_cmd
 
@@ -43,9 +43,13 @@ def _device(ip="192.0.2.10", board="esp32-s2-mini", version="v0.70.0-dev-dirty")
 
 
 def _args(**kwargs):
-    """Build a minimal argparse.Namespace for ota handler args."""
+    """Build a minimal argparse.Namespace for ota handler args.
+
+    hosts mirrors real argparse output: a comma-separated string (or None),
+    never a list — matches the type real --hosts parsing produces.
+    """
     ns = argparse.Namespace(
-        hosts=[kwargs.get("ip", "192.0.2.10")],
+        hosts=kwargs.get("hosts", kwargs.get("ip", "192.0.2.10")),
         discover=False,
         board=None,
         dry_run=kwargs.get("dry_run", False),
@@ -253,7 +257,7 @@ class TestCmdOtaPullDeviceWrap(unittest.TestCase):
 
         captured = {}
 
-        def fake_pull(client, guard, mode="auto", target_version=None, settle=None):
+        def fake_pull(client, guard, mode="auto", target_version=None, settle=None, **kw):
             captured["client"] = client
             return _ok_verify_result(version="v0.70.0")
 
@@ -671,6 +675,172 @@ class TestCmdOtaPushHostIsolation(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("192.0.2.28", output)
         self.assertIn("SKIPPED", output)
+
+
+# ---------------------------------------------------------------------------
+# TA-532: --hosts must hard-scope OTA push/pull, never fan out to the fleet
+# ---------------------------------------------------------------------------
+
+class TestOtaHostsHardScope(unittest.TestCase):
+    """Regression: --hosts must exclude mDNS discovery and never expand.
+
+    Drives the REAL device-resolution path (suites.resolve_devices via
+    commands.ota.resolve_devices) — only discover()/from_hosts_detailed are
+    stubbed — so this exercises the actual --hosts routing, not a mock that
+    bypasses it.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".bin")
+        self.tmp.write(b"\x00firmware\xff")
+        self.tmp.close()
+
+    def tearDown(self):
+        os.unlink(self.tmp.name)
+
+    def _fleet_devices(self, n=5):
+        return [_device(ip=f"192.0.2.{20 + i}") for i in range(n)]
+
+    def test_push_with_hosts_only_contacts_named_host(self):
+        """--hosts naming 1 of 5 fleet devices must push to that 1 device only.
+
+        discover() is stubbed to return 5 devices (simulating what mDNS would
+        find). Without the fix, resolve_devices falls through to discover()
+        and all 5 would be targeted.
+        """
+        target_ip = "192.0.2.10"
+        args = _args(binfile=self.tmp.name, yes=True, hosts=target_ip)
+
+        constructed_ips = []
+
+        def fake_client_ctor(ip, port=80):
+            constructed_ips.append(ip)
+            return _MockClient(ip=ip, port=port)
+
+        def fake_push(client, guard, binfile, **kw):
+            return _ok_verify_result()
+
+        with patch("fleetlib.discovery.discover", return_value=self._fleet_devices()) as m_discover:
+            with patch("fleetlib.discovery.from_hosts_detailed",
+                       return_value=__import__("fleetlib.discovery", fromlist=["ResolveResult"])
+                       .ResolveResult(devices=[_device(ip=target_ip)], failures=[], from_mdns=False)):
+                with _patch_identity(True):
+                    with patch("fleetlib.client.Client", side_effect=fake_client_ctor):
+                        with patch("fleetlib.ota.push", side_effect=fake_push):
+                            rc = ota_cmd.cmd_ota_push(args)
+
+        self.assertEqual(rc, 0)
+        m_discover.assert_not_called()
+        self.assertEqual(constructed_ips, [target_ip],
+                          f"expected only {target_ip} contacted, got {constructed_ips}")
+
+    def test_pull_with_hosts_only_contacts_named_host(self):
+        target_ip = "192.0.2.10"
+        args = _args(yes=True, hosts=target_ip)
+
+        constructed_ips = []
+
+        def fake_client_ctor(ip, port=80):
+            constructed_ips.append(ip)
+            return _MockClient(ip=ip, port=port)
+
+        def fake_pull(client, guard, mode="auto", target_version=None, settle=None, **kw):
+            return _ok_verify_result(version="v0.70.0")
+
+        with patch("fleetlib.discovery.discover", return_value=self._fleet_devices()) as m_discover:
+            with patch("fleetlib.discovery.from_hosts_detailed",
+                       return_value=__import__("fleetlib.discovery", fromlist=["ResolveResult"])
+                       .ResolveResult(devices=[_device(ip=target_ip)], failures=[], from_mdns=False)):
+                with _patch_identity(True):
+                    with patch("fleetlib.client.Client", side_effect=fake_client_ctor):
+                        with patch("fleetlib.ota.pull", side_effect=fake_pull):
+                            rc = ota_cmd.cmd_ota_pull(args)
+
+        self.assertEqual(rc, 0)
+        m_discover.assert_not_called()
+        self.assertEqual(constructed_ips, [target_ip],
+                          f"expected only {target_ip} contacted, got {constructed_ips}")
+
+    def test_hosts_before_subcommand_survives_argparse(self):
+        """Regression for the root cause: --hosts given before the `push` token
+        must not be reset to None by the op subparser's own default.
+        """
+        import cli
+        parser = cli._build_cli_parser({})
+        args = parser.parse_args(
+            ["ota", "--hosts", "192.0.2.10", "push", "--bin", self.tmp.name])
+        self.assertEqual(getattr(args, "hosts", None), "192.0.2.10")
+
+
+class TestOtaScopeGuard(unittest.TestCase):
+    """Defense-in-depth: fleetlib.ota.push()/pull() must refuse a device
+    outside an explicit allowed_hosts scope, even if resolution handed it one
+    (simulating a future regression in device resolution).
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".bin")
+        self.tmp.write(b"\x00firmware\xff")
+        self.tmp.close()
+
+    def tearDown(self):
+        os.unlink(self.tmp.name)
+
+    def test_push_raises_scope_violation_for_out_of_scope_device(self):
+        from fleetlib.ota import push
+        from fleetlib.safety import Guard
+
+        client = _MockClient(ip="192.0.2.99")
+        guard = Guard(dry_run=False, confirm=True)
+
+        with self.assertRaises(ScopeViolation):
+            push(client, guard, self.tmp.name, allowed_hosts=frozenset({"192.0.2.10"}))
+
+        # The guard must fire BEFORE any HTTP mutation is attempted.
+        self.assertEqual(client.request_log, [])
+
+    def test_pull_raises_scope_violation_for_out_of_scope_device(self):
+        from fleetlib.ota import pull
+        from fleetlib.safety import Guard
+
+        client = _MockClient(ip="192.0.2.99")
+        guard = Guard(dry_run=False, confirm=True)
+
+        with self.assertRaises(ScopeViolation):
+            pull(client, guard, allowed_hosts=frozenset({"192.0.2.10"}))
+
+        self.assertEqual(client.request_log, [])
+
+    def test_push_allows_in_scope_device(self):
+        """Sanity: a device inside the scope must not trip the guard."""
+        from fleetlib.ota import push
+        from fleetlib.safety import Guard
+
+        client = _MockClient(ip="192.0.2.10")
+        guard = Guard(dry_run=True, confirm=False)  # dry-run: no real HTTP
+
+        with _patch_identity(True):
+            r = push(client, guard, self.tmp.name, allowed_hosts=frozenset({"192.0.2.10"}))
+        self.assertTrue(r.dry_run)
+
+    def test_cmd_ota_push_aborts_batch_on_scope_violation(self):
+        """cmd_ota_push must let ScopeViolation propagate — never downgrade it
+        to a per-device SKIPPED/FAILED and continue the batch.
+        """
+        device = _device(ip="192.0.2.99")  # outside the --hosts scope below
+        args = _args(binfile=self.tmp.name, yes=True, hosts="192.0.2.10")
+
+        def raising_push(client, guard, binfile, **kw):
+            allowed = kw.get("allowed_hosts")
+            if allowed is not None and client.ip not in allowed:
+                raise ScopeViolation(f"{client.ip} not in {allowed!r}")
+            return _ok_verify_result()
+
+        with _patch_resolve(device):
+            with patch("fleetlib.client.Client", return_value=_MockClient(ip=device.ip)):
+                with patch("fleetlib.ota.push", side_effect=raising_push):
+                    with self.assertRaises(ScopeViolation):
+                        ota_cmd.cmd_ota_push(args)
 
 
 if __name__ == "__main__":

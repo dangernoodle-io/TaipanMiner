@@ -12,7 +12,31 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  changes:
+    if: github.event_name == 'pull_request'
+    uses: dangernoodle-io/.github/.github/workflows/path-changes.yml@main
+    with:
+      filters: |
+        firmware:
+          - 'src/**'
+          - 'components/**'
+          - 'sdkconfig/**'
+          - 'sdkconfig.defaults'
+          - 'platformio.ini'
+          - 'CMakeLists.txt'
+          - 'Makefile'
+          - 'partitions*.csv'
+          - 'scripts/fetch_breadboard.py'
+          - '.github/workflows/build.yml'
+        python:
+          - 'scripts/**'
+          - '.github/workflows/build.yml'
+
   webui-check:
     runs-on: ubuntu-latest
     steps:
@@ -122,6 +146,21 @@ jobs:
           flag-name: native
           files: gcovr-coveralls.json
 
+  py-tests:
+    needs: changes
+    if: "!cancelled() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(fromJSON(needs.changes.outputs.changes), 'python')))"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install Python test deps
+        run: pip install -r scripts/fleet/requirements.txt
+      - name: Fleet Python tests
+        run: make test-py
+
   e2e:
     needs: webui-check
     runs-on: ubuntu-latest
@@ -166,7 +205,8 @@ jobs:
 
   # e2e uses pre-installed Google Chrome on GH runners (channel: chrome) — no playwright install / no apt
   build:
-    needs: webui-check
+    needs: [webui-check, changes]
+    if: "!cancelled() && needs.webui-check.result == 'success' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(fromJSON(needs.changes.outputs.changes), 'firmware')))"
     runs-on: ubuntu-latest
     env:
       CCACHE_DIR: /home/runner/.cache/ccache
@@ -298,26 +338,15 @@ jobs:
 
   summary:
     if: always()
-    needs: [webui-check, native-test, e2e, build]
+    needs: [webui-check, native-test, e2e, build, py-tests, changes]
     runs-on: ubuntu-latest
     steps:
       - name: Finalize Coveralls
         uses: coverallsapp/github-action@v2
         with:
           parallel-finished: true
-      - name: Check results
-        run: |
-          webui_check="${{ needs.webui-check.result }}"
-          native_test="${{ needs.native-test.result }}"
-          e2e="${{ needs.e2e.result }}"
-          build="${{ needs.build.result }}"
-
-          if [ "$webui_check" != "success" ] || [ "$native_test" != "success" ] || [ "$build" != "success" ]; then
-            echo "webui-check=$webui_check native-test=$native_test e2e=$e2e build=$build"
-            exit 1
-          fi
-
-          if [ "$e2e" == "cancelled" ]; then
-            echo "e2e cancelled: $e2e"
-            exit 1
-          fi
+      - uses: dangernoodle-io/.github/.github/actions/ci-result-gate@main
+        with:
+          required: webui-check=${{ needs.webui-check.result }} native-test=${{ needs.native-test.result }}
+          optional: build=${{ needs.build.result }} py-tests=${{ needs.py-tests.result }} changes=${{ needs.changes.result }}
+          fail-on-cancelled: e2e=${{ needs.e2e.result }}

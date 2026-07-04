@@ -1,6 +1,6 @@
 PIO ?= pio
 
-.PHONY: help check test coverage build clean monitor compile-db lsp-% webui lint
+.PHONY: help check test test-py coverage build clean monitor compile-db lsp-% webui lint
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_%-]+:.*##' $(MAKEFILE_LIST) | sort | \
@@ -18,6 +18,9 @@ check-%: ## Static analysis for one env (e.g. make check-bitaxe-601)
 test: ## Run host unit tests (ASIC and non-ASIC envs)
 	$(PIO) test -e native
 	$(PIO) test -e native-noasic
+
+test-py: ## Fleet Python tests
+	python3 -m unittest discover -s scripts/fleet/tests
 
 coverage: test ## Coverage report (gcovr)
 	# Exclude the vendored breadboard (.breadboard) — bb covers its own code; counting it

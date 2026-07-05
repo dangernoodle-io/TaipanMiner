@@ -1,0 +1,32 @@
+# Phase 1 skeleton defaults — bb_init host shell only. No mining/ASIC/stratum
+# knobs here; those land with their owning components in later sub-PRs.
+
+# CPU
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_FREERTOS_HZ=100
+
+# Compiler
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_SILENT=y
+
+# NVS
+CONFIG_NVS_ENCRYPTION=n
+
+# Logging
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# Partition table
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_esp32_4mb.csv"
+
+# Watchdog
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=60
+CONFIG_ESP_TASK_WDT_PANIC=y
+
+# Build cache
+CONFIG_COMPILER_CCACHE_ENABLE=y
+
+# Flash size reduction — disable unused components
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y
+CONFIG_UNITY_ENABLE=n

@@ -1,0 +1,38 @@
+# PR 1 skeleton defaults — handwired composition root, WiFi STA + log only.
+# No mining/ASIC/stratum knobs here; those land with their owning components
+# in later PRs.
+
+# CPU
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_FREERTOS_HZ=100
+
+# Compiler
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_SILENT=y
+
+# NVS
+CONFIG_NVS_ENCRYPTION=n
+
+# Logging
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# Partition table
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_esp32_4mb.csv"
+
+# Watchdog
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=60
+CONFIG_ESP_TASK_WDT_PANIC=y
+
+# Build cache
+CONFIG_COMPILER_CCACHE_ENABLE=y
+
+# Flash size reduction — disable unused components
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y
+CONFIG_UNITY_ENABLE=n
+
+# bb_system: no HTTP server in this skeleton — don't compile/register its
+# /api/version /api/reboot /api/ping routes (bb_http_server itself is still
+# pulled in unconditionally by bb_system's public header; see PR1 report).
+CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER=n

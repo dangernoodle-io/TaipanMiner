@@ -43,3 +43,7 @@ webui/*/coverage/
 /*_gz.c
 .breadboard
 scripts/fleet/.venv/
+
+# bbtool codegen output (build artifact, never committed — see
+# scripts/tm_codegen.py + src/CMakeLists.txt)
+/src/generated/

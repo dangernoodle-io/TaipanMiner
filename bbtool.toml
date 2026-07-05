@@ -1,0 +1,38 @@
+# TaipanMiner v2 floor — consumer bbtool.toml (codegen composition,
+# `bbtool codegen --consumer-manifest` + multi-root discovery, breadboard
+# pinned c9a8e829+). This is TM's OWN root manifest — distinct from the
+# vendored .breadboard/bbtool.toml, which defines breadboard's own
+# capability/board tables for its examples.
+#
+# See scripts/tm_codegen.py (the pio pre: step that drives this) and
+# src/tm_wire.h (TM's consumer manifest of TM-local `// bbtool:init`
+# markers not already carried by a vendored bb component header).
+
+[capability.tm_floor]
+# The floor's closure: log, NVS-backed storage, WiFi (STA connect from
+# stored creds), system (boot banner + reset reason). Transitive deps
+# (bb_settings, bb_storage, bb_http_server, bb_serialize, bb_config,
+# bb_data, bb_ntp, bb_task, bb_fsm, ...) are resolved automatically from
+# each component's own CMakeLists.txt REQUIRES/PRIV_REQUIRES -- no
+# hand-synced closure list here, mirroring breadboard's own
+# capability.smoke/capability.floor tables.
+#
+# bb_storage_rtc: NOT a direct TM dep -- required solely because
+# bb_settings.h's own bb_settings_creds_boot_init carries a real
+# `// bbtool:init tier=early ... requires=storage_rtc` marker (bb_settings
+# is pulled in transitively via bb_wifi's PRIV_REQUIRES). Without it,
+# codegen hard-errors with MissingProviderError instead of the previous
+# handwire's silent gap -- this IS the guard the codegen migration exists
+# to surface (see breadboard's examples/floor/CLAUDE.md-adjacent comment on
+# capability.floor.components making the identical addition for the
+# identical reason).
+components = ["bb_log", "bb_storage_nvs", "bb_storage_rtc", "bb_wifi", "bb_system"]
+
+[board.esp32-wroom32]
+# Board id MUST match FIRMWARE_BOARD (platformio.ini's
+# board_build.cmake_extra_args=-DFIRMWARE_BOARD=esp32-wroom32) --
+# src/CMakeLists.txt's stale-fragment guard (BB_AUTOWIRE_BOARD STREQUAL
+# FIRMWARE_BOARD) hard-errors on a mismatch, so this table's own key must
+# stay byte-identical to that -D value.
+platform = "espidf"
+capabilities = ["tm_floor"]

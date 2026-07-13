@@ -36,3 +36,7 @@ CONFIG_UNITY_ENABLE=n
 # /api/version /api/reboot /api/ping routes (bb_http_server itself is still
 # pulled in unconditionally by bb_system's public header; see PR1 report).
 CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER=n
+
+# stratum (TA-560): the FSM needs 3 concurrent armed timers while RUNNING
+# (job drought + share drought + keepalive) -- bb_fsm's Kconfig default is 1.
+CONFIG_BB_FSM_MAX_TIMERS=3

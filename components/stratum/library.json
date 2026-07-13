@@ -1,0 +1,6 @@
+{
+  "name": "stratum",
+  "build": {
+    "srcFilter": ["+<*>", "-<stratum_transport_esp.c>"]
+  }
+}

@@ -73,8 +73,25 @@ void app_main(void)
     log_reset_reason();
 
     // --- PRODUCER REGISTRATION SLOT (empty; comment marker only) ---
+    // TA-560 ships stratum's producer-shape surface (stratum_snap_t,
+    // stratum_gather(), stratum_serialize_desc -- components/stratum/
+    // include/stratum_snap.h) ready to register, but there is no telemetry
+    // registry consumer wired anywhere in this floor yet (bb_cache/
+    // bb_cache_serialize aren't composed in, no bb_pub/http/mqtt sink
+    // exists) -- registering against nothing would be a fragile half-wire.
+    // The actual bb_cache_register()+bb_cache_serialize_register() calls
+    // land here once a real registry consumer exists; stratum.c itself
+    // never calls them (see stratum_snap.h's header comment).
 
     // --- MINING/STRATUM SLOT (empty; comment marker only) ---
+    // The stratum FSM (components/stratum -- bb_fsm over bb_tcp_client) is
+    // ready to drive, but has no real pool/wallet config to connect with
+    // yet: config/NVS bring-up is blocked on the same breadboard B1-840 gap
+    // as the NVS/WiFi slot above, and WiFi itself doesn't exist in this
+    // floor. Starting the stratum task here would mean connecting with a
+    // hardcoded placeholder host/wallet, which is worse than not starting
+    // it. Task creation + stratum_fsm_service() polling loop land here once
+    // config/WiFi are wired.
 
     // --- NVS/WIFI SLOT: blocked on breadboard B1-840 (nvs_flash_init -> bb_storage_nvs) ---
 

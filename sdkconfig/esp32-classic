@@ -3,6 +3,9 @@ CONFIG_IDF_TARGET="esp32"
 CONFIG_IDF_TARGET_ESP32=y
 CONFIG_ESP32_DEFAULT_CPU_FREQ_240=y
 
+# D0 hot-loop data: stack placement measures ~1.5% faster on classic ESP32
+CONFIG_MINING_PIN_HOTLOOP_DATA=n
+
 # Flash size: classic ESP32 boards have 4MB
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_esp32_4mb.csv"

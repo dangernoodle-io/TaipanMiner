@@ -18,6 +18,7 @@
 // bring-up lands in bb_storage_nvs.
 #include "bb_log.h"
 #include "bb_system.h"
+#include "mining.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -72,7 +73,14 @@ void app_main(void)
 
     log_reset_reason();
 
-    // --- PRODUCER REGISTRATION SLOT (empty; comment marker only) ---
+    // --- PRODUCER REGISTRATION SLOT ---
+    // mining's ENTIRE delivery-facing surface is `mining_desc` (a static
+    // bb_serialize descriptor) + `mining_gather()` (a pure gather fn) --
+    // components/mining/include/mining.h. Adding a delivery path (UDP push,
+    // HTTP snapshot cache, etc.) later means binding those two symbols into
+    // that path's registry HERE, once one exists -- components/mining is
+    // never reopened for it. No producer/telemetry registry exists yet in
+    // this tree, so there is nothing to bind to in this PR.
 
     // --- MINING/STRATUM SLOT (empty; comment marker only) ---
 

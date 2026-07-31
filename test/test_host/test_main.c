@@ -50,13 +50,28 @@ void test_share_validate_clean_valid_accept(void);
 // test_work.c
 void test_mining_hash_from_state_abc_vector(void);
 void test_mining_hash_from_state_zero(void);
-void test_serialize_header_genesis(void);
 void test_set_header_nonce(void);
 void test_nbits_to_target_genesis(void);
 void test_nbits_to_target_high_diff(void);
 void test_meets_target_pass(void);
 void test_meets_target_fail(void);
 void test_meets_target_equal(void);
+void test_mining_round_trip_block1(void);
+void test_mining_early_reject_byte_order(void);
+void test_difficulty_target_meets_target_integration(void);
+void test_version_rolling_mask_increment(void);
+void test_is_target_valid_all_zero(void);
+void test_is_target_valid_all_ff(void);
+void test_is_target_valid_nonzero_msb31(void);
+void test_is_target_valid_nonzero_msb30(void);
+void test_is_target_valid_diff1(void);
+void test_is_target_valid_diff512(void);
+void test_is_target_valid_diff_001(void);
+void test_package_result_round_trip_no_rolling(void);
+void test_package_result_round_trip_with_rolling(void);
+
+// test_work_build.c
+void test_serialize_header_genesis(void);
 void test_build_coinbase_hash(void);
 void test_build_merkle_root_no_branches(void);
 void test_build_merkle_root_with_branches(void);
@@ -69,10 +84,6 @@ void test_stratum_pipeline_block1(void);
 void test_difficulty_to_target_diff1(void);
 void test_difficulty_to_target_easy(void);
 void test_difficulty_to_target_hard(void);
-void test_mining_round_trip_block1(void);
-void test_mining_early_reject_byte_order(void);
-void test_difficulty_target_meets_target_integration(void);
-void test_version_rolling_mask_increment(void);
 void test_difficulty_to_target_nan(void);
 void test_difficulty_to_target_inf(void);
 void test_difficulty_to_target_neg_inf(void);
@@ -80,15 +91,6 @@ void test_difficulty_to_target_negative(void);
 void test_difficulty_to_target_zero(void);
 void test_difficulty_to_target_tiny(void);
 void test_difficulty_to_target_normal(void);
-void test_is_target_valid_all_zero(void);
-void test_is_target_valid_all_ff(void);
-void test_is_target_valid_nonzero_msb31(void);
-void test_is_target_valid_nonzero_msb30(void);
-void test_is_target_valid_diff1(void);
-void test_is_target_valid_diff512(void);
-void test_is_target_valid_diff_001(void);
-void test_package_result_round_trip_no_rolling(void);
-void test_package_result_round_trip_with_rolling(void);
 
 // test_mining_avg.c
 void test_avg_nan_safe_empty_all_nan(void);
@@ -249,6 +251,7 @@ int main(void)
     RUN_TEST(test_difficulty_to_target_tiny);
     RUN_TEST(test_difficulty_to_target_normal);
     RUN_TEST(test_is_target_valid_all_zero);
+
     RUN_TEST(test_is_target_valid_all_ff);
     RUN_TEST(test_is_target_valid_nonzero_msb31);
     RUN_TEST(test_is_target_valid_nonzero_msb30);

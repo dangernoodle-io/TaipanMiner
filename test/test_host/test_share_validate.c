@@ -4,6 +4,7 @@
 #include "unity.h"
 #include "share_validate.h"
 #include "work.h"
+#include "work_build.h"
 #include <string.h>
 #include <stdint.h>
 #include <stdio.h>

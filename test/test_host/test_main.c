@@ -48,11 +48,8 @@ void test_share_validate_low_difficulty_at_floor_accepts(void);
 void test_share_validate_clean_valid_accept(void);
 
 // test_work.c
-void test_hex_to_bytes(void);
-void test_bytes_to_hex(void);
 void test_mining_hash_from_state_abc_vector(void);
 void test_mining_hash_from_state_zero(void);
-void test_hex_roundtrip(void);
 void test_serialize_header_genesis(void);
 void test_set_header_nonce(void);
 void test_nbits_to_target_genesis(void);
@@ -64,6 +61,7 @@ void test_build_coinbase_hash(void);
 void test_build_merkle_root_no_branches(void);
 void test_build_merkle_root_with_branches(void);
 void test_decode_stratum_prevhash(void);
+void test_decode_stratum_prevhash_truncated(void);
 void test_block1_full_pipeline(void);
 void test_block170_merkle_and_hash(void);
 void test_decode_stratum_prevhash_real(void);
@@ -218,11 +216,8 @@ int main(void)
     RUN_TEST(test_share_validate_low_difficulty_just_under_floor_rejects);
     RUN_TEST(test_share_validate_low_difficulty_at_floor_accepts);
     RUN_TEST(test_share_validate_clean_valid_accept);
-    RUN_TEST(test_hex_to_bytes);
-    RUN_TEST(test_bytes_to_hex);
     RUN_TEST(test_mining_hash_from_state_abc_vector);
     RUN_TEST(test_mining_hash_from_state_zero);
-    RUN_TEST(test_hex_roundtrip);
     RUN_TEST(test_serialize_header_genesis);
     RUN_TEST(test_set_header_nonce);
     RUN_TEST(test_nbits_to_target_genesis);
@@ -234,6 +229,7 @@ int main(void)
     RUN_TEST(test_build_merkle_root_no_branches);
     RUN_TEST(test_build_merkle_root_with_branches);
     RUN_TEST(test_decode_stratum_prevhash);
+    RUN_TEST(test_decode_stratum_prevhash_truncated);
     RUN_TEST(test_block1_full_pipeline);
     RUN_TEST(test_block170_merkle_and_hash);
     RUN_TEST(test_decode_stratum_prevhash_real);

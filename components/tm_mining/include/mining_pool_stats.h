@@ -4,11 +4,10 @@
  * mining_pool_stats.h — per-pool lifetime stats (8 slots, LRU eviction).
  *
  * In-RAM only in this PR. NVS persistence (the old ps<N>_<field> key
- * layout) is deferred: it lived entirely behind bb_nv_*, which is
- * DISSOLVING (B1-708, replaced by bb_storage + bb_storage_nvs + bb_config).
- * Re-adding persistence here would be a new dependency on a component
- * mid-dissolution, mirroring src/main.c's NVS/WiFi deferral. Persistence
- * rejoins once bb_storage_nvs lands.
+ * layout) is deferred: it lived entirely behind the now-removed legacy NVS
+ * helper API (B1-708, replaced by bb_storage + bb_storage_nvs + bb_config).
+ * Re-adding persistence here mirrors src/main.c's NVS/WiFi deferral.
+ * Persistence rejoins once bb_storage_nvs lands.
  *
  * Host-compilable: no ESP-IDF includes in this header.
  */

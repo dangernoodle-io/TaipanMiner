@@ -1,8 +1,8 @@
 #include "work.h"
 #include "sha256.h"
 #include "bb_byte_order.h"
+#include "bb_str.h"
 #include <string.h>
-#include <ctype.h>
 #include <math.h>
 
 void mining_hash_from_state(const uint32_t state[8], uint8_t hash_out[32]) {
@@ -142,9 +142,13 @@ void decode_stratum_prevhash(const char *hex, uint8_t prevhash[32]) {
     // It's organized as 8 groups of 4 bytes (8 hex chars each)
     // Each group has its bytes reversed
 
-    // First, convert hex to raw bytes
-    uint8_t raw[32];
-    hex_to_bytes(hex, raw, 32);
+    // First, convert hex to raw bytes. bb_str_hex_to_bytes stops decoding at
+    // the first non-hex character and leaves any remaining bytes untouched,
+    // so zero-init here to get deterministic zero-padding on short/malformed
+    // input. Rejecting malformed jobs outright is stratum's job (TA-560);
+    // this function only guarantees a deterministic decode.
+    uint8_t raw[32] = {0};
+    bb_str_hex_to_bytes(hex, raw, 32);
 
     // Now reverse bytes within each 4-byte group
     for (int i = 0; i < 8; i++) {
@@ -154,61 +158,6 @@ void decode_stratum_prevhash(const char *hex, uint8_t prevhash[32]) {
         prevhash[group_start + 2] = raw[group_start + 1];
         prevhash[group_start + 3] = raw[group_start];
     }
-}
-
-size_t hex_to_bytes(const char *hex, uint8_t *out, size_t max_out) {
-    if (!hex || !out) {
-        return 0;
-    }
-
-    size_t count = 0;
-    size_t hex_len = strlen(hex);
-
-    // Process pairs of hex characters
-    for (size_t i = 0; i + 1 < hex_len && count < max_out; i += 2) {
-        char high = hex[i];
-        char low = hex[i + 1];
-
-        // Convert hex chars to nibbles
-        uint8_t high_nibble = 0;
-        uint8_t low_nibble = 0;
-
-        if (high >= '0' && high <= '9') {
-            high_nibble = high - '0';
-        } else if (high >= 'a' && high <= 'f') {
-            high_nibble = 10 + (high - 'a');
-        } else if (high >= 'A' && high <= 'F') {
-            high_nibble = 10 + (high - 'A');
-        }
-
-        if (low >= '0' && low <= '9') {
-            low_nibble = low - '0';
-        } else if (low >= 'a' && low <= 'f') {
-            low_nibble = 10 + (low - 'a');
-        } else if (low >= 'A' && low <= 'F') {
-            low_nibble = 10 + (low - 'A');
-        }
-
-        out[count] = (high_nibble << 4) | low_nibble;
-        count++;
-    }
-
-    return count;
-}
-
-void bytes_to_hex(const uint8_t *data, size_t len, char *hex) {
-    if (!data || !hex) {
-        return;
-    }
-
-    const char hex_chars[] = "0123456789abcdef";
-
-    for (size_t i = 0; i < len; i++) {
-        hex[2 * i] = hex_chars[(data[i] >> 4) & 0xF];
-        hex[2 * i + 1] = hex_chars[data[i] & 0xF];
-    }
-
-    hex[2 * len] = '\0';
 }
 
 void difficulty_to_target(double diff, uint8_t target[32])

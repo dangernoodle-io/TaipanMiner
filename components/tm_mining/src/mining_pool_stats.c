@@ -2,7 +2,7 @@
  * mining_pool_stats.c — per-pool lifetime stats (8 slots, LRU eviction).
  *
  * In-RAM only — see mining_pool_stats.h for why NVS persistence is
- * deferred (bb_nv dissolving, B1-708).
+ * deferred (the now-removed legacy NVS helper API, B1-708).
  *
  * Table access:
  *   ESP_PLATFORM — mining_stats.pool_stats-equivalent global, guarded by

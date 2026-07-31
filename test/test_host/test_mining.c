@@ -4,6 +4,7 @@
 #include "sha256.h"
 #include "share_validate.h"
 #include "bb_byte_order.h"
+#include "bb_str.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -22,7 +23,7 @@ static void setup_block1_work(mining_work_t *work)
     decode_stratum_prevhash(stratum_prevhash, prevhash);
 
     uint8_t coinb1[256];
-    size_t coinb1_len = hex_to_bytes(coinb1_hex, coinb1, sizeof(coinb1));
+    size_t coinb1_len = bb_str_hex_to_bytes(coinb1_hex, coinb1, sizeof(coinb1));
     uint8_t coinbase_hash[32];
     build_coinbase_hash(coinb1, coinb1_len, NULL, 0, NULL, 0, NULL, 0, coinbase_hash);
 

@@ -85,12 +85,6 @@ double hash_to_difficulty(const uint8_t hash[32]);
 // Convert stratum prevhash (8 groups of 4 bytes, each group reversed) to raw prevhash
 void decode_stratum_prevhash(const char *hex, uint8_t prevhash[32]);
 
-// Hex string to bytes utility. Returns number of bytes written.
-size_t hex_to_bytes(const char *hex, uint8_t *out, size_t max_out);
-
-// Bytes to hex string utility (null-terminated output expected to be at least 2*len+1)
-void bytes_to_hex(const uint8_t *data, size_t len, char *hex);
-
 // Convert 8 canonical SHA-256 state words (host uint32_t, where state[0] is the
 // most-significant word) into the 32-byte hash format used by meets_target /
 // difficulty_to_target. Format: hash[i*4..i*4+3] = canonical state[i] stored

@@ -1,6 +1,7 @@
 #include "unity.h"
 #include "mining.h"
 #include "work.h"
+#include "work_build.h"
 #include "sha256.h"
 #include "share_validate.h"
 #include "bb_byte_order.h"

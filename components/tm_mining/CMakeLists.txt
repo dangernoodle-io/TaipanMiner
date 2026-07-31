@@ -7,5 +7,5 @@ idf_component_register(
     # esp_hw_support publicly too.
     REQUIRES bb_serialize bb_core freertos esp_common soc esp_hw_support
     # Private: only referenced from .c files, never a public header.
-    PRIV_REQUIRES bb_log bb_timer bb_wdt bb_system bb_str
+    PRIV_REQUIRES bb_log bb_timer bb_wdt bb_system
 )

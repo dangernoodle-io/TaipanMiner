@@ -1,0 +1,16 @@
+menu "Mining"
+
+config MINING_PIN_HOTLOOP_DATA
+    bool "Pin mining hot-loop data to cache-aligned static storage"
+    default y
+    help
+      Place the per-nonce mining hot-loop data (block2 and the HW SHA backend
+      context) in cache-line-aligned static (BSS) storage instead of on the
+      stack. Pinning isolates these on fixed D-cache lines, protecting the hot
+      loop from layout shifts caused by future feature additions.
+
+      Disable on classic ESP32 (D0, e.g. esp32-wroom32): after the TA-396
+      early-reject byte-order fix its reject-path working set is tiny, and
+      stack placement measured ~1.5% faster than the aligned static.
+
+endmenu

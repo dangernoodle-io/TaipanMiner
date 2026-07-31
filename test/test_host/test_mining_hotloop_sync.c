@@ -2,6 +2,7 @@
 #include "mining.h"
 #include "work.h"
 #include "sha256.h"
+#include "bb_str.h"
 #include <string.h>
 
 // Test pinning: both S3 hot-loop copies must produce identical SHA-256d
@@ -24,7 +25,7 @@ static void setup_test_work(mining_work_t *work)
     decode_stratum_prevhash(prevhash_hex, prevhash);
 
     uint8_t coinb1[256];
-    size_t coinb1_len = hex_to_bytes(coinb1_hex, coinb1, sizeof(coinb1));
+    size_t coinb1_len = bb_str_hex_to_bytes(coinb1_hex, coinb1, sizeof(coinb1));
     uint8_t coinbase_hash[32];
     build_coinbase_hash(coinb1, coinb1_len, NULL, 0, NULL, 0, NULL, 0, coinbase_hash);
 

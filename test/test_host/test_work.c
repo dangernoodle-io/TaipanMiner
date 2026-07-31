@@ -3,30 +3,9 @@
 #include "mining.h"
 #include "sha256.h"
 #include "bb_byte_order.h"
+#include "bb_str.h"
 #include <string.h>
 #include <stdlib.h>
-
-// Test: hex_to_bytes conversion
-void test_hex_to_bytes(void)
-{
-    uint8_t out[4];
-    const char *hex = "deadbeef";
-    const uint8_t expected[4] = {0xde, 0xad, 0xbe, 0xef};
-
-    size_t result = hex_to_bytes(hex, out, 4);
-    TEST_ASSERT_EQUAL_INT(4, result);
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(expected, out, 4);
-}
-
-// Test: bytes_to_hex conversion
-void test_bytes_to_hex(void)
-{
-    const uint8_t data[4] = {0xde, 0xad, 0xbe, 0xef};
-    char hex[9];  // 4 bytes * 2 chars + null terminator
-
-    bytes_to_hex(data, 4, hex);
-    TEST_ASSERT_EQUAL_STRING("deadbeef", hex);
-}
 
 // Test: mining_hash_from_state stores canonical SHA-256 state as big-endian bytes.
 // Uses the SHA-256("abc") known-answer vector.
@@ -55,18 +34,6 @@ void test_mining_hash_from_state_zero(void)
     memset(out, 0xff, sizeof(out));
     mining_hash_from_state(state, out);
     for (size_t i = 0; i < 32; i++) TEST_ASSERT_EQUAL_HEX8(0x00, out[i]);
-}
-
-// Test: hex_to_bytes and bytes_to_hex roundtrip
-void test_hex_roundtrip(void)
-{
-    const char *original = "0123456789abcdef";
-    uint8_t bytes[8];
-    char hex[17];
-
-    hex_to_bytes(original, bytes, 8);
-    bytes_to_hex(bytes, 8, hex);
-    TEST_ASSERT_EQUAL_STRING(original, hex);
 }
 
 // Test: serialize_header with genesis block data
@@ -288,6 +255,39 @@ void test_decode_stratum_prevhash(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(expected, prevhash, 32);
 }
 
+// Test: decode_stratum_prevhash truncated/malformed input
+// bb_str_hex_to_bytes stops decoding at the first non-hex char or end of
+// input and leaves any remaining destination bytes untouched. decode_stratum
+// zero-inits its scratch buffer before decoding, so a short input must
+// deterministically zero-pad the undecoded tail rather than read
+// uninitialized stack memory.
+void test_decode_stratum_prevhash_truncated(void)
+{
+    // Only 16 hex chars (8 bytes) supplied instead of the full 64.
+    const char *stratum_hex = "0011223344556677";
+    uint8_t prevhash[32];
+
+    // Derivation: bb_str_hex_to_bytes decodes raw[0..7] =
+    // {0x00,0x11,0x22,0x33,0x44,0x55,0x66,0x77}; raw[8..31] stay zero
+    // (zero-init). decode_stratum_prevhash then reverses each 4-byte
+    // group: group 0 (raw[0..3]) -> {0x33,0x22,0x11,0x00}; group 1
+    // (raw[4..7]) -> {0x77,0x66,0x55,0x44}; groups 2-7 read all-zero
+    // raw bytes and reverse to all zero.
+    uint8_t expected[32] = {
+        0x33, 0x22, 0x11, 0x00,
+        0x77, 0x66, 0x55, 0x44,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+    };
+
+    decode_stratum_prevhash(stratum_hex, prevhash);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(expected, prevhash, 32);
+}
+
 // Integration tests
 // Test: test_block1_full_pipeline
 // Validates the full pipeline for Bitcoin block #1 (single-tx block)
@@ -310,29 +310,29 @@ void test_block1_full_pipeline(void)
 
     // Step 1: SHA256d the coinbase transaction and verify merkle root
     uint8_t coinbase_tx[256];
-    size_t coinbase_len = hex_to_bytes(coinbase_tx_hex, coinbase_tx, sizeof(coinbase_tx));
+    size_t coinbase_len = bb_str_hex_to_bytes(coinbase_tx_hex, coinbase_tx, sizeof(coinbase_tx));
     TEST_ASSERT_GREATER_THAN_INT(0, coinbase_len);
 
     uint8_t computed_merkle[32];
     sha256d(coinbase_tx, coinbase_len, computed_merkle);
 
     uint8_t expected_merkle[32];
-    hex_to_bytes(merkle_root_hex, expected_merkle, 32);
+    bb_str_hex_to_bytes(merkle_root_hex, expected_merkle, 32);
 
     TEST_ASSERT_EQUAL_HEX8_ARRAY(expected_merkle, computed_merkle, 32);
 
     // Step 2: serialize_header with block params and verify 80-byte header
     uint8_t prevhash[32];
-    hex_to_bytes(prevhash_hex, prevhash, 32);
+    bb_str_hex_to_bytes(prevhash_hex, prevhash, 32);
 
     uint8_t merkle_root[32];
-    hex_to_bytes(merkle_root_hex, merkle_root, 32);
+    bb_str_hex_to_bytes(merkle_root_hex, merkle_root, 32);
 
     uint8_t computed_header[80];
     serialize_header(1, prevhash, merkle_root, 0x4966bc61, 0x1d00ffff, 0x9962e301, computed_header);
 
     uint8_t expected_header[80];
-    hex_to_bytes(header_hex, expected_header, 80);
+    bb_str_hex_to_bytes(header_hex, expected_header, 80);
 
     TEST_ASSERT_EQUAL_HEX8_ARRAY(expected_header, computed_header, 80);
 
@@ -341,7 +341,7 @@ void test_block1_full_pipeline(void)
     sha256d(computed_header, 80, computed_hash);
 
     uint8_t expected_hash[32];
-    hex_to_bytes(block_hash_hex, expected_hash, 32);
+    bb_str_hex_to_bytes(block_hash_hex, expected_hash, 32);
 
     TEST_ASSERT_EQUAL_HEX8_ARRAY(expected_hash, computed_hash, 32);
 }
@@ -367,29 +367,29 @@ void test_block170_merkle_and_hash(void)
 
     // Step 1: Convert coinbase_hash and branch from hex
     uint8_t coinbase_hash[32];
-    hex_to_bytes(coinbase_hash_hex, coinbase_hash, 32);
+    bb_str_hex_to_bytes(coinbase_hash_hex, coinbase_hash, 32);
 
     uint8_t branch[1][32];
-    hex_to_bytes(branch_hex, branch[0], 32);
+    bb_str_hex_to_bytes(branch_hex, branch[0], 32);
 
     // Step 2: build_merkle_root and verify
     uint8_t computed_merkle[32];
     build_merkle_root(coinbase_hash, branch, 1, computed_merkle);
 
     uint8_t expected_merkle[32];
-    hex_to_bytes(expected_merkle_hex, expected_merkle, 32);
+    bb_str_hex_to_bytes(expected_merkle_hex, expected_merkle, 32);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(expected_merkle, computed_merkle, 32);
 
     // Step 3: Convert header from hex
     uint8_t header[80];
-    hex_to_bytes(header_hex, header, 80);
+    bb_str_hex_to_bytes(header_hex, header, 80);
 
     // Step 4: SHA256d the header and verify block hash
     uint8_t computed_hash[32];
     sha256d(header, 80, computed_hash);
 
     uint8_t expected_hash[32];
-    hex_to_bytes(block_hash_hex, expected_hash, 32);
+    bb_str_hex_to_bytes(block_hash_hex, expected_hash, 32);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(expected_hash, computed_hash, 32);
 }
 
@@ -407,7 +407,7 @@ void test_decode_stratum_prevhash_real(void)
     decode_stratum_prevhash(stratum_hex, prevhash);
 
     uint8_t expected[32];
-    hex_to_bytes(expected_hex, expected, 32);
+    bb_str_hex_to_bytes(expected_hex, expected, 32);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(expected, prevhash, 32);
 }
 
@@ -428,7 +428,7 @@ void test_stratum_pipeline_block1(void)
     decode_stratum_prevhash(stratum_prevhash, prevhash);
 
     uint8_t coinb1[256];
-    size_t coinb1_len = hex_to_bytes(coinb1_hex, coinb1, sizeof(coinb1));
+    size_t coinb1_len = bb_str_hex_to_bytes(coinb1_hex, coinb1, sizeof(coinb1));
     uint8_t coinbase_hash[32];
     build_coinbase_hash(coinb1, coinb1_len, NULL, 0, NULL, 0, NULL, 0, coinbase_hash);
 
@@ -446,7 +446,7 @@ void test_stratum_pipeline_block1(void)
     sha256d(header, 80, hash);
 
     uint8_t expected_hash[32];
-    hex_to_bytes(block_hash_hex, expected_hash, 32);
+    bb_str_hex_to_bytes(block_hash_hex, expected_hash, 32);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(expected_hash, hash, 32);
 }
 

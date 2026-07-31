@@ -1,0 +1,48 @@
+# PR 1 skeleton defaults — handwired composition root, WiFi STA + log only.
+# No mining/ASIC/stratum knobs here; those land with their owning components
+# in later PRs.
+
+# CPU
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_FREERTOS_HZ=100
+
+# Compiler
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_SILENT=y
+
+# NVS
+CONFIG_NVS_ENCRYPTION=n
+
+# Logging
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# Partition table
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_esp32_4mb.csv"
+
+# Watchdog
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=60
+CONFIG_ESP_TASK_WDT_PANIC=y
+
+# Build cache
+CONFIG_COMPILER_CCACHE_ENABLE=y
+
+# Flash size reduction — disable unused components
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y
+CONFIG_UNITY_ENABLE=n
+
+# bb_system + bb_http_server are transitively composed via bb_system's own
+# public REQUIRES (bb_http_server), and codegen unconditionally calls
+# bb_system's `// bbtool:init` route markers (bb_system_routes_reserve,
+# bb_system_routes_init) once bb_system is in the closure -- those symbols
+# only EXIST when bb_system_routes.c is compiled, so
+# CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER must stay y under codegen (a link
+# failure otherwise, unlike the handwired baseline which never called them
+# and could leave this off). No HTTP server actually STARTS, though:
+# CONFIG_BB_HTTP_AUTOSTART=n below means bb_http_autostart_init() returns a
+# NULL handle, and bb_system_routes_init(NULL) is a graceful
+# BB_ERR_INVALID_ARG no-op (bb_system_routes.c) -- no port opened, no httpd
+# task, matching this skeleton's still-headless floor intent.
+CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER=y
+CONFIG_BB_HTTP_AUTOSTART=n

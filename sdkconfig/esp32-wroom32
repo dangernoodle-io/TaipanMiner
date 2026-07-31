@@ -1,0 +1,2 @@
+# ESP32-WROOM-32 configuration — delta from sdkconfig.defaults + sdkconfig/esp32-classic.
+# No board-specific overrides needed yet for the Phase 1 skeleton.

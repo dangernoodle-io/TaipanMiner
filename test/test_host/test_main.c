@@ -443,6 +443,39 @@ void test_tm_pool_scoreboard_load_propagates_genuine_backend_fault(void);
 void test_tm_pool_scoreboard_load_rejects_out_of_range_idx(void);
 void test_tm_pool_scoreboard_load_rejects_null_out(void);
 
+// test_tm_pool_policy.c
+void test_tm_pool_policy_init_defaults_to_manual_slot0(void);
+void test_tm_pool_policy_init_manual_mode_derives_manual_idx(void);
+void test_tm_pool_policy_init_failover_mode_derives_first_configured_slot(void);
+void test_tm_pool_policy_init_auto_rotate_mode_derives_first_configured_slot(void);
+void test_tm_pool_policy_init_runtime_state_starts_fresh_not_persisted(void);
+void test_tm_pool_policy_manual_tracks_manual_idx(void);
+void test_tm_pool_policy_manual_stable_idx_triggers_no_reconnect(void);
+void test_tm_pool_policy_manual_idx_change_triggers_exactly_one_reconnect(void);
+void test_tm_pool_policy_manual_short_circuits_failover_and_rotate_bookkeeping(void);
+void test_tm_pool_policy_failover_below_threshold_does_not_advance(void);
+void test_tm_pool_policy_failover_three_consecutive_failures_advances_resets_reconnects(void);
+void test_tm_pool_policy_failover_skips_unconfigured_slot_and_wraps(void);
+void test_tm_pool_policy_failover_no_auto_fail_back(void);
+void test_tm_pool_policy_failover_only_one_configured_pool_reconnects_in_place(void);
+void test_tm_pool_policy_auto_rotate_time_trigger_fires_at_interval(void);
+void test_tm_pool_policy_auto_rotate_share_trigger_fires_at_threshold(void);
+void test_tm_pool_policy_auto_rotate_either_trigger_resets_both_accumulators(void);
+void test_tm_pool_policy_auto_rotate_disabled_fires_neither_trigger(void);
+void test_tm_pool_policy_auto_rotate_both_thresholds_zero_never_fires(void);
+void test_tm_pool_policy_auto_rotate_round_robins_across_configured_slots(void);
+void test_tm_pool_policy_auto_rotate_primes_window_on_mode_entry_time_trigger(void);
+void test_tm_pool_policy_auto_rotate_primes_share_accum_on_mode_entry(void);
+void test_tm_pool_policy_failover_to_manual_switch_overrides_next_tick(void);
+void test_tm_pool_policy_set_manual_idx_rejects_out_of_range(void);
+void test_tm_pool_policy_tick_null_ops_is_a_noop(void);
+void test_tm_pool_policy_init_propagates_first_genuine_read_failure(void);
+void test_tm_pool_policy_set_mode_propagates_write_failure_and_leaves_ram_unchanged(void);
+void test_tm_pool_policy_set_manual_idx_propagates_write_failure_and_leaves_ram_unchanged(void);
+void test_tm_pool_policy_set_rotate_cfg_partial_write_applies_ram_up_to_failing_field(void);
+void test_tm_pool_policy_zero_configured_pools_failover_stays_at_fallback_and_still_reconnects(void);
+void test_tm_pool_policy_zero_configured_pools_auto_rotate_stays_at_fallback_and_still_reconnects(void);
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -837,5 +870,38 @@ int main(void)
     RUN_TEST(test_tm_pool_scoreboard_load_propagates_genuine_backend_fault);
     RUN_TEST(test_tm_pool_scoreboard_load_rejects_out_of_range_idx);
     RUN_TEST(test_tm_pool_scoreboard_load_rejects_null_out);
+
+    RUN_TEST(test_tm_pool_policy_init_defaults_to_manual_slot0);
+    RUN_TEST(test_tm_pool_policy_init_manual_mode_derives_manual_idx);
+    RUN_TEST(test_tm_pool_policy_init_failover_mode_derives_first_configured_slot);
+    RUN_TEST(test_tm_pool_policy_init_auto_rotate_mode_derives_first_configured_slot);
+    RUN_TEST(test_tm_pool_policy_init_runtime_state_starts_fresh_not_persisted);
+    RUN_TEST(test_tm_pool_policy_manual_tracks_manual_idx);
+    RUN_TEST(test_tm_pool_policy_manual_stable_idx_triggers_no_reconnect);
+    RUN_TEST(test_tm_pool_policy_manual_idx_change_triggers_exactly_one_reconnect);
+    RUN_TEST(test_tm_pool_policy_manual_short_circuits_failover_and_rotate_bookkeeping);
+    RUN_TEST(test_tm_pool_policy_failover_below_threshold_does_not_advance);
+    RUN_TEST(test_tm_pool_policy_failover_three_consecutive_failures_advances_resets_reconnects);
+    RUN_TEST(test_tm_pool_policy_failover_skips_unconfigured_slot_and_wraps);
+    RUN_TEST(test_tm_pool_policy_failover_no_auto_fail_back);
+    RUN_TEST(test_tm_pool_policy_failover_only_one_configured_pool_reconnects_in_place);
+    RUN_TEST(test_tm_pool_policy_auto_rotate_time_trigger_fires_at_interval);
+    RUN_TEST(test_tm_pool_policy_auto_rotate_share_trigger_fires_at_threshold);
+    RUN_TEST(test_tm_pool_policy_auto_rotate_either_trigger_resets_both_accumulators);
+    RUN_TEST(test_tm_pool_policy_auto_rotate_disabled_fires_neither_trigger);
+    RUN_TEST(test_tm_pool_policy_auto_rotate_both_thresholds_zero_never_fires);
+    RUN_TEST(test_tm_pool_policy_auto_rotate_round_robins_across_configured_slots);
+    RUN_TEST(test_tm_pool_policy_auto_rotate_primes_window_on_mode_entry_time_trigger);
+    RUN_TEST(test_tm_pool_policy_auto_rotate_primes_share_accum_on_mode_entry);
+    RUN_TEST(test_tm_pool_policy_failover_to_manual_switch_overrides_next_tick);
+    RUN_TEST(test_tm_pool_policy_set_manual_idx_rejects_out_of_range);
+    RUN_TEST(test_tm_pool_policy_tick_null_ops_is_a_noop);
+    RUN_TEST(test_tm_pool_policy_init_propagates_first_genuine_read_failure);
+    RUN_TEST(test_tm_pool_policy_set_mode_propagates_write_failure_and_leaves_ram_unchanged);
+    RUN_TEST(test_tm_pool_policy_set_manual_idx_propagates_write_failure_and_leaves_ram_unchanged);
+    RUN_TEST(test_tm_pool_policy_set_rotate_cfg_partial_write_applies_ram_up_to_failing_field);
+    RUN_TEST(test_tm_pool_policy_zero_configured_pools_failover_stays_at_fallback_and_still_reconnects);
+    RUN_TEST(test_tm_pool_policy_zero_configured_pools_auto_rotate_stays_at_fallback_and_still_reconnects);
+
     return UNITY_END();
 }

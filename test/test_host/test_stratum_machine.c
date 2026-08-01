@@ -174,6 +174,27 @@ void test_handle_configure_result_pool_not_supported(void)
     TEST_ASSERT_EQUAL_UINT32(0, st.version_mask);
 }
 
+// Issue #606: a DigiByte pool advertised min-bit-count:16 alongside a
+// corrected 15-bit mask (0x1f7fe000, excluding the fixed DigiDollar bit 23).
+// TM doesn't read min-bit-count at all -- it must accept whatever mask the
+// pool sends and never refuse to mine because a min-bit-count it never
+// parsed exceeds the mask's popcount.
+void test_handle_configure_result_narrow_mask_issue606(void)
+{
+    bb_serialize_json_tok_t pool[TEST_TOK_POOL_CAP];
+    bb_serialize_json_tok_recorder_t rec;
+    bb_serialize_json_tok_idx_t result = scan_json(
+        "{\"version-rolling\":true,\"version-rolling.mask\":\"1f7fe000\"}", &rec, pool);
+    TEST_ASSERT_NOT_EQUAL(BB_SERIALIZE_JSON_TOK_ABSENT, result);
+
+    stratum_state_t st;
+    memset(&st, 0, sizeof(st));
+
+    bool ok = stratum_machine_handle_configure_result(&st, &rec, result);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_UINT32(0x1f7fe000, st.version_mask);
+}
+
 void test_handle_subscribe_result_golden(void)
 {
     bb_serialize_json_tok_t pool[TEST_TOK_POOL_CAP];

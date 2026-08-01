@@ -412,3 +412,131 @@ void test_difficulty_to_target_normal(void)
     TEST_ASSERT_EQUAL_UINT8(0, target[31]);
     TEST_ASSERT_EQUAL_UINT8(0, target[30]);
 }
+
+// ---------------------------------------------------------------------------
+// build_work() -- composes a ready-to-hash mining_work_t from a staged
+// stratum_job_t plus session state, using the primitives above. Fixture
+// mirrors test_stratum_pipeline_block1's real Bitcoin block #1 data so the
+// resulting header/hash can be hand-verified against a known-good result.
+// ---------------------------------------------------------------------------
+
+static void fill_block1_job(stratum_job_t *job)
+{
+    memset(job, 0, sizeof(*job));
+    strncpy(job->job_id, "job-block1", sizeof(job->job_id) - 1);
+
+    decode_stratum_prevhash("0a8ce26f72b3f1b646a2a6c14ff763ae65831e939c085ae10019d66800000000", job->prevhash);
+
+    const char *coinb1_hex =
+        "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff"
+        "0704ffff001d0104ffffffff0100f2052a0100000043410496b538e853519c726a2c91e61ec11600ae13"
+        "90813a627c66fb8be7947be63c52da7589379515d4e0a604f8141781e62294721166bf621e73a82cbf23"
+        "42c858eeac00000000";
+    job->coinb1_len = bb_str_hex_to_bytes(coinb1_hex, job->coinb1, STRATUM_MAX_COINB1_SIZE);
+    job->coinb2_len = 0;
+    job->merkle_count = 0;
+
+    job->version = 1;
+    job->nbits   = 0x1d00ffff;
+    job->ntime   = 0x4966bc61;
+    job->clean_jobs = true;
+}
+
+void test_build_work_block1_pipeline(void)
+{
+    stratum_job_t job;
+    fill_block1_job(&job);
+
+    mining_work_t work;
+    memset(&work, 0, sizeof(work));
+
+    bool ok = build_work(&job, NULL, 0, 0, 0, 0, 512.0, 7, &work);
+    TEST_ASSERT_TRUE(ok);
+
+    TEST_ASSERT_EQUAL_STRING("job-block1", work.job_id);
+    TEST_ASSERT_EQUAL_UINT32(1, work.version);
+    TEST_ASSERT_EQUAL_UINT32(0, work.version_mask);
+    TEST_ASSERT_EQUAL_UINT32(0x4966bc61, work.ntime);
+    TEST_ASSERT_EQUAL_UINT32(0x1d00ffff, work.nbits);
+    TEST_ASSERT_EQUAL_UINT32(7, work.work_seq);
+    TEST_ASSERT_TRUE(work.clean);
+    TEST_ASSERT_EQUAL_DOUBLE(512.0, work.difficulty);
+    TEST_ASSERT_TRUE(is_target_valid(work.target));
+
+    // Header's first 76 bytes are nonce-independent -- verify against the
+    // known-good block #1 header (nonce forced to 0 by build_work(), unlike
+    // the real block's 0x9962e301 -- see the header's tail 4 bytes).
+    const char *header_hex =
+        "010000006fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000982051fd1e4b"
+        "a744bbbe680e1fee14677ba1a3c3540bf7b1cdb606e857233e0e61bc6649ffff001d01e36299";
+    uint8_t expected_header[80];
+    bb_str_hex_to_bytes(header_hex, expected_header, 80);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(expected_header, work.header, 76);  // excludes the nonce tail
+}
+
+void test_build_work_extranonce2_hex_and_coinbase(void)
+{
+    stratum_job_t job;
+    memset(&job, 0, sizeof(job));
+    strncpy(job.job_id, "job-en2", sizeof(job.job_id) - 1);
+    uint8_t coinb1[] = {0x01, 0x00, 0x00, 0x00};
+    uint8_t coinb2[] = {0x99};
+    memcpy(job.coinb1, coinb1, sizeof(coinb1));
+    job.coinb1_len = sizeof(coinb1);
+    memcpy(job.coinb2, coinb2, sizeof(coinb2));
+    job.coinb2_len = sizeof(coinb2);
+    job.nbits = 0x1d00ffff;
+
+    uint8_t extranonce1[] = {0xaa, 0xbb, 0xcc, 0xdd};
+    mining_work_t work;
+    memset(&work, 0, sizeof(work));
+
+    bool ok = build_work(&job, extranonce1, sizeof(extranonce1), 0x44332211, 4, 0, 512.0, 1, &work);
+    TEST_ASSERT_TRUE(ok);
+
+    // extranonce2 (uint32 0x44332211, 4 bytes, LE-packed) -> hex "11223344"
+    TEST_ASSERT_EQUAL_STRING("11223344", work.extranonce2_hex);
+
+    uint8_t extranonce2[] = {0x11, 0x22, 0x33, 0x44};
+    uint8_t full[13] = {0x01, 0x00, 0x00, 0x00, 0xaa, 0xbb, 0xcc, 0xdd, 0x11, 0x22, 0x33, 0x44, 0x99};
+    uint8_t expected_coinbase[32];
+    sha256d(full, 13, expected_coinbase);
+
+    uint8_t computed_coinbase[32];
+    build_coinbase_hash(coinb1, sizeof(coinb1), extranonce1, sizeof(extranonce1),
+                        extranonce2, sizeof(extranonce2), coinb2, sizeof(coinb2), computed_coinbase);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(expected_coinbase, computed_coinbase, 32);
+}
+
+void test_build_work_rejects_null_job(void)
+{
+    mining_work_t work;
+    TEST_ASSERT_FALSE(build_work(NULL, NULL, 0, 0, 0, 0, 512.0, 1, &work));
+}
+
+void test_build_work_rejects_null_out(void)
+{
+    stratum_job_t job;
+    memset(&job, 0, sizeof(job));
+    TEST_ASSERT_FALSE(build_work(&job, NULL, 0, 0, 0, 0, 512.0, 1, NULL));
+}
+
+void test_build_work_rejects_null_extranonce1_with_nonzero_len(void)
+{
+    stratum_job_t job;
+    memset(&job, 0, sizeof(job));
+    mining_work_t work;
+    // extranonce1 == NULL is only valid together with extranonce1_len == 0
+    // (a claimed nonzero length with no backing pointer is a caller error).
+    TEST_ASSERT_FALSE(build_work(&job, NULL, 4, 0, 4, 0, 512.0, 1, &work));
+}
+
+void test_build_work_rejects_oversized_extranonce2(void)
+{
+    stratum_job_t job;
+    memset(&job, 0, sizeof(job));
+    uint8_t extranonce1[4] = {0};
+    mining_work_t work;
+    TEST_ASSERT_FALSE(build_work(&job, extranonce1, sizeof(extranonce1), 0,
+                                 STRATUM_MAX_EXTRANONCE2_SIZE + 1, 0, 512.0, 1, &work));
+}

@@ -5,6 +5,11 @@
 // validation, work/header serialization, hashrate averaging, per-pool
 // stats, the mine_nonce_range hot loop, and the tm_mining_producer
 // (mining_gather/mining_desc) surface.
+//
+// tm_stratum (TA-560 port): protocol FSM (bb_fsm), the bb_serialize_json
+// tok-recorder-driven JSON-RPC parse/build, backoff/watchdogs/reqid
+// tracking, build_work() composition (test_work_build.c), and the
+// TA-233/TA-494 stratum-never-blocks isolation invariant.
 #include <unity.h>
 
 // test_sha256.c
@@ -91,6 +96,12 @@ void test_difficulty_to_target_negative(void);
 void test_difficulty_to_target_zero(void);
 void test_difficulty_to_target_tiny(void);
 void test_difficulty_to_target_normal(void);
+void test_build_work_block1_pipeline(void);
+void test_build_work_extranonce2_hex_and_coinbase(void);
+void test_build_work_rejects_null_job(void);
+void test_build_work_rejects_null_out(void);
+void test_build_work_rejects_null_extranonce1_with_nonzero_len(void);
+void test_build_work_rejects_oversized_extranonce2(void);
 
 // test_mining_avg.c
 void test_avg_nan_safe_empty_all_nan(void);
@@ -179,6 +190,137 @@ void test_mining_desc_find_known_key(void);
 void test_mining_desc_find_unknown_key(void);
 void test_mining_desc_walk_matches_seeded_snapshot(void);
 
+// test_stratum_backoff.c
+void test_stratum_backoff_init(void);
+void test_stratum_backoff_first_fail_sleeps_initial_then_doubles(void);
+void test_stratum_backoff_progression_doubles_to_cap(void);
+void test_stratum_backoff_caps_at_30s(void);
+void test_stratum_backoff_reset_on_success(void);
+void test_stratum_backoff_reset_restarts_doubling(void);
+
+// test_stratum_reqid.c
+void test_stratum_reqid_register_then_take(void);
+void test_stratum_reqid_take_consumes(void);
+void test_stratum_reqid_unregistered_id_returns_none(void);
+void test_stratum_reqid_keepalive_survives_a_newer_overwrite(void);
+void test_stratum_reqid_table_full_evicts_oldest(void);
+void test_stratum_reqid_reset_clears_table(void);
+
+// test_stratum_machine.c
+void test_stratum_machine_build_configure(void);
+void test_stratum_machine_build_configure_truncation(void);
+void test_stratum_machine_build_subscribe(void);
+void test_stratum_machine_build_subscribe_truncation(void);
+void test_stratum_machine_build_authorize(void);
+void test_stratum_machine_build_authorize_different_values(void);
+void test_stratum_machine_build_authorize_truncation(void);
+void test_stratum_machine_build_keepalive(void);
+void test_stratum_machine_build_keepalive_small_difficulty(void);
+void test_stratum_machine_build_keepalive_large_difficulty(void);
+void test_stratum_machine_build_keepalive_truncation(void);
+void test_handle_configure_result_golden(void);
+void test_handle_configure_result_missing_field(void);
+void test_handle_configure_result_pool_not_supported(void);
+void test_handle_subscribe_result_golden(void);
+void test_handle_subscribe_result_too_long_extranonce1(void);
+void test_handle_subscribe_result_invalid_no_extranonce(void);
+void test_handle_subscribe_result_extranonce2_size_at_max_accepted(void);
+void test_handle_subscribe_result_extranonce2_size_over_max_rejected(void);
+void test_handle_subscribe_result_extranonce2_size_negative_rejected(void);
+void test_handle_set_difficulty_1(void);
+void test_handle_set_difficulty_65536(void);
+void test_handle_set_difficulty_fractional(void);
+void test_handle_set_difficulty_zero_rejected(void);
+void test_handle_set_difficulty_negative_rejected(void);
+void test_handle_set_difficulty_large_finite_accepted(void);
+void test_handle_notify_golden(void);
+void test_handle_notify_clean_jobs_false(void);
+void test_handle_notify_invalid_too_few_fields(void);
+void test_handle_notify_wrong_type_for_version(void);
+void test_handle_notify_ta186_non_monotonic_job_id(void);
+void test_build_configure_null_buf(void);
+void test_build_configure_zero_size(void);
+void test_build_subscribe_null_buf(void);
+void test_build_subscribe_zero_size(void);
+void test_build_authorize_null_buf(void);
+void test_build_authorize_zero_size(void);
+void test_build_authorize_null_wallet(void);
+void test_build_authorize_null_worker(void);
+void test_build_authorize_null_pass(void);
+void test_build_keepalive_null_buf(void);
+void test_build_keepalive_zero_size(void);
+void test_handle_configure_null_state(void);
+void test_handle_configure_null_result(void);
+void test_handle_subscribe_null_state(void);
+void test_handle_subscribe_null_result(void);
+void test_handle_subscribe_missing_extranonce_field(void);
+void test_handle_set_difficulty_null_state(void);
+void test_handle_set_difficulty_null_params(void);
+void test_handle_set_difficulty_not_array(void);
+void test_handle_set_difficulty_empty_array(void);
+void test_handle_set_difficulty_wrong_type(void);
+void test_handle_notify_null_state(void);
+void test_handle_notify_null_params(void);
+void test_handle_notify_missing_field_at_index_0(void);
+void test_handle_set_extranonce_valid_round_trip(void);
+void test_handle_set_extranonce_not_array(void);
+void test_handle_set_extranonce_array_too_short(void);
+void test_handle_set_extranonce_en1_not_string(void);
+void test_handle_set_extranonce_en1_too_long(void);
+void test_handle_set_extranonce_en2_not_number(void);
+void test_handle_set_extranonce_en2_negative(void);
+void test_handle_set_extranonce_en2_too_large(void);
+
+// test_stratum_reject.c
+void test_parse_error_code_array_form_21(void);
+void test_parse_error_code_array_form_23(void);
+void test_parse_error_code_object_form_22(void);
+void test_parse_error_code_object_form_25(void);
+void test_parse_error_code_empty_array(void);
+void test_parse_error_code_no_code_field(void);
+void test_parse_error_code_null_recorder(void);
+void test_classify_reject_job_not_found(void);
+void test_classify_reject_duplicate(void);
+void test_classify_reject_low_difficulty(void);
+void test_classify_reject_stale_prevhash(void);
+void test_classify_reject_unknown_code(void);
+
+// test_stratum_fsm.c
+void test_stratum_fsm_initial_state_is_disconnected(void);
+void test_stratum_fsm_backoff_elapsed_drives_connect(void);
+void test_stratum_fsm_full_happy_path_to_running(void);
+void test_stratum_fsm_tcp_connect_failure_tears_down(void);
+void test_stratum_fsm_job_received_self_loop_publishes_work(void);
+void test_stratum_fsm_set_difficulty_republishes_work_when_job_staged(void);
+void test_stratum_fsm_set_difficulty_no_publish_when_no_job_staged(void);
+void test_stratum_fsm_share_submitted_drains_and_sends(void);
+void test_stratum_fsm_reconnect_requested_from_running_tears_down(void);
+void test_stratum_fsm_io_error_during_subscribe_tears_down(void);
+void test_stratum_fsm_authorize_rejected_tears_down(void);
+void test_stratum_fsm_teardown_is_single_funnel_from_every_failure_path(void);
+void test_stratum_fsm_backoff_bumps_on_bare_connect_failure_not_reset(void);
+void test_stratum_fsm_backoff_caps_at_30s_across_repeated_failures(void);
+void test_stratum_fsm_backoff_resets_only_on_successful_handshake(void);
+void test_stratum_fsm_job_drought_tears_down_after_five_minutes(void);
+void test_stratum_fsm_job_received_resets_drought_clock(void);
+void test_stratum_fsm_share_drought_tears_down_after_thirty_minutes(void);
+void test_stratum_fsm_keepalive_fires_after_ninety_seconds(void);
+void test_stratum_fsm_keepalive_suppressed_by_recent_tx_then_fires_after_idle(void);
+void test_stratum_fsm_keepalive_ack_does_not_inflate_share_counters(void);
+void test_stratum_fsm_unregistered_id_response_counts_as_submit(void);
+
+// test_stratum_isolation.c
+void test_stratum_isolation_service_never_blocks_when_connect_permanently_fails(void);
+void test_stratum_isolation_service_never_blocks_when_pool_hangs_mid_session(void);
+void test_stratum_isolation_service_touches_nothing_outside_its_own_ctx(void);
+
+// test_stratum_json_ingest.c
+void test_json_ingest_worst_case_notify_fits_default_pool(void);
+void test_json_ingest_smaller_pool_fails_cleanly_on_oversized_document(void);
+void test_json_ingest_malformed_line_fails_cleanly(void);
+void test_json_ingest_truncated_line_fails_cleanly(void);
+void test_json_ingest_clean_jobs_absent_defaults_false(void);
+void test_json_ingest_clean_jobs_present_false_is_distinct_from_absent(void);
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -250,6 +392,12 @@ int main(void)
     RUN_TEST(test_difficulty_to_target_zero);
     RUN_TEST(test_difficulty_to_target_tiny);
     RUN_TEST(test_difficulty_to_target_normal);
+    RUN_TEST(test_build_work_block1_pipeline);
+    RUN_TEST(test_build_work_extranonce2_hex_and_coinbase);
+    RUN_TEST(test_build_work_rejects_null_job);
+    RUN_TEST(test_build_work_rejects_null_out);
+    RUN_TEST(test_build_work_rejects_null_extranonce1_with_nonzero_len);
+    RUN_TEST(test_build_work_rejects_oversized_extranonce2);
     RUN_TEST(test_is_target_valid_all_zero);
 
     RUN_TEST(test_is_target_valid_all_ff);
@@ -337,5 +485,123 @@ int main(void)
     RUN_TEST(test_mining_desc_find_known_key);
     RUN_TEST(test_mining_desc_find_unknown_key);
     RUN_TEST(test_mining_desc_walk_matches_seeded_snapshot);
+    RUN_TEST(test_stratum_backoff_init);
+    RUN_TEST(test_stratum_backoff_first_fail_sleeps_initial_then_doubles);
+    RUN_TEST(test_stratum_backoff_progression_doubles_to_cap);
+    RUN_TEST(test_stratum_backoff_caps_at_30s);
+    RUN_TEST(test_stratum_backoff_reset_on_success);
+    RUN_TEST(test_stratum_backoff_reset_restarts_doubling);
+    RUN_TEST(test_stratum_reqid_register_then_take);
+    RUN_TEST(test_stratum_reqid_take_consumes);
+    RUN_TEST(test_stratum_reqid_unregistered_id_returns_none);
+    RUN_TEST(test_stratum_reqid_keepalive_survives_a_newer_overwrite);
+    RUN_TEST(test_stratum_reqid_table_full_evicts_oldest);
+    RUN_TEST(test_stratum_reqid_reset_clears_table);
+    RUN_TEST(test_stratum_machine_build_configure);
+    RUN_TEST(test_stratum_machine_build_configure_truncation);
+    RUN_TEST(test_stratum_machine_build_subscribe);
+    RUN_TEST(test_stratum_machine_build_subscribe_truncation);
+    RUN_TEST(test_stratum_machine_build_authorize);
+    RUN_TEST(test_stratum_machine_build_authorize_different_values);
+    RUN_TEST(test_stratum_machine_build_authorize_truncation);
+    RUN_TEST(test_stratum_machine_build_keepalive);
+    RUN_TEST(test_stratum_machine_build_keepalive_small_difficulty);
+    RUN_TEST(test_stratum_machine_build_keepalive_large_difficulty);
+    RUN_TEST(test_stratum_machine_build_keepalive_truncation);
+    RUN_TEST(test_handle_configure_result_golden);
+    RUN_TEST(test_handle_configure_result_missing_field);
+    RUN_TEST(test_handle_configure_result_pool_not_supported);
+    RUN_TEST(test_handle_subscribe_result_golden);
+    RUN_TEST(test_handle_subscribe_result_too_long_extranonce1);
+    RUN_TEST(test_handle_subscribe_result_invalid_no_extranonce);
+    RUN_TEST(test_handle_subscribe_result_extranonce2_size_at_max_accepted);
+    RUN_TEST(test_handle_subscribe_result_extranonce2_size_over_max_rejected);
+    RUN_TEST(test_handle_subscribe_result_extranonce2_size_negative_rejected);
+    RUN_TEST(test_handle_set_difficulty_1);
+    RUN_TEST(test_handle_set_difficulty_65536);
+    RUN_TEST(test_handle_set_difficulty_fractional);
+    RUN_TEST(test_handle_set_difficulty_zero_rejected);
+    RUN_TEST(test_handle_set_difficulty_negative_rejected);
+    RUN_TEST(test_handle_set_difficulty_large_finite_accepted);
+    RUN_TEST(test_handle_notify_golden);
+    RUN_TEST(test_handle_notify_clean_jobs_false);
+    RUN_TEST(test_handle_notify_invalid_too_few_fields);
+    RUN_TEST(test_handle_notify_wrong_type_for_version);
+    RUN_TEST(test_handle_notify_ta186_non_monotonic_job_id);
+    RUN_TEST(test_build_configure_null_buf);
+    RUN_TEST(test_build_configure_zero_size);
+    RUN_TEST(test_build_subscribe_null_buf);
+    RUN_TEST(test_build_subscribe_zero_size);
+    RUN_TEST(test_build_authorize_null_buf);
+    RUN_TEST(test_build_authorize_zero_size);
+    RUN_TEST(test_build_authorize_null_wallet);
+    RUN_TEST(test_build_authorize_null_worker);
+    RUN_TEST(test_build_authorize_null_pass);
+    RUN_TEST(test_build_keepalive_null_buf);
+    RUN_TEST(test_build_keepalive_zero_size);
+    RUN_TEST(test_handle_configure_null_state);
+    RUN_TEST(test_handle_configure_null_result);
+    RUN_TEST(test_handle_subscribe_null_state);
+    RUN_TEST(test_handle_subscribe_null_result);
+    RUN_TEST(test_handle_subscribe_missing_extranonce_field);
+    RUN_TEST(test_handle_set_difficulty_null_state);
+    RUN_TEST(test_handle_set_difficulty_null_params);
+    RUN_TEST(test_handle_set_difficulty_not_array);
+    RUN_TEST(test_handle_set_difficulty_empty_array);
+    RUN_TEST(test_handle_set_difficulty_wrong_type);
+    RUN_TEST(test_handle_notify_null_state);
+    RUN_TEST(test_handle_notify_null_params);
+    RUN_TEST(test_handle_notify_missing_field_at_index_0);
+    RUN_TEST(test_handle_set_extranonce_valid_round_trip);
+    RUN_TEST(test_handle_set_extranonce_not_array);
+    RUN_TEST(test_handle_set_extranonce_array_too_short);
+    RUN_TEST(test_handle_set_extranonce_en1_not_string);
+    RUN_TEST(test_handle_set_extranonce_en1_too_long);
+    RUN_TEST(test_handle_set_extranonce_en2_not_number);
+    RUN_TEST(test_handle_set_extranonce_en2_negative);
+    RUN_TEST(test_handle_set_extranonce_en2_too_large);
+    RUN_TEST(test_parse_error_code_array_form_21);
+    RUN_TEST(test_parse_error_code_array_form_23);
+    RUN_TEST(test_parse_error_code_object_form_22);
+    RUN_TEST(test_parse_error_code_object_form_25);
+    RUN_TEST(test_parse_error_code_empty_array);
+    RUN_TEST(test_parse_error_code_no_code_field);
+    RUN_TEST(test_parse_error_code_null_recorder);
+    RUN_TEST(test_classify_reject_job_not_found);
+    RUN_TEST(test_classify_reject_duplicate);
+    RUN_TEST(test_classify_reject_low_difficulty);
+    RUN_TEST(test_classify_reject_stale_prevhash);
+    RUN_TEST(test_classify_reject_unknown_code);
+    RUN_TEST(test_stratum_fsm_initial_state_is_disconnected);
+    RUN_TEST(test_stratum_fsm_backoff_elapsed_drives_connect);
+    RUN_TEST(test_stratum_fsm_full_happy_path_to_running);
+    RUN_TEST(test_stratum_fsm_tcp_connect_failure_tears_down);
+    RUN_TEST(test_stratum_fsm_job_received_self_loop_publishes_work);
+    RUN_TEST(test_stratum_fsm_set_difficulty_republishes_work_when_job_staged);
+    RUN_TEST(test_stratum_fsm_set_difficulty_no_publish_when_no_job_staged);
+    RUN_TEST(test_stratum_fsm_share_submitted_drains_and_sends);
+    RUN_TEST(test_stratum_fsm_reconnect_requested_from_running_tears_down);
+    RUN_TEST(test_stratum_fsm_io_error_during_subscribe_tears_down);
+    RUN_TEST(test_stratum_fsm_authorize_rejected_tears_down);
+    RUN_TEST(test_stratum_fsm_teardown_is_single_funnel_from_every_failure_path);
+    RUN_TEST(test_stratum_fsm_backoff_bumps_on_bare_connect_failure_not_reset);
+    RUN_TEST(test_stratum_fsm_backoff_caps_at_30s_across_repeated_failures);
+    RUN_TEST(test_stratum_fsm_backoff_resets_only_on_successful_handshake);
+    RUN_TEST(test_stratum_fsm_job_drought_tears_down_after_five_minutes);
+    RUN_TEST(test_stratum_fsm_job_received_resets_drought_clock);
+    RUN_TEST(test_stratum_fsm_share_drought_tears_down_after_thirty_minutes);
+    RUN_TEST(test_stratum_fsm_keepalive_fires_after_ninety_seconds);
+    RUN_TEST(test_stratum_fsm_keepalive_suppressed_by_recent_tx_then_fires_after_idle);
+    RUN_TEST(test_stratum_fsm_keepalive_ack_does_not_inflate_share_counters);
+    RUN_TEST(test_stratum_fsm_unregistered_id_response_counts_as_submit);
+    RUN_TEST(test_stratum_isolation_service_never_blocks_when_connect_permanently_fails);
+    RUN_TEST(test_stratum_isolation_service_never_blocks_when_pool_hangs_mid_session);
+    RUN_TEST(test_stratum_isolation_service_touches_nothing_outside_its_own_ctx);
+    RUN_TEST(test_json_ingest_worst_case_notify_fits_default_pool);
+    RUN_TEST(test_json_ingest_smaller_pool_fails_cleanly_on_oversized_document);
+    RUN_TEST(test_json_ingest_malformed_line_fails_cleanly);
+    RUN_TEST(test_json_ingest_truncated_line_fails_cleanly);
+    RUN_TEST(test_json_ingest_clean_jobs_absent_defaults_false);
+    RUN_TEST(test_json_ingest_clean_jobs_present_false_is_distinct_from_absent);
     return UNITY_END();
 }

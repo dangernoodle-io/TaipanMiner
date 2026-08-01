@@ -373,8 +373,12 @@ uint32_t pack_target_word0(const uint8_t target[32])
 }
 
 // Fill a mining_result_t from work + nonce + version info.
-// Stratum mining.submit version field: pool expects the rolled bits only
-// (XOR delta from base version), not the full rolled version.
+// Stratum mining.submit version field: the pool recomposes the full header
+// version as (base & ~mask) | (submitted & mask), so we submit only the
+// rolled bits within the negotiated version_mask -- never the full rolled
+// version, and never a bit outside the mask (issue #606: a pool may
+// advertise a mask narrower than its min-bit-count wants; TM must still
+// only roll/submit within the mask it was actually given).
 void package_result(mining_result_t *result,
                     const mining_work_t *work,
                     uint32_t nonce,
@@ -387,7 +391,7 @@ void package_result(mining_result_t *result,
     sprintf(result->ntime_hex, "%08" PRIx32, work->ntime);
     sprintf(result->nonce_hex, "%08" PRIx32, nonce);
     if (ver_bits != 0) {
-        sprintf(result->version_hex, "%08" PRIx32, ver_bits);
+        sprintf(result->version_hex, "%08" PRIx32, ver_bits & work->version_mask);
     } else {
         result->version_hex[0] = '\0';
     }

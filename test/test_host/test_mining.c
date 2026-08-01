@@ -403,6 +403,7 @@ void test_package_result_version_rolling_submits_ver_bits(void)
     mining_work_t work;
     setup_block1_work(&work);
     work.ntime = 0x12345678;
+    work.version_mask = 0x1FFFE000;  // realistic BM1370 mask; covers 0x00006000
     strncpy(work.job_id, "job-abc", sizeof(work.job_id) - 1);
     work.job_id[sizeof(work.job_id) - 1] = '\0';
     strncpy(work.extranonce2_hex, "aabbccdd", sizeof(work.extranonce2_hex) - 1);
@@ -413,6 +414,61 @@ void test_package_result_version_rolling_submits_ver_bits(void)
     package_result(&result, &work, 0xdeadbeef, 0x00006000);
 
     TEST_ASSERT_EQUAL_STRING("00006000", result.version_hex);
+}
+
+// --- issue #606: DigiByte-style narrow mask (15 bits, DigiDollar bit 23 fixed) ---
+//
+// A DigiByte pool advertised min-bit-count:16 alongside a corrected 15-bit
+// mask 0x1f7fe000 that deliberately excludes the fixed DigiDollar bit
+// (0x00800000 / bit 23). TM must roll and submit only within the mask it was
+// actually given and must never refuse to mine because min-bit-count exceeds
+// the mask's bit count -- TM doesn't even read min-bit-count.
+
+#define ISSUE606_MASK      0x1f7fe000U
+#define ISSUE606_FIXED_BIT 0x00800000U  // DigiDollar bit 23, outside the mask
+
+// Test: next_version_roll never sets a bit outside the negotiated mask, and
+// package_result never submits a bit outside the mask either.
+void test_version_roll_stays_within_issue606_mask(void)
+{
+    mining_work_t work;
+    setup_block1_work(&work);
+    work.version_mask = ISSUE606_MASK;
+
+    uint32_t ver_bits = 0;
+    int iterations = 0;
+    while ((ver_bits = next_version_roll(ver_bits, ISSUE606_MASK)) != 0) {
+        TEST_ASSERT_EQUAL_HEX32(0, ver_bits & ~ISSUE606_MASK);
+        TEST_ASSERT_EQUAL_HEX32(0, ver_bits & ISSUE606_FIXED_BIT);
+
+        mining_result_t result;
+        package_result(&result, &work, 0xdeadbeef, ver_bits);
+        char expected[9];
+        sprintf(expected, "%08" PRIx32, ver_bits & ISSUE606_MASK);
+        TEST_ASSERT_EQUAL_STRING(expected, result.version_hex);
+
+        iterations++;
+        TEST_ASSERT_LESS_THAN(1 << 16, iterations);  // sanity bound (15-bit mask)
+    }
+    TEST_ASSERT_GREATER_THAN(0, iterations);
+}
+
+// Test: the header rebuild formula (base & ~mask) | (bits & mask) preserves
+// the daemon's fixed bit (DigiDollar, bit 23) for every rolled ver_bits --
+// the core #606 guarantee that rolling never clears a bit outside the mask.
+void test_header_rebuild_preserves_fixed_bit_issue606(void)
+{
+    const uint32_t base_version = 0x20800000U;  // DigiByte-style, bit 23 set
+
+    uint32_t ver_bits = 0;
+    int iterations = 0;
+    while ((ver_bits = next_version_roll(ver_bits, ISSUE606_MASK)) != 0) {
+        uint32_t rolled = (base_version & ~ISSUE606_MASK) | (ver_bits & ISSUE606_MASK);
+        TEST_ASSERT_EQUAL_HEX32(ISSUE606_FIXED_BIT, rolled & ISSUE606_FIXED_BIT);
+        iterations++;
+        TEST_ASSERT_LESS_THAN(1 << 16, iterations);
+    }
+    TEST_ASSERT_GREATER_THAN(0, iterations);
 }
 
 // --- pool-effective hashrate tests (TA-344) ---

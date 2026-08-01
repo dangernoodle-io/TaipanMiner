@@ -4,29 +4,6 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-// Maximum sizes for stratum data
-#define MAX_COINB1_SIZE     256
-#define MAX_COINB2_SIZE     256
-#define MAX_EXTRANONCE1_SIZE 8
-#define MAX_EXTRANONCE2_SIZE 8
-#define MAX_MERKLE_BRANCHES  16
-
-// Stratum job data (parsed from mining.notify)
-typedef struct {
-    char     job_id[64];
-    uint8_t  prevhash[32];       // raw prevhash (after endian fix)
-    uint8_t  coinb1[MAX_COINB1_SIZE];
-    size_t   coinb1_len;
-    uint8_t  coinb2[MAX_COINB2_SIZE];
-    size_t   coinb2_len;
-    uint8_t  merkle_branches[MAX_MERKLE_BRANCHES][32];
-    size_t   merkle_count;
-    uint32_t version;
-    uint32_t nbits;
-    uint32_t ntime;
-    bool     clean_jobs;
-} stratum_job_t;
-
 // Mining work (ready to hash)
 typedef struct {
     uint8_t  header[80];         // serialized block header

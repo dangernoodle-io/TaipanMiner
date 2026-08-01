@@ -13,8 +13,10 @@ void build_coinbase_hash(const uint8_t *coinb1, size_t coinb1_len,
     // Total size of coinbase
     size_t total = coinb1_len + en1_len + en2_len + coinb2_len;
 
-    // Create buffer for the full coinbase
-    static uint8_t coinbase[1024];  // Reasonable max for coinbase
+    // Stack-local scratch buffer -- non-static so build_coinbase_hash() is
+    // safe to call concurrently once build_work() runs in a live task
+    // (TA-562); 1KB on the stack is well within budget for this call depth.
+    uint8_t coinbase[1024];  // Reasonable max for coinbase
     if (total > sizeof(coinbase)) {
         // Error: coinbase too large. For now, just truncate or zero out hash.
         memset(hash, 0, 32);
@@ -127,4 +129,62 @@ void difficulty_to_target(double diff, uint8_t target[32])
         target[i] = b;
         frac -= b;
     }
+}
+
+bool build_work(const stratum_job_t *job,
+               const uint8_t *extranonce1, size_t extranonce1_len,
+               uint32_t extranonce2, int extranonce2_size,
+               uint32_t version_mask, double difficulty,
+               uint32_t work_seq,
+               mining_work_t *out)
+{
+    if (!job || !out || extranonce2_size < 0) {
+        return false;
+    }
+    if (!extranonce1 && extranonce1_len > 0) {
+        return false;
+    }
+    size_t en2_size = (size_t)extranonce2_size;
+    if (en2_size > STRATUM_MAX_EXTRANONCE2_SIZE) {
+        return false;
+    }
+
+    // Build extranonce2 from the rolling counter (LE byte order).
+    uint8_t en2_bytes[STRATUM_MAX_EXTRANONCE2_SIZE] = {0};
+    for (size_t i = 0; i < en2_size && i < sizeof(uint32_t); i++) {
+        en2_bytes[i] = (uint8_t)(extranonce2 >> (i * 8));
+    }
+
+    bb_str_bytes_to_hex(en2_bytes, en2_size, out->extranonce2_hex, sizeof(out->extranonce2_hex));
+
+    uint8_t coinbase_hash[32];
+    build_coinbase_hash(job->coinb1, job->coinb1_len,
+                        extranonce1, extranonce1_len,
+                        en2_bytes, en2_size,
+                        job->coinb2, job->coinb2_len,
+                        coinbase_hash);
+
+    uint8_t merkle_root[32];
+    build_merkle_root(coinbase_hash, job->merkle_branches, job->merkle_count, merkle_root);
+
+    serialize_header(job->version, job->prevhash, merkle_root,
+                     job->ntime, job->nbits, 0, out->header);
+
+    difficulty_to_target(difficulty, out->target);
+    out->difficulty = difficulty;
+
+    if (!is_target_valid(out->target)) {
+        return false;
+    }
+
+    out->version      = job->version;
+    out->version_mask = version_mask;
+    out->ntime        = job->ntime;
+    out->nbits        = job->nbits;
+    out->clean        = job->clean_jobs;
+    out->work_seq     = work_seq;
+    strncpy(out->job_id, job->job_id, sizeof(out->job_id) - 1);
+    out->job_id[sizeof(out->job_id) - 1] = '\0';
+
+    return true;
 }

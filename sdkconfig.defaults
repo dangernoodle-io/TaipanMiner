@@ -46,3 +46,8 @@ CONFIG_UNITY_ENABLE=n
 # task, matching this skeleton's still-headless floor intent.
 CONFIG_BB_SYSTEM_ROUTES_AUTOREGISTER=y
 CONFIG_BB_HTTP_AUTOSTART=n
+
+# tm_stratum (TA-560): the FSM needs 3 concurrent armed timers while RUNNING
+# (job drought, share drought, keepalive-due) -- see stratum_fsm.c's
+# on_enter_running(). Default (1) silently drops the 2nd/3rd arm.
+CONFIG_BB_FSM_MAX_TIMERS=3

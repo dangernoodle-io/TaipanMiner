@@ -349,6 +349,39 @@ void test_tm_pool_config_set_stops_at_first_failing_field(void);
 void test_tm_pool_config_is_configured_false_on_genuine_backend_fault(void);
 void test_tm_pool_config_set_partial_write_on_mid_sequence_fault_is_v1_parity(void);
 
+// test_tm_pool_stats.c
+void test_tm_pool_stats_record_share_updates_shares_best_diff_and_last_seen(void);
+void test_tm_pool_stats_record_share_best_diff_only_advances_on_improvement(void);
+void test_tm_pool_stats_record_hashes_accumulates(void);
+void test_tm_pool_stats_record_block_increments_blocks_and_last_seen(void);
+void test_tm_pool_stats_switching_active_slot_flushes_prior_dirty_slot(void);
+void test_tm_pool_stats_record_hashes_dirties_but_does_not_persist_until_flush(void);
+void test_tm_pool_stats_flush_on_inactive_slot_is_a_noop(void);
+void test_tm_pool_stats_switch_flush_failure_propagates_and_preserves_dirty_slot_for_retry(void);
+void test_tm_pool_stats_round_trips_after_flush(void);
+void test_tm_pool_stats_load_unset_slot_returns_zeroed_record(void);
+void test_tm_pool_stats_reset_zeroes_ram_and_nvs_for_active_slot(void);
+void test_tm_pool_stats_reset_zeroes_nvs_for_inactive_slot(void);
+void test_tm_pool_stats_sanitize_rejects_nan_best_diff(void);
+void test_tm_pool_stats_sanitize_rejects_inf_best_diff(void);
+void test_tm_pool_stats_sanitize_rejects_zero_hash_clamp_sentinel(void);
+void test_tm_pool_stats_sanitize_caps_blocks_found(void);
+void test_tm_pool_stats_sanitize_out_of_window_timestamp_does_not_cascade(void);
+void test_tm_pool_stats_sanitize_out_of_window_best_diff_ts_resets_only_itself(void);
+void test_tm_pool_stats_sanitize_accepts_zero_timestamps(void);
+void test_tm_pool_stats_sanitize_null_is_a_noop(void);
+void test_tm_pool_stats_load_sanitizes_corrupt_stored_record(void);
+void test_tm_pool_stats_load_propagates_genuine_backend_fault(void);
+void test_tm_pool_stats_flush_propagates_genuine_backend_fault(void);
+void test_tm_pool_stats_record_share_best_diff_flush_propagates_genuine_backend_fault(void);
+void test_tm_pool_stats_load_rejects_out_of_range_idx(void);
+void test_tm_pool_stats_load_rejects_null_out(void);
+void test_tm_pool_stats_record_share_rejects_out_of_range_idx(void);
+void test_tm_pool_stats_record_hashes_rejects_out_of_range_idx(void);
+void test_tm_pool_stats_record_block_rejects_out_of_range_idx(void);
+void test_tm_pool_stats_flush_rejects_out_of_range_idx(void);
+void test_tm_pool_stats_reset_rejects_out_of_range_idx(void);
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -655,5 +688,36 @@ int main(void)
     RUN_TEST(test_tm_pool_config_set_stops_at_first_failing_field);
     RUN_TEST(test_tm_pool_config_is_configured_false_on_genuine_backend_fault);
     RUN_TEST(test_tm_pool_config_set_partial_write_on_mid_sequence_fault_is_v1_parity);
+    RUN_TEST(test_tm_pool_stats_record_share_updates_shares_best_diff_and_last_seen);
+    RUN_TEST(test_tm_pool_stats_record_share_best_diff_only_advances_on_improvement);
+    RUN_TEST(test_tm_pool_stats_record_hashes_accumulates);
+    RUN_TEST(test_tm_pool_stats_record_block_increments_blocks_and_last_seen);
+    RUN_TEST(test_tm_pool_stats_switching_active_slot_flushes_prior_dirty_slot);
+    RUN_TEST(test_tm_pool_stats_record_hashes_dirties_but_does_not_persist_until_flush);
+    RUN_TEST(test_tm_pool_stats_flush_on_inactive_slot_is_a_noop);
+    RUN_TEST(test_tm_pool_stats_switch_flush_failure_propagates_and_preserves_dirty_slot_for_retry);
+    RUN_TEST(test_tm_pool_stats_round_trips_after_flush);
+    RUN_TEST(test_tm_pool_stats_load_unset_slot_returns_zeroed_record);
+    RUN_TEST(test_tm_pool_stats_reset_zeroes_ram_and_nvs_for_active_slot);
+    RUN_TEST(test_tm_pool_stats_reset_zeroes_nvs_for_inactive_slot);
+    RUN_TEST(test_tm_pool_stats_sanitize_rejects_nan_best_diff);
+    RUN_TEST(test_tm_pool_stats_sanitize_rejects_inf_best_diff);
+    RUN_TEST(test_tm_pool_stats_sanitize_rejects_zero_hash_clamp_sentinel);
+    RUN_TEST(test_tm_pool_stats_sanitize_caps_blocks_found);
+    RUN_TEST(test_tm_pool_stats_sanitize_out_of_window_timestamp_does_not_cascade);
+    RUN_TEST(test_tm_pool_stats_sanitize_out_of_window_best_diff_ts_resets_only_itself);
+    RUN_TEST(test_tm_pool_stats_sanitize_accepts_zero_timestamps);
+    RUN_TEST(test_tm_pool_stats_sanitize_null_is_a_noop);
+    RUN_TEST(test_tm_pool_stats_load_sanitizes_corrupt_stored_record);
+    RUN_TEST(test_tm_pool_stats_load_propagates_genuine_backend_fault);
+    RUN_TEST(test_tm_pool_stats_flush_propagates_genuine_backend_fault);
+    RUN_TEST(test_tm_pool_stats_record_share_best_diff_flush_propagates_genuine_backend_fault);
+    RUN_TEST(test_tm_pool_stats_load_rejects_out_of_range_idx);
+    RUN_TEST(test_tm_pool_stats_load_rejects_null_out);
+    RUN_TEST(test_tm_pool_stats_record_share_rejects_out_of_range_idx);
+    RUN_TEST(test_tm_pool_stats_record_hashes_rejects_out_of_range_idx);
+    RUN_TEST(test_tm_pool_stats_record_block_rejects_out_of_range_idx);
+    RUN_TEST(test_tm_pool_stats_flush_rejects_out_of_range_idx);
+    RUN_TEST(test_tm_pool_stats_reset_rejects_out_of_range_idx);
     return UNITY_END();
 }

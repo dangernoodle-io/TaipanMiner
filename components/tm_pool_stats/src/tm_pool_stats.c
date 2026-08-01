@@ -1,0 +1,382 @@
+// tm_pool_stats -- see include/tm_pool_stats.h for the public contract.
+//
+// Storage: one bb_config BLOB field per slot, backend="nvs", namespace
+// "tm_pool" (same namespace tm_pool_config uses, distinct keys), key
+// "pool%d_stat" -- well under the real NVS 15-char key-name limit (longest
+// here is "pool0_stat" at 10 chars). Field tables are macro-generated
+// (TM_POOL_STATS_DEFINE_SLOT) mirroring tm_pool_config's own
+// TM_POOL_DEFINE_SLOT pattern, to avoid hand-duplicating one descriptor x
+// TM_POOL_MAX slots.
+//
+// Sanitizer bounds (best_diff NaN/inf via raw-bits exponent check, the
+// zero-hash-clamp 1e15 sentinel, LIFETIME_BLOCKS_SANE_MAX, and the
+// 2020..2100 timestamp sanity window) are intentionally DUPLICATED from
+// v1's components/mining/src/mining_pool_stats.c verbatim, not factored
+// into a shared header: v1 is dying wholesale at the v2 cutover (TM is a
+// ground-up rewrite retiring components/mining entirely), so coupling this
+// component to it would tie a live PR to code slated for deletion. Same
+// rationale for the raw-bits check (avoids isnan()/isinf() phantom-branch
+// coverage artifacts) and the non-cascading-reset invariant (a bad
+// timestamp must never wipe accepted_shares/hashes/best_diff).
+//
+// Concurrency: internally synchronized via bb_lock (s_lock) -- this
+// component is inherently multi-task regardless of any caller discipline
+// (hash accumulation from the mining core, share/block recording from the
+// stratum task, and the self-wired periodic flush timer's callback, which
+// runs on breadboard's shared bb_timer_disp task -- a task no composer-owned
+// mutex could ever wrap). Every access to s_cache/s_cache_idx/s_dirty (all
+// record_*/flush/reset/load-of-cached-slot/activate, and the flush-timer
+// callback) holds s_lock for its duration. The internal s_*_locked() helpers
+// assume the caller already holds s_lock -- they never take or release it
+// themselves.
+
+#include "tm_pool_stats.h"
+
+#include "bb_config.h"
+#include "bb_lock.h"
+#include "bb_lock_once.h"
+#include "bb_log.h"
+
+#ifdef ESP_PLATFORM
+#include "bb_timer.h"
+#endif
+
+#include <inttypes.h>
+#include <stdbool.h>
+#include <string.h>
+
+#define TM_POOL_STATS_NVS_NS "tm_pool"
+
+// Upper bound on the per-slot blocks_found counter. A SW/HW-SHA or ASIC
+// miner on these boards cannot find real Bitcoin blocks (difficulty is many
+// orders of magnitude above reach) -- see v1's identical constant/rationale
+// in mining_pool_stats.c.
+#define TM_POOL_STATS_BLOCKS_SANE_MAX 1024u
+
+// Timestamp (unix seconds) sanity window: 2020-01-01 .. 2100-01-01. 0 (never
+// set) is always accepted.
+#define TM_POOL_STATS_TS_MIN ((int64_t)1577836800)
+#define TM_POOL_STATS_TS_MAX ((int64_t)4102444800)
+
+static const char *TAG = "tm_pool_stats";
+
+// -----------------------------------------------------------------------
+// Per-slot BLOB field table
+// -----------------------------------------------------------------------
+
+#define TM_POOL_STATS_DEFINE_SLOT(n) \
+    static const bb_config_field_t s_pool##n##_stat = { \
+        .id      = "pool" #n ".stat", \
+        .type    = BB_CONFIG_BLOB, \
+        .addr    = { .backend = "nvs", .ns_or_dir = TM_POOL_STATS_NVS_NS, .key = "pool" #n "_stat" }, \
+        .max_len = sizeof(tm_pool_lifetime_stat_t), \
+    }
+
+TM_POOL_STATS_DEFINE_SLOT(0);
+TM_POOL_STATS_DEFINE_SLOT(1);
+TM_POOL_STATS_DEFINE_SLOT(2);
+
+// TM_POOL_MAX-sized -- extending TM_POOL_MAX requires a new
+// TM_POOL_STATS_DEFINE_SLOT(n) invocation above plus a new row here (a
+// mismatch is a build error, not a silent runtime gap).
+static const bb_config_field_t *s_pool_stat_fields[TM_POOL_MAX] = {
+    &s_pool0_stat,
+    &s_pool1_stat,
+    &s_pool2_stat,
+};
+
+// -----------------------------------------------------------------------
+// Active-only-in-RAM cache + internal lock. See the file-level doc comment
+// above for the concurrency contract.
+// -----------------------------------------------------------------------
+
+static bb_once_t s_lock_once = BB_ONCE_INIT;
+static bb_lock_t s_lock;
+
+static tm_pool_lifetime_stat_t s_cache;
+static int                     s_cache_idx = -1; // -1 == no active slot
+static bool                    s_dirty;
+
+// Forward declaration -- defined below, alongside its sibling storage/cache
+// helpers; needed here by the ESP-IDF-only flush-timer callback.
+static bb_err_t s_flush_locked(void);
+
+#ifdef ESP_PLATFORM
+// ~10 minutes.
+#define TM_POOL_STATS_FLUSH_PERIOD_US (600ULL * 1000000ULL)
+
+static bb_periodic_timer_t s_flush_timer;
+
+static void s_flush_timer_cb(void *arg)
+{
+    (void)arg;
+    bb_lock_lock(&s_lock);
+    if (s_cache_idx >= 0) {
+        (void)s_flush_locked();
+    }
+    bb_lock_unlock(&s_lock);
+}
+#endif
+
+// -----------------------------------------------------------------------
+// Sanitizer -- pure, no locking (no shared state touched).
+// -----------------------------------------------------------------------
+
+// NaN/inf check via raw-bits exponent test rather than isnan()/isinf() --
+// avoids GCC FP-instrumentation phantom-branch coverage artifacts (v1's
+// documented rationale, mining_pool_stats.c).
+static bool s_best_diff_is_sane(double x)
+{
+    uint64_t bits;
+    memcpy(&bits, &x, sizeof(bits));
+    return (bits & UINT64_C(0x7FF0000000000000)) != UINT64_C(0x7FF0000000000000)
+        && (bits >> 63) == 0;
+}
+
+static bool s_ts_is_sane(int64_t ts)
+{
+    if (ts == 0) {
+        return true;
+    }
+    return ts >= TM_POOL_STATS_TS_MIN && ts <= TM_POOL_STATS_TS_MAX;
+}
+
+void tm_pool_stats_sanitize_slot(tm_pool_lifetime_stat_t *sl)
+{
+    if (sl == NULL) {
+        return;
+    }
+
+    if (!s_best_diff_is_sane(sl->best_diff)) {
+        bb_log_w(TAG, "best_diff corrupt (raw=%g); reset to 0", sl->best_diff);
+        sl->best_diff = 0.0;
+    }
+    if (sl->best_diff >= 1e15) {
+        bb_log_w(TAG, "best_diff=%g is the zero-hash clamp; reset to 0", sl->best_diff);
+        sl->best_diff    = 0.0;
+        sl->best_diff_ts = 0;
+    }
+    if (sl->blocks_found > TM_POOL_STATS_BLOCKS_SANE_MAX) {
+        bb_log_w(TAG, "blocks_found=%" PRIu32 " implausible; reset to 0", sl->blocks_found);
+        sl->blocks_found = 0;
+    }
+    if (!s_ts_is_sane(sl->best_diff_ts)) {
+        bb_log_w(TAG, "best_diff_ts corrupt (raw=%" PRId64 "); reset to 0", sl->best_diff_ts);
+        sl->best_diff_ts = 0;
+    }
+    if (!s_ts_is_sane(sl->last_seen_ts)) {
+        bb_log_w(TAG, "last_seen_ts corrupt (raw=%" PRId64 "); reset to 0", sl->last_seen_ts);
+        sl->last_seen_ts = 0;
+    }
+}
+
+// -----------------------------------------------------------------------
+// Storage + cache helpers. Every function below (down to and including
+// s_activate_locked) assumes the caller already holds s_lock.
+// -----------------------------------------------------------------------
+
+// No shared state touched -- safe to call without s_lock held (kept
+// separate from the _locked helpers below for that reason).
+static bb_err_t s_load_from_storage(uint8_t idx, tm_pool_lifetime_stat_t *out)
+{
+    memset(out, 0, sizeof(*out));
+
+    size_t   len = 0;
+    bb_err_t err = bb_config_get_blob(s_pool_stat_fields[idx], out, sizeof(*out), &len);
+    if (err == BB_ERR_NOT_FOUND) {
+        return BB_OK; // unset slot -> zeroed record
+    }
+    if (err != BB_OK) {
+        return err;
+    }
+    if (len != sizeof(*out)) {
+        // Stored value is the wrong size for this build (schema drift or a
+        // foreign write under this key) -- not a value-level corruption the
+        // sanitizer can reason about field-by-field. Treat as unset.
+        bb_log_w(TAG, "slot %d stat blob size mismatch (got %zu, want %zu); treating as unset",
+                 idx, len, sizeof(*out));
+        memset(out, 0, sizeof(*out));
+        return BB_OK;
+    }
+
+    tm_pool_stats_sanitize_slot(out);
+    return BB_OK;
+}
+
+// Persists s_cache to storage for s_cache_idx. Caller must hold s_lock and
+// ensure s_cache_idx >= 0.
+static bb_err_t s_flush_locked(void)
+{
+    bb_err_t err = bb_config_set_blob(s_pool_stat_fields[s_cache_idx], &s_cache, sizeof(s_cache));
+    if (err == BB_OK) {
+        s_dirty = false;
+    }
+    return err;
+}
+
+// Ensures the active-slot cache holds `idx`: flushes the prior cached slot
+// (if any and dirty), then loads `idx` in. No-op if `idx` is already active.
+// Caller must hold s_lock. On a flush failure, the prior cached slot is left
+// untouched (still cached, still dirty) so a retry (e.g. a later
+// tm_pool_stats_flush() call) can recover it -- the switch to `idx` never
+// happens.
+static bb_err_t s_activate_locked(uint8_t idx)
+{
+    if (s_cache_idx == (int)idx) {
+        return BB_OK;
+    }
+    if (s_cache_idx >= 0 && s_dirty) {
+        bb_err_t err = s_flush_locked();
+        if (err != BB_OK) {
+            return err;
+        }
+    }
+
+    tm_pool_lifetime_stat_t loaded;
+    bb_err_t                err = s_load_from_storage(idx, &loaded);
+    if (err != BB_OK) {
+        return err;
+    }
+    s_cache     = loaded;
+    s_cache_idx = (int)idx;
+    s_dirty     = false;
+    return BB_OK;
+}
+
+// -----------------------------------------------------------------------
+// Public API -- each entry point (and the timer callback above) acquires
+// s_lock for its full duration.
+// -----------------------------------------------------------------------
+
+bb_err_t tm_pool_stats_init(void)
+{
+    bb_lock_config_t cfg = { .name = "tm_pool_stats", .category = "pool" };
+    bb_err_t         err = bb_lock_once_ensure(&s_lock_once, &cfg, &s_lock);
+    if (err != BB_OK) {
+        return err;
+    }
+
+    bb_lock_lock(&s_lock);
+    s_cache_idx = -1;
+    s_dirty     = false;
+    memset(&s_cache, 0, sizeof(s_cache));
+    bb_lock_unlock(&s_lock);
+
+#ifdef ESP_PLATFORM
+    err = bb_timer_deferred_periodic_create(s_flush_timer_cb, NULL, "tm_pool_stats", &s_flush_timer);
+    if (err != BB_OK) {
+        return err;
+    }
+    err = bb_timer_periodic_start(s_flush_timer, TM_POOL_STATS_FLUSH_PERIOD_US);
+    if (err != BB_OK) {
+        return err;
+    }
+#endif
+    return BB_OK;
+}
+
+bb_err_t tm_pool_stats_load(uint8_t idx, tm_pool_lifetime_stat_t *out)
+{
+    if (out == NULL || idx >= TM_POOL_MAX) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    bb_lock_lock(&s_lock);
+    bb_err_t err;
+    if (s_cache_idx == (int)idx) {
+        *out = s_cache;
+        err  = BB_OK;
+    } else {
+        err = s_load_from_storage(idx, out);
+    }
+    bb_lock_unlock(&s_lock);
+    return err;
+}
+
+bb_err_t tm_pool_stats_record_share(uint8_t idx, double share_diff, int64_t now_ts)
+{
+    if (idx >= TM_POOL_MAX) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    bb_lock_lock(&s_lock);
+    bb_err_t err = s_activate_locked(idx);
+    if (err == BB_OK) {
+        s_cache.accepted_shares++;
+        s_cache.last_seen_ts = now_ts;
+        s_dirty              = true;
+
+        if (share_diff > s_cache.best_diff) {
+            s_cache.best_diff    = share_diff;
+            s_cache.best_diff_ts = now_ts;
+            err                  = s_flush_locked();
+        }
+    }
+    bb_lock_unlock(&s_lock);
+    return err;
+}
+
+bb_err_t tm_pool_stats_record_hashes(uint8_t idx, uint64_t n)
+{
+    if (idx >= TM_POOL_MAX) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    bb_lock_lock(&s_lock);
+    bb_err_t err = s_activate_locked(idx);
+    if (err == BB_OK) {
+        s_cache.hashes += n;
+        s_dirty = true;
+    }
+    bb_lock_unlock(&s_lock);
+    return err;
+}
+
+bb_err_t tm_pool_stats_record_block(uint8_t idx, int64_t now_ts)
+{
+    if (idx >= TM_POOL_MAX) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    bb_lock_lock(&s_lock);
+    bb_err_t err = s_activate_locked(idx);
+    if (err == BB_OK) {
+        s_cache.blocks_found++;
+        s_cache.last_seen_ts = now_ts;
+        s_dirty              = true;
+        err                  = s_flush_locked();
+    }
+    bb_lock_unlock(&s_lock);
+    return err;
+}
+
+bb_err_t tm_pool_stats_flush(uint8_t idx)
+{
+    if (idx >= TM_POOL_MAX) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    bb_lock_lock(&s_lock);
+    bb_err_t err = BB_OK;
+    if (s_cache_idx == (int)idx) {
+        err = s_flush_locked();
+    } // else: nothing in RAM for this slot -- nothing to flush
+    bb_lock_unlock(&s_lock);
+    return err;
+}
+
+bb_err_t tm_pool_stats_reset(uint8_t idx)
+{
+    if (idx >= TM_POOL_MAX) {
+        return BB_ERR_INVALID_ARG;
+    }
+
+    bb_lock_lock(&s_lock);
+    bb_err_t err = bb_config_erase(s_pool_stat_fields[idx]);
+    if (err == BB_OK && s_cache_idx == (int)idx) {
+        memset(&s_cache, 0, sizeof(s_cache));
+        s_dirty = false;
+    }
+    bb_lock_unlock(&s_lock);
+    return err;
+}

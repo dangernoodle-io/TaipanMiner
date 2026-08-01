@@ -18,8 +18,6 @@
 #include <string.h>
 
 #ifdef ESP_PLATFORM
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
 #include "bb_timer.h"
 #else
 // Host-only mirror of the fields mining_gather() reads. There is no live
@@ -67,9 +65,14 @@ void mining_gather(void *ctx, void *out)
     memset(snap, 0, sizeof(*snap));
 
 #ifdef ESP_PLATFORM
-    if (!mining_stats.mutex || xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(10)) != pdTRUE) {
-        // Mutex not yet created (mining_stats_init() not called) or busy --
-        // return a zeroed-but-valid snapshot rather than blocking.
+    // COLD site (a delivery-poll gather, not the mining hot loop) --
+    // blocking acquire is fine; mining_stats_lock_acquire() lazily
+    // bb_lock_init()'s the lock itself, so a NULL/uninit-lock crash (the
+    // TA-562 HW bug this replaces) is impossible even if mining_stats_init()
+    // was never called.
+    if (mining_stats_lock_acquire(true) != BB_OK) {
+        // Lock unavailable -- return a zeroed-but-valid snapshot rather
+        // than blocking further.
         snap->sha_self_test_failed = mining_sha_self_test_failed();
         return;
     }
@@ -84,7 +87,7 @@ void mining_gather(void *ctx, void *out)
     snap->blocks_found      = mining_stats.session.blocks_found;
     snap->temp_c            = (double)mining_stats.temp_c;
     int64_t start_us = mining_stats.session.start_us;
-    xSemaphoreGive(mining_stats.mutex);
+    bb_lock_unlock(&mining_stats.lock);
 
     snap->uptime_s = (start_us > 0)
         ? (int64_t)(((int64_t)bb_timer_now_us() - start_us) / 1000000)

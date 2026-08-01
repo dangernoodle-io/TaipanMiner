@@ -6,8 +6,17 @@
 #include "bb_serialize.h"
 
 #ifdef ESP_PLATFORM
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
+// freertos/semphr.h is NOT needed here: mining_stats_t's lock field used to
+// be a raw SemaphoreHandle_t; migrating it to bb_lock_t (TA-562 HW bugfix --
+// the raw FreeRTOS mutex was never actually created, because
+// mining_stats_init() was never wired into the composition; see
+// tm_compose_mining_stratum.c) drops that platform-specific header from this
+// public header. bb_lock.h/bb_lock_once.h are portable (no platform types of
+// their own) -- used by this header's own inline mining_stats_lock_acquire().
+// freertos/FreeRTOS.h is NOT included here either: mining.c is the only TU
+// that needs vTaskDelay()/pdMS_TO_TICKS(), and includes it directly.
+#include "bb_lock.h"
+#include "bb_lock_once.h"
 #endif
 
 #ifdef __cplusplus
@@ -224,8 +233,8 @@ void mining_stats_update_ema(hashrate_ema_t *ema, double sample, int64_t now_us)
 double mining_compute_pool_effective_hps(double accepted_diff_sum, double uptime_s);
 
 // Returns pool-effective H/s (accepted_diff_sum * 2^32 / uptime_s).
-// Returns 0.0 when no shares yet, uptime < 1s, or mutex unavailable.
-// ESP_PLATFORM only (reads FreeRTOS mutex + bb_timer).
+// Returns 0.0 when no shares yet, uptime < 1s, or the lock is unavailable.
+// ESP_PLATFORM only (reads mining_stats.lock + bb_timer).
 double mining_get_pool_effective_hashrate(void);
 
 // Rolling 1m/10m/1h pool-effective hashrate windows.
@@ -306,26 +315,60 @@ typedef struct {
     float               pool_eff_1h;       // Rolling 1h avg of pool-effective hashrate (-1 = unavailable)
     uint32_t            hw_shares;
     mining_session_t    session;
-    SemaphoreHandle_t   mutex;
+    bb_lock_t           lock;    // TA-562: was a raw SemaphoreHandle_t; see mining_stats_lock_acquire() below
 } mining_stats_t;
 
 /* Guard against re-embedding large blobs (e.g. pool_stats, ~976 bytes) into
  * mining_stats_t: it sits in the hot-loop BSS region, and TA-413 measured a
  * ~1-3% hashrate regression on classic ESP32 from a layout shift caused by
  * exactly that. mining_pool_stats lives in its own file-scope global
- * (mining_pool_stats.c) for this reason. */
+ * (mining_pool_stats.c) for this reason. bb_lock_t (176 bytes) is a fixed,
+ * one-time cost from the SemaphoreHandle_t->bb_lock_t migration (TA-562),
+ * not organic growth -- 336 bytes total measured on a 64-bit host compile,
+ * comfortably under this cap. */
 _Static_assert(sizeof(mining_stats_t) <= 512,
     "mining_stats_t grew beyond 512 bytes — check that pool_stats or "
     "another large blob was not re-embedded; BSS layout shift hurts hashrate");
 
 extern mining_stats_t mining_stats;
 
-// Initialize mining stats mutex + rolling-average state. Call once from the
+// Shared once-guard for mining_stats.lock's lazy bb_lock_init() (see
+// mining_stats_lock_acquire() below) -- ONE guard shared by every TU that
+// acquires the lock (mining.c, tm_mining_producer.c, mining_pool_stats.c),
+// per bb_lock_once_ensure()'s own contract ("exactly once across all
+// callers sharing *once"): two independently-owned bb_once_t guards
+// protecting the SAME bb_lock_t would race each other's first-init attempt.
+extern bb_once_t mining_stats_lock_once;
+
+// Lazily ensures mining_stats.lock is bb_lock_init()'d, then attempts to
+// acquire it -- the acquisition-site wrapper every mining_stats.lock
+// take/give site in this component calls (TA-562: a NULL/uninit-lock crash
+// is now impossible by construction, unlike the raw xSemaphoreTake() this
+// replaces, which crashed outright when mining_stats_init() was never
+// called). `blocking` selects bb_lock_lock() (blocking, brief hold -- for
+// cold/control-plane call sites where a few microseconds of blocking is
+// harmless) vs bb_lock_trylock() (non-blocking -- MANDATORY for any call
+// site reachable from mine_nonce_range()'s hot loop, which must never
+// block the hash loop). Returns BB_OK with the lock held on success; any
+// other bb_err_t means the caller must skip its critical section (mirrors
+// the previous "timed out -> skip" branches, now unreachable on the
+// blocking path and preserved verbatim on the non-blocking path).
+static inline bb_err_t mining_stats_lock_acquire(bool blocking)
+{
+    bb_lock_config_t cfg = { .name = "mining_stats" };
+    bb_err_t err = bb_lock_once_ensure(&mining_stats_lock_once, &cfg, &mining_stats.lock);
+    if (err != BB_OK) {
+        return err;
+    }
+    return blocking ? bb_lock_lock(&mining_stats.lock) : bb_lock_trylock(&mining_stats.lock);
+}
+
+// Initialize mining stats lock + rolling-average state. Call once from the
 // composition root before starting the mining task.
 void mining_stats_init(void);
 
 // Reset the in-RAM session stats to their boot-time defaults.
-// Takes the mining_stats mutex internally.
+// Takes the mining_stats lock internally.
 void mining_stats_session_reset(void);
 
 // Sample the SoC die temperature into mining_stats.temp_c. Best-effort:

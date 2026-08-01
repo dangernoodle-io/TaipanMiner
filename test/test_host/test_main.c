@@ -476,6 +476,14 @@ void test_tm_pool_policy_set_rotate_cfg_partial_write_applies_ram_up_to_failing_
 void test_tm_pool_policy_zero_configured_pools_failover_stays_at_fallback_and_still_reconnects(void);
 void test_tm_pool_policy_zero_configured_pools_auto_rotate_stays_at_fallback_and_still_reconnects(void);
 
+void test_tm_compose_publish_then_peek_round_trips_work(void);
+void test_tm_compose_mailbox_keeps_only_latest_value(void);
+void test_tm_compose_post_result_then_drain_round_trips_in_order(void);
+void test_tm_compose_result_queue_drops_at_capacity(void);
+void test_tm_compose_reset_clears_work_mailbox(void);
+void test_tm_compose_mining_stratum_init_unconfigured_slot_returns_ok_and_wires_nothing(void);
+void test_tm_compose_mining_stratum_init_configured_slot_binds_pool_client_ops_to_same_queues(void);
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -902,6 +910,14 @@ int main(void)
     RUN_TEST(test_tm_pool_policy_set_rotate_cfg_partial_write_applies_ram_up_to_failing_field);
     RUN_TEST(test_tm_pool_policy_zero_configured_pools_failover_stays_at_fallback_and_still_reconnects);
     RUN_TEST(test_tm_pool_policy_zero_configured_pools_auto_rotate_stays_at_fallback_and_still_reconnects);
+
+    RUN_TEST(test_tm_compose_publish_then_peek_round_trips_work);
+    RUN_TEST(test_tm_compose_mailbox_keeps_only_latest_value);
+    RUN_TEST(test_tm_compose_post_result_then_drain_round_trips_in_order);
+    RUN_TEST(test_tm_compose_result_queue_drops_at_capacity);
+    RUN_TEST(test_tm_compose_reset_clears_work_mailbox);
+    RUN_TEST(test_tm_compose_mining_stratum_init_unconfigured_slot_returns_ok_and_wires_nothing);
+    RUN_TEST(test_tm_compose_mining_stratum_init_configured_slot_binds_pool_client_ops_to_same_queues);
 
     return UNITY_END();
 }

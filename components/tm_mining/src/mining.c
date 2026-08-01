@@ -21,6 +21,8 @@
 #include "bb_byte_order.h"
 #ifdef ESP_PLATFORM
 #include "esp_attr.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #endif
 
 #include <string.h>
@@ -196,6 +198,7 @@ static inline bool s_mining_should_pause(void)
 #include "bb_system.h"
 
 mining_stats_t mining_stats = {0};
+bb_once_t mining_stats_lock_once = BB_ONCE_INIT;
 
 /* Non-ASIC rolling 1m/10m/1h hashrate + pool-effective samplers. */
 static unsigned long    s_hw_avg_poll_count = 0;
@@ -217,7 +220,9 @@ static double           s_pool_eff_prev_sum = 0.0;
 static void hw_avg_timer_cb(void *arg)
 {
     (void)arg;
-    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(50)) != pdTRUE) return;
+    // COLD site (runs on bb_timer's own dispatch task, not the mining hot
+    // loop) -- blocking acquire is fine here.
+    if (mining_stats_lock_acquire(true) != BB_OK) return;
     float sample = (float)mining_stats.hw_hashrate;
     float out_1m = 0.0f, out_10m = 0.0f, out_1h = 0.0f;
     mining_avg_update(s_hw_avg_poll_count++, sample,
@@ -239,7 +244,7 @@ static void hw_avg_timer_cb(void *arg)
     mining_stats.pool_eff_10m = pe_10m;
     mining_stats.pool_eff_1h  = pe_1h;
 
-    xSemaphoreGive(mining_stats.mutex);
+    bb_lock_unlock(&mining_stats.lock);
 }
 
 // Run SHA self-tests synchronously before any task starts. Self-tests gate
@@ -267,10 +272,13 @@ void mining_run_self_tests(void)
 
 double mining_get_pool_effective_hashrate(void)
 {
-    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(10)) != pdTRUE) return 0.0;
+    // COLD site (a stats getter, not the mining hot loop) -- blocking
+    // acquire is fine; the former timed-out->0.0 branch is now unreachable
+    // (the lock is held only microseconds) but preserved for API parity.
+    if (mining_stats_lock_acquire(true) != BB_OK) return 0.0;
     double sum    = mining_stats.session.accepted_diff_sum;
     int64_t start = mining_stats.session.start_us;
-    xSemaphoreGive(mining_stats.mutex);
+    bb_lock_unlock(&mining_stats.lock);
     if (sum <= 0.0 || start <= 0) return 0.0;
     int64_t now = (int64_t)bb_timer_now_us();
     double uptime_s = (double)(now - start) / 1e6;
@@ -279,31 +287,35 @@ double mining_get_pool_effective_hashrate(void)
 
 double mining_get_pool_effective_1m(void)
 {
-    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(10)) != pdTRUE) return 0.0;
+    if (mining_stats_lock_acquire(true) != BB_OK) return 0.0;
     float v = mining_stats.pool_eff_1m;
-    xSemaphoreGive(mining_stats.mutex);
+    bb_lock_unlock(&mining_stats.lock);
     return v >= 0.0f ? (double)v : 0.0;
 }
 
 double mining_get_pool_effective_10m(void)
 {
-    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(10)) != pdTRUE) return 0.0;
+    if (mining_stats_lock_acquire(true) != BB_OK) return 0.0;
     float v = mining_stats.pool_eff_10m;
-    xSemaphoreGive(mining_stats.mutex);
+    bb_lock_unlock(&mining_stats.lock);
     return v >= 0.0f ? (double)v : 0.0;
 }
 
 double mining_get_pool_effective_1h(void)
 {
-    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(10)) != pdTRUE) return 0.0;
+    if (mining_stats_lock_acquire(true) != BB_OK) return 0.0;
     float v = mining_stats.pool_eff_1h;
-    xSemaphoreGive(mining_stats.mutex);
+    bb_lock_unlock(&mining_stats.lock);
     return v >= 0.0f ? (double)v : 0.0;
 }
 
 void mining_stats_init(void)
 {
-    mining_stats.mutex = xSemaphoreCreateMutex();
+    // Fatal at boot if the lock can't be created -- mirrors the
+    // BB_ERROR_CHECK()s below for the averaging timer (init-time only; see
+    // rules/esp-idf.md).
+    bb_lock_config_t cfg = { .name = "mining_stats" };
+    BB_ERROR_CHECK(bb_lock_once_ensure(&mining_stats_lock_once, &cfg, &mining_stats.lock));
     mining_stats.session.start_us = (int64_t)bb_timer_now_us();
     mining_stats.session.accepted_diff_sum = 0.0;
     mining_stats.hashrate_1m  = -1.0f;
@@ -325,13 +337,15 @@ void mining_stats_init(void)
 
 void mining_stats_session_reset(void)
 {
-    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    // COLD site (control-plane call, not the mining hot loop) -- blocking
+    // acquire is fine.
+    if (mining_stats_lock_acquire(true) == BB_OK) {
         memset(&mining_stats.session, 0, sizeof(mining_stats.session));
         mining_stats.session.start_us = (int64_t)bb_timer_now_us();
         mining_stats.session.rejected_other_last_code = -1;
-        xSemaphoreGive(mining_stats.mutex);
+        bb_lock_unlock(&mining_stats.lock);
     } else {
-        bb_log_w(TAG, "session_reset: mutex timeout");
+        bb_log_w(TAG, "session_reset: lock unavailable");
     }
 }
 #endif // ESP_PLATFORM
@@ -348,14 +362,16 @@ void build_block2(uint8_t block2[64], const uint8_t header[80])
 
 #ifdef ESP_PLATFORM
 // Single die-temp read path. Best-effort: no-op on parts without the
-// sensor and when the stats mutex is busy.
+// sensor and when the stats lock is busy. HOT-LOOP-adjacent (called from
+// mine_nonce_range()'s Tier-2 cadence, see below) -- trylock only, never
+// block the hash loop.
 void mining_stats_sample_die_temp(void)
 {
     float t;
     if (bb_system_read_temp_celsius(&t) != BB_OK) return;
-    if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
+    if (mining_stats_lock_acquire(false) == BB_OK) {
         mining_stats.temp_c = t;
-        xSemaphoreGive(mining_stats.mutex);
+        bb_lock_unlock(&mining_stats.lock);
     }
 }
 #endif
@@ -588,20 +604,23 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                  * counters, driven by the (not-yet-wired) stratum submit
                  * response, not by finding a locally-valid candidate here. */
                 int64_t now_ts = s_wall_clock_or_zero();
-                if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
+                // HOT-LOOP site (mine_nonce_range()'s hash-check path) --
+                // trylock only, never block the hash loop.
+                if (mining_stats_lock_acquire(false) == BB_OK) {
                     if (share_diff > mining_stats.session.best_diff) {
                         mining_stats.session.best_diff = share_diff;
                         mining_stats.session.best_diff_ts = now_ts;
                     }
-                    xSemaphoreGive(mining_stats.mutex);
+                    bb_lock_unlock(&mining_stats.lock);
                 }
 
                 // Block detection: check if this share meets the network target.
                 if (share_meets_network_target(hash, work->nbits)) {
-                    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+                    // HOT-LOOP site -- trylock only, same rationale as above.
+                    if (mining_stats_lock_acquire(false) == BB_OK) {
                         mining_stats.session.blocks_found++;
                         mining_stats.session.last_block_ts = now_ts;
-                        xSemaphoreGive(mining_stats.mutex);
+                        bb_lock_unlock(&mining_stats.lock);
                     }
                     mining_notify_block_found();
                 }
@@ -677,13 +696,15 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                     double hashrate = (double)hashes / ((double)elapsed_us / 1000000.0);
                     uint32_t accepted = 0;
                     uint32_t rejected = 0;
-                    if (xSemaphoreTake(mining_stats.mutex, 0) == pdTRUE) {
+                    // HOT-LOOP site (Tier-2 log, mine_nonce_range()) --
+                    // trylock only, never block the hash loop.
+                    if (mining_stats_lock_acquire(false) == BB_OK) {
                         mining_stats.hw_hashrate = hashrate;
                         mining_stats_update_ema(&mining_stats.hw_ema, hashrate, (int64_t)bb_timer_now_us());
                         mining_stats.session.hashes += hashes;
                         accepted = mining_stats.session.shares;
                         rejected = mining_stats.session.rejected;
-                        xSemaphoreGive(mining_stats.mutex);
+                        bb_lock_unlock(&mining_stats.lock);
                     }
                     double accepted_pct = (accepted + rejected) > 0
                         ? (double)accepted * 100.0 / (double)(accepted + rejected)

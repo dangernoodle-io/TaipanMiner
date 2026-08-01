@@ -49,6 +49,7 @@
 #include "tm_pool_cfg.h"
 #include "tm_pool_stats.h"
 #include "tm_pool_policy.h"
+#include "tm_compose.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -99,3 +100,17 @@ bb_err_t tm_log_reset_reason_init(void);
 // bbtool:init tier=early fn=tm_pool_stats_init component=tm_pool_stats
 
 // bbtool:init tier=early fn=tm_pool_policy_init component=tm_pool_policy requires=storage_nvs
+
+// tm_compose_mining_stratum_init() (TA-562) composes the mining + stratum
+// tasks and the bb_bqueue work/result queues once the pool subsystem
+// (config/stats/policy, above) has already brought up its own state --
+// it reads tm_pool_policy_active_idx()/tm_pool_config_is_configured() at
+// init, so it must run AFTER tm_pool_policy_init(). No natural
+// component-header home (same rationale as the tm_pool_* entries above):
+// this is TM's own bring-up sequencing decision, not a fact
+// tm_compose can state about itself. `regular` tier (not
+// `early`) -- it spawns FreeRTOS tasks, which is deferred past `early`'s
+// boot-banner/reset-reason/pool-subsystem bring-up the same way every
+// other task-spawning composition call is.
+
+// bbtool:init tier=regular fn=tm_compose_mining_stratum_init component=tm_compose requires=storage_nvs

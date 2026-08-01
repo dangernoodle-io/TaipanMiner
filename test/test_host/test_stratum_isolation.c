@@ -59,7 +59,7 @@ static bool fake_drain(void *ctx, mining_result_t *out) { (void)ctx; (void)out; 
 static void fake_reset(void *ctx) { (void)ctx; }
 
 static stratum_transport_ops_t s_tops;
-static stratum_work_ops_t      s_wops;
+static tm_pool_work_ops_t      s_wops;
 
 static void make_ctx(stratum_fsm_ctx_t *ctx)
 {

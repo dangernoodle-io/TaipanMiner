@@ -127,6 +127,7 @@ void test_sw_backend_early_reject_high_diff(void);
 void test_mine_nonce_range_counts(void);
 void test_mine_nonce_range_stops_on_hit(void);
 void test_mine_nonce_range_no_hit(void);
+void test_mine_nonce_range_hash_prefix_matches_hash_out_msb(void);
 void test_mine_result_has_version_hex(void);
 void test_pack_target_word0_diff1(void);
 void test_pack_target_word0_easy_diff(void);
@@ -207,6 +208,11 @@ void test_stratum_reqid_unregistered_id_returns_none(void);
 void test_stratum_reqid_keepalive_survives_a_newer_overwrite(void);
 void test_stratum_reqid_table_full_evicts_oldest(void);
 void test_stratum_reqid_reset_clears_table(void);
+void test_stratum_reqid_register_submit_then_take_returns_exact_record(void);
+void test_stratum_reqid_take_consumes_submit_slot(void);
+void test_stratum_reqid_take_non_submit_leaves_share_out_untouched(void);
+void test_stratum_reqid_submit_evicted_by_churn_takes_id_and_record_together(void);
+void test_stratum_reqid_submit_survives_churn_under_capacity(void);
 
 // test_stratum_machine.c
 void test_stratum_machine_build_configure(void);
@@ -311,6 +317,23 @@ void test_stratum_fsm_keepalive_fires_after_ninety_seconds(void);
 void test_stratum_fsm_keepalive_suppressed_by_recent_tx_then_fires_after_idle(void);
 void test_stratum_fsm_keepalive_ack_does_not_inflate_share_counters(void);
 void test_stratum_fsm_unregistered_id_response_counts_as_submit(void);
+
+// test_stratum_pool_client.c (tm_pool_client seam, TA-571)
+void test_stratum_pool_client_init_maps_cfg_fields(void);
+void test_stratum_pool_client_init_rejects_null_args(void);
+void test_stratum_pool_client_init_gives_each_instance_its_own_transport(void);
+void test_stratum_pool_client_ops_forward_to_fsm(void);
+void test_stratum_pool_client_consumed_read_failure_one_shot(void);
+void test_stratum_pool_client_consumed_read_failure_not_set_on_clean_disconnect(void);
+void test_stratum_pool_client_consumed_read_failure_not_set_on_bare_connect_failure(void);
+void test_stratum_pool_client_consumed_read_failure_fires_on_handshake_timeout(void);
+void test_stratum_pool_client_consumed_read_failure_fires_on_handshake_rejected(void);
+void test_stratum_pool_client_consumed_read_failure_fires_on_job_drought(void);
+void test_stratum_pool_client_consumed_read_failure_fires_on_share_drought(void);
+void test_stratum_pool_client_hook_fires_on_accept_with_exact_record(void);
+void test_stratum_pool_client_hook_does_not_fire_on_reject(void);
+void test_stratum_pool_client_hook_unset_is_safe_no_op(void);
+void test_stratum_pool_client_hook_fires_when_submit_survives_reqid_churn_under_capacity(void);
 
 // test_stratum_isolation.c
 void test_stratum_isolation_service_never_blocks_when_connect_permanently_fails(void);
@@ -527,6 +550,7 @@ int main(void)
     RUN_TEST(test_mine_nonce_range_counts);
     RUN_TEST(test_mine_nonce_range_stops_on_hit);
     RUN_TEST(test_mine_nonce_range_no_hit);
+    RUN_TEST(test_mine_nonce_range_hash_prefix_matches_hash_out_msb);
     RUN_TEST(test_mine_result_has_version_hex);
     RUN_TEST(test_pack_target_word0_diff1);
     RUN_TEST(test_pack_target_word0_easy_diff);
@@ -597,6 +621,11 @@ int main(void)
     RUN_TEST(test_stratum_reqid_keepalive_survives_a_newer_overwrite);
     RUN_TEST(test_stratum_reqid_table_full_evicts_oldest);
     RUN_TEST(test_stratum_reqid_reset_clears_table);
+    RUN_TEST(test_stratum_reqid_register_submit_then_take_returns_exact_record);
+    RUN_TEST(test_stratum_reqid_take_consumes_submit_slot);
+    RUN_TEST(test_stratum_reqid_take_non_submit_leaves_share_out_untouched);
+    RUN_TEST(test_stratum_reqid_submit_evicted_by_churn_takes_id_and_record_together);
+    RUN_TEST(test_stratum_reqid_submit_survives_churn_under_capacity);
     RUN_TEST(test_stratum_machine_build_configure);
     RUN_TEST(test_stratum_machine_build_configure_truncation);
     RUN_TEST(test_stratum_machine_build_subscribe);
@@ -695,6 +724,21 @@ int main(void)
     RUN_TEST(test_stratum_fsm_keepalive_suppressed_by_recent_tx_then_fires_after_idle);
     RUN_TEST(test_stratum_fsm_keepalive_ack_does_not_inflate_share_counters);
     RUN_TEST(test_stratum_fsm_unregistered_id_response_counts_as_submit);
+    RUN_TEST(test_stratum_pool_client_init_maps_cfg_fields);
+    RUN_TEST(test_stratum_pool_client_init_rejects_null_args);
+    RUN_TEST(test_stratum_pool_client_init_gives_each_instance_its_own_transport);
+    RUN_TEST(test_stratum_pool_client_ops_forward_to_fsm);
+    RUN_TEST(test_stratum_pool_client_consumed_read_failure_one_shot);
+    RUN_TEST(test_stratum_pool_client_consumed_read_failure_not_set_on_clean_disconnect);
+    RUN_TEST(test_stratum_pool_client_consumed_read_failure_not_set_on_bare_connect_failure);
+    RUN_TEST(test_stratum_pool_client_consumed_read_failure_fires_on_handshake_timeout);
+    RUN_TEST(test_stratum_pool_client_consumed_read_failure_fires_on_handshake_rejected);
+    RUN_TEST(test_stratum_pool_client_consumed_read_failure_fires_on_job_drought);
+    RUN_TEST(test_stratum_pool_client_consumed_read_failure_fires_on_share_drought);
+    RUN_TEST(test_stratum_pool_client_hook_fires_on_accept_with_exact_record);
+    RUN_TEST(test_stratum_pool_client_hook_does_not_fire_on_reject);
+    RUN_TEST(test_stratum_pool_client_hook_unset_is_safe_no_op);
+    RUN_TEST(test_stratum_pool_client_hook_fires_when_submit_survives_reqid_churn_under_capacity);
     RUN_TEST(test_stratum_isolation_service_never_blocks_when_connect_permanently_fails);
     RUN_TEST(test_stratum_isolation_service_never_blocks_when_pool_hangs_mid_session);
     RUN_TEST(test_stratum_isolation_service_touches_nothing_outside_its_own_ctx);

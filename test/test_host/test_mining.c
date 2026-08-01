@@ -233,6 +233,49 @@ void test_mine_nonce_range_stops_on_hit(void)
     TEST_ASSERT_EQUAL_INT(1, cctx.call_count);
 }
 
+// Backend that returns a known, fully-populated hash on every call --
+// verifies mine_nonce_range() populates mining_result_t.hash_prefix with
+// hash_out[24..31] VERBATIM (no reversal).
+static hash_result_t known_hash_backend(hash_backend_t *b, uint32_t nonce, uint8_t hash_out[32])
+{
+    (void)b; (void)nonce;
+    for (int i = 0; i < 32; i++) hash_out[i] = (uint8_t)(0xA0 + i);
+    return HASH_CHECK;
+}
+
+void test_mine_nonce_range_hash_prefix_matches_hash_out_msb(void)
+{
+    hash_backend_t backend = {
+        .init = NULL,
+        .prepare_job = counting_prepare,
+        .hash_nonce = known_hash_backend,
+        .ctx = NULL,
+    };
+
+    mining_work_t work;
+    memset(&work, 0, sizeof(work));
+    memset(work.target, 0xFF, 32);  // easy target -- meets_target always true
+
+    mine_params_t params = {
+        .nonce_start = 0,
+        .nonce_end = 0,
+        .yield_mask = 0xFFFFFFFF,
+        .log_mask = 0xFFFFFFFF,
+        .ver_bits = 0,
+        .base_version = 1,
+        .version_mask = 0,
+    };
+
+    mining_result_t result;
+    bool found = false;
+    mine_nonce_range(&backend, &work, &params, &result, &found);
+
+    TEST_ASSERT_TRUE(found);
+    uint8_t expected[8];
+    for (int i = 0; i < 8; i++) expected[i] = (uint8_t)(0xA0 + 24 + i);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, result.hash_prefix, 8);
+}
+
 // Test: mine_nonce_range handles no-hit case (found_out stays false)
 void test_mine_nonce_range_no_hit(void)
 {

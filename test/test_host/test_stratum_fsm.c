@@ -5,74 +5,16 @@
 // invariant has its own dedicated test file (test_stratum_isolation.c).
 //
 // The work/result seam now carries tm_mining's own mining_work_t/
-// mining_result_t (see stratum_work_seam.h) -- a received mining.notify is
-// parsed AND composed into a ready-to-hash mining_work_t (build_work(),
-// work_build.h) before crossing the seam.
+// mining_result_t (see tm_pool_client's tm_pool_work_seam.h) -- a received
+// mining.notify is parsed AND composed into a ready-to-hash mining_work_t
+// (build_work(), work_build.h) before crossing the seam.
 #include "unity.h"
 #include "stratum_fsm.h"
+#include "test_stratum_fakes.h"
 #include <string.h>
 
 // ---------------------------------------------------------------------------
-// Fake transport (stratum_transport_ops_t) -- in-test double, NOT
-// bb_tcp_client. See stratum_transport.h's header comment for why the FSM
-// is behind a small ops vtable rather than calling bb_tcp_client directly.
-// ---------------------------------------------------------------------------
-
-typedef struct {
-    bool        connect_result;
-    int         connect_calls;
-    char        writes[8][300];
-    int         write_count;
-    const char *pending_lines[8];
-    int         pending_count;
-    int         pending_idx;
-    bool        io_error;
-    bool        closed;
-    int         close_calls;
-} fake_transport_t;
-
-static fake_transport_t s_ft;
-
-static bool fake_connect(void *ctx, const char *host, uint16_t port)
-{
-    (void)ctx; (void)host; (void)port;
-    s_ft.connect_calls++;
-    s_ft.closed = false;
-    return s_ft.connect_result;
-}
-
-static stratum_io_result_t fake_read_line(void *ctx, char *buf, size_t cap, uint32_t poll_ms)
-{
-    (void)ctx; (void)poll_ms;
-    if (s_ft.io_error) return STRATUM_IO_ERROR;
-    if (s_ft.pending_idx < s_ft.pending_count) {
-        strncpy(buf, s_ft.pending_lines[s_ft.pending_idx++], cap - 1);
-        buf[cap - 1] = '\0';
-        return STRATUM_IO_OK;
-    }
-    return STRATUM_IO_TIMEOUT;
-}
-
-static bool fake_write(void *ctx, const char *msg)
-{
-    (void)ctx;
-    if (s_ft.write_count < 8) {
-        strncpy(s_ft.writes[s_ft.write_count], msg, 299);
-        s_ft.writes[s_ft.write_count][299] = '\0';
-    }
-    s_ft.write_count++;
-    return true;
-}
-
-static void fake_close(void *ctx)
-{
-    (void)ctx;
-    s_ft.closed = true;
-    s_ft.close_calls++;
-}
-
-// ---------------------------------------------------------------------------
-// Fake work seam (stratum_work_ops_t) -- TA-562's gated production impl is
+// Fake work seam (tm_pool_work_ops_t) -- TA-562's gated production impl is
 // a bb_bqueue mailbox/MPSC pair; this fake is exactly the "trivial host
 // fake" the seam is designed to make possible.
 // ---------------------------------------------------------------------------
@@ -119,22 +61,17 @@ static void fake_reset(void *ctx)
 // ---------------------------------------------------------------------------
 
 static stratum_transport_ops_t s_tops;
-static stratum_work_ops_t      s_wops;
+static tm_pool_work_ops_t      s_wops;
 
 static void reset_fakes(void)
 {
-    memset(&s_ft, 0, sizeof(s_ft));
+    fake_transport_reset();
     memset(&s_fw, 0, sizeof(s_fw));
-    s_ft.connect_result = true;
 }
 
 static void make_ctx(stratum_fsm_ctx_t *ctx)
 {
-    s_tops.ctx = NULL;
-    s_tops.connect = fake_connect;
-    s_tops.read_line = fake_read_line;
-    s_tops.write = fake_write;
-    s_tops.close = fake_close;
+    fake_transport_bind(&s_tops);
 
     s_wops.ctx = NULL;
     s_wops.publish = fake_publish;

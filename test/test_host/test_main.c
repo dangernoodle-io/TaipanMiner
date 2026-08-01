@@ -325,6 +325,30 @@ void test_json_ingest_truncated_line_fails_cleanly(void);
 void test_json_ingest_clean_jobs_absent_defaults_false(void);
 void test_json_ingest_clean_jobs_present_false_is_distinct_from_absent(void);
 
+// test_tm_pool_config.c
+void test_tm_pool_config_init_returns_ok(void);
+void test_tm_pool_config_set_then_get_round_trip_slot0(void);
+void test_tm_pool_config_set_then_get_round_trip_slot2(void);
+void test_tm_pool_config_get_unset_slot_returns_ok_with_defaults(void);
+void test_tm_pool_config_is_configured_false_on_unset_slot(void);
+void test_tm_pool_config_is_configured_true_after_full_set(void);
+void test_tm_pool_config_is_configured_false_when_port_zero(void);
+void test_tm_pool_config_is_configured_false_when_worker_empty(void);
+void test_tm_pool_config_set_slot1_does_not_touch_slot0_or_slot2(void);
+void test_tm_pool_config_get_rejects_out_of_range_idx(void);
+void test_tm_pool_config_set_rejects_out_of_range_idx(void);
+void test_tm_pool_config_is_configured_false_for_out_of_range_idx(void);
+void test_tm_pool_config_get_rejects_null_out(void);
+void test_tm_pool_config_set_rejects_null_cfg(void);
+void test_tm_pool_config_sv2_key_round_trips_when_set(void);
+void test_tm_pool_config_sv2_key_absent_when_unset(void);
+void test_tm_pool_config_sv2_key_cleared_by_reset_to_unset(void);
+void test_tm_pool_config_sv2_key_set_true_with_empty_string_normalizes_to_erased(void);
+void test_tm_pool_config_get_propagates_genuine_backend_fault(void);
+void test_tm_pool_config_set_stops_at_first_failing_field(void);
+void test_tm_pool_config_is_configured_false_on_genuine_backend_fault(void);
+void test_tm_pool_config_set_partial_write_on_mid_sequence_fault_is_v1_parity(void);
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -609,5 +633,27 @@ int main(void)
     RUN_TEST(test_json_ingest_truncated_line_fails_cleanly);
     RUN_TEST(test_json_ingest_clean_jobs_absent_defaults_false);
     RUN_TEST(test_json_ingest_clean_jobs_present_false_is_distinct_from_absent);
+    RUN_TEST(test_tm_pool_config_init_returns_ok);
+    RUN_TEST(test_tm_pool_config_set_then_get_round_trip_slot0);
+    RUN_TEST(test_tm_pool_config_set_then_get_round_trip_slot2);
+    RUN_TEST(test_tm_pool_config_get_unset_slot_returns_ok_with_defaults);
+    RUN_TEST(test_tm_pool_config_is_configured_false_on_unset_slot);
+    RUN_TEST(test_tm_pool_config_is_configured_true_after_full_set);
+    RUN_TEST(test_tm_pool_config_is_configured_false_when_port_zero);
+    RUN_TEST(test_tm_pool_config_is_configured_false_when_worker_empty);
+    RUN_TEST(test_tm_pool_config_set_slot1_does_not_touch_slot0_or_slot2);
+    RUN_TEST(test_tm_pool_config_get_rejects_out_of_range_idx);
+    RUN_TEST(test_tm_pool_config_set_rejects_out_of_range_idx);
+    RUN_TEST(test_tm_pool_config_is_configured_false_for_out_of_range_idx);
+    RUN_TEST(test_tm_pool_config_get_rejects_null_out);
+    RUN_TEST(test_tm_pool_config_set_rejects_null_cfg);
+    RUN_TEST(test_tm_pool_config_sv2_key_round_trips_when_set);
+    RUN_TEST(test_tm_pool_config_sv2_key_absent_when_unset);
+    RUN_TEST(test_tm_pool_config_sv2_key_cleared_by_reset_to_unset);
+    RUN_TEST(test_tm_pool_config_sv2_key_set_true_with_empty_string_normalizes_to_erased);
+    RUN_TEST(test_tm_pool_config_get_propagates_genuine_backend_fault);
+    RUN_TEST(test_tm_pool_config_set_stops_at_first_failing_field);
+    RUN_TEST(test_tm_pool_config_is_configured_false_on_genuine_backend_fault);
+    RUN_TEST(test_tm_pool_config_set_partial_write_on_mid_sequence_fault_is_v1_parity);
     return UNITY_END();
 }

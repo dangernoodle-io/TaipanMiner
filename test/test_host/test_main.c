@@ -352,6 +352,7 @@ void test_tm_pool_config_set_partial_write_on_mid_sequence_fault_is_v1_parity(vo
 // test_tm_pool_stats.c
 void test_tm_pool_stats_record_share_updates_shares_best_diff_and_last_seen(void);
 void test_tm_pool_stats_record_share_best_diff_only_advances_on_improvement(void);
+void test_tm_pool_stats_record_share_rejects_null_share(void);
 void test_tm_pool_stats_record_hashes_accumulates(void);
 void test_tm_pool_stats_record_block_increments_blocks_and_last_seen(void);
 void test_tm_pool_stats_switching_active_slot_flushes_prior_dirty_slot(void);
@@ -362,6 +363,7 @@ void test_tm_pool_stats_round_trips_after_flush(void);
 void test_tm_pool_stats_load_unset_slot_returns_zeroed_record(void);
 void test_tm_pool_stats_reset_zeroes_ram_and_nvs_for_active_slot(void);
 void test_tm_pool_stats_reset_zeroes_nvs_for_inactive_slot(void);
+void test_tm_pool_stats_reset_partial_erase_failure_leaves_storage_split_ram_untouched_retry_recovers(void);
 void test_tm_pool_stats_sanitize_rejects_nan_best_diff(void);
 void test_tm_pool_stats_sanitize_rejects_inf_best_diff(void);
 void test_tm_pool_stats_sanitize_rejects_zero_hash_clamp_sentinel(void);
@@ -381,6 +383,42 @@ void test_tm_pool_stats_record_hashes_rejects_out_of_range_idx(void);
 void test_tm_pool_stats_record_block_rejects_out_of_range_idx(void);
 void test_tm_pool_stats_flush_rejects_out_of_range_idx(void);
 void test_tm_pool_stats_reset_rejects_out_of_range_idx(void);
+
+// test_tm_pool_scoreboard.c
+void test_tm_pool_scoreboard_maybe_insert_empty_board_inserts(void);
+void test_tm_pool_scoreboard_maybe_insert_ascending_sequence_keeps_sorted_desc(void);
+void test_tm_pool_scoreboard_maybe_insert_descending_sequence_keeps_sorted_desc(void);
+void test_tm_pool_scoreboard_maybe_insert_random_sequence_keeps_sorted_desc(void);
+void test_tm_pool_scoreboard_maybe_insert_beats_min_evicts_min(void);
+void test_tm_pool_scoreboard_maybe_insert_below_full_board_min_rejected(void);
+void test_tm_pool_scoreboard_maybe_insert_exact_n_boundary(void);
+void test_tm_pool_scoreboard_maybe_insert_hash_null_prefix_invalid(void);
+void test_tm_pool_scoreboard_maybe_insert_hash_prefix_correct_msb_bytes(void);
+void test_tm_pool_scoreboard_maybe_insert_job_id_truncated(void);
+void test_tm_pool_scoreboard_maybe_insert_extranonce2_len_clamped(void);
+void test_tm_pool_scoreboard_maybe_insert_null_extranonce2_forces_len_zero(void);
+void test_tm_pool_scoreboard_maybe_insert_null_sb_returns_false(void);
+void test_tm_pool_scoreboard_maybe_insert_null_share_returns_false(void);
+void test_tm_pool_stats_record_share_full_round_trip_scoreboard(void);
+void test_tm_pool_stats_record_share_scoreboard_change_persists_immediately(void);
+void test_tm_pool_scoreboard_flushed_on_slot_switch(void);
+void test_tm_pool_stats_record_share_score_flush_failure_leaves_dirty_for_retry(void);
+void test_tm_pool_stats_switch_score_flush_failure_propagates_and_preserves_dirty_slot(void);
+void test_tm_pool_stats_record_share_lifetime_flush_fault_does_not_block_scoreboard_flush(void);
+void test_tm_pool_scoreboard_sanitize_drops_corrupt_entry_and_recompacts(void);
+void test_tm_pool_scoreboard_sanitize_clamps_count_to_max(void);
+void test_tm_pool_scoreboard_sanitize_clamps_extranonce2_len(void);
+void test_tm_pool_scoreboard_sanitize_null_is_a_noop(void);
+void test_tm_pool_scoreboard_sanitize_rejects_inf_diff(void);
+void test_tm_pool_stats_load_sanitizes_corrupt_stored_scoreboard(void);
+void test_tm_pool_scoreboard_hash_to_hex_known_prefix_reverses_to_big_endian(void);
+void test_tm_pool_scoreboard_hash_to_hex_invalid_prefix_rejected(void);
+void test_tm_pool_scoreboard_hash_to_hex_short_buffer_rejected(void);
+void test_tm_pool_scoreboard_hash_to_hex_null_entry_rejected(void);
+void test_tm_pool_scoreboard_hash_to_hex_null_out_rejected(void);
+void test_tm_pool_scoreboard_load_propagates_genuine_backend_fault(void);
+void test_tm_pool_scoreboard_load_rejects_out_of_range_idx(void);
+void test_tm_pool_scoreboard_load_rejects_null_out(void);
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -690,6 +728,7 @@ int main(void)
     RUN_TEST(test_tm_pool_config_set_partial_write_on_mid_sequence_fault_is_v1_parity);
     RUN_TEST(test_tm_pool_stats_record_share_updates_shares_best_diff_and_last_seen);
     RUN_TEST(test_tm_pool_stats_record_share_best_diff_only_advances_on_improvement);
+    RUN_TEST(test_tm_pool_stats_record_share_rejects_null_share);
     RUN_TEST(test_tm_pool_stats_record_hashes_accumulates);
     RUN_TEST(test_tm_pool_stats_record_block_increments_blocks_and_last_seen);
     RUN_TEST(test_tm_pool_stats_switching_active_slot_flushes_prior_dirty_slot);
@@ -700,6 +739,7 @@ int main(void)
     RUN_TEST(test_tm_pool_stats_load_unset_slot_returns_zeroed_record);
     RUN_TEST(test_tm_pool_stats_reset_zeroes_ram_and_nvs_for_active_slot);
     RUN_TEST(test_tm_pool_stats_reset_zeroes_nvs_for_inactive_slot);
+    RUN_TEST(test_tm_pool_stats_reset_partial_erase_failure_leaves_storage_split_ram_untouched_retry_recovers);
     RUN_TEST(test_tm_pool_stats_sanitize_rejects_nan_best_diff);
     RUN_TEST(test_tm_pool_stats_sanitize_rejects_inf_best_diff);
     RUN_TEST(test_tm_pool_stats_sanitize_rejects_zero_hash_clamp_sentinel);
@@ -719,5 +759,39 @@ int main(void)
     RUN_TEST(test_tm_pool_stats_record_block_rejects_out_of_range_idx);
     RUN_TEST(test_tm_pool_stats_flush_rejects_out_of_range_idx);
     RUN_TEST(test_tm_pool_stats_reset_rejects_out_of_range_idx);
+    RUN_TEST(test_tm_pool_scoreboard_maybe_insert_empty_board_inserts);
+    RUN_TEST(test_tm_pool_scoreboard_maybe_insert_ascending_sequence_keeps_sorted_desc);
+    RUN_TEST(test_tm_pool_scoreboard_maybe_insert_descending_sequence_keeps_sorted_desc);
+    RUN_TEST(test_tm_pool_scoreboard_maybe_insert_random_sequence_keeps_sorted_desc);
+    RUN_TEST(test_tm_pool_scoreboard_maybe_insert_beats_min_evicts_min);
+    RUN_TEST(test_tm_pool_scoreboard_maybe_insert_below_full_board_min_rejected);
+    RUN_TEST(test_tm_pool_scoreboard_maybe_insert_exact_n_boundary);
+    RUN_TEST(test_tm_pool_scoreboard_maybe_insert_hash_null_prefix_invalid);
+    RUN_TEST(test_tm_pool_scoreboard_maybe_insert_hash_prefix_correct_msb_bytes);
+    RUN_TEST(test_tm_pool_scoreboard_maybe_insert_job_id_truncated);
+    RUN_TEST(test_tm_pool_scoreboard_maybe_insert_extranonce2_len_clamped);
+    RUN_TEST(test_tm_pool_scoreboard_maybe_insert_null_extranonce2_forces_len_zero);
+    RUN_TEST(test_tm_pool_scoreboard_maybe_insert_null_sb_returns_false);
+    RUN_TEST(test_tm_pool_scoreboard_maybe_insert_null_share_returns_false);
+    RUN_TEST(test_tm_pool_stats_record_share_full_round_trip_scoreboard);
+    RUN_TEST(test_tm_pool_stats_record_share_scoreboard_change_persists_immediately);
+    RUN_TEST(test_tm_pool_scoreboard_flushed_on_slot_switch);
+    RUN_TEST(test_tm_pool_stats_record_share_score_flush_failure_leaves_dirty_for_retry);
+    RUN_TEST(test_tm_pool_stats_switch_score_flush_failure_propagates_and_preserves_dirty_slot);
+    RUN_TEST(test_tm_pool_stats_record_share_lifetime_flush_fault_does_not_block_scoreboard_flush);
+    RUN_TEST(test_tm_pool_scoreboard_sanitize_drops_corrupt_entry_and_recompacts);
+    RUN_TEST(test_tm_pool_scoreboard_sanitize_clamps_count_to_max);
+    RUN_TEST(test_tm_pool_scoreboard_sanitize_clamps_extranonce2_len);
+    RUN_TEST(test_tm_pool_scoreboard_sanitize_null_is_a_noop);
+    RUN_TEST(test_tm_pool_scoreboard_sanitize_rejects_inf_diff);
+    RUN_TEST(test_tm_pool_stats_load_sanitizes_corrupt_stored_scoreboard);
+    RUN_TEST(test_tm_pool_scoreboard_hash_to_hex_known_prefix_reverses_to_big_endian);
+    RUN_TEST(test_tm_pool_scoreboard_hash_to_hex_invalid_prefix_rejected);
+    RUN_TEST(test_tm_pool_scoreboard_hash_to_hex_short_buffer_rejected);
+    RUN_TEST(test_tm_pool_scoreboard_hash_to_hex_null_entry_rejected);
+    RUN_TEST(test_tm_pool_scoreboard_hash_to_hex_null_out_rejected);
+    RUN_TEST(test_tm_pool_scoreboard_load_propagates_genuine_backend_fault);
+    RUN_TEST(test_tm_pool_scoreboard_load_rejects_out_of_range_idx);
+    RUN_TEST(test_tm_pool_scoreboard_load_rejects_null_out);
     return UNITY_END();
 }

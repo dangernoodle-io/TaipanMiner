@@ -3,6 +3,7 @@
 #include "bb_config.h"
 #include "bb_storage.h"
 #include "fake_nvs_backend.h"
+#include "tm_pool_test_helpers.h"
 
 #include <string.h>
 
@@ -38,7 +39,8 @@ static const bb_config_field_t s_probe_pool0_stat = {
 void test_tm_pool_stats_record_share_updates_shares_best_diff_and_last_seen(void)
 {
     reset_all();
-    TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_record_share(0, 100.0, 1700000001));
+    tm_pool_share_t share = tm_pool_test_share(100.0, 1700000001);
+    TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_record_share(0, &share));
 
     tm_pool_lifetime_stat_t out;
     TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_load(0, &out));
@@ -51,10 +53,12 @@ void test_tm_pool_stats_record_share_updates_shares_best_diff_and_last_seen(void
 void test_tm_pool_stats_record_share_best_diff_only_advances_on_improvement(void)
 {
     reset_all();
-    TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_record_share(0, 100.0, 1700000001));
+    tm_pool_share_t share1 = tm_pool_test_share(100.0, 1700000001);
+    TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_record_share(0, &share1));
 
     // Lower diff: shares/last_seen still update, best_diff/ts do not.
-    TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_record_share(0, 50.0, 1700000002));
+    tm_pool_share_t share2 = tm_pool_test_share(50.0, 1700000002);
+    TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_record_share(0, &share2));
     tm_pool_lifetime_stat_t out;
     TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_load(0, &out));
     TEST_ASSERT_EQUAL_UINT32(2, out.accepted_shares);
@@ -63,10 +67,17 @@ void test_tm_pool_stats_record_share_best_diff_only_advances_on_improvement(void
     TEST_ASSERT_EQUAL_INT64(1700000002, out.last_seen_ts);
 
     // Genuine improvement: best_diff/ts advance.
-    TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_record_share(0, 150.0, 1700000003));
+    tm_pool_share_t share3 = tm_pool_test_share(150.0, 1700000003);
+    TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_record_share(0, &share3));
     TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_load(0, &out));
     TEST_ASSERT_EQUAL_DOUBLE(150.0, out.best_diff);
     TEST_ASSERT_EQUAL_INT64(1700000003, out.best_diff_ts);
+}
+
+void test_tm_pool_stats_record_share_rejects_null_share(void)
+{
+    reset_all();
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, tm_pool_stats_record_share(0, NULL));
 }
 
 /* ---------------------------------------------------------------------------
@@ -183,7 +194,8 @@ void test_tm_pool_stats_switch_flush_failure_propagates_and_preserves_dirty_slot
 void test_tm_pool_stats_round_trips_after_flush(void)
 {
     reset_all();
-    TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_record_share(2, 42.5, 1700000111));
+    tm_pool_share_t share = tm_pool_test_share(42.5, 1700000111);
+    TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_record_share(2, &share));
     TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_record_hashes(2, 777));
     TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_flush(2));
 
@@ -215,7 +227,8 @@ void test_tm_pool_stats_load_unset_slot_returns_zeroed_record(void)
 void test_tm_pool_stats_reset_zeroes_ram_and_nvs_for_active_slot(void)
 {
     reset_all();
-    TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_record_share(0, 9.0, 500));
+    tm_pool_share_t share = tm_pool_test_share(9.0, 500);
+    TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_record_share(0, &share));
     TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_reset(0));
 
     tm_pool_lifetime_stat_t out;
@@ -227,7 +240,8 @@ void test_tm_pool_stats_reset_zeroes_ram_and_nvs_for_active_slot(void)
 void test_tm_pool_stats_reset_zeroes_nvs_for_inactive_slot(void)
 {
     reset_all();
-    TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_record_share(1, 9.0, 500));
+    tm_pool_share_t share = tm_pool_test_share(9.0, 500);
+    TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_record_share(1, &share));
     TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_flush(1));
     TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_record_hashes(0, 1)); // deactivate slot 1
     TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_reset(1));
@@ -236,6 +250,54 @@ void test_tm_pool_stats_reset_zeroes_nvs_for_inactive_slot(void)
     TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_load(1, &out)); // reads storage
     TEST_ASSERT_EQUAL_UINT32(0, out.accepted_shares);
     TEST_ASSERT_EQUAL_DOUBLE(0.0, out.best_diff);
+}
+
+void test_tm_pool_stats_reset_partial_erase_failure_leaves_storage_split_ram_untouched_retry_recovers(void)
+{
+    reset_all();
+    tm_pool_share_t share = tm_pool_test_share(9.0, 500); // improves best_diff AND enters the scoreboard
+    TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_record_share(0, &share));
+
+    // Erasing the stat blob succeeds; the score blob's erase is armed to
+    // fail -- reset() must return the score erase's error, leaving storage
+    // split (stat gone, score still present).
+    fake_nvs_backend_fail_erase_key("pool0_score");
+    TEST_ASSERT_EQUAL(BB_ERR_TIMEOUT, tm_pool_stats_reset(0));
+
+    static const bb_config_field_t probe0_stat = {
+        .id      = "pool0.stat.probe",
+        .type    = BB_CONFIG_BLOB,
+        .addr    = { .backend = "nvs", .ns_or_dir = "tm_pool", .key = "pool0_stat" },
+        .max_len = sizeof(tm_pool_lifetime_stat_t),
+    };
+    static const bb_config_field_t probe0_score = {
+        .id      = "pool0.score.probe",
+        .type    = BB_CONFIG_BLOB,
+        .addr    = { .backend = "nvs", .ns_or_dir = "tm_pool", .key = "pool0_score" },
+        .max_len = sizeof(tm_pool_scoreboard_t),
+    };
+    size_t                  len = 0;
+    tm_pool_lifetime_stat_t raw_stat;
+    tm_pool_scoreboard_t    raw_score;
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_config_get_blob(&probe0_stat, &raw_stat, sizeof(raw_stat), &len));
+    TEST_ASSERT_EQUAL(BB_OK, bb_config_get_blob(&probe0_score, &raw_score, sizeof(raw_score), &len));
+    TEST_ASSERT_EQUAL_UINT8(1, raw_score.count); // score blob survived -- not erased
+
+    // RAM (the active-slot cache) is left untouched on a failed reset --
+    // slot 0 still reads back its pre-reset values.
+    tm_pool_lifetime_stat_t out;
+    TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_load(0, &out));
+    TEST_ASSERT_EQUAL_UINT32(1, out.accepted_shares);
+    TEST_ASSERT_EQUAL_DOUBLE(9.0, out.best_diff);
+
+    // Retry (fault was one-shot, already fired): stat's erase is a no-op
+    // (already gone -- idempotent), score's erase now succeeds -- reset
+    // fully recovers.
+    TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_reset(0));
+    TEST_ASSERT_EQUAL(BB_OK, tm_pool_stats_load(0, &out));
+    TEST_ASSERT_EQUAL_UINT32(0, out.accepted_shares);
+    TEST_ASSERT_EQUAL_DOUBLE(0.0, out.best_diff);
+    TEST_ASSERT_EQUAL(BB_ERR_NOT_FOUND, bb_config_get_blob(&probe0_score, &raw_score, sizeof(raw_score), &len));
 }
 
 /* ---------------------------------------------------------------------------
@@ -376,7 +438,8 @@ void test_tm_pool_stats_record_share_best_diff_flush_propagates_genuine_backend_
 {
     reset_all();
     fake_nvs_backend_fail_set_key("pool0_stat");
-    TEST_ASSERT_EQUAL(BB_ERR_TIMEOUT, tm_pool_stats_record_share(0, 10.0, 1000));
+    tm_pool_share_t share = tm_pool_test_share(10.0, 1000);
+    TEST_ASSERT_EQUAL(BB_ERR_TIMEOUT, tm_pool_stats_record_share(0, &share));
 }
 
 /* ---------------------------------------------------------------------------
@@ -399,7 +462,8 @@ void test_tm_pool_stats_load_rejects_null_out(void)
 void test_tm_pool_stats_record_share_rejects_out_of_range_idx(void)
 {
     reset_all();
-    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, tm_pool_stats_record_share(TM_POOL_MAX, 1.0, 1));
+    tm_pool_share_t share = tm_pool_test_share(1.0, 1);
+    TEST_ASSERT_EQUAL(BB_ERR_INVALID_ARG, tm_pool_stats_record_share(TM_POOL_MAX, &share));
 }
 
 void test_tm_pool_stats_record_hashes_rejects_out_of_range_idx(void)

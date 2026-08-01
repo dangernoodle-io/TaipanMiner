@@ -32,6 +32,12 @@
 // atomic-commit-failure branch (e.g. B1-807's pending_promote: the ssid/
 // pass/try commit itself fails, so nothing -- including the sequential
 // provisioned-flag write that follows it -- must run).
+//
+// fake_nvs_backend_fail_erase_key(key) is the erase()-side counterpart --
+// same one-shot BB_ERR_TIMEOUT injection, for exercising a consumer's
+// multi-key erase sequence (e.g. tm_pool_stats_reset()'s erase-stat-then-
+// erase-score pair) where one key's erase fails after an earlier one
+// already succeeded, leaving storage split.
 
 #include "bb_storage.h"
 
@@ -42,8 +48,12 @@
 // original 8-entry sizing (which only ever needed a handful of bb_settings
 // keys live at once).
 #define FAKE_NVS_MAX_ENTRIES 32
-#define FAKE_NVS_MAX_VALUE   128
-#define FAKE_NVS_KEY_MAX     32
+// 1024 -- bumped from breadboard's original 128 to fit tm_pool_stats's
+// "pool%d_score" scoreboard BLOB (TM_POOL_SCOREBOARD_N=10 full share
+// records, sizeof(tm_pool_scoreboard_t) ~800 bytes) round-tripping through
+// this fake with headroom to spare.
+#define FAKE_NVS_MAX_VALUE 1024
+#define FAKE_NVS_KEY_MAX   32
 
 typedef struct {
     bool    used;
@@ -70,6 +80,11 @@ static int  s_fake_nvs_fail_set_count;
 // fake_nvs_backend_fail_commit() above.
 static bool s_fake_nvs_fail_commit;
 
+// One-shot erase() failure injection -- same one-shot contract as
+// s_fake_nvs_fail_key, applied to erase() instead of get(). See
+// fake_nvs_backend_fail_erase_key() above.
+static char s_fake_nvs_fail_erase_key[FAKE_NVS_KEY_MAX];
+
 static inline void fake_nvs_reset(void)
 {
     memset(s_fake_nvs, 0, sizeof(s_fake_nvs));
@@ -77,6 +92,7 @@ static inline void fake_nvs_reset(void)
     s_fake_nvs_fail_set_key[0] = '\0';
     s_fake_nvs_fail_set_count = 0;
     s_fake_nvs_fail_commit = false;
+    s_fake_nvs_fail_erase_key[0] = '\0';
 }
 
 // Arms one-shot get() failure injection for the given key. Pass NULL/""
@@ -125,6 +141,18 @@ static inline void fake_nvs_backend_fail_set_key_n(const char *key, int times)
 static inline void fake_nvs_backend_fail_commit(void)
 {
     s_fake_nvs_fail_commit = true;
+}
+
+// Arms one-shot erase() failure injection for the given key. Pass NULL/""
+// to disarm without waiting for it to fire.
+static inline void fake_nvs_backend_fail_erase_key(const char *key)
+{
+    if (key == NULL) {
+        s_fake_nvs_fail_erase_key[0] = '\0';
+        return;
+    }
+    strncpy(s_fake_nvs_fail_erase_key, key, sizeof(s_fake_nvs_fail_erase_key) - 1);
+    s_fake_nvs_fail_erase_key[sizeof(s_fake_nvs_fail_erase_key) - 1] = '\0';
 }
 
 static inline fake_nvs_entry_t *fake_nvs_find(const char *key)
@@ -186,6 +214,11 @@ static inline bb_err_t fake_nvs_set(void *impl, const bb_storage_addr_t *addr, c
 static inline bb_err_t fake_nvs_erase(void *impl, const bb_storage_addr_t *addr)
 {
     (void)impl;
+    if (s_fake_nvs_fail_erase_key[0] != '\0' && addr->key != NULL &&
+        strcmp(s_fake_nvs_fail_erase_key, addr->key) == 0) {
+        s_fake_nvs_fail_erase_key[0] = '\0';  // one-shot
+        return BB_ERR_TIMEOUT;
+    }
     fake_nvs_entry_t *e = fake_nvs_find(addr->key);
     if (e != NULL) memset(e, 0, sizeof(*e));
     return BB_OK;

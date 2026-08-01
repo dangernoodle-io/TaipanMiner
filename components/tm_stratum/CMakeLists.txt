@@ -10,10 +10,22 @@
 #                            in stratum_machine.h (the response-handler
 #                            signatures)
 #   - bb_core            -- bb_err_t appears in stratum_producer.h
-#   - tm_mining          -- mining_work_t (work.h) appears in work_build.h;
-#                            mining_result_t (mining.h) appears in
-#                            stratum_work_seam.h. No cycle: tm_mining never
-#                            references tm_stratum.
+#   - tm_mining          -- mining_work_t (work.h) / mining_result_t (mining.h)
+#                            appear in work_build.h.
+#   - tm_pool_client     -- tm_pool_client_ops_t (stratum_pool_client.h, the
+#                            V1 pool-client adapter's public getter) and
+#                            tm_pool_work_ops_t (stratum_fsm_cfg_t.work) both
+#                            live there now -- the cross-core work/result
+#                            seam (formerly this component's own
+#                            stratum_work_seam.h) was relocated to
+#                            tm_pool_client (TA-571 firmware review finding
+#                            #1: it is protocol-agnostic, built entirely from
+#                            tm_mining's own types, so it belongs to the
+#                            abstraction that owns the cross-core seam, not
+#                            to this one protocol backend). The dependency
+#                            with tm_pool_client is now ONE-DIRECTIONAL:
+#                            tm_pool_client has no REQUIRES on tm_stratum at
+#                            all (see its own CMakeLists.txt).
 #
 # PRIV_REQUIRES:
 #   - bb_tcp_client -- referenced solely by stratum_transport_esp.c (an
@@ -26,10 +38,11 @@ idf_component_register(
         "src/stratum_machine.c"
         "src/stratum_reqid.c"
         "src/stratum_fsm.c"
+        "src/stratum_pool_client.c"
         "src/stratum_producer.c"
         "src/stratum_transport_esp.c"
         "src/work_build.c"
     INCLUDE_DIRS "include"
-    REQUIRES bb_fsm bb_serialize bb_serialize_json bb_core tm_mining
+    REQUIRES bb_fsm bb_serialize bb_serialize_json bb_core tm_mining tm_pool_client
     PRIV_REQUIRES bb_tcp_client bb_str
 )

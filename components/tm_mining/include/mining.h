@@ -29,6 +29,14 @@ typedef struct {
     char     nonce_hex[9];
     char     version_hex[9];   // BIP 320: rolled version as hex; empty if no rolling
     double   share_diff;       // pool-assigned difficulty at job-build time
+    // Most-significant 8 bytes of the 32-byte SHA256d result, copied
+    // VERBATIM in internal little-endian order (hash_out[24..31] -- never
+    // reversed; matches the scoreboard's hash-byte convention, see
+    // mining.c's mine_nonce_range()). Not filled by package_result() --
+    // populated by the caller right after, where the hash is still in
+    // scope. Zeroed (all-zero) on a result built via package_result() alone
+    // without this follow-up assignment.
+    uint8_t  hash_prefix[8];
 } mining_result_t;
 
 // Hash backend result

@@ -579,6 +579,9 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                 bb_log_i(TAG, "share found! (nonce=%08" PRIx32 ")", nonce);
 
                 result.share_diff = work->difficulty;
+                // hash[24..31] verbatim, internal little-endian order (see
+                // mining_result_t.hash_prefix's doc comment) -- no reversal.
+                memcpy(result.hash_prefix, &hash[24], sizeof(result.hash_prefix));
 
                 /* Local candidate found -- best_diff/best_diff_ts only.
                  * session.shares/accepted_diff_sum are pool-acceptance
@@ -620,6 +623,7 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
             if (meets_target(hash, work->target)) {
                 mining_result_t result;
                 package_result(&result, work, nonce, params->ver_bits);
+                memcpy(result.hash_prefix, &hash[24], sizeof(result.hash_prefix));
                 if (result_out) {
                     *result_out = result;
                 }

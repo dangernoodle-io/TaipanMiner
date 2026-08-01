@@ -3,6 +3,7 @@
 #include "bb_serialize_json.h"
 
 #include <string.h>
+#include <stdlib.h>
 
 // ---------------------------------------------------------------------------
 // Timer helper -- bb_fsm stores only (event, duration_ms) per armed slot; we
@@ -57,8 +58,26 @@ static void mark_tx(stratum_fsm_ctx_t *ctx)
 
 static void action_teardown(bb_fsm_t *fsm, void *vctx, bb_fsm_event_t event, void *evt_data)
 {
-    (void)fsm; (void)event; (void)evt_data;
+    (void)fsm; (void)evt_data;
     stratum_fsm_ctx_t *ctx = (stratum_fsm_ctx_t *)vctx;
+
+    // Hard read/transport/handshake failure parity with v1's
+    // s_consecutive_fail_count: IO error, handshake reject/timeout, and
+    // both drought watchdogs. Deliberately EXCLUDES STRATUM_EV_TCP_FAILED
+    // (never established a session -- backoff already handles this on its
+    // own) and STRATUM_EV_RECONNECT_REQUESTED (an explicit/clean disconnect,
+    // e.g. WiFi IP loss, not an observed pool-side failure).
+    switch ((stratum_fsm_event_t)event) {
+    case STRATUM_EV_IO_ERROR:
+    case STRATUM_EV_HANDSHAKE_REJECTED:
+    case STRATUM_EV_HANDSHAKE_TIMEOUT:
+    case STRATUM_EV_JOB_DROUGHT_TIMEOUT:
+    case STRATUM_EV_SHARE_DROUGHT_TIMEOUT:
+        ctx->hard_failure_pending = true;
+        break;
+    default:
+        break;
+    }
 
     ctx->cfg.transport->close(ctx->cfg.transport->ctx);
     if (ctx->cfg.work->reset) {
@@ -365,7 +384,8 @@ static void process_line(stratum_fsm_ctx_t *ctx, const char *line)
         int64_t id64 = 0;
         bb_serialize_json_tok_get_i64(&rec, id_tok, &id64);
         int id = (int)id64;
-        stratum_reqid_kind_t kind = stratum_reqid_take(&ctx->reqids, id);
+        stratum_accepted_share_t share;
+        stratum_reqid_kind_t kind = stratum_reqid_take(&ctx->reqids, id, &share);
 
         switch (kind) {
         case STRATUM_REQID_CONFIGURE:
@@ -397,7 +417,28 @@ static void process_line(stratum_fsm_ctx_t *ctx, const char *line)
             // generic submit-response branch and inflate reject/accept
             // counters (see stratum_reqid.h).
             break;
-        case STRATUM_REQID_SUBMIT:
+        case STRATUM_REQID_SUBMIT: {
+            // `share` was already filled by stratum_reqid_take() above (its
+            // kind resolved to SUBMIT) -- the slot is reclaimed either way
+            // (accept or reject) since take() always consumes it.
+            if (error_tok != BB_SERIALIZE_JSON_TOK_ABSENT && !bb_serialize_json_tok_is_null(&rec, error_tok)) {
+                ctx->rejected++;
+                int code = stratum_parse_error_code(&rec, error_tok);
+                if (stratum_machine_classify_reject(code) == STRATUM_REJECT_STALE_PREVHASH) {
+                    ctx->stale++;
+                }
+                // Reject: the hook is NEVER invoked.
+            } else {
+                bool accepted = false;
+                if (bb_serialize_json_tok_get_bool(&rec, result_tok, &accepted) && accepted) {
+                    ctx->accepted++;
+                    if (ctx->on_accepted_share) {
+                        ctx->on_accepted_share(ctx->on_accepted_share_ud, &share);
+                    }
+                }
+            }
+            break;
+        }
         case STRATUM_REQID_NONE:
         default: {
             if (error_tok != BB_SERIALIZE_JSON_TOK_ABSENT && !bb_serialize_json_tok_is_null(&rec, error_tok)) {
@@ -492,7 +533,30 @@ void stratum_fsm_service(stratum_fsm_ctx_t *ctx, uint32_t now_ms)
                     int id = ctx->proto.next_msg_id++;
                     if (format_stratum_request(req, sizeof(req), id, "mining.submit", params) >= 0) {
                         if (ctx->cfg.transport->write(ctx->cfg.transport->ctx, req)) {
-                            stratum_reqid_register(&ctx->reqids, id, STRATUM_REQID_SUBMIT);
+                            // Register the id AND its full share payload
+                            // atomically, in the SAME reqid slot -- see
+                            // stratum_reqid.h's doc comment (TA-571 finding
+                            // #2: a second, independently-evicted table used
+                            // to carry this and could desync under churn).
+                            // tm_stratum never records/delivers this itself;
+                            // it only offers it up via the optional hook on
+                            // an ACCEPT (process_line()'s STRATUM_REQID_SUBMIT
+                            // dispatch).
+                            stratum_accepted_share_t share;
+                            memset(&share, 0, sizeof(share));
+                            strncpy(share.job_id, res.job_id, sizeof(share.job_id) - 1);
+                            strncpy(share.extranonce2_hex, res.extranonce2_hex, sizeof(share.extranonce2_hex) - 1);
+                            share.extranonce2_len = (uint8_t)strlen(share.extranonce2_hex);
+                            strncpy(share.ntime_hex, res.ntime_hex, sizeof(share.ntime_hex) - 1);
+                            strncpy(share.nonce_hex, res.nonce_hex, sizeof(share.nonce_hex) - 1);
+                            share.version_rolled = (res.version_hex[0] != '\0');
+                            if (share.version_rolled) {
+                                share.version_bits = (uint32_t)strtoul(res.version_hex, NULL, 16);
+                            }
+                            share.diff = res.share_diff;
+                            memcpy(share.hash_prefix, res.hash_prefix, sizeof(share.hash_prefix));
+                            stratum_reqid_register_submit(&ctx->reqids, id, &share);
+
                             bb_fsm_step(&ctx->fsm, STRATUM_EV_SHARE_SUBMITTED, NULL);
                         } else {
                             bb_fsm_step(&ctx->fsm, STRATUM_EV_IO_ERROR, NULL);
@@ -521,4 +585,17 @@ stratum_fsm_state_t stratum_fsm_state(const stratum_fsm_ctx_t *ctx)
 bool stratum_fsm_is_connected(const stratum_fsm_ctx_t *ctx)
 {
     return ctx->connected;
+}
+
+bool stratum_fsm_consumed_read_failure(stratum_fsm_ctx_t *ctx)
+{
+    bool v = ctx->hard_failure_pending;
+    ctx->hard_failure_pending = false;
+    return v;
+}
+
+void stratum_fsm_set_accepted_share_hook(stratum_fsm_ctx_t *ctx, stratum_accepted_share_cb cb, void *ud)
+{
+    ctx->on_accepted_share = cb;
+    ctx->on_accepted_share_ud = ud;
 }

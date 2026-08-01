@@ -6,8 +6,9 @@
 #include "stratum_machine.h"
 #include "stratum_backoff.h"
 #include "stratum_reqid.h"
+#include "stratum_share.h"
 #include "stratum_transport.h"
-#include "stratum_work_seam.h"
+#include "tm_pool_work_seam.h"  // tm_pool_work_ops_t (tm_pool_client's own seam)
 
 // Table-driven stratum protocol client over bb_fsm and a thin transport ops
 // seam (stratum_transport_ops_t) that wraps bb_tcp_client in production.
@@ -67,6 +68,11 @@ typedef enum {
 #define STRATUM_WATCHDOG_SHARE_DROUGHT_MS  (30UL * 60 * 1000)  // 30 min
 #define STRATUM_WATCHDOG_KEEPALIVE_MS      90000UL             // 90s
 
+// Optional on-accepted-share hook. `ud` is whatever the composition root
+// passed to stratum_fsm_set_accepted_share_hook(); `share` is owned by the
+// FSM and only valid for the duration of the callback.
+typedef void (*stratum_accepted_share_cb)(void *ud, const stratum_accepted_share_t *share);
+
 typedef struct {
     const char *host;
     uint16_t    port;
@@ -76,7 +82,7 @@ typedef struct {
     bool        extranonce_subscribe;  // send mining.extranonce.subscribe (TA-306)
 
     stratum_transport_ops_t *transport;  // borrowed, must outlive the ctx
-    stratum_work_ops_t      *work;       // borrowed, must outlive the ctx
+    tm_pool_work_ops_t      *work;       // borrowed, must outlive the ctx
 } stratum_fsm_cfg_t;
 
 typedef struct {
@@ -87,6 +93,9 @@ typedef struct {
 
     stratum_state_t         proto;    // pool session state (stratum_machine.h)
     stratum_backoff_t       backoff;
+    // In-flight request id -> kind + (for SUBMIT) full share record, one
+    // table (stratum_reqid.h) -- see that header's own doc comment for why
+    // the share payload lives IN the reqid slot rather than a second table.
     stratum_reqid_table_t   reqids;
     uint32_t                next_delay_ms;   // computed by action_teardown, consumed by on_enter_disconnected
     bool                    first_attempt;
@@ -96,6 +105,22 @@ typedef struct {
     bool     reconnect_requested;
     uint32_t now_ms;                          // stashed by stratum_fsm_service() for hooks/actions to read
     uint32_t timer_armed_at_ms[STRATUM_EV_COUNT];
+
+    // One-shot "a hard read/transport/handshake failure just tore the
+    // session down" flag (see action_teardown() in stratum_fsm.c). Set on
+    // STRATUM_EV_IO_ERROR / HANDSHAKE_REJECTED / HANDSHAKE_TIMEOUT /
+    // JOB_DROUGHT_TIMEOUT / SHARE_DROUGHT_TIMEOUT ONLY -- never on
+    // STRATUM_EV_TCP_FAILED (never got a session) or
+    // STRATUM_EV_RECONNECT_REQUESTED (an explicit/clean disconnect, e.g.
+    // WiFi IP loss). Consumed via stratum_fsm_consumed_read_failure().
+    bool hard_failure_pending;
+
+    // Optional on-accepted-share hook (nullable, no-op when unset). tm_stratum
+    // never depends on tm_pool_stats or any other delivery/recording sink --
+    // the composition root binds this to one, later. See
+    // stratum_fsm_set_accepted_share_hook().
+    stratum_accepted_share_cb  on_accepted_share;
+    void                       *on_accepted_share_ud;
 
     // Session/diagnostic counters -- also the backing store for the
     // producer snapshot (stratum_producer.c).
@@ -122,3 +147,16 @@ void stratum_fsm_request_reconnect(stratum_fsm_ctx_t *ctx);
 
 stratum_fsm_state_t stratum_fsm_state(const stratum_fsm_ctx_t *ctx);
 bool                 stratum_fsm_is_connected(const stratum_fsm_ctx_t *ctx);
+
+// One-shot: returns true (and clears the flag) the first call after a hard
+// read/transport/handshake failure tore the session down; false otherwise
+// (including after a clean/explicit reconnect). See hard_failure_pending's
+// doc comment on stratum_fsm_ctx_t for the exact event set.
+bool stratum_fsm_consumed_read_failure(stratum_fsm_ctx_t *ctx);
+
+// Register (or clear, with cb=NULL) the optional on-accepted-share hook.
+// Invoked synchronously from stratum_fsm_service() on an ACCEPTED
+// mining.submit response only -- never on reject, never for any other
+// request kind (keepalive/configure/subscribe/authorize/extranonce
+// subscribe acks).
+void stratum_fsm_set_accepted_share_hook(stratum_fsm_ctx_t *ctx, stratum_accepted_share_cb cb, void *ud);

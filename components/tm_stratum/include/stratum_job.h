@@ -2,7 +2,8 @@
 
 // Pool-side job data, parsed from a stratum mining.notify. Internal staging
 // only -- this type never crosses the tm_stratum component boundary (see
-// stratum_work_seam.h, which carries a ready-to-hash mining_work_t instead).
+// tm_pool_client's tm_pool_work_seam.h, which carries a ready-to-hash
+// mining_work_t instead).
 // A received job is staged here by stratum_machine_handle_notify(), then
 // build_work() (work_build.h) turns it into a mining_work_t.
 

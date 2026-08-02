@@ -753,8 +753,14 @@ void mining_task(void *arg)
         backend.init(&backend);
     }
 
-    // Subscribe mining task to TWDT — IDLE1 monitoring is disabled because
-    // this task is CPU-bound on core 1 by design. Feed at each yield point.
+    // Subscribe mining task to TWDT. IDLE1's idle check is excused by the
+    // core_owning=true claim on bb_task_config_t (tm_compose_mining_stratum.c)
+    // taken at bb_task_create() time -- that claim only derives the excused-
+    // idle-check mask, it does NOT subscribe this task to the TWDT itself
+    // (bb_task's wdt_arm is a diagnostics-only data flag; bb_task_create()
+    // has no bb_wdt dependency of its own, see bb_task.h). This manual
+    // subscribe is therefore still the sole subscription path for this task
+    // -- feed at each yield point below.
     bb_wdt_task_subscribe();
 
     sha256_hw_acquire();

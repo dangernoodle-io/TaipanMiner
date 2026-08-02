@@ -5,7 +5,7 @@ See breadboard scripts/bbtool/README.md."""
 Import("env")  # PlatformIO SCons pre-script
 import os, sys, subprocess
 
-VERSION = "c9a8e829127fc8450a67e3156e11a25aa4f76683"  # bb main HEAD — NVS bring-up rehomed to bb_storage_nvs (B1-840), bb_wifi clean of bb_nv
+VERSION = "d90bfceede2940ba09646e535a10348b1c67cc36"  # bb main HEAD — B1-1408 bb_wdt idle-excuse fix (#1213)
 REPO = "https://github.com/dangernoodle-io/breadboard.git"
 DEST = os.path.join(env.subst("$PROJECT_DIR"), ".breadboard")
 LOCAL = os.environ.get("BREADBOARD_LOCAL")

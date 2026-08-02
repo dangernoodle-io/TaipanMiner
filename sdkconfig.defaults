@@ -51,3 +51,9 @@ CONFIG_BB_HTTP_AUTOSTART=n
 # (job drought, share drought, keepalive-due) -- see stratum_fsm.c's
 # on_enter_running(). Default (1) silently drops the 2nd/3rd arm.
 CONFIG_BB_FSM_MAX_TIMERS=3
+
+# tm_compose (TA-562): mining_work_t (232B) / mining_result_t
+# (128B) both exceed the 64B default bb_bqueue item cap. 256B covers both
+# with headroom; costs ~8KB static SRAM for the 2-instance pool
+# (BB_BQUEUE_MAX_INSTANCES=2 x BB_BQUEUE_MAX_CAPACITY=16 x 256B).
+CONFIG_BB_BQUEUE_MAX_ITEM_BYTES=256

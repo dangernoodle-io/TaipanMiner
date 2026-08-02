@@ -45,9 +45,12 @@ typedef struct {
 } stratum_transport_ops_t;
 
 #ifdef ESP_PLATFORM
-// Production ops backed by the real bb_tcp_client. `host`/`port` are
-// supplied per-connect via ops->connect(); tls toggles TLS. Loads pool
-// host/port/tls from the "tm_stratum" NVS namespace (see bb_tcp_client_init's
-// NULL-cfg path) -- the operator provisions those keys directly.
-void stratum_transport_esp_init(stratum_transport_ops_t *ops, bool tls);
+// Production ops backed by the real bb_tcp_client. `host`/`port` are the
+// FSM-selected active pool's connection target (from tm_pool_cfg_t, the
+// active-slot config tm_pool_policy selects) -- the instance is configured
+// with these values at init time; tls toggles TLS. `ops->connect()` may
+// still ignore its own `host`/`port` args (vtable-shape compatibility with
+// stratum_transport_ops_t) since the bb_tcp_client instance is already
+// configured with the values passed here.
+void stratum_transport_esp_init(stratum_transport_ops_t *ops, const char *host, uint16_t port, bool tls);
 #endif

@@ -7,7 +7,10 @@
 
 #include "stratum_transport.h"
 #include "bb_tcp_client.h"
+#include "bb_log.h"
 #include <string.h>
+
+static const char *TAG = "stratum_transport_esp";
 
 // Matches the largest stratum message observed in the pre-rebuild
 // implementation (mining.notify with deep merkle branches).
@@ -43,12 +46,11 @@ static bool esp_extract_line(stratum_transport_esp_ctx_t *c, char *buf, size_t b
     return false;
 }
 
-// Pool host/port/tls are NVS-backed (namespace "tm_stratum", provisioned by
-// the operator directly) -- bb_tcp_client_init() is called ONCE, with a NULL
-// cfg, in stratum_transport_esp_init() below. `host`/`port` are accepted for
-// vtable-shape compatibility with stratum_transport_ops_t but unused: the
-// live connection target always comes from the instance bb_tcp_client_init()
-// already loaded.
+// The instance's host/port/tls are set once, at stratum_transport_esp_init()
+// time, from the FSM-selected active pool's config. `host`/`port` are
+// accepted here for vtable-shape compatibility with stratum_transport_ops_t
+// but unused: the live connection target always comes from the instance
+// bb_tcp_client_init() already loaded.
 static bool esp_connect(void *ctx, const char *host, uint16_t port)
 {
     (void)host; (void)port;
@@ -115,12 +117,25 @@ static void esp_close(void *ctx)
     }
 }
 
-void stratum_transport_esp_init(stratum_transport_ops_t *ops, bool tls)
+void stratum_transport_esp_init(stratum_transport_ops_t *ops, const char *host, uint16_t port, bool tls)
 {
-    (void)tls;  // TLS is provisioned via the NVS-backed cfg bb_tcp_client_init() loads, not here.
-
     if (!s_esp_ctx.handle) {
-        bb_tcp_client_init("tm_stratum", NULL, &s_esp_ctx.handle);
+        // Non-NULL cfg: uses the FSM-supplied host/port/tls directly instead
+        // of reading NVS. bb_tcp_client_init() still persists these values to
+        // NVS namespace "tm_stratum" as a side effect of the non-NULL-cfg
+        // path -- that write is an inert shadow copy nothing reads back, not
+        // the SSOT (tm_pool_config's "tm_pool" namespace is).
+        bb_tcp_client_cfg_t cfg = { .host = { 0 }, .port = port, .tls = tls };
+        strncpy(cfg.host, host, sizeof(cfg.host) - 1);
+        cfg.host[sizeof(cfg.host) - 1] = '\0';
+        bb_err_t err = bb_tcp_client_init("tm_stratum", &cfg, &s_esp_ctx.handle);
+        if (err != BB_OK) {
+            // s_esp_ctx.handle stays NULL on failure -- esp_connect()/
+            // esp_read_line()/esp_write()/esp_close() all no-op on a NULL
+            // handle (the FSM degrades to a permanent connect-failure loop),
+            // so surface the root cause here rather than leaving it silent.
+            bb_log_w(TAG, "bb_tcp_client_init(tm_stratum) failed: %d", (int)err);
+        }
     }
 
     ops->ctx = &s_esp_ctx;

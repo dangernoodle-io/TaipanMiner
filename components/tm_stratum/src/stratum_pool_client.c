@@ -19,7 +19,7 @@ static bb_err_t v1_init(void *ctx, const tm_pool_cfg_t *cfg, tm_pool_work_ops_t 
     // to actually connect.
     memset(&self->transport, 0, sizeof(self->transport));
 #ifdef ESP_PLATFORM
-    stratum_transport_esp_init(&self->transport, false /* tls */);
+    stratum_transport_esp_init(&self->transport, cfg->host, cfg->port, false /* SV1 no TLS */);
 #endif
 
     // Borrowed pointers into *cfg (host/wallet/worker/pass) -- cfg must

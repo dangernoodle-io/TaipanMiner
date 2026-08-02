@@ -19,7 +19,6 @@
 #include <inttypes.h>
 
 #ifdef ESP_PLATFORM
-#include "freertos/semphr.h"
 #include "bb_timer.h"
 #endif
 
@@ -60,16 +59,29 @@ void mining_pool_stats_init(void)
 void mining_pool_stats_reset(void)
 {
 #ifdef ESP_PLATFORM
-    if (xSemaphoreTake(mining_stats.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    // COLD site (control-plane reset, not the mining hot loop) -- blocking
+    // acquire is fine.
+    if (mining_stats_lock_acquire(true) == BB_OK) {
         memset(&s_table, 0, sizeof(s_table));
-        xSemaphoreGive(mining_stats.mutex);
+        bb_lock_unlock(&mining_stats.lock);
     } else {
-        bb_log_w(TAG, "reset: mutex timeout");
+        bb_log_w(TAG, "reset: lock unavailable");
     }
 #else
     memset(&s_table, 0, sizeof(s_table));
 #endif
 }
+
+/* -------------------------------------------------------------------------
+ * find_or_alloc / record_* / lifetime_* readers below access s_table WITHOUT
+ * taking the mining_stats lock, unlike _init/_reset above. This is safe
+ * today because every one of these entry points is only ever called from
+ * the single mining/stratum task's own path (share submission, hashrate
+ * accounting) -- there is no concurrent writer or reader. If a control-plane
+ * consumer (e.g. an HTTP stats/reset route) is ever added that touches
+ * s_table from a different task, it -- and these functions -- must take
+ * mining_stats_lock_acquire() first; that dependency does not exist yet.
+ * ---------------------------------------------------------------------- */
 
 mining_pool_stat_t *mining_pool_stats_find_or_alloc(const char *host, uint16_t port)
 {

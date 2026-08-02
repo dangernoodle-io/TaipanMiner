@@ -32,6 +32,8 @@
 #     ESP_PLATFORM-guarded .c file), never by any public header.
 #   - bb_str -- bb_str_hex_to_bytes/bb_str_bytes_to_hex, used only from
 #     work_build.c and stratum_machine.c, never a public header.
+#   - bb_log -- bb_log_w, used only from stratum_transport_esp.c (an
+#     ESP_PLATFORM-guarded .c file), never a public header.
 idf_component_register(
     SRCS
         "src/stratum_backoff.c"
@@ -44,5 +46,5 @@ idf_component_register(
         "src/work_build.c"
     INCLUDE_DIRS "include"
     REQUIRES bb_fsm bb_serialize bb_serialize_json bb_core tm_mining tm_pool_client
-    PRIV_REQUIRES bb_tcp_client bb_str
+    PRIV_REQUIRES bb_tcp_client bb_str bb_log
 )

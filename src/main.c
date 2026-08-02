@@ -53,10 +53,6 @@ void app_main(void)
         // runs) -- nothing more actionable to do here than continue.
     }
 
-    // --- PRODUCER REGISTRATION SLOT (empty; comment marker only) ---
-
-    // --- MINING/STRATUM SLOT (empty; comment marker only) ---
-
     err = bb_app_init_rest();
     if (err != BB_OK) {
         // Same first-error-per-tier semantics as above.

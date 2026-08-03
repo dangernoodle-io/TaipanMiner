@@ -98,6 +98,34 @@ static void wire_reset_work(void *ctx)
 static void *s_stratum_task;
 static void *s_mining_task;
 
+// ---------------------------------------------------------------------------
+// mining_stats.session.shares/.rejected wiring (fix for the dead Tier-2 log
+// counter, mining.c:705-713 -- the REAL accept/reject counts live in
+// stratum_fsm_ctx_t->accepted/->rejected, which nothing previously copied
+// into mining_stats). tm_compose is the correct layer for this: it already
+// depends on both tm_mining and tm_stratum (via stratum_pool_client.h) to
+// wire the work/result queues, so it can bind these hooks without either
+// component depending on the other. HOT-LOOP-adjacent (the mining task's
+// Tier-2 log reads mining_stats under the same lock) -- trylock only, never
+// block the stratum service task on a busy mining hot loop.
+// ---------------------------------------------------------------------------
+static void wire_accepted_share(void *ud, const stratum_accepted_share_t *share)
+{
+    (void)ud;
+    if (mining_stats_lock_acquire(false) != BB_OK) return;
+    mining_stats.session.shares++;
+    mining_stats.session.accepted_diff_sum += share->diff;
+    bb_lock_unlock(&mining_stats.lock);
+}
+
+static void wire_rejected_share(void *ud)
+{
+    (void)ud;
+    if (mining_stats_lock_acquire(false) != BB_OK) return;
+    mining_stats.session.rejected++;
+    bb_lock_unlock(&mining_stats.lock);
+}
+
 // 16384, not the 4096-8192 CLAUDE.md convention: service()'s FSM ->
 // build_work() call chain puts a ~48-entry JSON tok pool, a ~1KB coinbase
 // scratch buffer, and a sha256d pass all on one stack frame on top of the
@@ -187,6 +215,9 @@ bb_err_t tm_compose_mining_stratum_init(void)
         bb_log_e(TAG, "pool client init failed: %d", (int)err);
         return err;
     }
+
+    tm_stratum_set_accepted_share_hook(&s_pool_client_ctx, wire_accepted_share, NULL);
+    tm_stratum_set_rejected_share_hook(&s_pool_client_ctx, wire_rejected_share, NULL);
 
     bb_task_config_t stratum_cfg = {
         .entry       = stratum_service_task,

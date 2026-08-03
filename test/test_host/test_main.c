@@ -145,8 +145,7 @@ void test_mining_compute_pool_effective_hps_divide_by_zero_guard(void);
 void test_mining_get_pool_effective_hashrate_host_stub(void);
 void test_mining_get_pool_effective_rolling_host_stubs(void);
 void test_pack_target_word0_exact_byte_order(void);
-void test_share_reverify_block1_nonce(void);
-void test_share_reverify_version_rolling(void);
+void test_mining_hot_loop_header_matches_ver_bits_zero_masking(void);
 void test_mining_efficiency_jth_known_case(void);
 void test_mining_efficiency_jth_zero_hashrate(void);
 void test_mining_efficiency_jth_negative_hashrate(void);
@@ -334,6 +333,9 @@ void test_stratum_pool_client_hook_fires_on_accept_with_exact_record(void);
 void test_stratum_pool_client_hook_does_not_fire_on_reject(void);
 void test_stratum_pool_client_hook_unset_is_safe_no_op(void);
 void test_stratum_pool_client_hook_fires_when_submit_survives_reqid_churn_under_capacity(void);
+void test_stratum_pool_client_reject_hook_fires_on_reject(void);
+void test_stratum_pool_client_reject_hook_does_not_fire_on_accept(void);
+void test_stratum_pool_client_reject_hook_unset_is_safe_no_op(void);
 
 // test_stratum_isolation.c
 void test_stratum_isolation_service_never_blocks_when_connect_permanently_fails(void);
@@ -609,8 +611,7 @@ int main(void)
     RUN_TEST(test_mining_get_pool_effective_hashrate_host_stub);
     RUN_TEST(test_mining_get_pool_effective_rolling_host_stubs);
     RUN_TEST(test_pack_target_word0_exact_byte_order);
-    RUN_TEST(test_share_reverify_block1_nonce);
-    RUN_TEST(test_share_reverify_version_rolling);
+    RUN_TEST(test_mining_hot_loop_header_matches_ver_bits_zero_masking);
     RUN_TEST(test_mining_efficiency_jth_known_case);
     RUN_TEST(test_mining_efficiency_jth_zero_hashrate);
     RUN_TEST(test_mining_efficiency_jth_negative_hashrate);
@@ -780,6 +781,9 @@ int main(void)
     RUN_TEST(test_stratum_pool_client_hook_does_not_fire_on_reject);
     RUN_TEST(test_stratum_pool_client_hook_unset_is_safe_no_op);
     RUN_TEST(test_stratum_pool_client_hook_fires_when_submit_survives_reqid_churn_under_capacity);
+    RUN_TEST(test_stratum_pool_client_reject_hook_fires_on_reject);
+    RUN_TEST(test_stratum_pool_client_reject_hook_does_not_fire_on_accept);
+    RUN_TEST(test_stratum_pool_client_reject_hook_unset_is_safe_no_op);
     RUN_TEST(test_stratum_isolation_service_never_blocks_when_connect_permanently_fails);
     RUN_TEST(test_stratum_isolation_service_never_blocks_when_pool_hangs_mid_session);
     RUN_TEST(test_stratum_isolation_service_touches_nothing_outside_its_own_ctx);

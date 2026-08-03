@@ -308,7 +308,7 @@ bb_err_t sha256_hw_dport_self_test_lockstep(void)
         header[i] = (uint8_t)((i * 0x5a) ^ 0xa5);
     }
 
-    bb_log_d(TAG, "lockstep self-test: %d nonces", DPORT_LOCKSTEP_ITERS);
+    bb_log_i(TAG, "lockstep self-test: running %d nonces (HW-vs-SW SHA256d)", DPORT_LOCKSTEP_ITERS);
 
     for (int iter = 0; iter < DPORT_LOCKSTEP_ITERS; iter++) {
         uint32_t nonce = (uint32_t)(0x10000000 + iter);
@@ -352,7 +352,7 @@ bb_err_t sha256_hw_dport_self_test_lockstep(void)
         }
     }
 
-    bb_log_d(TAG, "lockstep self-test: PASS (%d nonces)", DPORT_LOCKSTEP_ITERS);
+    bb_log_i(TAG, "lockstep self-test: PASS (%d nonces, HW hot loop matches SW SHA256d)", DPORT_LOCKSTEP_ITERS);
     return BB_OK;
 }
 
@@ -472,7 +472,7 @@ static bool sha256_hw_dport_hwrite_canary(void)
  * Runs the canaries + lockstep test; logs results; safe to call once at boot.
  * ---------------------------------------------------------------------------
  */
-void sha256_hw_dport_boot_probes(void)
+bb_err_t sha256_hw_dport_boot_probes(void)
 {
     sha256_hw_dport_overlap_canary();
     sha256_hw_dport_hwrite_canary();
@@ -480,6 +480,7 @@ void sha256_hw_dport_boot_probes(void)
     if (rc != BB_OK) {
         bb_log_e(TAG, "D0 lockstep self-test FAILED — SHA hot loop digest diverges from SW SHA256d");
     }
+    return rc;
 }
 
 /* ---------------------------------------------------------------------------

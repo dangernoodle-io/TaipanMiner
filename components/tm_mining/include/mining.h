@@ -92,7 +92,14 @@ extern const miner_config_t g_miner_config;
 // On device: posts results via mining_result_post(), peeks work via
 // mining_work_peek().
 // In tests: writes first hit to result_out/found_out and returns.
-// Returns true if preempted by new work.
+// Runs until nonce-space exhaustion (nonce == params->nonce_end) or a
+// found_out hit; a Tier-1 new-work check mid-range absorbs a job swap
+// INTERNALLY (re-preparing the job and `continue`-ing the same loop), it
+// does not return early for one. Always returns false.
+// Note: at production hashrates the full 2^32 nonce space is not exhausted
+// within a single job's lifetime, so the outer version-rolling loop's
+// ver_bits advancement (see mining_task()) is a correctness fallback for
+// the exhaustion case + KATs, not a hot path -- do not remove it.
 bool mine_nonce_range(hash_backend_t *backend,
                       mining_work_t *work,
                       const mine_params_t *params,

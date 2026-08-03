@@ -35,6 +35,27 @@
  * dual-core classic ESP32 in this PR, so mining always pins to core 1. */
 #define MINER_TASK_CORE 1
 
+/* TA-5xx: classic-ESP32 (D0) DPORT stall batching. The per-nonce SHA
+ * MMIO sequence in sha256_hw_dport_kernel() must run with the other core
+ * stalled (DPORT_STALL_OTHER_CPU_START()/END(), esp_hw_support), but
+ * bracketing that per-nonce cost ~2us/nonce in transition overhead
+ * (373->215 kH/s). mine_nonce_range() instead holds ONE stall across
+ * TM_MINING_STALL_BATCH consecutive kernel calls, amortizing the
+ * transition. Compile-time constant so K can be swept without touching
+ * logic -- see components/tm_mining/src/mining.c mine_nonce_range().
+ * K=128 is the shipped value (measured best of the sweep); override via
+ * -DTM_MINING_STALL_BATCH=N only for a one-off sweep build. */
+#ifndef TM_MINING_STALL_BATCH
+#define TM_MINING_STALL_BATCH 128
+#endif
+
+/* Fixed-size stash for pre-filter hits found mid-batch (i.e. while the
+ * other core is stalled). Pre-filter hits are sparse (~1 per tens of
+ * millions of hashes), so this is generous headroom; the rare overflow
+ * case forces an early batch close rather than dropping a candidate --
+ * see mine_nonce_range(). */
+#define TM_MINING_STALL_STASH 4
+
 static const char *TAG = "mining";
 
 /* Detect an all-zero SHA256d result. A valid double-SHA256 is never all-zero;
@@ -251,12 +272,14 @@ static void hw_avg_timer_cb(void *arg)
 // mining (failure flag committed before anything else can read it).
 void mining_run_self_tests(void)
 {
+    bb_log_i(TAG, "self-test: SW KAT starting");
     if (sha256_sw_self_test() != BB_OK) {
         bb_log_e(TAG, "SHA SW self-test FAILED — mining will not start");
         mining_set_sha_self_test_failed();
         return;
     }
 #if CONFIG_IDF_TARGET_ESP32
+    bb_log_i(TAG, "self-test: HW KAT (DPORT) starting");
     sha256_hw_dport_acquire();
     bb_err_t dport_rc = sha256_hw_dport_self_test();
     if (dport_rc != BB_OK) {
@@ -265,8 +288,14 @@ void mining_run_self_tests(void)
         mining_set_sha_self_test_failed();
         return;
     }
-    sha256_hw_dport_boot_probes();
+    bb_err_t lockstep_rc = sha256_hw_dport_boot_probes();
     sha256_hw_dport_release();
+    if (lockstep_rc != BB_OK) {
+        bb_log_e(TAG, "SHA HW-vs-SW lockstep self-test FAILED — mining will not start");
+        mining_set_sha_self_test_failed();
+        return;
+    }
+    bb_log_i(TAG, "self-test: all SHA self-tests PASSED — mining cleared to start");
 #endif
 }
 
@@ -522,6 +551,146 @@ static void hw_backend_setup(hash_backend_t *b, hw_backend_ctx_t *ctx)
 
 #endif // ESP_PLATFORM && CONFIG_IDF_TARGET_ESP32
 
+#ifdef ESP_PLATFORM
+/* Process one hash-check candidate: authoritative SW sha256d recompute,
+ * share verdict, stats update, and result post. Deliberately NOT
+ * IRAM_ATTR/hot-path -- it's only reached on a rare pre-filter hit, and
+ * on the classic-ESP32 path it always runs OUTSIDE the DPORT stall (see
+ * mine_nonce_range()'s batching): SW crypto, mutex-guarded stats, and
+ * logging are all too expensive to run while the other core is halted.
+ *
+ * *stop_out is set true only when found_out != NULL (device tests /
+ * find-first-nonce callers; production always passes NULL) and the
+ * caller must return immediately after this call. */
+static void s_process_prefilter_hit(mining_work_t *work,
+                                     uint32_t nonce,
+                                     uint32_t ver_bits,
+                                     mining_result_t *result_out,
+                                     bool *found_out,
+                                     bool *stop_out)
+{
+    *stop_out = false;
+
+    /* The DPORT/AHB HW read is an untrusted fast pre-filter -- a transient
+     * cross-bus readback corruption can fake a low top word and slip a
+     * non-share past meets_target (which only inspects the top bytes at
+     * low pool difficulty). Recompute the authoritative hash in SW
+     * (always correct) and drive every decision from it. */
+    uint8_t auth[32];
+    {
+        uint8_t ahdr[80];
+        memcpy(ahdr, work->header, 80);
+        // Single source of truth for the masking formula -- same helper
+        // the mining task's outer version-rolling loop uses.
+        roll_header_version(ahdr, work->version, work->version_mask, ver_bits);
+        ahdr[76] = nonce & 0xFF; ahdr[77] = (nonce >> 8) & 0xFF;
+        ahdr[78] = (nonce >> 16) & 0xFF; ahdr[79] = (nonce >> 24) & 0xFF;
+        sha256d(ahdr, 80, auth);
+    }
+
+    /* Fast-path: meets_target alone. is_target_valid + diff<0.001 are
+     * already validated before the mining loop starts and don't
+     * change mid-job. */
+    bool may_be_share = meets_target(auth, work->target);
+    double share_diff = 0.0;
+    share_verdict_t verdict;
+    if (!may_be_share) {
+        verdict = SHARE_BELOW_TARGET;
+    } else if (s_hash_is_all_zero(auth)) {
+        /* A valid sha256d is never all-zero -- treat as a miss rather
+         * than trust an obviously-degenerate result. */
+        verdict = SHARE_BELOW_TARGET;
+        bb_log_w(TAG, "dropped all-zero hash (nonce=%08" PRIx32 ")", nonce);
+    } else {
+        verdict = share_validate(work, auth, &share_diff);
+    }
+
+    if (verdict == SHARE_BELOW_TARGET) {
+        // Normal miss.
+    } else if (verdict == SHARE_INVALID_TARGET || verdict == SHARE_LOW_DIFFICULTY) {
+        bb_log_e(TAG, "share sanity fail: share_diff=%.4f pool_diff=%.4f, skipping",
+                 share_diff, work->difficulty);
+    } else {
+        // SHARE_VALID
+        mining_result_t result;
+        package_result(&result, work, nonce, ver_bits);
+        bb_log_i(TAG, "share found! (nonce=%08" PRIx32 ")", nonce);
+
+        result.share_diff = work->difficulty;
+        // auth[24..31] verbatim, internal little-endian order (see
+        // mining_result_t.hash_prefix's doc comment) -- no reversal.
+        memcpy(result.hash_prefix, &auth[24], sizeof(result.hash_prefix));
+
+        /* Local candidate found -- best_diff/best_diff_ts only.
+         * session.shares/accepted_diff_sum are pool-acceptance
+         * counters, driven by the (not-yet-wired) stratum submit
+         * response, not by finding a locally-valid candidate here. */
+        int64_t now_ts = s_wall_clock_or_zero();
+        // HOT-LOOP site (mine_nonce_range()'s hash-check path) --
+        // trylock only, never block the hash loop.
+        if (mining_stats_lock_acquire(false) == BB_OK) {
+            if (share_diff > mining_stats.session.best_diff) {
+                mining_stats.session.best_diff = share_diff;
+                mining_stats.session.best_diff_ts = now_ts;
+            }
+            bb_lock_unlock(&mining_stats.lock);
+        }
+
+        // Block detection: check if this share meets the network target.
+        if (share_meets_network_target(auth, work->nbits)) {
+            // HOT-LOOP site -- trylock only, same rationale as above.
+            if (mining_stats_lock_acquire(false) == BB_OK) {
+                mining_stats.session.blocks_found++;
+                mining_stats.session.last_block_ts = now_ts;
+                bb_lock_unlock(&mining_stats.lock);
+            }
+            mining_notify_block_found();
+        }
+
+        if (result_out) {
+            *result_out = result;
+        }
+        if (found_out) {
+            *found_out = true;
+            *stop_out = true;
+            return;  // device tests: stop after first hit
+        }
+
+        if (!mining_result_post(&result)) {
+            bb_log_d(TAG, "result post dropped (no delivery bound / sink full)");
+        }
+    }
+}
+
+#if CONFIG_IDF_TARGET_ESP32
+/* Drain the DPORT-stall-batch pre-filter-hit stash (see mine_nonce_range())
+ * -- called only after the stall has already been ended, never while the
+ * other core is halted. Returns true if the caller must stop immediately
+ * (found_out path). */
+// `ver_bits` is the batch's CURRENT version-roll offset. A batch is fully
+// drained before any Tier-1 job swap (see mine_nonce_range()), so ver_bits
+// is stable across every stashed nonce in a single drain call.
+static bool s_drain_stash(mining_work_t *work,
+                           uint32_t ver_bits,
+                           uint32_t *stash_nonce,
+                           uint32_t *stash_count,
+                           mining_result_t *result_out,
+                           bool *found_out)
+{
+    for (uint32_t i = 0; i < *stash_count; i++) {
+        bool stop = false;
+        s_process_prefilter_hit(work, stash_nonce[i], ver_bits, result_out, found_out, &stop);
+        if (stop) {
+            *stash_count = 0;
+            return true;
+        }
+    }
+    *stash_count = 0;
+    return false;
+}
+#endif // CONFIG_IDF_TARGET_ESP32
+#endif // ESP_PLATFORM
+
 bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                                  mining_work_t *work,
                                  const mine_params_t *params,
@@ -540,108 +709,91 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
     build_block2(block2, work->header);
     backend->prepare_job(backend, work, block2);
 
+    /* The version-roll offset for the job CURRENTLY being hashed. Starts as
+     * params->ver_bits (the caller's outer-loop roll position), but a
+     * Tier-1 job swap below absorbs the new job in place -- a fresh job
+     * always starts rolling from ver_bits=0, so this must be tracked
+     * locally rather than read from params (which is fixed for the whole
+     * call and would otherwise stay stale to the OLD job after a swap). */
+    uint32_t cur_ver_bits = params->ver_bits;
+
 #ifdef ESP_PLATFORM
     int64_t start_us = (int64_t)bb_timer_now_us();
     uint32_t hashes = 0;
 #if CONFIG_IDF_TARGET_ESP32
     hw_backend_ctx_t *hw_ctx = (hw_backend_ctx_t *)backend->ctx;
+    /* TA-5xx: DPORT stall batching state -- see file-header comment on
+     * TM_MINING_STALL_BATCH and sha256_hw_dport_kernel.h. */
+    bool stall_active = false;
+    uint32_t stall_batch_pos = 0;
+    uint32_t stash_nonce[TM_MINING_STALL_STASH];
+    uint32_t stash_count = 0;
 #endif
 #endif
 
     for (uint32_t nonce = params->nonce_start; ; nonce++) {
         uint8_t hash[32];
 #if defined(ESP_PLATFORM) && CONFIG_IDF_TARGET_ESP32
-        // D0 hot loop: call kernel directly to skip the function-pointer indirection.
+        // D0 hot loop: call kernel directly to skip the function-pointer
+        // indirection. TA-5xx: the kernel itself is stall-free -- open a
+        // batch stall on the first call of a batch, close it after
+        // TM_MINING_STALL_BATCH calls (or a yield-mask boundary, or a
+        // full stash), amortizing the DPORT stall/unstall transition cost
+        // over the batch instead of paying it every nonce.
+        if (!stall_active) {
+            DPORT_STALL_OTHER_CPU_START();
+            stall_active = true;
+            stall_batch_pos = 0;
+        }
         hash_result_t hr = sha256_hw_dport_kernel(hw_ctx->header, nonce, hw_ctx->target_word0_max, hash) ? HASH_CHECK : HASH_MISS;
+        stall_batch_pos++;
 #else
         hash_result_t hr = backend->hash_nonce(backend, nonce, hash);
 #endif
 
+#if defined(ESP_PLATFORM) && CONFIG_IDF_TARGET_ESP32
+        // Classic-ESP32: NEVER run the expensive candidate path (SW
+        // sha256d recompute, share_validate, stats locks, logging) while
+        // the other core is stalled -- stash the nonce and process it
+        // after the stall ends.
         if (hr == HASH_CHECK) {
-#ifdef ESP_PLATFORM
-            /* Fast-path: meets_target alone. is_target_valid + diff<0.001 are
-             * already validated before the mining loop starts and don't
-             * change mid-job. */
-            bool may_be_share = meets_target(hash, work->target);
-            double share_diff = 0.0;
-            share_verdict_t verdict;
-            if (!may_be_share) {
-                verdict = SHARE_BELOW_TARGET;
-            } else if (s_hash_is_all_zero(hash)) {
-                /* Corrupt read (classic-ESP32 DPORT cross-bus erratum): drop
-                 * it — never count it as a share, best_diff, or block. */
-                verdict = SHARE_BELOW_TARGET;
-                bb_log_w(TAG, "dropped all-zero hash (corrupt SHA read, nonce=%08" PRIx32 ")", nonce);
-            } else {
-                verdict = share_validate(work, hash, &share_diff);
-                if (verdict == SHARE_VALID &&
-                    !share_reverify(work, params->ver_bits, nonce, hash)) {
-                    /* DPORT partial-corruption: HW hash passed target but the
-                     * SW recompute disagrees — drop. */
-                    verdict = SHARE_BELOW_TARGET;
-                    bb_log_w(TAG, "dropped corrupt SHA read (reverify mismatch, nonce=%08" PRIx32 ")", nonce);
+            if (stash_count >= TM_MINING_STALL_STASH) {
+                // Stash saturated mid-batch (astronomically rare given
+                // pre-filter hit rates -- see TM_MINING_STALL_STASH comment).
+                // Flush now rather than drop a candidate, ending the batch
+                // a little early.
+                DPORT_STALL_OTHER_CPU_END();
+                stall_active = false;
+                if (s_drain_stash(work, cur_ver_bits, stash_nonce, &stash_count, result_out, found_out)) {
+                    return false;
                 }
             }
+            stash_nonce[stash_count++] = nonce;
+        }
 
-            if (verdict == SHARE_BELOW_TARGET) {
-                // Normal miss.
-            } else if (verdict == SHARE_INVALID_TARGET || verdict == SHARE_LOW_DIFFICULTY) {
-                bb_log_e(TAG, "share sanity fail: share_diff=%.4f pool_diff=%.4f, skipping",
-                         share_diff, work->difficulty);
-            } else {
-                // SHARE_VALID
-                mining_result_t result;
-                package_result(&result, work, nonce, params->ver_bits);
-                bb_log_i(TAG, "share found! (nonce=%08" PRIx32 ")", nonce);
-
-                result.share_diff = work->difficulty;
-                // hash[24..31] verbatim, internal little-endian order (see
-                // mining_result_t.hash_prefix's doc comment) -- no reversal.
-                memcpy(result.hash_prefix, &hash[24], sizeof(result.hash_prefix));
-
-                /* Local candidate found -- best_diff/best_diff_ts only.
-                 * session.shares/accepted_diff_sum are pool-acceptance
-                 * counters, driven by the (not-yet-wired) stratum submit
-                 * response, not by finding a locally-valid candidate here. */
-                int64_t now_ts = s_wall_clock_or_zero();
-                // HOT-LOOP site (mine_nonce_range()'s hash-check path) --
-                // trylock only, never block the hash loop.
-                if (mining_stats_lock_acquire(false) == BB_OK) {
-                    if (share_diff > mining_stats.session.best_diff) {
-                        mining_stats.session.best_diff = share_diff;
-                        mining_stats.session.best_diff_ts = now_ts;
-                    }
-                    bb_lock_unlock(&mining_stats.lock);
-                }
-
-                // Block detection: check if this share meets the network target.
-                if (share_meets_network_target(hash, work->nbits)) {
-                    // HOT-LOOP site -- trylock only, same rationale as above.
-                    if (mining_stats_lock_acquire(false) == BB_OK) {
-                        mining_stats.session.blocks_found++;
-                        mining_stats.session.last_block_ts = now_ts;
-                        bb_lock_unlock(&mining_stats.lock);
-                    }
-                    mining_notify_block_found();
-                }
-
-                if (result_out) {
-                    *result_out = result;
-                }
-                if (found_out) {
-                    *found_out = true;
-                    return false;  // device tests: stop after first hit
-                }
-
-                if (!mining_result_post(&result)) {
-                    bb_log_d(TAG, "result post dropped (no delivery bound / sink full)");
-                }
+        if (stall_active &&
+            (stall_batch_pos >= TM_MINING_STALL_BATCH ||
+             ((nonce + 1) & params->yield_mask) == 0)) {
+            DPORT_STALL_OTHER_CPU_END();
+            stall_active = false;
+            if (s_drain_stash(work, cur_ver_bits, stash_nonce, &stash_count, result_out, found_out)) {
+                return false;
             }
+        }
+#elif defined(ESP_PLATFORM)
+        if (hr == HASH_CHECK) {
+            bool stop = false;
+            s_process_prefilter_hit(work, nonce, cur_ver_bits, result_out, found_out, &stop);
+            if (stop) {
+                return false;
+            }
+        }
 #else
+        if (hr == HASH_CHECK) {
             // In host tests: lightweight check — meets_target only (no FreeRTOS).
             if (meets_target(hash, work->target)) {
                 mining_result_t result;
-                package_result(&result, work, nonce, params->ver_bits);
+                package_result(&result, work, nonce, cur_ver_bits);
                 memcpy(result.hash_prefix, &hash[24], sizeof(result.hash_prefix));
                 if (result_out) {
                     *result_out = result;
@@ -651,8 +803,8 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                     return false;  // in tests, stop after first hit
                 }
             }
-#endif
         }
+#endif
 
 #ifdef ESP_PLATFORM
         hashes++;
@@ -664,6 +816,16 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
             mining_work_t new_work;
             if (mining_work_peek(&new_work) && new_work.work_seq != work->work_seq) {
                 memcpy(work, &new_work, sizeof(*work));
+                // A fresh job always starts rolling from ver_bits=0 -- the
+                // outer version-rolling loop's params->ver_bits belonged
+                // to the OLD job and must not leak into this one.
+                cur_ver_bits = 0;
+                /* Re-roll the freshly-swapped job's version into header[0..3] to match
+                 * s_process_prefilter_hit()'s masked reconstruction (ver_bits resets to 0
+                 * for a new job). Mirrors mining_task()'s outer-loop roll; no-op when
+                 * version_mask == 0. Without this, a mask!=0 pool's raw header would be
+                 * hashed while the auth recompute expects the masked header. */
+                roll_header_version(work->header, work->version, work->version_mask, 0);
                 bb_log_i(TAG, "new job (%s)", work->job_id);
                 build_block2(block2, work->header);
                 sha256_hw_acquire();
@@ -696,6 +858,7 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                     double hashrate = (double)hashes / ((double)elapsed_us / 1000000.0);
                     uint32_t accepted = 0;
                     uint32_t rejected = 0;
+                    double best_diff = 0.0;
                     // HOT-LOOP site (Tier-2 log, mine_nonce_range()) --
                     // trylock only, never block the hash loop.
                     if (mining_stats_lock_acquire(false) == BB_OK) {
@@ -704,13 +867,14 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
                         mining_stats.session.hashes += hashes;
                         accepted = mining_stats.session.shares;
                         rejected = mining_stats.session.rejected;
+                        best_diff = mining_stats.session.best_diff;
                         bb_lock_unlock(&mining_stats.lock);
                     }
                     double accepted_pct = (accepted + rejected) > 0
                         ? (double)accepted * 100.0 / (double)(accepted + rejected)
                         : 0.0;
-                    bb_log_i(TAG, "hw: %.1f kH/s | shares: acc %" PRIu32 "/rej %" PRIu32 " = %.1f%%",
-                             hashrate / 1000.0, accepted, rejected, accepted_pct);
+                    bb_log_i(TAG, "hw: %.1f kH/s | shares: acc %" PRIu32 "/rej %" PRIu32 " = %.1f%% | best %.4f",
+                             hashrate / 1000.0, accepted, rejected, accepted_pct, best_diff);
                 }
 
                 mining_stats_sample_die_temp();
@@ -726,6 +890,19 @@ bool IRAM_ATTR mine_nonce_range(hash_backend_t *backend,
 
         if (nonce == params->nonce_end) break;
     }
+
+#if defined(ESP_PLATFORM) && CONFIG_IDF_TARGET_ESP32
+    // Safety net: never return with the other core left stalled, and never
+    // drop a stashed candidate found in the final (possibly short) batch.
+    if (stall_active) {
+        DPORT_STALL_OTHER_CPU_END();
+        stall_active = false;
+        // Return value moot here: mine_nonce_range() returns false
+        // unconditionally right below regardless of a stop signal.
+        (void)s_drain_stash(work, cur_ver_bits, stash_nonce, &stash_count, result_out, found_out);
+    }
+#endif
+
     return false;
 }
 
@@ -788,13 +965,11 @@ void mining_task(void *arg)
         uint32_t ver_bits = 0;
 
         for (;;) {  // version rolling outer loop
-            if (work.version_mask != 0 && ver_bits != 0) {
-                uint32_t rolled = (base_version & ~work.version_mask) | (ver_bits & work.version_mask);
-                work.header[0] = rolled & 0xFF;
-                work.header[1] = (rolled >> 8) & 0xFF;
-                work.header[2] = (rolled >> 16) & 0xFF;
-                work.header[3] = (rolled >> 24) & 0xFF;
-            }
+            // Runs on every pass (including ver_bits=0) to match
+            // s_process_prefilter_hit()'s unconditional `if (mask)`
+            // reconstruction -- see roll_header_version()'s doc comment for
+            // the failure mode.
+            roll_header_version(work.header, base_version, work.version_mask, ver_bits);
 
             mine_params_t params = {
                 .nonce_start = 0,

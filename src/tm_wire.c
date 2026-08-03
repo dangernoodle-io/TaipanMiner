@@ -5,6 +5,7 @@
 #include "tm_wire.h"
 #include "bb_log.h"
 #include "bb_system.h"
+#include "mining.h"
 
 static const char *TAG = "taipanminer";
 
@@ -36,5 +37,11 @@ bb_err_t tm_log_reset_reason_init(void)
     if (bb_system_is_abnormal_reset()) {
         bb_log_w(TAG, "abnormal reset detected (%s)", reason_str);
     }
+    return BB_OK;
+}
+
+bb_err_t tm_mining_self_test_init(void)
+{
+    mining_run_self_tests();
     return BB_OK;
 }

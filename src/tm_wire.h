@@ -62,6 +62,19 @@ bb_err_t tm_log_noise_suppress_init(void);
 // Logs the boot reset reason (WARN if abnormal). Always returns BB_OK.
 bb_err_t tm_log_reset_reason_init(void);
 
+// Runs mining_run_self_tests() (SW KAT, HW KAT, HW-vs-SW lockstep -- see
+// mining.h) synchronously at boot, gating mining on any failure via
+// mining_set_sha_self_test_failed(). Wrapped as a bb_err_t(*)(void) (like
+// tm_log_reset_reason_init() above) purely for the manifest's call
+// convention -- mining_run_self_tests() itself returns void and always
+// "succeeds" from codegen's point of view; a FAILED self-test is reported
+// via mining_sha_self_test_failed() (checked by mining_task()'s own entry
+// gate at mining.c:739), not via this wrapper's return value. `early` tier
+// (not `regular`) is load-bearing: tm_compose_mining_stratum_init() (the
+// call that spawns the mining task) is `regular`-tier, so this always runs
+// first regardless of parse order within `early`.
+bb_err_t tm_mining_self_test_init(void);
+
 #ifdef __cplusplus
 }
 #endif
@@ -69,6 +82,8 @@ bb_err_t tm_log_reset_reason_init(void);
 // bbtool:init tier=early fn=tm_log_noise_suppress_init
 
 // bbtool:init tier=early fn=tm_log_reset_reason_init
+
+// bbtool:init tier=early fn=tm_mining_self_test_init component=tm_mining
 
 // tm_pool_{config,stats,policy}_init() (TA-573 PR6) each have no natural
 // component-header home: they are TM's own bring-up sequencing decision

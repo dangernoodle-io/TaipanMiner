@@ -24,11 +24,29 @@
  *   8. NEW (TA-369 D.1): refresh TEXT[10..15] = header[40..63] from preload
  *      during block-3 compute wait (87 cyc window; 6 writes ~45 cyc, hidden).
  *   9. Wait BUSY=0; SHA_LOAD final digest → TEXT[0..7].
- *  10. Wait BUSY=0 via DPORT_REG_READ; DPORT_REG_READ of TEXT[7] for
- *      early-reject vs target_word0_max — cross-core-safe, defeats erratum.
- *  11. Potential hit: DPORT_INTERRUPT_DISABLE + DPORT_SEQUENCE_REG_READ of all
- *      8 words (batched stall window), then mining_hash_from_state for the
- *      canonical 32-byte hash.
+ *  10. Early-reject on TEXT[7] vs target_word0_max.
+ *  11. Full 8-word readback, then mining_hash_from_state for the canonical
+ *      32-byte hash.
+ *
+ *  TA-4xx: the ENTIRE per-nonce sequence (steps 1-11) must run with the
+ *  other CPU stalled (DPORT_STALL_OTHER_CPU_START()/END(), IPC-ISR
+ *  cross-core stall, esp_hw_support/dport_access.h) — not just the
+ *  erratum's stale-read workaround. Root cause: the other core's
+ *  concurrent AHB/DPORT-bus traffic can clobber SHA TEXT[] between our
+ *  first fill and final readback, corrupting the digest outright (not
+ *  just a stale/zero read). A narrower stall over steps 7-11 only
+ *  (block-3 start through readback) measured zero prefilter hits over
+ *  ~40 min at diff 0.01 (expected ~11) — widened to the full sequence
+ *  since the clobber can evidently also land during blocks 1-2.
+ *
+ *  TA-5xx: bracketing the stall INSIDE this per-nonce kernel cost ~2us/
+ *  nonce in stall/unstall transition overhead (373->215 kH/s). The stall
+ *  is now the CALLER's responsibility (mine_nonce_range() batches
+ *  TM_MINING_STALL_BATCH consecutive kernel calls under one
+ *  START()/END() pair) so the transition cost amortizes over the batch.
+ *  This kernel is stall-FREE: callers MUST hold the stall across the
+ *  entire call for correctness. Raw _DPORT_REG_READ remains race-free
+ *  here only because the caller guarantees that.
  */
 
 #ifdef ESP_PLATFORM
@@ -38,6 +56,7 @@
 #include <stdbool.h>
 #include "soc/dport_access.h"
 #include "soc/hwcrypto_reg.h"
+#include "dport_access.h"  /* esp_hw_support: DPORT_STALL_OTHER_CPU_START/END */
 #include "work.h"
 
 /* TA-369 D.1: preload TEXT[10..15] from header[40..63] once per job.
@@ -68,6 +87,10 @@ bool sha256_hw_dport_kernel(const uint8_t header_80[80],
 
     const uint32_t *header_words   = (const uint32_t *)header_80;
     const uint32_t *block2_partial = (const uint32_t *)(header_80 + 64);
+
+    /* TA-5xx: caller (mine_nonce_range()) holds DPORT_STALL_OTHER_CPU_START()
+     * across a batch of these calls — see file-header comment. This kernel
+     * no longer brackets its own stall. */
 
     /* 1. Fill block 1 — only TEXT[0..9] (header[0..39]).
      *    TEXT[10..15] (header[40..63]) are constant per job;
@@ -106,19 +129,19 @@ bool sha256_hw_dport_kernel(const uint8_t header_80[80],
     sha_text[14] = 0x00000000;
     sha_text[15] = 0x00000280;
 
-    /* 4. Wait block-1 — DPORT_REG_READ serializes against the other core
-     *    (classic ESP32 DPORT bus erratum: raw volatile reads can return
-     *    stale zeros when the AHB master on the other core is active). */
-    while (DPORT_REG_READ(SHA_256_BUSY_REG)) {}
+    /* 4. Wait block-1. Other CPU is stalled for the whole sequence now, so
+     *    a raw _DPORT_REG_READ is race-free (no cross-core interleaving to
+     *    guard against). */
+    while (_DPORT_REG_READ(SHA_256_BUSY_REG)) {}
     *sha_continue = 1;
 
     /* 5. Wait block-2, LOAD digest1 into TEXT[0..7] */
-    while (DPORT_REG_READ(SHA_256_BUSY_REG)) {}
+    while (_DPORT_REG_READ(SHA_256_BUSY_REG)) {}
     *sha_load = 1;
 
     /* 6. Wait LOAD, fill double-pad. Only TEXT[8] and TEXT[15] need refresh;
      *    TEXT[9..14] retain zeros from step 3. */
-    while (DPORT_REG_READ(SHA_256_BUSY_REG)) {}
+    while (_DPORT_REG_READ(SHA_256_BUSY_REG)) {}
     sha_text[8]  = 0x80000000;
     sha_text[15] = 0x00000100;
 
@@ -136,25 +159,27 @@ bool sha256_hw_dport_kernel(const uint8_t header_80[80],
     sha_text[15] = __builtin_bswap32(header_words[15]);
 
     /* 9. Wait block-3, LOAD final digest */
-    while (DPORT_REG_READ(SHA_256_BUSY_REG)) {}
+    while (_DPORT_REG_READ(SHA_256_BUSY_REG)) {}
     *sha_load = 1;
 
-    /* 10. Wait LOAD; early-reject on word 7 via DPORT_REG_READ — serializes
-     *     cross-core so a stale-zero from the DPORT bus erratum cannot cause
-     *     a spurious pass (which was the zero-hash root cause on wroom32).
+    /* 10. Wait LOAD; early-reject on word 7. The other CPU is stalled for
+     *     this whole per-nonce sequence, so a raw _DPORT_REG_READ is safe
+     *     here (no cross-core race to guard against inside the stall
+     *     window).
      *
      *     TA-396: SHA_TEXT[7] holds canonical H[7] in big-endian register form;
      *     the TRUE most-significant 32-bit word of the PoW value (the chunk
      *     meets_target compares first) is bswap32(H[7]). target_word0_max is
      *     packed in that same true-MSB order, so this is an EXACT top-32-bit
      *     target compare — passing only genuine candidates. */
-    while (DPORT_REG_READ(SHA_256_BUSY_REG)) {}
-    uint32_t word7 = __builtin_bswap32(DPORT_REG_READ(SHA_TEXT_BASE + 7 * 4));
+    while (_DPORT_REG_READ(SHA_256_BUSY_REG)) {}
+    uint32_t word7 = __builtin_bswap32(_DPORT_REG_READ(SHA_TEXT_BASE + 7 * 4));
     if (word7 > target_word0_max) {
         return false;
     }
 
-    /* 11. Full readback under DPORT erratum workaround.
+    /* 11. Full readback — other CPU still stalled from above, so a plain
+     * volatile read sequence is race-free.
      *
      * Classic ESP32 SHA TEXT registers are in CANONICAL SHA-256 H[] order:
      *   SHA_TEXT[0] = canonical H[0] (MSB word)
@@ -164,17 +189,16 @@ bool sha256_hw_dport_kernel(const uint8_t header_80[80],
      * meets_target() uses LE-internal convention (byte[31]=LSB of H[7], which is
      * the least-significant byte of the 256-bit value = raw SHA256d byte[31] → 0
      * for valid Bitcoin hashes). */
-    DPORT_INTERRUPT_DISABLE();
     uint32_t state[8];
-    state[7] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 7 * 4);
-    state[0] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 0 * 4);
-    state[1] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 1 * 4);
-    state[2] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 2 * 4);
-    state[3] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 3 * 4);
-    state[4] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 4 * 4);
-    state[5] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 5 * 4);
-    state[6] = DPORT_SEQUENCE_REG_READ(SHA_TEXT_BASE + 6 * 4);
-    DPORT_INTERRUPT_RESTORE();
+    state[0] = _DPORT_REG_READ(SHA_TEXT_BASE + 0 * 4);
+    state[1] = _DPORT_REG_READ(SHA_TEXT_BASE + 1 * 4);
+    state[2] = _DPORT_REG_READ(SHA_TEXT_BASE + 2 * 4);
+    state[3] = _DPORT_REG_READ(SHA_TEXT_BASE + 3 * 4);
+    state[4] = _DPORT_REG_READ(SHA_TEXT_BASE + 4 * 4);
+    state[5] = _DPORT_REG_READ(SHA_TEXT_BASE + 5 * 4);
+    state[6] = _DPORT_REG_READ(SHA_TEXT_BASE + 6 * 4);
+    state[7] = _DPORT_REG_READ(SHA_TEXT_BASE + 7 * 4);
+
     mining_hash_from_state(state, hash_out);
     return true;
 }

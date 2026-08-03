@@ -1,11 +1,14 @@
 #include "stratum_machine.h"
 #include "work_build.h"   // decode_stratum_prevhash
 #include "bb_str.h"        // bb_str_hex_to_bytes
+#include "bb_log.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+
+static const char *TAG = "stratum_machine";
 
 // ---------------------------------------------------------------------------
 // Small tok-recorder helpers -- every stratum string value in scope (hex,
@@ -328,6 +331,7 @@ bool stratum_machine_handle_set_difficulty(stratum_state_t *st,
     }
 
     st->difficulty = d;
+    bb_log_i(TAG, "pool set_difficulty=%.6f", d);
     return true;
 }
 

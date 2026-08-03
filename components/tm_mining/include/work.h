@@ -52,3 +52,26 @@ static inline uint32_t next_version_roll(uint32_t ver_bits, uint32_t mask) {
     uint32_t next = (ver_bits - 1) & mask;
     return next;  // 0 means exhausted
 }
+
+// Roll the BIP 320 version field into a serialized header's first 4 bytes
+// (little-endian), if version rolling is active. Call unconditionally on
+// EVERY outer-loop pass, INCLUDING the first ver_bits=0 pass -- the guard
+// here must be `if (version_mask != 0)` only, never additionally gated on
+// ver_bits != 0. s_process_prefilter_hit() (mining.c) unconditionally
+// recomputes rolled = (version & ~mask) | (ver_bits & mask) whenever
+// mask != 0, so the hashed header must match that on every pass, not just
+// once ver_bits becomes nonzero. Skipping the ver_bits=0 write leaves the
+// header holding the raw unmasked version, which disagrees with that
+// masked-at-ver_bits=0 reconstruction and silently drops every real share
+// whenever the pool's base version has a bit set inside version_mask.
+static inline void roll_header_version(uint8_t header[80], uint32_t base_version,
+                                        uint32_t version_mask, uint32_t ver_bits) {
+    if (version_mask == 0) {
+        return;
+    }
+    uint32_t rolled = (base_version & ~version_mask) | (ver_bits & version_mask);
+    header[0] = rolled & 0xFF;
+    header[1] = (rolled >> 8) & 0xFF;
+    header[2] = (rolled >> 16) & 0xFF;
+    header[3] = (rolled >> 24) & 0xFF;
+}

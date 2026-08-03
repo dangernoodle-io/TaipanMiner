@@ -446,6 +446,87 @@ void test_stratum_pool_client_hook_unset_is_safe_no_op(void)
     TEST_ASSERT_EQUAL_UINT32(1, ctx.fsm.accepted);  // no crash, counter still updates
 }
 
+// ---------------------------------------------------------------------------
+// on-rejected-share hook: symmetric with the accepted-share hook above --
+// fires exactly on REJECT, never on ACCEPT, safe no-op when unset (mirrors
+// mining_stats.session.rejected wiring in tm_compose_mining_stratum.c).
+// ---------------------------------------------------------------------------
+
+typedef struct {
+    int calls;
+} reject_hook_capture_t;
+
+static reject_hook_capture_t s_reject_hook;
+
+static void capture_reject_hook(void *ud)
+{
+    reject_hook_capture_t *c = (reject_hook_capture_t *)ud;
+    c->calls++;
+}
+
+void test_stratum_pool_client_reject_hook_fires_on_reject(void)
+{
+    reset_fakes();
+    memset(&s_reject_hook, 0, sizeof(s_reject_hook));
+    stratum_pool_client_ctx_t ctx;
+    make_ctx(&ctx);
+    tm_stratum_set_rejected_share_hook(&ctx, capture_reject_hook, &s_reject_hook);
+
+    uint32_t now = drive_to_running(&ctx, 1);
+
+    queue_submit_result("job-5", "00000005", "67b1c404", "0d0e0f10", 1024.0);
+    now += 1;
+    stratum_fsm_service(&ctx.fsm, now);  // sends submit, id=4
+
+    s_ft.pending_lines[s_ft.pending_count++] = "{\"id\":4,\"result\":false,\"error\":[23,\"low diff\",\"\"]}";
+    now += 1;
+    stratum_fsm_service(&ctx.fsm, now);
+
+    TEST_ASSERT_EQUAL_UINT32(1, ctx.fsm.rejected);
+    TEST_ASSERT_EQUAL_INT(1, s_reject_hook.calls);
+}
+
+void test_stratum_pool_client_reject_hook_does_not_fire_on_accept(void)
+{
+    reset_fakes();
+    memset(&s_reject_hook, 0, sizeof(s_reject_hook));
+    stratum_pool_client_ctx_t ctx;
+    make_ctx(&ctx);
+    tm_stratum_set_rejected_share_hook(&ctx, capture_reject_hook, &s_reject_hook);
+
+    uint32_t now = drive_to_running(&ctx, 1);
+
+    queue_submit_result("job-6", "00000006", "67b1c405", "11121314", 2048.0);
+    now += 1;
+    stratum_fsm_service(&ctx.fsm, now);  // sends submit, id=4
+
+    s_ft.pending_lines[s_ft.pending_count++] = "{\"id\":4,\"result\":true}";
+    now += 1;
+    stratum_fsm_service(&ctx.fsm, now);
+
+    TEST_ASSERT_EQUAL_UINT32(1, ctx.fsm.accepted);
+    TEST_ASSERT_EQUAL_INT(0, s_reject_hook.calls);
+}
+
+void test_stratum_pool_client_reject_hook_unset_is_safe_no_op(void)
+{
+    reset_fakes();
+    stratum_pool_client_ctx_t ctx;
+    make_ctx(&ctx);  // no reject hook registered
+
+    uint32_t now = drive_to_running(&ctx, 1);
+
+    queue_submit_result("job-7", "00000007", "67b1c406", "15161718", 512.0);
+    now += 1;
+    stratum_fsm_service(&ctx.fsm, now);
+
+    s_ft.pending_lines[s_ft.pending_count++] = "{\"id\":4,\"result\":false,\"error\":[23,\"low diff\",\"\"]}";
+    now += 1;
+    stratum_fsm_service(&ctx.fsm, now);
+
+    TEST_ASSERT_EQUAL_UINT32(1, ctx.fsm.rejected);  // no crash, counter still updates
+}
+
 // TA-571 finding #2's regression test: a submit id registered first, then 7
 // MORE (non-submit) ids registered while it's still in flight -- the table
 // is now exactly at its 8-slot capacity, so the submit is NOT evicted. With

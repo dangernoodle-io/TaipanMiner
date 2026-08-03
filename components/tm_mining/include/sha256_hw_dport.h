@@ -32,8 +32,11 @@ bb_err_t sha256_hw_dport_self_test(void);
 bb_err_t sha256_hw_dport_self_test_lockstep(void);
 
 /* Boot probes bundle (overlap/H-write canaries + lockstep self-test; logs
- * results). Caller MUST hold sha256_hw_dport_acquire(). */
-void sha256_hw_dport_boot_probes(void);
+ * results). Caller MUST hold sha256_hw_dport_acquire(). The canaries are
+ * diagnostic-only (never fail this call); the lockstep self-test result IS
+ * gating -- returns BB_ERR_INVALID_STATE on a lockstep mismatch so the
+ * caller (mining_run_self_tests()) can block mining, BB_OK otherwise. */
+bb_err_t sha256_hw_dport_boot_probes(void);
 
 /* Pool-target-aware early-reject on digest MSB word (state[7]).
  * Returns true on potential hit (MSB word <= target_word0_max). Caller

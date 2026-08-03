@@ -32,8 +32,10 @@
 #     ESP_PLATFORM-guarded .c file), never by any public header.
 #   - bb_str -- bb_str_hex_to_bytes/bb_str_bytes_to_hex, used only from
 #     work_build.c and stratum_machine.c, never a public header.
-#   - bb_log -- bb_log_w, used only from stratum_transport_esp.c (an
-#     ESP_PLATFORM-guarded .c file), never a public header.
+#   - bb_log -- bb_log_{e,w,i}, used from stratum_fsm.c/stratum_machine.c
+#     (handshake/set_difficulty/submit observability, host-testable) and
+#     stratum_transport_esp.c (an ESP_PLATFORM-guarded .c file); never a
+#     public header.
 idf_component_register(
     SRCS
         "src/stratum_backoff.c"

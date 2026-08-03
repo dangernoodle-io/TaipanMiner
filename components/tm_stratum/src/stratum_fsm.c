@@ -1,9 +1,12 @@
 #include "stratum_fsm.h"
 #include "work_build.h"
 #include "bb_serialize_json.h"
+#include "bb_log.h"
 
 #include <string.h>
 #include <stdlib.h>
+
+static const char *TAG = "stratum_fsm";
 
 // ---------------------------------------------------------------------------
 // Timer helper -- bb_fsm stores only (event, duration_ms) per armed slot; we
@@ -375,6 +378,7 @@ static void process_line(stratum_fsm_ctx_t *ctx, const char *line)
                     && ctx->cfg.work->publish) {
                     work.clean = true;
                     ctx->cfg.work->publish(ctx->cfg.work->ctx, &work);
+                    bb_log_i(TAG, "applied pool diff=%.6f -> work target rebuilt", ctx->proto.difficulty);
                 }
             }
         } else if (tok_method_is(&rec, method_tok, "mining.set_extranonce")) {
@@ -403,8 +407,16 @@ static void process_line(stratum_fsm_ctx_t *ctx, const char *line)
         case STRATUM_REQID_AUTHORIZE: {
             bool authorized = false;
             if (bb_serialize_json_tok_get_bool(&rec, result_tok, &authorized) && authorized) {
+                bb_log_i(TAG, "authorized");
                 bb_fsm_step(&ctx->fsm, STRATUM_EV_AUTHORIZE_OK, NULL);
             } else {
+                // Stratum error is [code, "message", data] / {"code":N,...} / null
+                // per pool -- never assume a plain string, so route through the
+                // same tolerant code extractor process_line() already uses for
+                // submit rejects rather than a raw get_str() (which would fail
+                // silently on the array/object shapes most pools actually send).
+                int code = stratum_parse_error_code(&rec, error_tok);
+                bb_log_w(TAG, "authorize REJECTED: error_code=%d", code);
                 bb_fsm_step(&ctx->fsm, STRATUM_EV_HANDSHAKE_REJECTED, NULL);
             }
             break;
@@ -424,14 +436,19 @@ static void process_line(stratum_fsm_ctx_t *ctx, const char *line)
             if (error_tok != BB_SERIALIZE_JSON_TOK_ABSENT && !bb_serialize_json_tok_is_null(&rec, error_tok)) {
                 ctx->rejected++;
                 int code = stratum_parse_error_code(&rec, error_tok);
+                bb_log_w(TAG, "share REJECTED: error_code=%d job=%s", code, share.job_id);
                 if (stratum_machine_classify_reject(code) == STRATUM_REJECT_STALE_PREVHASH) {
                     ctx->stale++;
                 }
-                // Reject: the hook is NEVER invoked.
+                if (ctx->on_rejected_share) {
+                    ctx->on_rejected_share(ctx->on_rejected_share_ud);
+                }
+                // Reject: the accepted-share hook is NEVER invoked.
             } else {
                 bool accepted = false;
                 if (bb_serialize_json_tok_get_bool(&rec, result_tok, &accepted) && accepted) {
                     ctx->accepted++;
+                    bb_log_i(TAG, "share ACCEPTED");
                     if (ctx->on_accepted_share) {
                         ctx->on_accepted_share(ctx->on_accepted_share_ud, &share);
                     }
@@ -470,6 +487,7 @@ void stratum_fsm_init(stratum_fsm_ctx_t *ctx, const stratum_fsm_cfg_t *cfg)
     ctx->proto.next_msg_id = 1;
     ctx->proto.extranonce2_size = 4;
     ctx->proto.difficulty = 512.0;
+    bb_log_i(TAG, "initial diff=%.6f (default, pending pool set_difficulty)", ctx->proto.difficulty);
     stratum_backoff_init(&ctx->backoff);
     stratum_reqid_reset(&ctx->reqids);
     ctx->first_attempt = true;
@@ -557,6 +575,7 @@ void stratum_fsm_service(stratum_fsm_ctx_t *ctx, uint32_t now_ms)
                             memcpy(share.hash_prefix, res.hash_prefix, sizeof(share.hash_prefix));
                             stratum_reqid_register_submit(&ctx->reqids, id, &share);
 
+                            bb_log_i(TAG, "submit share diff=%.4f job=%s", share.diff, share.job_id);
                             bb_fsm_step(&ctx->fsm, STRATUM_EV_SHARE_SUBMITTED, NULL);
                         } else {
                             bb_fsm_step(&ctx->fsm, STRATUM_EV_IO_ERROR, NULL);
@@ -598,4 +617,10 @@ void stratum_fsm_set_accepted_share_hook(stratum_fsm_ctx_t *ctx, stratum_accepte
 {
     ctx->on_accepted_share = cb;
     ctx->on_accepted_share_ud = ud;
+}
+
+void stratum_fsm_set_rejected_share_hook(stratum_fsm_ctx_t *ctx, stratum_rejected_share_cb cb, void *ud)
+{
+    ctx->on_rejected_share = cb;
+    ctx->on_rejected_share_ud = ud;
 }

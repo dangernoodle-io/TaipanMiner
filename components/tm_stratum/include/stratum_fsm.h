@@ -73,6 +73,12 @@ typedef enum {
 // FSM and only valid for the duration of the callback.
 typedef void (*stratum_accepted_share_cb)(void *ud, const stratum_accepted_share_t *share);
 
+// Optional on-rejected-share hook, symmetric with stratum_accepted_share_cb
+// above but with no payload -- the composition root only needs a count
+// signal (mining_stats.session.rejected); the reject reason is already
+// logged synchronously by stratum_fsm.c itself.
+typedef void (*stratum_rejected_share_cb)(void *ud);
+
 typedef struct {
     const char *host;
     uint16_t    port;
@@ -122,6 +128,11 @@ typedef struct {
     stratum_accepted_share_cb  on_accepted_share;
     void                       *on_accepted_share_ud;
 
+    // Optional on-rejected-share hook (nullable, no-op when unset). See
+    // stratum_fsm_set_rejected_share_hook().
+    stratum_rejected_share_cb  on_rejected_share;
+    void                       *on_rejected_share_ud;
+
     // Session/diagnostic counters -- also the backing store for the
     // producer snapshot (stratum_producer.c).
     uint32_t session_start_ms;
@@ -160,3 +171,9 @@ bool stratum_fsm_consumed_read_failure(stratum_fsm_ctx_t *ctx);
 // request kind (keepalive/configure/subscribe/authorize/extranonce
 // subscribe acks).
 void stratum_fsm_set_accepted_share_hook(stratum_fsm_ctx_t *ctx, stratum_accepted_share_cb cb, void *ud);
+
+// Register (or clear, with cb=NULL) the optional on-rejected-share hook.
+// Invoked synchronously from stratum_fsm_service() on a REJECTED
+// mining.submit response only -- same scoping as the accepted-share hook
+// above.
+void stratum_fsm_set_rejected_share_hook(stratum_fsm_ctx_t *ctx, stratum_rejected_share_cb cb, void *ud);

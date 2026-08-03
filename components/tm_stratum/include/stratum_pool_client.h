@@ -36,6 +36,10 @@ const tm_pool_client_ops_t *tm_stratum_v1_pool_client_ops(void);
 // `ud` to one.
 void tm_stratum_set_accepted_share_hook(stratum_pool_client_ctx_t *ctx, stratum_accepted_share_cb cb, void *ud);
 
+// Composition-facing alias for stratum_fsm_set_rejected_share_hook() --
+// same scoping/defaults as tm_stratum_set_accepted_share_hook() above.
+void tm_stratum_set_rejected_share_hook(stratum_pool_client_ctx_t *ctx, stratum_rejected_share_cb cb, void *ud);
+
 #ifdef __cplusplus
 }
 #endif

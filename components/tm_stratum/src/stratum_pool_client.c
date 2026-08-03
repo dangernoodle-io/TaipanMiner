@@ -86,3 +86,8 @@ void tm_stratum_set_accepted_share_hook(stratum_pool_client_ctx_t *ctx, stratum_
 {
     stratum_fsm_set_accepted_share_hook(&ctx->fsm, cb, ud);
 }
+
+void tm_stratum_set_rejected_share_hook(stratum_pool_client_ctx_t *ctx, stratum_rejected_share_cb cb, void *ud)
+{
+    stratum_fsm_set_rejected_share_hook(&ctx->fsm, cb, ud);
+}

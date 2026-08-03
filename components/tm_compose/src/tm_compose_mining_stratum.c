@@ -216,6 +216,16 @@ bb_err_t tm_compose_mining_stratum_init(void)
         g_miner_config.init();
     }
 
+    // core_owning (B1-1364): g_miner_config.core is always an explicit pin
+    // (MINER_TASK_CORE == 1, mining.c) never BB_TASK_CORE_ANY, so this claim
+    // is valid per bb_task_resolve()'s contract. Claims core 1 exclusively
+    // and excuses its Task-WDT idle check for as long as this task lives --
+    // the mining hot loop pegs core 1 by design and previously starved
+    // IDLE1, tripping the 60s panic-on-timeout TWDT. On a unicore target the
+    // existing unicore clamp degrades this to a no-op before the claim, so
+    // no board-specific gating is needed here. wdt_arm is a diagnostics-only
+    // data flag (bb_task_create() does not itself subscribe to the TWDT);
+    // mining_task() still owns its own bb_wdt_task_subscribe()/_feed() calls.
     bb_task_config_t mining_cfg = {
         .entry       = g_miner_config.task_fn,
         .name        = g_miner_config.name,
@@ -224,7 +234,8 @@ bb_err_t tm_compose_mining_stratum_init(void)
         .priority    = g_miner_config.priority,
         .core        = g_miner_config.core,
         .backing     = BB_TASK_BACKING_DYNAMIC,
-        .wdt_arm     = false,
+        .core_owning = true,
+        .wdt_arm     = true,
     };
     err = bb_task_create(&mining_cfg, &s_mining_task);
     if (err != BB_OK) {

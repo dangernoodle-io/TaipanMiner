@@ -1,6 +1,6 @@
 # TaipanMiner v2 floor — consumer bbtool.toml (codegen composition,
 # `bbtool codegen --consumer-manifest` + multi-root discovery, breadboard
-# pinned c9a8e829+). This is TM's OWN root manifest — distinct from the
+# pinned d90bfcee+). This is TM's OWN root manifest — distinct from the
 # vendored .breadboard/bbtool.toml, which defines breadboard's own
 # capability/board tables for its examples.
 #

@@ -938,7 +938,7 @@ void mining_task(void *arg)
     // has no bb_wdt dependency of its own, see bb_task.h). This manual
     // subscribe is therefore still the sole subscription path for this task
     // -- feed at each yield point below.
-    bb_wdt_task_subscribe();
+    bb_wdt_task_subscribe(&(bb_wdt_task_subscribe_cfg_t){0});
 
     sha256_hw_acquire();
 

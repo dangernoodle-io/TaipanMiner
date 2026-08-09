@@ -5,7 +5,7 @@ See breadboard scripts/bbtool/README.md."""
 Import("env")  # PlatformIO SCons pre-script
 import os, sys, subprocess
 
-VERSION = "d90bfceede2940ba09646e535a10348b1c67cc36"  # bb main HEAD — B1-1408 bb_wdt idle-excuse fix (#1213)
+VERSION = "43686f678c402942ac082eda55910a96323a8393"  # bb main HEAD — B1-1413 bb_data console-telemetry APIs (render_rows / gather_plain / nested-key emit); no TM-relevant API break beyond cfg-struct collapses
 REPO = "https://github.com/dangernoodle-io/breadboard.git"
 DEST = os.path.join(env.subst("$PROJECT_DIR"), ".breadboard")
 LOCAL = os.environ.get("BREADBOARD_LOCAL")

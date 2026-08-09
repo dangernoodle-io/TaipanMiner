@@ -227,7 +227,11 @@ void test_mining_desc_walk_matches_seeded_snapshot(void)
     };
     memset(&s_captured, 0, sizeof(s_captured));
 
-    bb_serialize_walk(&mining_desc, &seed, &s_cap_emit);
+    bb_serialize_walk(&(bb_serialize_walk_cfg_t){
+        .desc = &mining_desc,
+        .snap = &seed,
+        .emit = &s_cap_emit,
+    });
 
     TEST_ASSERT_EQUAL_UINT64(seed.hashrate_hs, s_captured.hashrate_hs);
     TEST_ASSERT_DOUBLE_WITHIN(1e-9, seed.hashrate_1m_hs, s_captured.hashrate_1m_hs);
